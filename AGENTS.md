@@ -1,6 +1,6 @@
 # AGENTS.md
 
-本文件定义 `markdown-to-html-ppt` 仓库当前分支的项目级代理协作规范。
+本文件定义 `ai-interactive-experiment` 仓库当前分支的项目级代理协作规范。
 
 适用范围：仓库根目录及其所有子目录。
 
@@ -8,16 +8,16 @@
 
 ## 1. 项目定位
 
-这是一个基于 Python 3.12 的 FastAPI 服务，当前分支只保留 AetherViz 互动教学可视化生成链路。
+这是一个基于 Python 3.12 的 FastAPI 服务，提供 AI互动实验互动教学可视化生成链路。
 
-AetherViz 通过 `/generate-aetherviz-spec` 根据教学主题生成完整独立 HTML。服务优先命中静态 HTML 文件，并按主题中提取到的色值注入样式覆盖；未命中时先进行轻量规划，再生成自包含互动 HTML，生成结果校验失败时最多自动修复一次。
+AI互动实验通过 `/generate-aetherviz-spec` 根据教学主题生成完整独立 HTML。服务优先命中静态 HTML 文件，并按主题中提取到的色值注入样式覆盖；未命中时先进行轻量规划，再生成自包含互动 HTML，生成结果校验失败时最多自动修复一次。
 
-旧的 Markdown/reveal.js slides 生成、单页重生成、大纲优化和相关解析/提示词/清洗校验模块已经移除。后续不要恢复非 AetherViz 功能，除非用户明确要求。
+后续不要新增或恢复非 AI互动实验功能，除非用户明确要求。
 
 代码主目录：
 
-- `markdown_to_html_ppt/`：应用主代码，包名沿用历史命名。
-- `markdown_to_html_ppt/aetherviz/`：AetherViz 核心业务模块。
+- `aetherviz_service/`：应用主代码。
+- `aetherviz_service/aetherviz/`：AI互动实验核心业务模块。
 - `tests/`：测试。
 - `README.md`：对外说明与本地运行文档。
 - `pyproject.toml`：依赖、构建与测试配置。
@@ -57,35 +57,35 @@ AetherViz 通过 `/generate-aetherviz-spec` 根据教学主题生成完整独立
 
 ## 4. 目录职责约定
 
-### `markdown_to_html_ppt/`
+### `aetherviz_service/`
 
-- `main.py` 负责 FastAPI 应用装配，只挂载 AetherViz 路由。
+- `main.py` 负责 FastAPI 应用装配，只挂载 AI互动实验路由。
 - `config.py` 负责配置读取与集中管理。
-- `llm_service.py` 负责调用 OpenAI-compatible 大模型服务，供 AetherViz fallback 使用。
-- `routers/` 负责 HTTP 路由层，不在此处堆积 AetherViz 生成、匹配、模板、校验等复杂业务逻辑。
+- `llm_service.py` 负责调用 OpenAI-compatible 大模型服务，供 AI互动实验 fallback 使用。
+- `routers/` 负责 HTTP 路由层，不在此处堆积 AI互动实验生成、匹配、模板、校验等复杂业务逻辑。
 
-### `markdown_to_html_ppt/routers/`
+### `aetherviz_service/routers/`
 
-- `aetherviz.py` 负责 AetherViz HTTP 入参校验和响应封装，包括 `/generate-aetherviz-spec`、`/aetherviz-static-knowledge-points` 和 `/aetherviz-static-html`。
-- 不新增非 AetherViz 路由，除非用户明确要求。
+- `aetherviz.py` 负责 AI互动实验 HTTP 入参校验和响应封装，包括 `/generate-aetherviz-spec`、`/aetherviz-static-knowledge-points` 和 `/aetherviz-static-html`。
+- 不新增非 AI互动实验路由，除非用户明确要求。
 
-### `markdown_to_html_ppt/aetherviz/`
+### `aetherviz_service/aetherviz/`
 
-AetherViz 是独立子模块，负责互动教学可视化生成链路。新增 AetherViz 相关能力时，优先放入此目录，不在 `markdown_to_html_ppt/` 根目录新增平铺业务文件。
+AI互动实验是独立子模块，负责互动教学可视化生成链路。新增 AI互动实验相关能力时，优先放入此目录，不在 `aetherviz_service/` 根目录新增平铺业务文件。
 
 - `react.py` 负责 SSE 事件生成、静态命中分发、LLM 规划与互动 HTML fallback 编排、一次自动修复和错误收敛。
 - `matcher.py` 负责服务端知识点关键词匹配；命中后应直接进入静态 HTML 返回路径。
 - `knowledge_points.py` 负责静态知识点注册表，声明知识点 ID、标题、关键词、学科、知识域、年级和 `static_html_slug`。
 - `static_html.py` 负责静态 HTML 文件路径映射、`utf-8-sig` 读取、DOCTYPE 基础检查、主题色提取与运行时主题色 CSS 覆盖注入。
-- `html/` 存放可直接返回的完整独立 AetherViz HTML 文件，结构为 `html/{subject}/{point-slug}.html`。
+- `html/` 存放可直接返回的完整独立 AI互动实验 HTML 文件，结构为 `html/{subject}/{point-slug}.html`。
 - `fallback_planner.py` 负责未命中知识点时的学科识别、规划提示词构建、规划 JSON 解析和默认规划兜底。
 - `fallback_validator.py` 负责未命中知识点时的互动 HTML 输出提取、代码围栏清理、截断内容闭合和基础长度检查。
 - `validator.py` 负责 fallback HTML 的结构、安全、依赖、交互和可视化区域校验。
-- `schemas/` 负责 AetherViz 专属请求响应模型定义。
+- `schemas/` 负责 AI互动实验专属请求响应模型定义。
 
-新增可静态命中的 AetherViz 知识点时，应优先：
+新增可静态命中的 AI互动实验知识点时，应优先：
 
-1. 在 `markdown_to_html_ppt/aetherviz/html/{subject}/` 下新增完整独立 HTML 文件。
+1. 在 `aetherviz_service/aetherviz/html/{subject}/` 下新增完整独立 HTML 文件。
 2. 在 `knowledge_points.py` 注册知识点和 `static_html_slug`。
 3. 在 `cover_images.py` 添加首屏封面截图 base64。
 4. 在 `tests/test_aetherviz.py` 覆盖静态文件映射、主题色注入和命中后不调用 LLM 的行为。
@@ -100,7 +100,7 @@ AetherViz 是独立子模块，负责互动教学可视化生成链路。新增 
 ### `tests/`
 
 - 测试文件命名以 `test_*.py` 为准。
-- AetherViz 相关测试优先放在 `tests/test_aetherviz.py`。
+- AI互动实验相关测试优先放在 `tests/test_aetherviz.py`。
 - LLM 通用配置与工具函数测试可放在 `tests/test_llm_service.py`。
 - 新增或修改业务逻辑时，优先补充对应测试。
 - 若无法补测，需在结果说明中明确原因和风险。
@@ -117,10 +117,10 @@ AetherViz 是独立子模块，负责互动教学可视化生成链路。新增 
 
 ### 代码改动
 
-- 保持现有分层：路由层、AetherViz 业务层、schema 层、模型调用与配置职责分离。
-- 优先复用现有 AetherViz 模块，不重复创建相近职责的新文件。
+- 保持现有分层：路由层、AI互动实验业务层、schema 层、模型调用与配置职责分离。
+- 优先复用现有 AI互动实验模块，不重复创建相近职责的新文件。
 - 不为“看起来更完整”而引入额外抽象。
-- 除非任务明确要求，不新增非 AetherViz 接口，不修改环境变量命名或错误语义。
+- 除非任务明确要求，不新增非 AI互动实验接口，不修改环境变量命名或错误语义。
 
 ### 配置与密钥
 
@@ -137,10 +137,10 @@ docker compose -f docker-compose.dev.yml run --rm test
 docker compose -f docker-compose.prod.yml up -d app
 uv sync --dev
 uv run pytest
-uv run uvicorn markdown_to_html_ppt.main:app --reload --port 10095
+uv run uvicorn aetherviz_service.main:app --reload --port 10095
 ```
 
-AetherViz 常用验证命令：
+AI互动实验常用验证命令：
 
 ```bash
 uv run pytest tests/test_aetherviz.py
@@ -155,7 +155,7 @@ uv run pytest tests/test_aetherviz.py tests/test_llm_service.py
 - 修改环境变量。
 - 修改本地启动方式。
 - 修改结构目录或关键约定。
-- 修改 AetherViz 静态 HTML 目录结构、知识点命中路径、主题色注入、fallback 路径或开发命令。
+- 修改 AI互动实验静态 HTML 目录结构、知识点命中路径、主题色注入、fallback 路径或开发命令。
 - 修改 Docker 启动方式。
 
 若改动只涉及内部实现且外部行为不变，可不更新 README，但应确保命名与代码可读性足够清晰。
@@ -172,8 +172,8 @@ uv run pytest tests/test_aetherviz.py tests/test_llm_service.py
 
 除非用户明确要求，否则不要执行以下操作：
 
-- 恢复旧 Markdown/reveal.js slides 功能。
-- 删除大量 AetherViz 静态 HTML 文件或目录。
+- 新增或恢复非 AI互动实验功能。
+- 删除大量 AI互动实验静态 HTML 文件或目录。
 - 修改系统级环境配置。
 - 安装或卸载全局工具。
 - 重写无关模块。

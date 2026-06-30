@@ -6,7 +6,7 @@ import colorsys
 import re
 from pathlib import Path
 
-from markdown_to_html_ppt.aetherviz.knowledge_points import KnowledgePoint
+from aetherviz_service.aetherviz.knowledge_points import KnowledgePoint
 
 
 DEFAULT_PRIMARY_COLOR = "#22D3EE"
@@ -115,7 +115,7 @@ def inject_theme_override(html: str, primary_color: str) -> str:
     palette = _build_palette(color)
     override = f"""
 
-/* AetherViz runtime theme override */
+/* AI互动实验 runtime theme override */
 :root {{
   --primary-gradient: linear-gradient(135deg, {palette["primary"]} 0%, {palette["cool"]} 50%, {palette["highlight"]} 100%);
   --primary-gradient-light: linear-gradient(135deg, {palette["light"]} 0%, {palette["lighter"]} 50%, {palette["highlight_light"]} 100%);

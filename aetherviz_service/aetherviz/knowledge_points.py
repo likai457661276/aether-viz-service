@@ -5,7 +5,7 @@
 
 from dataclasses import dataclass
 
-from markdown_to_html_ppt.aetherviz.cover_images import COVER_IMAGE_BASE64_BY_STATIC_HTML_KEY
+from aetherviz_service.aetherviz.cover_images import COVER_IMAGE_BASE64_BY_STATIC_HTML_KEY
 
 
 @dataclass(frozen=True)

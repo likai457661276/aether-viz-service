@@ -3,14 +3,14 @@ from dataclasses import dataclass
 
 from openai import OpenAI, OpenAIError
 
-from markdown_to_html_ppt.config import settings
+from aetherviz_service.config import settings
 
 
 class LLMServiceError(RuntimeError):
     pass
 
 
-DEFAULT_SYSTEM_PROMPT = "你是一个严谨的 HTML PPT 生成助手，只输出用户要求的 HTML 片段。"
+DEFAULT_SYSTEM_PROMPT = "你是一个严谨的 AI互动实验互动教学 HTML 生成助手，只输出用户要求的 HTML 内容。"
 DEFAULT_OPENAI_COMPATIBLE_MODEL = "qwen3.7-plus"
 DEFAULT_OPENAI_COMPATIBLE_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 

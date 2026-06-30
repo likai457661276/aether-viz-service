@@ -1,7 +1,7 @@
 """AetherViz 交互式 HTML 质量门。"""
 
 import logging
-from markdown_to_html_ppt.llm_service import strip_code_fences
+from aetherviz_service.llm_service import strip_code_fences
 
 logger = logging.getLogger(__name__)
 

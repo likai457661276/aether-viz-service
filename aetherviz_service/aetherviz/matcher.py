@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 import re
 
-from markdown_to_html_ppt.aetherviz.knowledge_points import (
+from aetherviz_service.aetherviz.knowledge_points import (
     KNOWLEDGE_POINTS,
     get_knowledge_point,
 )

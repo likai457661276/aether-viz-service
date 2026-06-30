@@ -3,16 +3,16 @@
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 
-import markdown_to_html_ppt.aetherviz.static_html as static_html_module
-from markdown_to_html_ppt.aetherviz.knowledge_points import KNOWLEDGE_POINTS, KnowledgePoint
-from markdown_to_html_ppt.aetherviz.react import react_generate_stream
-from markdown_to_html_ppt.aetherviz.schemas.aetherviz import (
+import aetherviz_service.aetherviz.static_html as static_html_module
+from aetherviz_service.aetherviz.knowledge_points import KNOWLEDGE_POINTS, KnowledgePoint
+from aetherviz_service.aetherviz.react import react_generate_stream
+from aetherviz_service.aetherviz.schemas.aetherviz import (
     GenerateAetherVizSpecRequest,
     StaticAetherVizHtmlResponse,
     StaticAetherVizKnowledgePointItem,
     StaticAetherVizKnowledgePointsResponse,
 )
-from markdown_to_html_ppt.aetherviz.static_html import StaticAetherVizHtmlError
+from aetherviz_service.aetherviz.static_html import StaticAetherVizHtmlError
 
 
 router = APIRouter(tags=["aetherviz"])

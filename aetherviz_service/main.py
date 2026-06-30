@@ -1,8 +1,8 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from markdown_to_html_ppt.config import settings
-from markdown_to_html_ppt.routers.aetherviz import router as aetherviz_router
+from aetherviz_service.config import settings
+from aetherviz_service.routers.aetherviz import router as aetherviz_router
 
 app = FastAPI(
     title=settings.app_name,

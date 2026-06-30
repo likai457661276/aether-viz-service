@@ -9,29 +9,29 @@ import json
 import logging
 from collections.abc import Iterator
 
-from markdown_to_html_ppt.aetherviz.fallback_validator import (
+from aetherviz_service.aetherviz.fallback_validator import (
     AetherVizInteractiveHtmlError,
     parse_interactive_html,
 )
-from markdown_to_html_ppt.aetherviz.knowledge_points import get_knowledge_point
-from markdown_to_html_ppt.aetherviz.matcher import match_topic_to_knowledge_point
-from markdown_to_html_ppt.aetherviz.schemas.aetherviz import GenerateAetherVizHtmlMetadata
-from markdown_to_html_ppt.aetherviz.static_html import (
+from aetherviz_service.aetherviz.knowledge_points import get_knowledge_point
+from aetherviz_service.aetherviz.matcher import match_topic_to_knowledge_point
+from aetherviz_service.aetherviz.schemas.aetherviz import GenerateAetherVizHtmlMetadata
+from aetherviz_service.aetherviz.static_html import (
     DEFAULT_PRIMARY_COLOR,
     StaticAetherVizHtmlError,
     load_static_html_for_point,
     extract_color_from_topic,
 )
-from markdown_to_html_ppt.aetherviz.validator import (
+from aetherviz_service.aetherviz.validator import (
     AetherVizHtmlValidationError,
     sanitize_aetherviz_html,
     validate_aetherviz_html,
 )
-from markdown_to_html_ppt.aetherviz.fallback_planner import (
+from aetherviz_service.aetherviz.fallback_planner import (
     build_planning_prompt,
     parse_planning_result,
 )
-from markdown_to_html_ppt.llm_service import LLMServiceError, call_llm
+from aetherviz_service.llm_service import LLMServiceError, call_llm
 
 logger = logging.getLogger(__name__)
 

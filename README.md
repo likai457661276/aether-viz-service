@@ -1,16 +1,16 @@
-# AetherViz Service
+# AI互动实验
 
-`AetherViz Service` 是一个基于 Python 3.12 和 FastAPI 的后端服务，用于根据教学主题生成完整、可直接打开的互动教学 HTML。
+`AI互动实验` 是一个基于 Python 3.12 和 FastAPI 的后端服务，用于根据教学主题生成完整、可直接打开的互动教学 HTML。
 
-当前分支只保留 AetherViz 功能：静态知识点命中、主题色注入、未命中时的大模型互动 HTML fallback、fallback 输出校验与一次自动修复。旧的 Markdown/reveal.js slides 生成、单页重生成和大纲优化能力已经移除。
+服务包含 AI互动实验生成链路：静态知识点命中、主题色注入、未命中时的大模型互动 HTML fallback、fallback 输出校验与一次自动修复。
 
-当前不包含前端、PPTX 导出、PDF 导出、数据库、任务队列或 reveal.js 课件生成链路。
+当前不包含前端、导出、数据库或任务队列能力。
 
 ## 目录结构
 
 ```text
-markdown-to-html-ppt/
-├── markdown_to_html_ppt/
+ai-interactive-experiment/
+├── aetherviz_service/
 │   ├── main.py
 │   ├── config.py
 │   ├── llm_service.py
@@ -43,7 +43,7 @@ markdown-to-html-ppt/
 └── docker-compose.prod.yml
 ```
 
-`markdown_to_html_ppt` 包名暂时沿用仓库历史命名；服务标题已调整为 `aetherviz-service`。
+Python 包名为 `aetherviz_service`，服务标题为 `AI互动实验`。
 
 ## 安装依赖
 
@@ -73,7 +73,7 @@ OPENAI_MODEL="qwen3.7-plus"
 本地直接启动：
 
 ```bash
-uv run uvicorn markdown_to_html_ppt.main:app --reload --port 10095
+uv run uvicorn aetherviz_service.main:app --reload --port 10095
 ```
 
 Docker 开发环境：
@@ -94,7 +94,7 @@ docker compose -f docker-compose.prod.yml up -d app
 
 ### GET /aetherviz-static-knowledge-points
 
-返回当前已注册、可直接命中静态 HTML 的 AetherViz 知识点列表。该接口不调用大模型，适合前端展示可用主题、搜索提示或调试静态命中覆盖范围。
+返回当前已注册、可直接命中静态 HTML 的 AI互动实验知识点列表。该接口不调用大模型，适合前端展示可用主题、搜索提示或调试静态命中覆盖范围。
 
 响应示例：
 
@@ -156,7 +156,7 @@ docker compose -f docker-compose.prod.yml up -d app
 
 ### POST /generate-aetherviz-spec
 
-根据教学主题生成 AetherViz 风格的完整独立互动教学 HTML。请求体只接收 `topic`。
+根据教学主题生成 AI互动实验风格的完整独立互动教学 HTML。请求体只接收 `topic`。
 
 请求示例：
 
@@ -212,16 +212,16 @@ data: {"success": true, "stage": "done", "message": "已返回静态互动可视
 
 新增可静态命中的知识点时，需要：
 
-1. 在 `markdown_to_html_ppt/aetherviz/html/{subject}/` 下新增完整独立 HTML 文件。
-2. 在 `markdown_to_html_ppt/aetherviz/knowledge_points.py` 注册知识点标题、关键词、年级 `grade`、知识域和 `static_html_slug`。
-3. 在 `markdown_to_html_ppt/aetherviz/cover_images.py` 添加首屏 JPEG 封面 base64，键名使用 `{subject}/{static_html_slug}`。
+1. 在 `aetherviz_service/aetherviz/html/{subject}/` 下新增完整独立 HTML 文件。
+2. 在 `aetherviz_service/aetherviz/knowledge_points.py` 注册知识点标题、关键词、年级 `grade`、知识域和 `static_html_slug`。
+3. 在 `aetherviz_service/aetherviz/cover_images.py` 添加首屏 JPEG 封面 base64，键名使用 `{subject}/{static_html_slug}`。
 4. 在 `tests/test_aetherviz.py` 覆盖静态文件映射、主题色注入、命中后不调用 LLM，以及必要的学科或年级断言。
 
 静态 HTML 应保持完整独立，可直接保存和打开。
 
 ## 验证
 
-运行 AetherViz 测试：
+运行 AI互动实验测试：
 
 ```bash
 uv run pytest tests/test_aetherviz.py tests/test_llm_service.py

@@ -1,6 +1,6 @@
 """AetherViz 专属 schema。"""
 
-from markdown_to_html_ppt.aetherviz.schemas.aetherviz import (
+from aetherviz_service.aetherviz.schemas.aetherviz import (
     GenerateAetherVizHtmlMetadata,
     GenerateAetherVizSpecRequest,
     StaticAetherVizHtmlResponse,

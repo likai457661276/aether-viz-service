@@ -1,4 +1,4 @@
-"""AetherViz static-hit and interactive HTML fallback tests."""
+"""AI互动实验 static-hit and interactive HTML fallback tests."""
 
 import base64
 import json
@@ -6,14 +6,14 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-import markdown_to_html_ppt.aetherviz.react as react_module
-import markdown_to_html_ppt.aetherviz.static_html as static_html_module
-from markdown_to_html_ppt.aetherviz.knowledge_points import KNOWLEDGE_POINTS, KnowledgePoint
-from markdown_to_html_ppt.aetherviz.static_html import (
+import aetherviz_service.aetherviz.react as react_module
+import aetherviz_service.aetherviz.static_html as static_html_module
+from aetherviz_service.aetherviz.knowledge_points import KNOWLEDGE_POINTS, KnowledgePoint
+from aetherviz_service.aetherviz.static_html import (
     DEFAULT_PRIMARY_COLOR,
     static_html_path_for_point,
 )
-from markdown_to_html_ppt.main import app
+from aetherviz_service.main import app
 
 client = TestClient(app)
 
@@ -96,7 +96,7 @@ def test_get_static_aetherviz_html_by_knowledge_point_id() -> None:
     assert data["primary_color"] == DEFAULT_PRIMARY_COLOR
     assert data["html"].startswith("<!DOCTYPE html>")
     assert "牛顿第二定律" in data["html"]
-    assert "AetherViz runtime theme override" in data["html"]
+    assert "AI互动实验 runtime theme override" in data["html"]
 
 
 def test_get_static_aetherviz_html_returns_404_when_unknown() -> None:
@@ -149,7 +149,7 @@ def test_static_match_returns_html_without_llm(monkeypatch) -> None:
     html = done_data["html"]
     assert html.startswith("<!DOCTYPE html>")
     assert "牛顿第二定律" in html
-    assert "AetherViz runtime theme override" in html
+    assert "AI互动实验 runtime theme override" in html
     assert done_data["metadata"]["source"] == "static_html"
     assert done_data["metadata"]["attempts"] == 0
     assert done_data["metadata"]["degraded"] is False
@@ -165,7 +165,7 @@ def test_static_match_uses_default_theme_color() -> None:
 
     assert response.status_code == 200
     html = parse_sse_events(response)[-1][1]["html"]
-    assert "AetherViz runtime theme override" in html
+    assert "AI互动实验 runtime theme override" in html
     assert f"--primary-gradient: linear-gradient(135deg, {DEFAULT_PRIMARY_COLOR}" in html
 
 
@@ -211,7 +211,7 @@ def test_static_match_supports_registered_non_physics_subject(monkeypatch, tmp_p
     assert done_data["metadata"]["knowledge_domain"] == "kinetics"
     assert done_data["metadata"]["knowledge_point_id"] == "chemistry/reaction_rate"
     assert "反应速率互动演示" in done_data["html"]
-    assert "AetherViz runtime theme override" in done_data["html"]
+    assert "AI互动实验 runtime theme override" in done_data["html"]
 
 
 def test_all_registered_knowledge_points_have_static_html() -> None:
@@ -337,7 +337,7 @@ def test_static_match_supports_builtin_chinese_without_llm(monkeypatch) -> None:
     assert done_data["metadata"]["subject"] == "chinese"
     assert done_data["metadata"]["knowledge_point_id"] == "chinese/huique"
     assert "灰雀" in done_data["html"]
-    assert "AetherViz runtime theme override" in done_data["html"]
+    assert "AI互动实验 runtime theme override" in done_data["html"]
 
 
 def test_static_html_missing_returns_sse_error(monkeypatch, tmp_path: Path) -> None:
@@ -429,7 +429,7 @@ def test_extract_color_from_topic_no_color() -> None:
 
 
 def test_detect_subject_branches() -> None:
-    from markdown_to_html_ppt.aetherviz.fallback_planner import detect_subject
+    from aetherviz_service.aetherviz.fallback_planner import detect_subject
     assert detect_subject("二次函数的几何图像") == "math"
     assert detect_subject("简谐运动的受力分析") == "physics"
     assert detect_subject("分子碰撞反应") == "chemistry"
@@ -440,12 +440,12 @@ def test_detect_subject_branches() -> None:
 
 
 def test_detect_subject_general_fallback() -> None:
-    from markdown_to_html_ppt.aetherviz.fallback_planner import detect_subject
+    from aetherviz_service.aetherviz.fallback_planner import detect_subject
     assert detect_subject("未知的神秘主题") == "general"
 
 
 def test_build_planning_prompt_contains_subject_guide() -> None:
-    from markdown_to_html_ppt.aetherviz.fallback_planner import build_planning_prompt
+    from aetherviz_service.aetherviz.fallback_planner import build_planning_prompt
     sys_prompt, user_prompt = build_planning_prompt("二次函数", "#22D3EE")
     assert "数学分支" in sys_prompt
     assert "二次函数" in user_prompt
@@ -453,7 +453,7 @@ def test_build_planning_prompt_contains_subject_guide() -> None:
 
 
 def test_planning_parse_valid() -> None:
-    from markdown_to_html_ppt.aetherviz.fallback_planner import parse_planning_result
+    from aetherviz_service.aetherviz.fallback_planner import parse_planning_result
     raw = json.dumps({
         "learning_objectives": ["目标一"],
         "core_concepts": ["公式1"],
@@ -468,7 +468,7 @@ def test_planning_parse_valid() -> None:
 
 
 def test_planning_parse_plain_code_fence() -> None:
-    from markdown_to_html_ppt.aetherviz.fallback_planner import parse_planning_result
+    from aetherviz_service.aetherviz.fallback_planner import parse_planning_result
     raw = """```
 {
   "learning_objectives": ["目标一"],
@@ -485,7 +485,7 @@ def test_planning_parse_plain_code_fence() -> None:
 
 
 def test_planning_parse_invalid_returns_default() -> None:
-    from markdown_to_html_ppt.aetherviz.fallback_planner import parse_planning_result
+    from aetherviz_service.aetherviz.fallback_planner import parse_planning_result
     res = parse_planning_result("bad json data", "测试主题")
     assert len(res["learning_objectives"]) >= 2
     assert "测试主题" in res["core_concepts"]
@@ -542,7 +542,7 @@ console.log("ready");
 
 
 def test_parse_interactive_html_success() -> None:
-    from markdown_to_html_ppt.aetherviz.fallback_validator import parse_interactive_html
+    from aetherviz_service.aetherviz.fallback_validator import parse_interactive_html
     raw = """```html
 <!DOCTYPE html>
 <html>
@@ -561,7 +561,7 @@ def test_parse_interactive_html_success() -> None:
 
 
 def test_parse_interactive_html_auto_heal_when_truncated() -> None:
-    from markdown_to_html_ppt.aetherviz.fallback_validator import parse_interactive_html
+    from aetherviz_service.aetherviz.fallback_validator import parse_interactive_html
     # 模拟截断在 script 内的破损 HTML
     truncated_raw = """<!DOCTYPE html>
 <html>
@@ -693,7 +693,7 @@ def test_fallback_llm_fails_after_failed_repair(monkeypatch) -> None:
 
 
 def test_strip_code_fences_does_not_break_internal_template_literals() -> None:
-    from markdown_to_html_ppt.llm_service import strip_code_fences
+    from aetherviz_service.llm_service import strip_code_fences
 
     # 有最外围栏，内部含反引号
     text = """```html
@@ -718,7 +718,7 @@ def test_strip_code_fences_does_not_break_internal_template_literals() -> None:
 
 
 def test_balance_js_brackets_handles_various_truncations() -> None:
-    from markdown_to_html_ppt.aetherviz.fallback_validator import _balance_js_brackets
+    from aetherviz_service.aetherviz.fallback_validator import _balance_js_brackets
 
     # Case 1: 截断在普通大括号内
     assert _balance_js_brackets("const a = () => {") == "}"
@@ -743,7 +743,7 @@ def test_balance_js_brackets_handles_various_truncations() -> None:
 
 
 def test_parse_interactive_html_smart_closing_with_brackets() -> None:
-    from markdown_to_html_ppt.aetherviz.fallback_validator import parse_interactive_html
+    from aetherviz_service.aetherviz.fallback_validator import parse_interactive_html
 
     # 模拟一个没有 </html> 闭合标签，且 <script> 截断在大括号和反引号内的 HTML 课件
     raw_html = """<!DOCTYPE html>

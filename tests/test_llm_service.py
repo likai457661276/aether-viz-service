@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from markdown_to_html_ppt.llm_service import LLMServiceError, _primary_model_name, _resolve_llm_config
+from aetherviz_service.llm_service import LLMServiceError, _primary_model_name, _resolve_llm_config
 
 
 def make_config(**overrides):
