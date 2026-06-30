@@ -1,0 +1,532 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>原子结构 | Atomic Structure</title>
+    <link rel="stylesheet" href="https://registry.npmmirror.com/katex/0.16.9/files/dist/katex.min.css">
+    <script src="https://registry.npmmirror.com/@tailwindcss/browser/4.3.0/files/dist/index.global.js"></script>
+    <style>
+        @import url('https://fonts.font.im/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        
+        :root {
+            --primary-gradient: linear-gradient(135deg, #F59E0B 0%, #EF4444 100%);
+            --primary-gradient-light: linear-gradient(135deg, #FBBF24 0%, #F97316 100%);
+            --bg-gradient: linear-gradient(180deg, #1C1917 0%, #7C2D12 50%, #C2410C 100%);
+            --glass-bg: rgba(255, 255, 255, 0.08);
+            --glass-border: rgba(251, 191, 36, 0.3);
+            --text-primary: #F8FAFC;
+            --text-secondary: #FED7AA;
+            --text-muted: #FB923C;
+            --accent-amber: #FBBF24;
+        }
+        
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            font-family: 'Inter', sans-serif; 
+            background: var(--bg-gradient); 
+            color: var(--text-primary); 
+            min-height: 100vh;
+        }
+        
+        .glass { 
+            background: var(--glass-bg); 
+            backdrop-filter: blur(20px); 
+            border: 1px solid var(--glass-border);
+            border-radius: 16px;
+        }
+        
+        .btn-primary {
+            background: var(--primary-gradient);
+            transition: all 0.3s ease;
+        }
+        .btn-primary:hover {
+            background: var(--primary-gradient-light);
+            transform: translateY(-2px);
+        }
+        
+        #canvas-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+        }
+        
+        .sidebar {
+            position: fixed;
+            top: 70px;
+            left: 20px;
+            width: 320px;
+            max-height: calc(100vh - 100px);
+            overflow-y: auto;
+            z-index: 10;
+        }
+        
+        .main-content {
+            position: relative;
+            z-index: 5;
+            margin-left: 360px;
+            padding: 90px 30px 30px;
+        }
+        
+        .nav-bar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 70px;
+            background: rgba(28, 25, 23, 0.9);
+            backdrop-filter: blur(20px);
+            border-bottom: 1px solid rgba(251, 191, 36, 0.2);
+            z-index: 100;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 30px;
+        }
+        
+        .nav-title {
+            font-size: 1.5rem;
+            font-weight: 700;
+            background: var(--primary-gradient);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        
+        .control-panel {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            width: 300px;
+            z-index: 10;
+        }
+        
+        .quiz-panel {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            width: 360px;
+            max-height: 400px;
+            z-index: 15;
+            transition: all 0.3s ease;
+        }
+        
+        .quiz-panel.collapsed { width: 60px; max-height: 60px; border-radius: 30px; }
+        .quiz-panel.collapsed .quiz-content { display: none; }
+        .quiz-toggle {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            background: var(--primary-gradient);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            z-index: 20;
+        }
+        
+        .quiz-collapsed-btn {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            background: var(--primary-gradient);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            z-index: 14;
+            font-size: 1.5rem;
+        }
+        
+        .quiz-panel.collapsed + .quiz-collapsed-btn { display: flex; }
+        
+        .particle-btn {
+            padding: 8px 16px;
+            border-radius: 8px;
+            background: rgba(251, 191, 36, 0.2);
+            border: 1px solid rgba(251, 191, 36, 0.3);
+            color: var(--accent-amber);
+            cursor: pointer;
+            transition: all 0.3s;
+            font-size: 0.85rem;
+        }
+        
+        .particle-btn:hover, .particle-btn.active {
+            background: var(--primary-gradient);
+            color: white;
+        }
+        
+        .toast {
+            position: fixed;
+            bottom: 100px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.8);
+            color: var(--accent-amber);
+            padding: 12px 24px;
+            border-radius: 25px;
+            z-index: 1000;
+            animation: fadeInOut 2s ease;
+        }
+        
+        @keyframes fadeInOut {
+            0%, 100% { opacity: 0; transform: translateX(-50%) translateY(20px); }
+            20%, 80% { opacity: 1; transform: translateX(-50%) translateY(0); }
+        }
+    </style>
+</head>
+<body>
+    <nav class="nav-bar">
+        <div>
+            <h1 class="nav-title">原子结构 | Atomic Structure</h1>
+            <p style="font-size: 0.75rem; color: var(--text-muted);">深入探索原子核与电子云</p>
+        </div>
+        <div class="flex gap-3">
+            <button onclick="resetScene()" class="btn-primary px-4 py-2 rounded-lg text-sm">重置</button>
+            <button onclick="randomAtom()" class="btn-primary px-4 py-2 rounded-lg text-sm">随机原子</button>
+        </div>
+    </nav>
+    
+    <div id="canvas-container"></div>
+    
+    <aside class="sidebar glass p-6">
+        <h2 style="color: var(--accent-amber); margin-bottom: 15px;">学习目标</h2>
+        <div class="checklist-item">
+            <input type="checkbox" id="obj1">
+            <label for="obj1">理解原子的构成（质子、中子、电子）</label>
+        </div>
+        <div class="checklist-item">
+            <input type="checkbox" id="obj2">
+            <label for="obj2">掌握原子序数与核外电子排布</label>
+        </div>
+        <div class="checklist-item">
+            <input type="checkbox" id="obj3">
+            <label for="obj3">了解离子与原子的区别</label>
+        </div>
+        
+        <div style="margin-top: 25px;">
+            <h2 style="color: var(--accent-amber); margin-bottom: 15px;">原子组成</h2>
+            <div id="atomInfo" style="color: var(--text-secondary); line-height: 1.8; font-size: 0.9rem;">
+                <div class="formula-box">
+                    <div style="color: white;">原子 = 原子核 + 电子云</div>
+                </div>
+                <div style="margin-top: 10px;">
+                    <span style="color: #EF4444;">●</span> 质子（+）：决定元素种类<br>
+                    <span style="color: #3B82F6;">●</span> 中子（0）：影响同位素<br>
+                    <span style="color: #22C55E;">●</span> 电子（-）：决定化学性质
+                </div>
+            </div>
+        </div>
+        
+        <div style="margin-top: 25px;">
+            <h2 style="color: var(--accent-amber); margin-bottom: 15px;">为什么重要</h2>
+            <p style="color: var(--text-muted); font-size: 0.85rem; line-height: 1.7;">
+                原子是化学反应的最小单位。理解原子结构，才能理解元素周期律、化学键和化学反应的本质！
+            </p>
+        </div>
+    </aside>
+    
+    <main class="main-content" style="display: flex; flex-direction: column; align-items: center; justify-content: center;">
+        <div class="glass p-8 text-center" style="max-width: 600px;">
+            <h2 style="font-size: 2rem; color: var(--accent-amber); margin-bottom: 15px;">原子结构3D模型</h2>
+            <p style="color: var(--text-secondary); margin-bottom: 20px;">选择或点击原子核查看不同元素</p>
+            <div id="elementBtns" style="display: flex; flex-wrap: wrap; gap: 8px; justify-content: center;">
+                <button class="particle-btn active" onclick="showElement(1)">H 氢</button>
+                <button class="particle-btn" onclick="showElement(6)">C 碳</button>
+                <button class="particle-btn" onclick="showElement(8)">O 氧</button>
+                <button class="particle-btn" onclick="showElement(11)">Na 钠</button>
+                <button class="particle-btn" onclick="showElement(17)">Cl 氯</button>
+                <button class="particle-btn" onclick="showElement(26)">Fe 铁</button>
+            </div>
+        </div>
+    </main>
+    
+    <div class="control-panel glass p-5">
+        <h3 style="color: var(--accent-amber); margin-bottom: 15px;">电子层控制</h3>
+        <div style="margin-bottom: 15px;">
+            <label style="color: var(--text-secondary); font-size: 0.85rem;">旋转速度</label>
+            <input type="range" id="speedSlider" min="0" max="100" value="30" 
+                   style="width: 100%; accent-color: var(--accent-amber);" onchange="updateSpeed()">
+        </div>
+        <div style="margin-bottom: 15px;">
+            <label style="color: var(--text-secondary); font-size: 0.85rem;">电子透明度</label>
+            <input type="range" id="opacitySlider" min="20" max="100" value="60" 
+                   style="width: 100%; accent-color: var(--accent-amber);" onchange="updateOpacity()">
+        </div>
+        <button onclick="toggleOrbits()" class="btn-primary w-full py-2 rounded-lg">显示/隐藏轨道</button>
+    </div>
+    
+    <div class="quiz-panel glass p-5">
+        <div class="quiz-toggle" onclick="toggleQuiz()">✕</div>
+        <div class="quiz-content">
+            <h3 style="color: var(--accent-amber); margin-bottom: 15px;">小测验</h3>
+            <p style="color: var(--text-secondary); font-size: 0.9rem; margin-bottom: 15px;">碳原子的核外电子排布是？</p>
+            <div style="display: flex; flex-direction: column; gap: 8px;">
+                <button class="particle-btn" onclick="checkAnswer(false)">2, 8, 4</button>
+                <button class="particle-btn" onclick="checkAnswer(true)">2, 4</button>
+                <button class="particle-btn" onclick="checkAnswer(false)">2, 8</button>
+                <button class="particle-btn" onclick="checkAnswer(false)">4, 2</button>
+            </div>
+            <p id="quizFeedback" style="margin-top: 15px; font-size: 0.85rem;"></p>
+        </div>
+    </div>
+    <div class="quiz-collapsed-btn" onclick="toggleQuiz()">?</div>
+    
+    <script src="https://registry.npmmirror.com/three/0.134.0/files/build/three.min.js"></script>
+    <script>
+        let scene, camera, renderer, nucleus, electronShells = [], orbits = [];
+        let currentElement = 1;
+        let rotationSpeed = 0.3;
+        let showOrbits = true;
+        let clock = new THREE.Clock();
+        
+        const elements = {
+            1: { name: '氢', symbol: 'H', protons: 1, neutrons: 0, electrons: 1, config: [1], color: 0xFFFFFF },
+            6: { name: '碳', symbol: 'C', protons: 6, neutrons: 6, electrons: 6, config: [2, 4], color: 0x333333 },
+            8: { name: '氧', symbol: 'O', protons: 8, neutrons: 8, electrons: 8, config: [2, 6], color: 0xEF4444 },
+            11: { name: '钠', symbol: 'Na', protons: 11, neutrons: 12, electrons: 11, config: [2, 8, 1], color: 0xFBBF24 },
+            17: { name: '氯', symbol: 'Cl', protons: 17, neutrons: 18, electrons: 17, config: [2, 8, 7], color: 0x22C55E },
+            26: { name: '铁', symbol: 'Fe', protons: 26, neutrons: 30, electrons: 26, config: [2, 8, 8, 2], color: 0xF97316 }
+        };
+        
+        function init() {
+            scene = new THREE.Scene();
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(0, 5, 15);
+            camera.lookAt(0, 0, 0);
+            
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setClearColor(0x000000, 0);
+            document.getElementById('canvas-container').appendChild(renderer.domElement);
+            
+            scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 0.6));
+            const dirLight = new THREE.DirectionalLight(0xffffff, 1);
+            dirLight.position.set(5, 10, 7);
+            scene.add(dirLight);
+            
+            createAtom(1);
+            animate();
+            
+            window.addEventListener('resize', onWindowResize);
+            document.addEventListener('click', onMouseClick);
+        }
+        
+        function createAtom(atomicNum) {
+            clearAtom();
+            currentElement = atomicNum;
+            const elem = elements[atomicNum];
+            
+            // 原子核
+            const nucleusGeom = new THREE.SphereGeometry(0.8 + elem.protons * 0.03, 32, 32);
+            const nucleusMat = new THREE.MeshPhongMaterial({ 
+                color: elem.color, 
+                emissive: elem.color, 
+                emissiveIntensity: 0.4 
+            });
+            nucleus = new THREE.Mesh(nucleusGeom, nucleusMat);
+            scene.add(nucleus);
+            
+            // 质子标签
+            const protonLabel = createLabel(`+${elem.protons}`, 0xEF4444);
+            protonLabel.position.set(0.5, 0.5, 0);
+            nucleus.add(protonLabel);
+            
+            // 中子
+            if (elem.neutrons > 0) {
+                const neutronGeom = new THREE.SphereGeometry(0.6, 32, 32);
+                const neutronMat = new THREE.MeshPhongMaterial({ 
+                    color: 0x3B82F6, 
+                    emissive: 0x3B82F6, 
+                    emissiveIntensity: 0.2 
+                });
+                const neutron = new THREE.Mesh(neutronGeom, neutronMat);
+                neutron.position.set(0.4, -0.3, 0);
+                nucleus.add(neutron);
+            }
+            
+            // 电子层
+            const shellColors = [0x22C55E, 0x3B82F6, 0xF59E0B, 0xEF4444, 0x8B5CF6];
+            elem.config.forEach((count, shellIndex) => {
+                const radius = 2 + shellIndex * 1.5;
+                
+                // 轨道圈
+                if (showOrbits) {
+                    const orbitGeom = new THREE.TorusGeometry(radius, 0.02, 8, 64);
+                    const orbitMat = new THREE.MeshBasicMaterial({ 
+                        color: shellColors[shellIndex % shellColors.length],
+                        transparent: true,
+                        opacity: 0.3
+                    });
+                    const orbit = new THREE.Mesh(orbitGeom, orbitMat);
+                    orbit.rotation.x = Math.PI / 2 + shellIndex * 0.2;
+                    scene.add(orbit);
+                    orbits.push(orbit);
+                }
+                
+                // 电子
+                for (let i = 0; i < count; i++) {
+                    const electronGeom = new THREE.SphereGeometry(0.15, 16, 16);
+                    const electronMat = new THREE.MeshPhongMaterial({ 
+                        color: 0x22C55E,
+                        emissive: 0x22C55E,
+                        emissiveIntensity: 0.6
+                    });
+                    const electron = new THREE.Mesh(electronGeom, electronMat);
+                    
+                    const angle = (i / count) * Math.PI * 2;
+                    const shellGroup = new THREE.Group();
+                    shellGroup.rotation.x = shellIndex * 0.3;
+                    shellGroup.rotation.z = shellIndex * 0.2;
+                    
+                    electron.position.x = Math.cos(angle) * radius;
+                    electron.position.z = Math.sin(angle) * radius;
+                    
+                    shellGroup.add(electron);
+                    scene.add(shellGroup);
+                    electronShells.push({ group: shellGroup, electron, radius, angle, shellIndex });
+                }
+            });
+            
+            document.getElementById('atomInfo').innerHTML = `
+                <div class="formula-box">
+                    <div style="font-size: 2rem; color: var(--accent-amber);">${elem.symbol}</div>
+                    <div style="color: white;">${elem.name} (原子序数: ${atomicNum})</div>
+                </div>
+                <div style="margin-top: 10px; font-size: 0.9rem;">
+                    <span style="color: #EF4444;">●</span> 质子数: ${elem.protons}<br>
+                    <span style="color: #3B82F6;">●</span> 中子数: ${elem.neutrons}<br>
+                    <span style="color: #22C55E;">●</span> 电子数: ${elem.electrons}<br>
+                    <span style="color: #FBBF24;">●</span> 电子排布: ${elem.config.join(', ')}
+                </div>
+            `;
+        }
+        
+        function createLabel(text, color) {
+            const canvas = document.createElement('canvas');
+            canvas.width = 128;
+            canvas.height = 64;
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#' + color.toString(16).padStart(6, '0');
+            ctx.font = 'bold 36px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(text, 64, 32);
+            
+            const texture = new THREE.CanvasTexture(canvas);
+            const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, transparent: true }));
+            sprite.scale.set(1, 0.5, 1);
+            return sprite;
+        }
+        
+        function clearAtom() {
+            if (nucleus) scene.remove(nucleus);
+            electronShells.forEach(s => scene.remove(s.group));
+            orbits.forEach(o => scene.remove(o));
+            electronShells = [];
+            orbits = [];
+        }
+        
+        function showElement(num) {
+            document.querySelectorAll('.particle-btn').forEach(btn => btn.classList.remove('active'));
+            event.target.classList.add('active');
+            createAtom(num);
+            showToast(`查看: ${elements[num].name}原子`);
+        }
+        
+        function updateSpeed() {
+            rotationSpeed = document.getElementById('speedSlider').value / 100;
+        }
+        
+        function updateOpacity() {
+            const opacity = document.getElementById('opacitySlider').value / 100;
+            orbits.forEach(orbit => {
+                orbit.material.opacity = opacity * 0.5;
+            });
+        }
+        
+        function toggleOrbits() {
+            showOrbits = !showOrbits;
+            orbits.forEach(orbit => orbit.visible = showOrbits);
+            showToast(showOrbits ? '显示轨道' : '隐藏轨道');
+        }
+        
+        function resetScene() {
+            createAtom(currentElement);
+            showToast('已重置');
+        }
+        
+        function randomAtom() {
+            const nums = Object.keys(elements).map(Number);
+            const randomNum = nums[Math.floor(Math.random() * nums.length)];
+            const btn = document.querySelector(`.particle-btn[onclick="showElement(${randomNum})"]`);
+            if (btn) btn.click();
+            showToast('随机选择原子！');
+        }
+        
+        function toggleQuiz() {
+            document.querySelector('.quiz-panel').classList.toggle('collapsed');
+        }
+        
+        function checkAnswer(correct) {
+            const feedback = document.getElementById('quizFeedback');
+            feedback.innerHTML = correct 
+                ? '<span style="color: #22C55E;">✓ 正确！碳原子电子排布为2,4</span>'
+                : '<span style="color: #EF4444;">✗ 错误，正确答案是2,4</span>';
+        }
+        
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+        
+        function onMouseClick(event) {
+            const raycaster = new THREE.Raycaster();
+            const mouse = new THREE.Vector2();
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+            raycaster.setFromCamera(mouse, camera);
+            
+            const intersects = raycaster.intersectObject(nucleus);
+            if (intersects.length > 0) {
+                showToast(`${elements[currentElement].symbol}原子 - 原子核`);
+            }
+        }
+        
+        function showToast(message) {
+            const toast = document.createElement('div');
+            toast.className = 'toast';
+            toast.textContent = message;
+            document.body.appendChild(toast);
+            setTimeout(() => toast.remove(), 2000);
+        }
+        
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            const time = clock.getElapsedTime() * rotationSpeed;
+            
+            if (nucleus) {
+                nucleus.rotation.y = time * 0.5;
+            }
+            
+            electronShells.forEach((shell, idx) => {
+                shell.group.rotation.y = time * (1 + shell.shellIndex * 0.2);
+            });
+            
+            renderer.render(scene, camera);
+        }
+        
+        init();
+    </script>
+</body>
+</html>

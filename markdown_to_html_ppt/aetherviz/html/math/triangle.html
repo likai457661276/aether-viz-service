@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>三角形 - 初一数学知识点</title>
+    <link rel="stylesheet" href="https://registry.npmmirror.com/katex/0.16.9/files/dist/katex.min.css">
+    <script src="https://registry.npmmirror.com/katex/0.16.9/files/dist/katex.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif; background: linear-gradient(135deg, #0a1929 0%, #1a2a4a 50%, #0d1f3c 100%); min-height: 100vh; color: #e0e6ed; }
+        .app-container { display: flex; min-height: 100vh; }
+        .sidebar { width: 320px; background: linear-gradient(180deg, rgba(20, 40, 70, 0.95) 0%, rgba(10, 25, 50, 0.98) 100%); border-right: 1px solid rgba(255, 200, 50, 0.2); padding: 24px; overflow-y: auto; }
+        .sidebar h1 { font-size: 1.5rem; color: #ffc832; margin-bottom: 8px; }
+        .sidebar .subtitle { font-size: 0.85rem; color: #8b9cb3; margin-bottom: 24px; }
+        .section { margin-bottom: 24px; padding: 16px; background: rgba(255, 255, 255, 0.03); border-radius: 12px; border: 1px solid rgba(255, 200, 50, 0.1); }
+        .section-title { font-size: 0.9rem; color: #ffc832; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+        .section-title::before { content: ''; width: 4px; height: 16px; background: linear-gradient(180deg, #ffc832, #ff9500); border-radius: 2px; }
+        .formula-box { background: rgba(0, 0, 0, 0.3); padding: 16px; border-radius: 8px; text-align: center; margin-bottom: 12px; border: 1px solid rgba(255, 200, 50, 0.15); }
+        .principle-text { font-size: 0.85rem; line-height: 1.7; color: #b0bec5; }
+        .principle-text strong { color: #ffc832; }
+        .application-item { padding: 10px 12px; background: rgba(255, 200, 50, 0.05); border-radius: 6px; margin-bottom: 8px; font-size: 0.85rem; color: #90a4ae; border-left: 3px solid rgba(255, 200, 50, 0.3); }
+        .main-content { flex: 1; padding: 24px; }
+        .figure-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 20px; }
+        .figure-card { background: rgba(255, 255, 255, 0.02); border-radius: 12px; border: 1px solid rgba(255, 200, 50, 0.15); padding: 16px; text-align: center; cursor: pointer; transition: all 0.3s; }
+        .figure-card:hover { border-color: rgba(255, 200, 50, 0.5); transform: translateY(-2px); }
+        .figure-card.active { border-color: #ffc832; background: rgba(255, 200, 50, 0.1); }
+        .figure-card h4 { color: #ffc832; margin-bottom: 8px; }
+        .figure-card svg { width: 100%; height: 100px; }
+        .visual-container { background: rgba(255, 255, 255, 0.02); border-radius: 16px; border: 1px solid rgba(255, 200, 50, 0.15); padding: 24px; margin-bottom: 20px; }
+        .calc-display { background: rgba(0,0,0,0.3); border-radius: 12px; padding: 20px; text-align: center; }
+        .calc-formula { font-size: 1.5rem; color: #fff; margin-bottom: 12px; font-family: 'Consolas', monospace; }
+        .calc-result { font-size: 2rem; color: #ffc832; font-weight: bold; }
+        .control-panel { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 16px; margin-bottom: 20px; }
+        .control-group { background: rgba(255, 255, 255, 0.03); padding: 16px; border-radius: 12px; border: 1px solid rgba(255, 200, 50, 0.1); }
+        .control-label { font-size: 0.85rem; color: #ffc832; margin-bottom: 10px; display: block; }
+        .control-value { font-size: 1.2rem; color: #fff; margin-bottom: 8px; font-weight: bold; }
+        input[type="range"] { width: 100%; height: 6px; border-radius: 3px; background: rgba(255, 200, 50, 0.2); outline: none; -webkit-appearance: none; }
+        input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 18px; border-radius: 50%; background: linear-gradient(135deg, #ffc832, #ff9500); cursor: pointer; }
+        .btn-group { display: flex; gap: 12px; flex-wrap: wrap; }
+        .btn { padding: 10px 20px; border: none; border-radius: 8px; cursor: pointer; font-size: 0.9rem; transition: all 0.3s ease; font-family: inherit; }
+        .btn-primary { background: linear-gradient(135deg, #ffc832, #ff9500); color: #0a1929; font-weight: bold; }
+        .btn-secondary { background: rgba(255, 200, 50, 0.15); color: #ffc832; border: 1px solid rgba(255, 200, 50, 0.3); }
+        .btn:hover { transform: translateY(-2px); box-shadow: 0 4px 15px rgba(255, 200, 50, 0.3); }
+        .toast { position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%) translateY(100px); background: linear-gradient(135deg, #ffc832, #ff9500); color: #0a1929; padding: 12px 24px; border-radius: 8px; font-weight: bold; opacity: 0; transition: all 0.3s ease; z-index: 1000; }
+        .toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }
+        @media (max-width: 768px) { .app-container { flex-direction: column; } .sidebar { width: 100%; max-height: 40vh; } }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <aside class="sidebar">
+            <h1>三角形</h1>
+            <p class="subtitle">初一数学 · 第十章</p>
+            <div class="section">
+                <div class="section-title">核心公式</div>
+                <div class="formula-box" id="f1"></div>
+                <div class="formula-box" id="f2"></div>
+            </div>
+            <div class="section">
+                <div class="section-title">三角形分类</div>
+                <p class="principle-text">
+                    <strong>按角分：</strong><br>
+                    锐角三角形（三个角都小于90°）<br>
+                    直角三角形（有一个角等于90°）<br>
+                    钝角三角形（有一个角大于90°）<br><br>
+                    <strong>按边分：</strong><br>
+                    等边三角形（三边相等）<br>
+                    等腰三角形（两边相等）
+                </p>
+            </div>
+            <div class="section">
+                <div class="section-title">真实应用</div>
+                <div class="application-item">📐 房屋屋顶结构</div>
+                <div class="application-item">🌉 桥梁设计：三角形稳定性</div>
+                <div class="application-item">📐 测量：三角定位</div>
+            </div>
+        </aside>
+
+        <main class="main-content">
+            <div class="figure-grid">
+                <div class="figure-card active" onclick="selectTriangle('acute')" id="card-acute">
+                    <h4>锐角三角形</h4>
+                    <svg viewBox="0 0 120 100">
+                        <polygon points="60,10 20,90 100,90" fill="none" stroke="#4fc3f7" stroke-width="2"/>
+                    </svg>
+                </div>
+                <div class="figure-card" onclick="selectTriangle('right')" id="card-right">
+                    <h4>直角三角形</h4>
+                    <svg viewBox="0 0 120 100">
+                        <polygon points="20,80 20,20 100,80" fill="none" stroke="#ff5252" stroke-width="2"/>
+                        <rect x="20" y="20" width="10" height="10" fill="#ff5252"/>
+                    </svg>
+                </div>
+                <div class="figure-card" onclick="selectTriangle('obtuse')" id="card-obtuse">
+                    <h4>钝角三角形</h4>
+                    <svg viewBox="0 0 120 100">
+                        <polygon points="30,20 100,80 20,80" fill="none" stroke="#69f0ae" stroke-width="2"/>
+                    </svg>
+                </div>
+                <div class="figure-card" onclick="selectTriangle('isosceles')" id="card-isosceles">
+                    <h4>等腰三角形</h4>
+                    <svg viewBox="0 0 120 100">
+                        <polygon points="60,10 20,90 100,90" fill="none" stroke="#ffc832" stroke-width="2"/>
+                        <line x1="60" y1="10" x2="60" y2="90" stroke="#ffc832" stroke-width="1" stroke-dasharray="3"/>
+                    </svg>
+                </div>
+            </div>
+
+            <div class="visual-container">
+                <div class="calc-display">
+                    <div class="calc-formula" id="calcFormula">∠A + ∠B + ∠C = 180°</div>
+                    <div class="calc-result" id="calcResult">内角和 = 180°</div>
+                </div>
+            </div>
+
+            <div class="control-panel">
+                <div class="control-group">
+                    <label class="control-label">角A（度）</label>
+                    <div class="control-value" id="aValue">60°</div>
+                    <input type="range" id="aSlider" min="10" max="170" value="60" oninput="updateAngles()">
+                </div>
+                <div class="control-group">
+                    <label class="control-label">角B（度）</label>
+                    <div class="control-value" id="bValue">60°</div>
+                    <input type="range" id="bSlider" min="10" max="170" value="60" oninput="updateAngles()">
+                </div>
+                <div class="control-group">
+                    <label class="control-label">角C（度）</label>
+                    <div class="control-value" id="cValue">60°</div>
+                    <input type="range" id="cSlider" min="10" max="170" value="60" oninput="updateAngles()">
+                </div>
+            </div>
+
+            <div class="btn-group">
+                <button class="btn btn-primary" onclick="resetAngles()">重置</button>
+                <button class="btn btn-secondary" onclick="randomAngles()">随机角度</button>
+                <button class="btn btn-secondary" onclick="showSpecial()">特殊三角形</button>
+            </div>
+        </main>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <script>
+        let type = 'acute';
+
+        function initFormulas() {
+            katex.render("\\angle A + \\angle B + \\angle C = 180°", document.getElementById('f1'));
+            katex.render("S = \\frac{1}{2} \\times a \\times h", document.getElementById('f2'));
+        }
+
+        function selectTriangle(t) {
+            type = t;
+            document.querySelectorAll('.figure-card').forEach(c => c.classList.remove('active'));
+            document.getElementById('card-' + t).classList.add('active');
+
+            if (t === 'right') {
+                document.getElementById('aSlider').value = 90;
+                document.getElementById('bSlider').value = 45;
+                document.getElementById('cSlider').value = 45;
+            } else if (t === 'isosceles') {
+                document.getElementById('aSlider').value = 70;
+                document.getElementById('bSlider').value = 55;
+                document.getElementById('cSlider').value = 55;
+            }
+            updateAngles();
+            showToast('三角形类型: ' + t);
+        }
+
+        function updateAngles() {
+            let a = parseInt(document.getElementById('aSlider').value);
+            let b = parseInt(document.getElementById('bSlider').value);
+            let c = parseInt(document.getElementById('cSlider').value);
+
+            document.getElementById('aValue').textContent = `${a}°`;
+            document.getElementById('bValue').textContent = `${b}°`;
+            document.getElementById('cValue').textContent = `${c}°`;
+
+            const sum = a + b + c;
+            document.getElementById('calcFormula').textContent = `${a}° + ${b}° + ${c}° = ${sum}°`;
+            document.getElementById('calcResult').textContent = sum === 180 ? '✓ 有效三角形' : `✗ 无效三角形 (和=${sum}°)`;
+            document.getElementById('calcResult').style.color = sum === 180 ? '#ffc832' : '#ff5252';
+        }
+
+        function resetAngles() {
+            document.getElementById('aSlider').value = 60;
+            document.getElementById('bSlider').value = 60;
+            document.getElementById('cSlider').value = 60;
+            updateAngles();
+            showToast('已重置');
+        }
+
+        function randomAngles() {
+            const a = Math.floor(Math.random() * 60) + 30;
+            const b = Math.floor(Math.random() * (150 - a)) + 10;
+            const c = 180 - a - b;
+            document.getElementById('aSlider').value = a;
+            document.getElementById('bSlider').value = b;
+            document.getElementById('cSlider').value = c;
+            updateAngles();
+            showToast('随机角度');
+        }
+
+        function showSpecial() {
+            const types = [
+                { a: 60, b: 60, c: 60, name: '等边三角形' },
+                { a: 90, b: 45, c: 45, name: '直角三角形' },
+                { a: 100, b: 40, c: 40, name: '等腰钝角三角形' }
+            ];
+            const t = types[Math.floor(Math.random() * types.length)];
+            document.getElementById('aSlider').value = t.a;
+            document.getElementById('bSlider').value = t.b;
+            document.getElementById('cSlider').value = t.c;
+            updateAngles();
+            showToast(t.name);
+        }
+
+        function showToast(msg) {
+            const toast = document.getElementById('toast');
+            toast.textContent = msg;
+            toast.classList.add('show');
+            setTimeout(() => toast.classList.remove('show'), 2000);
+        }
+
+        initFormulas();
+        updateAngles();
+    </script>
+</body>
+</html>

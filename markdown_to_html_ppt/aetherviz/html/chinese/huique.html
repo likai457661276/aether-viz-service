@@ -1,0 +1,1600 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>灰雀 - 宾果AI 互动教学课件</title>
+  <script src="https://registry.npmmirror.com/@tailwindcss/browser/4.3.0/files/dist/index.global.js"></script>
+  <link rel="preconnect" href="https://fonts.font.im">
+  <link rel="preconnect" href="https://fonts.gstatic.font.im" crossorigin>
+  <link
+    href="https://fonts.font.im/css2?family=Noto+Serif+SC:wght@400;600;700;900&family=Outfit:wght@300;400;500;600;700&display=swap"
+    rel="stylesheet">
+  <style>
+    :root {
+      --primary-color: #E11D48;
+      /* 灰雀红 */
+      --primary-gradient: linear-gradient(135deg, #0F766E 0%, #115E59 50%, #134E4A 100%);
+      /* 松枝绿 */
+      --primary-gradient-light: linear-gradient(135deg, #2DD4BF 0%, #14B8A6 100%);
+      --bg-color: #F8F7F4;
+      /* 书香宣纸暖白 */
+      --card-bg: rgba(255, 255, 255, 0.9);
+      --text-main: #2C3E50;
+      --text-muted: #7F8C8D;
+      --accent-gold: #D4AF37;
+      /* 书香古风金 */
+      --border-color: rgba(15, 118, 110, 0.15);
+      --glass-shadow: 0 8px 32px 0 rgba(15, 118, 110, 0.08);
+    }
+
+    /* 覆盖主题色适配接口，使主题色更具适应性 */
+    .aetherviz-theme-override {
+      --primary-color: var(--theme-color, #E11D48);
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Noto Serif SC', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, serif;
+      background-color: var(--bg-color);
+      color: var(--text-main);
+      overflow-x: hidden;
+      line-height: 1.6;
+    }
+
+    #app {
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+      position: relative;
+    }
+
+    /* 背景雪花 Canvas */
+    #snow-canvas {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 1;
+    }
+
+    header {
+      background: var(--primary-gradient);
+      color: #fff;
+      padding: 24px 20px;
+      position: relative;
+      z-index: 10;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+      text-align: center;
+    }
+
+    .header-badge {
+      display: inline-block;
+      padding: 4px 12px;
+      background: rgba(255, 255, 255, 0.15);
+      border: 1px solid rgba(255, 255, 255, 0.3);
+      border-radius: 20px;
+      font-size: 13px;
+      font-weight: 500;
+      margin-bottom: 8px;
+      font-family: 'Outfit', sans-serif;
+      letter-spacing: 1px;
+    }
+
+    header h1 {
+      font-size: 28px;
+      font-weight: 900;
+      letter-spacing: 2px;
+      text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+    }
+
+    .header-subtitle {
+      font-size: 15px;
+      color: rgba(255, 255, 255, 0.8);
+      margin-top: 4px;
+    }
+
+    /* 主容器 */
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 24px 16px;
+      position: relative;
+      z-index: 2;
+      flex: 1;
+    }
+
+    /* 导航卡片 */
+    .nav-tabs {
+      display: flex;
+      overflow-x: auto;
+      gap: 10px;
+      margin-bottom: 24px;
+      padding-bottom: 4px;
+    }
+
+    .nav-tabs::-webkit-scrollbar {
+      height: 4px;
+    }
+
+    .nav-tabs::-webkit-scrollbar-thumb {
+      background: rgba(15, 118, 110, 0.2);
+      border-radius: 4px;
+    }
+
+    .tab-btn {
+      padding: 12px 24px;
+      background: var(--card-bg);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      color: var(--text-main);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.02);
+    }
+
+    .tab-btn:hover {
+      transform: translateY(-2px);
+      border-color: var(--primary-color);
+      color: var(--primary-color);
+    }
+
+    .tab-btn.active {
+      background: var(--primary-gradient);
+      color: #fff;
+      border-color: transparent;
+      box-shadow: 0 4px 12px rgba(15, 118, 110, 0.2);
+    }
+
+    /* 卡片布局 */
+    .content-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+    }
+
+    @media (max-width: 968px) {
+      .content-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .panel-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border-color);
+      border-radius: 20px;
+      padding: 24px;
+      box-shadow: var(--glass-shadow);
+      backdrop-filter: blur(12px);
+      position: relative;
+      overflow: hidden;
+      transition: all 0.3s ease;
+    }
+
+    .panel-card:hover {
+      box-shadow: 0 12px 40px 0 rgba(15, 118, 110, 0.12);
+    }
+
+    .card-title {
+      font-size: 18px;
+      font-weight: 700;
+      color: #0F766E;
+      margin-bottom: 16px;
+      padding-bottom: 8px;
+      border-bottom: 2px solid var(--border-color);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    /* 灰雀场景样式 */
+    #scene-box {
+      height: 380px;
+      background: linear-gradient(to bottom, #E6F3F5 0%, #F5F7FA 100%);
+      border-radius: 16px;
+      border: 1px solid rgba(0, 0, 0, 0.05);
+      position: relative;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+
+
+    /* 课文探究文本 */
+    .explore-tabs {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+
+    .explore-btn {
+      padding: 6px 12px;
+      background: #EBF5F4;
+      border: 1px solid rgba(15, 118, 110, 0.1);
+      border-radius: 6px;
+      font-size: 13px;
+      cursor: pointer;
+      transition: all 0.2s;
+      color: #0F766E;
+    }
+
+    .explore-btn.active {
+      background: var(--primary-color);
+      color: white;
+      border-color: transparent;
+    }
+
+    .text-quote {
+      padding: 16px;
+      background: #FDFCF7;
+      border-left: 4px solid var(--primary-color);
+      border-radius: 0 12px 12px 0;
+      font-size: 15px;
+      color: var(--text-main);
+      line-height: 1.8;
+      margin-top: 10px;
+      font-style: italic;
+      box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.02);
+    }
+
+    /* 生字连线游戏 */
+    .game-area {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+      position: relative;
+    }
+
+    .game-col {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .game-card {
+      padding: 14px 20px;
+      background: #FCFBFA;
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      text-align: center;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+      user-select: none;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.01);
+    }
+
+    .game-card:hover {
+      transform: scale(1.02);
+      border-color: var(--primary-color);
+      background: #FFFDFB;
+    }
+
+    .game-card.selected {
+      background: #FFE4E6;
+      border-color: #E11D48;
+      color: #E11D48;
+    }
+
+    .game-card.matched {
+      background: #ECFDF5;
+      border-color: #10B981;
+      color: #059669;
+      cursor: default;
+      transform: none !important;
+    }
+
+    .game-card.matched::after {
+      content: ' ✓';
+      font-weight: bold;
+    }
+
+    /* 生字详解 */
+    .character-detail {
+      margin-top: 16px;
+      padding: 16px;
+      background: #F7F9FA;
+      border-radius: 12px;
+      border: 1px solid rgba(0, 0, 0, 0.05);
+      display: none;
+    }
+
+    .character-box {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 48px;
+      height: 48px;
+      border: 2px solid var(--primary-color);
+      background: #fff;
+      color: var(--primary-color);
+      font-size: 24px;
+      font-weight: 700;
+      border-radius: 8px;
+      margin-right: 12px;
+      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.05);
+    }
+
+    /* 对话剧场 */
+    .dialogue-box {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      max-height: 450px;
+      overflow-y: auto;
+      padding-right: 6px;
+    }
+
+    .dialogue-box::-webkit-scrollbar {
+      width: 4px;
+    }
+
+    .dialogue-box::-webkit-scrollbar-thumb {
+      background: rgba(0, 0, 0, 0.1);
+      border-radius: 2px;
+    }
+
+    .bubble-row {
+      display: flex;
+      margin-bottom: 8px;
+    }
+
+    .bubble-row.lenin {
+      justify-content: flex-start;
+    }
+
+    .bubble-row.boy {
+      justify-content: flex-end;
+    }
+
+    .chat-bubble {
+      max-width: 80%;
+      padding: 12px 18px;
+      border-radius: 18px;
+      font-size: 14px;
+      position: relative;
+      box-shadow: 0 3px 10px rgba(0, 0, 0, 0.03);
+      cursor: pointer;
+      transition: all 0.3s;
+    }
+
+    .bubble-row.lenin .chat-bubble {
+      background: #EBF5F4;
+      border-top-left-radius: 4px;
+      border: 1px solid rgba(15, 118, 110, 0.1);
+      color: var(--text-main);
+    }
+
+    .bubble-row.boy .chat-bubble {
+      background: #FFF5F5;
+      border-top-right-radius: 4px;
+      border: 1px solid rgba(225, 29, 72, 0.1);
+      color: var(--text-main);
+    }
+
+    .chat-bubble:hover {
+      transform: scale(1.01);
+    }
+
+    .chat-bubble.active {
+      box-shadow: 0 0 0 2px var(--primary-color), 0 6px 20px rgba(0, 0, 0, 0.1);
+    }
+
+    .character-avatar {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-bottom: 4px;
+      display: block;
+    }
+
+    .bubble-row.lenin .character-avatar {
+      text-align: left;
+    }
+
+    .bubble-row.boy .character-avatar {
+      text-align: right;
+    }
+
+    /* 情感视窗 */
+    .emotion-panel {
+      background: #FDFDFC;
+      border: 1px dashed var(--border-color);
+      border-radius: 12px;
+      padding: 16px;
+      margin-top: 16px;
+    }
+
+    .slider-container {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin: 12px 0;
+    }
+
+    .emotion-slider {
+      flex: 1;
+      height: 6px;
+      -webkit-appearance: none;
+      background: #E4E7EB;
+      border-radius: 3px;
+      outline: none;
+    }
+
+    .emotion-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: var(--primary-color);
+      cursor: pointer;
+      border: 2px solid #fff;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+    }
+
+    .emotion-card {
+      padding: 12px;
+      background: #F5F7FA;
+      border-radius: 8px;
+      font-size: 13px;
+      border-left: 3px solid #0F766E;
+      transition: all 0.3s;
+    }
+
+    /* 板书设计 */
+    .timeline {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      position: relative;
+      padding-left: 24px;
+      margin-top: 10px;
+    }
+
+    .timeline::before {
+      content: '';
+      position: absolute;
+      left: 7px;
+      top: 6px;
+      bottom: 6px;
+      width: 2px;
+      background: rgba(15, 118, 110, 0.2);
+    }
+
+    .timeline-item {
+      position: relative;
+    }
+
+    .timeline-dot {
+      position: absolute;
+      left: -24px;
+      top: 4px;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: #fff;
+      border: 4px solid var(--primary-color);
+      box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+      z-index: 2;
+      transition: all 0.3s;
+    }
+
+    .timeline-item:hover .timeline-dot {
+      background: var(--primary-color);
+      transform: scale(1.2);
+    }
+
+    .timeline-content {
+      background: #FCFBFA;
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      padding: 14px 18px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.01);
+    }
+
+    .timeline-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: #0F766E;
+      margin-bottom: 6px;
+    }
+
+    .timeline-desc {
+      font-size: 13px;
+      color: var(--text-main);
+    }
+
+    /* 画板海报 */
+    .draw-area {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .canvas-wrapper {
+      background: #fff;
+      border: 2px solid var(--border-color);
+      border-radius: 16px;
+      position: relative;
+      overflow: hidden;
+      box-shadow: inset 0 2px 10px rgba(0, 0, 0, 0.02);
+      display: flex;
+      justify-content: center;
+    }
+
+    #draw-canvas {
+      background: #FFF;
+      cursor: crosshair;
+      display: block;
+    }
+
+    .draw-tools {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+      background: #F7F9FA;
+      padding: 12px;
+      border-radius: 12px;
+      border: 1px solid rgba(0, 0, 0, 0.05);
+    }
+
+    .color-picker {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      cursor: pointer;
+      border: 2px solid transparent;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .color-picker.active {
+      border-color: #000;
+      transform: scale(1.1);
+    }
+
+    .size-picker {
+      height: 28px;
+      padding: 0 10px;
+      border-radius: 6px;
+      border: 1px solid var(--border-color);
+      background: white;
+      font-size: 13px;
+      cursor: pointer;
+    }
+
+    .canvas-btn {
+      padding: 6px 14px;
+      border-radius: 8px;
+      border: 1px solid var(--border-color);
+      background: #fff;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .canvas-btn:hover {
+      background: #EBF5F4;
+      border-color: #0F766E;
+      color: #0F766E;
+    }
+
+    .canvas-btn.primary {
+      background: var(--primary-gradient);
+      color: white;
+      border: none;
+    }
+
+    .canvas-btn.primary:hover {
+      background: var(--primary-gradient-light);
+    }
+
+    .text-input-field {
+      padding: 8px 12px;
+      border-radius: 8px;
+      border: 1px solid var(--border-color);
+      font-size: 13px;
+      flex: 1;
+      min-width: 150px;
+    }
+
+    /* 勋章生成卡片弹窗 */
+    #poster-modal {
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 118, 110, 0.4);
+      backdrop-filter: blur(8px);
+      z-index: 1000;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    }
+
+    .modal-content {
+      background: var(--bg-color);
+      border-radius: 20px;
+      border: 1px solid var(--border-color);
+      padding: 24px;
+      max-width: 480px;
+      width: 100%;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.2);
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .medal-preview-container {
+      display: flex;
+      justify-content: center;
+      background: white;
+      border-radius: 12px;
+      padding: 12px;
+      border: 1px solid rgba(0, 0, 0, 0.05);
+    }
+
+    #medal-canvas {
+      max-width: 100%;
+      height: auto;
+      border-radius: 8px;
+      box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
+    }
+
+    /* 按钮及小工具 */
+    .action-row {
+      display: flex;
+      gap: 8px;
+      justify-content: flex-end;
+      margin-top: 12px;
+    }
+
+    .about-banner {
+      margin-top: 24px;
+      padding: 16px;
+      background: var(--primary-gradient);
+      border-radius: 16px;
+      color: white;
+      text-align: center;
+      font-size: 14px;
+    }
+
+    /* 动效 */
+
+  </style>
+</head>
+
+<body>
+  <div id="app">
+    <canvas id="snow-canvas"></canvas>
+
+    <header>
+      <div class="header-badge">BINGOAI interactive template</div>
+      <h1>灰雀</h1>
+      <div class="header-subtitle">部编版小学语文三年级上册</div>
+    </header>
+
+    <div class="container">
+      <!-- 标签页导航 -->
+      <div class="nav-tabs">
+        <button class="tab-btn active" onclick="switchTab('explore')">📖 情境探究</button>
+        <button class="tab-btn" onclick="switchTab('character')">🔤 字词乐园</button>
+        <button class="tab-btn" onclick="switchTab('theater')">🎭 对话剧场</button>
+        <button class="tab-btn" onclick="switchTab('timeline')">📋 故事脉络</button>
+        <button class="tab-btn" onclick="switchTab('draw')">🎨 实践画板</button>
+      </div>
+
+      <!-- 主布局网格 -->
+      <div class="content-grid">
+
+        <!-- 左侧控制和交互区域 -->
+        <div class="flex flex-col gap-6">
+
+          <!-- Tab 1: 情境探究 -->
+          <div id="panel-explore" class="panel-card block">
+            <div class="card-title">📖 课文情境探究</div>
+            <div class="explore-tabs">
+              <button class="explore-btn active" onclick="switchExplore(0)">🐦 灰雀之美</button>
+              <button class="explore-btn" onclick="switchExplore(1)">🔍 寻找灰雀</button>
+              <button class="explore-btn" onclick="switchExplore(2)">🌳 约定与回归</button>
+            </div>
+            <div class="explain-text">
+              点击上方主题感受课文描述。
+            </div>
+            <div id="explore-quote" class="text-quote">
+              “两只粉红，一只深红，它们在树枝间跳来跳去，婉转地歌唱，非常惹人喜爱。”
+            </div>
+            <div class="action-row">
+              <button class="canvas-btn primary" onclick="toggleBirdState()">🍂 模拟灰雀失踪/回归</button>
+            </div>
+          </div>
+
+          <!-- Tab 2: 字词乐园 -->
+          <div id="panel-character" class="panel-card hidden">
+            <div class="card-title">🔤 生字词挑战</div>
+            <div class="explain-text mb-4">
+              将左边的<strong>汉字</strong>与右边正确的<strong>拼音</strong>连线配对！
+            </div>
+            <div class="game-area">
+              <div class="game-col">
+                <div class="game-card" id="char-que" onclick="selectCard('que', 'char')">雀</div>
+                <div class="game-card" id="char-jiao" onclick="selectCard('jiao', 'char')">郊</div>
+                <div class="game-card" id="char-fen" onclick="selectCard('fen', 'char')">粉</div>
+                <div class="game-card" id="char-yang" onclick="selectCard('yang', 'char')">养</div>
+              </div>
+              <div class="game-col">
+                <div class="game-card" id="pin-fen" onclick="selectCard('fen', 'pin')">fěn (粉红)</div>
+                <div class="game-card" id="pin-yang" onclick="selectCard('yang', 'pin')">yǎng (养病)</div>
+                <div class="game-card" id="pin-que" onclick="selectCard('que', 'pin')">què (灰雀)</div>
+                <div class="game-card" id="pin-jiao" onclick="selectCard('jiao', 'pin')">jiāo (郊外)</div>
+              </div>
+            </div>
+            <div id="char-detail-box" class="character-detail">
+              <div class="flex items-center">
+                <div class="character-box" id="detail-char">雀</div>
+                <div>
+                  <div class="font-bold text-teal-700" id="detail-pinyin">què</div>
+                  <div class="text-xs text-gray-500 mt-1" id="detail-explain">本义: 小鸟。组词：灰雀、雀跃。</div>
+                </div>
+              </div>
+            </div>
+            <div class="action-row">
+              <button class="canvas-btn" onclick="resetWordGame()">🔄 重新开始</button>
+            </div>
+          </div>
+
+          <!-- Tab 3: 对话剧场 -->
+          <div id="panel-theater" class="panel-card hidden">
+            <div class="card-title">🎭 沉浸式对话剧场</div>
+            <div class="explain-text mb-4">
+              选择对话台词，并调节滑块观察列宁和小男孩复杂的心理变化。
+            </div>
+
+            <div class="dialogue-box">
+              <div class="bubble-row lenin">
+                <div class="chat-bubble active" id="diag-1" onclick="selectDialogue(1)">
+                  <span class="character-avatar">列宁 (寻找中)</span>
+                  “孩子，你看见过一只深红胸脯的灰雀吗？”
+                </div>
+              </div>
+              <div class="bubble-row boy">
+                <div class="chat-bubble" id="diag-2" onclick="selectDialogue(2)">
+                  <span class="character-avatar">小男孩 (支吾地)</span>
+                  “没……我没看见。”
+                </div>
+              </div>
+              <div class="bubble-row lenin">
+                <div class="chat-bubble" id="diag-3" onclick="selectDialogue(3)">
+                  <span class="character-avatar">列宁 (惋惜自语)</span>
+                  “那是只非常可爱的灰雀，红色的胸脯，歌声非常动听。可它到哪儿去了呢？”
+                </div>
+              </div>
+              <div class="bubble-row boy">
+                <div class="chat-bubble" id="diag-4" onclick="selectDialogue(4)">
+                  <span class="character-avatar">小男孩 (低下头)</span>
+                  “它一定会飞回来的，它还活着。”
+                </div>
+              </div>
+              <div class="bubble-row lenin">
+                <div class="chat-bubble" id="diag-5" onclick="selectDialogue(5)">
+                  <span class="character-avatar">列宁 (确认追问)</span>
+                  “一定会飞回来？”
+                </div>
+              </div>
+              <div class="bubble-row boy">
+                <div class="chat-bubble" id="diag-6" onclick="selectDialogue(6)">
+                  <span class="character-avatar">小男孩 (坚定地)</span>
+                  “一定会飞回来！它还活着，它很健康。”
+                </div>
+              </div>
+            </div>
+
+            <!-- 情感心理视窗 -->
+            <div class="emotion-panel">
+              <div class="text-xs font-bold text-teal-700 uppercase tracking-wider">💡 心理深度视窗</div>
+              <div class="slider-container">
+                <span class="text-xs text-gray-500">列宁的善诱</span>
+                <input type="range" class="emotion-slider" id="emotion-slider" min="1" max="100" value="50"
+                  oninput="changeEmotion()">
+                <span class="text-xs text-gray-500">男孩的挣扎</span>
+              </div>
+              <div class="emotion-card" id="emotion-desc">
+                正在关注对话：列宁以和蔼的语气向男孩打听灰雀的消息，充满了爱鸟之心，同时也出于对男孩自尊的巧妙保护。
+              </div>
+            </div>
+          </div>
+
+          <!-- Tab 4: 故事脉络 -->
+          <div id="panel-timeline" class="panel-card hidden">
+            <div class="card-title">📋 故事发展板书</div>
+            <div class="explain-text">
+              抓住灰雀“可爱 — 失踪 — 回归”的脉络，体会列宁与小男孩的品质。
+            </div>
+            <div class="timeline">
+              <div class="timeline-item">
+                <div class="timeline-dot"></div>
+                <div class="timeline-content">
+                  <div class="timeline-title">第一阶段：可爱 (雪地歌唱)</div>
+                  <div class="timeline-desc">三只可爱的灰雀在郊外歌唱，列宁每天带面包渣喂它们，流露出深切的爱鸟之情。</div>
+                </div>
+              </div>
+              <div class="timeline-item">
+                <div class="timeline-dot"></div>
+                <div class="timeline-content">
+                  <div class="timeline-title">第二阶段：失踪 (心生惋惜)</div>
+                  <div class="timeline-desc">深红胸脯的灰雀突然不见了。列宁向男孩寻找鸟儿，明知是男孩带走却不予批评，而是以温柔和惋惜打动小男孩。</div>
+                </div>
+              </div>
+              <div class="timeline-item">
+                <div class="timeline-dot"></div>
+                <div class="timeline-content">
+                  <div class="timeline-title">第三阶段：回归 (知错重信)</div>
+                  <div class="timeline-desc">在列宁巧妙的“爱与尊重”启发下，男孩重拾诚实。第二天，灰雀果然回到了松树枝头，欢快歌唱。</div>
+                </div>
+              </div>
+            </div>
+            <div class="about-banner">
+              ⭐ 课文启示：爱鸟类，守信用。列宁尊重孩子、呵护自尊，极富教育智慧。
+            </div>
+          </div>
+
+          <!-- Tab 5: 实践画板 -->
+          <div id="panel-draw" class="panel-card hidden">
+            <div class="card-title">🎨 诚实与爱鸟实践画板</div>
+            <div class="draw-area">
+              <div class="explain-text">
+                在下方白板画一画你心中的灰雀，或者在下方输入你的<strong>爱鸟诚实宣言</strong>，一键生成精美勋章海报卡片！
+              </div>
+
+              <div class="canvas-wrapper">
+                <canvas id="draw-canvas" width="380" height="240"></canvas>
+              </div>
+
+              <div class="draw-tools">
+                <div class="flex gap-2 mr-2">
+                  <div class="color-picker active" style="background:#0F766E" onclick="setStrokeColor('#0F766E', this)">
+                  </div>
+                  <div class="color-picker" style="background:#E11D48" onclick="setStrokeColor('#E11D48', this)"></div>
+                  <div class="color-picker" style="background:#2C3E50" onclick="setStrokeColor('#2C3E50', this)"></div>
+                  <div class="color-picker" style="background:#FBBF24" onclick="setStrokeColor('#FBBF24', this)"></div>
+                </div>
+                <select class="size-picker" onchange="setStrokeSize(this.value)">
+                  <option value="3">细画笔 (3px)</option>
+                  <option value="6" selected>中画笔 (6px)</option>
+                  <option value="12">粗画笔 (12px)</option>
+                </select>
+                <input type="text" class="text-input-field" id="medal-declaration" value="爱护小鸟，诚实守信"
+                  placeholder="输入你的爱鸟宣言">
+              </div>
+
+              <div class="action-row">
+                <button class="canvas-btn" onclick="clearCanvas()">🧹 清除白板</button>
+                <button class="canvas-btn primary" onclick="generateMedal()">🏆 生成诚实爱鸟勋章</button>
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- 右侧动画与渲染核心区域 -->
+        <div class="flex flex-col gap-6">
+
+          <!-- 动态场景 -->
+          <div class="panel-card">
+            <div class="card-title">🌲 雪地松枝场景 (宾果AI 画布)</div>
+            <div id="scene-box">
+              <!-- 场景背景的雪地和松针 -->
+              <svg id="svg-scene" width="100%" height="100%" viewBox="0 0 400 380" xmlns="http://www.w3.org/2000/svg">
+                <defs>
+                  <linearGradient id="sky-grad" x1="0%" y1="0%" x2="0%" y2="100%">
+                    <stop offset="0%" stop-color="#CFE5EC" />
+                    <stop offset="100%" stop-color="#EAEFF2" />
+                  </linearGradient>
+                  <linearGradient id="rose-grad" x1="0%" y1="0%" x2="100%" y2="0%">
+                    <stop offset="0%" stop-color="#E11D48" />
+                    <stop offset="100%" stop-color="#FB7185" />
+                  </linearGradient>
+                  <linearGradient id="pink-grad" x1="0%" y1="0%" x2="100%" y2="0%">
+                    <stop offset="0%" stop-color="#FDA4AF" />
+                    <stop offset="100%" stop-color="#FFE4E6" />
+                  </linearGradient>
+                </defs>
+
+                <!-- 天空背景 -->
+                <rect width="100%" height="100%" fill="url(#sky-grad)" />
+
+                <!-- 远山/雪堆 -->
+                <path d="M-50,380 Q50,260 200,310 T450,380 Z" fill="#F4F8FA" />
+                <path d="M-20,380 Q100,300 280,330 T420,380 Z" fill="#FFFFFF" />
+
+                <!-- 松树枝 -->
+                <g stroke="#5C3E21" stroke-width="12" stroke-linecap="round">
+                  <path d="M420,220 Q240,240 60,180" />
+                  <path d="M260,230 L160,270" stroke-width="8" />
+                </g>
+
+                <!-- 松针 -->
+                <g stroke="#115E59" stroke-width="3" opacity="0.9">
+                  <!-- 围绕主枝的绿松针 -->
+                  <path d="M120,200 L110,170 M120,200 L105,185 M120,200 L130,170" />
+                  <path d="M160,210 L155,180 M160,210 L145,190 M160,210 L170,180" />
+                  <path d="M200,220 L195,185 M200,220 L180,200 M200,220 L210,190" />
+                  <path d="M240,225 L245,190 M240,225 L230,195 M240,225 L255,195" />
+                  <path d="M280,228 L285,195 M280,228 L270,198 M280,228 L295,198" />
+                  <!-- 围绕侧枝 -->
+                  <path d="M180,260 L195,285 M180,260 L175,290 M180,260 L160,280" />
+                  <path d="M210,250 L225,275 M210,250 L205,280 M210,250 L195,270" />
+                </g>
+
+                <!-- 雪花堆积在松枝上 -->
+                <path d="M300,225 Q240,230 180,215 Q120,195 70,180 Q120,190 180,210 Q240,220 300,220 Z" fill="#FFFFFF"
+                  opacity="0.95" />
+                <path d="M230,240 Q195,255 170,265 Q195,250 230,238 Z" fill="#FFFFFF" opacity="0.95" />
+
+                <!-- =================== 灰雀 1 (粉红，左) =================== -->
+                <g id="bird-1" transform="translate(100, 130)">
+                  <ellipse cx="0" cy="0" rx="20" ry="15" fill="#475569" /> <!-- 背部灰 -->
+                  <path d="M-15,5 Q-3,18 10,8 Q15,-5 -2,-12 Z" fill="url(#pink-grad)" /> <!-- 粉红肚子 -->
+                  <ellipse cx="12" cy="-12" rx="10" ry="10" fill="#334155" /> <!-- 头 -->
+                  <circle cx="15" cy="-14" r="2.5" fill="#FFF" /> <!-- 眼白 -->
+                  <circle cx="16" cy="-14" r="1.2" fill="#000" /> <!-- 眼珠 -->
+                  <polygon points="21,-13 27,-11 21,-9" fill="#F59E0B" /> <!-- 嘴 -->
+                  <path d="M-18,-4 Q-30,-2 -25,8 Z" fill="#334155" /> <!-- 尾巴 -->
+                  <path id="wing-1" d="M-10,-5 Q-4,5 5,0 C2,-6 -5,-10 -10,-5 Z" fill="#1E293B" /> <!-- 翅膀 -->
+                  <line x1="-5" y1="14" x2="-8" y2="24" stroke="#334155" stroke-width="2" /> <!-- 爪 -->
+                  <line x1="5" y1="14" x2="2" y2="24" stroke="#334155" stroke-width="2" />
+                </g>
+
+                <!-- =================== 灰雀 2 (粉红，右) =================== -->
+                <g id="bird-2" transform="translate(300, 160) scale(-1, 1)">
+                  <ellipse cx="0" cy="0" rx="18" ry="14" fill="#475569" /> <!-- 背部灰 -->
+                  <path d="M-13,4 Q-2,16 9,7 Q13,-4 -2,-10 Z" fill="url(#pink-grad)" /> <!-- 粉红肚子 -->
+                  <ellipse cx="10" cy="-10" rx="9" ry="9" fill="#334155" /> <!-- 头 -->
+                  <circle cx="13" cy="-12" r="2.2" fill="#FFF" />
+                  <circle cx="14" cy="-12" r="1.1" fill="#000" />
+                  <polygon points="18,-11 23,-9 18,-7" fill="#F59E0B" />
+                  <path d="M-16,-3 Q-27,-2 -22,7 Z" fill="#334155" />
+                  <path id="wing-2" d="M-9,-4 Q-3,4 4,0 C1,-5 -4,-8 -9,-4 Z" fill="#1E293B" />
+                  <line x1="-4" y1="13" x2="-7" y2="22" stroke="#334155" stroke-width="2" />
+                  <line x1="4" y1="13" x2="2" y2="22" stroke="#334155" stroke-width="2" />
+                </g>
+
+                <!-- =================== 灰雀 3 (深红，主，中) =================== -->
+                <!-- 它有时会“飞走/隐藏”，在失踪模式下 opacity 变为 0 -->
+                <g id="bird-main" transform="translate(200, 165)" style="transition: opacity 1s ease;">
+                  <ellipse cx="0" cy="0" rx="24" ry="18" fill="#334155" /> <!-- 深背 -->
+                  <!-- 深红胸脯 -->
+                  <path d="M-18,6 Q-3,22 12,10 Q18,-5 -3,-14 Z" fill="url(#rose-grad)" />
+                  <ellipse cx="14" cy="-14" rx="12" ry="12" fill="#1E293B" /> <!-- 头 -->
+                  <circle cx="17" cy="-16" r="3" fill="#FFF" /> <!-- 眼 -->
+                  <circle cx="18" cy="-16" r="1.5" fill="#000" />
+                  <polygon points="25,-15 32,-13 25,-10" fill="#FBBF24" id="beak-main" /> <!-- 嘴 -->
+                  <path d="M-22,-5 Q-36,-2 -30,10 Z" fill="#1E293B" /> <!-- 尾 -->
+                  <path id="wing-main" d="M-12,-6 Q-5,6 6,0 C3,-8 -6,-12 -12,-6 Z" fill="#0F172A" /> <!-- 翅膀 -->
+                  <line x1="-6" y1="17" x2="-9" y2="28" stroke="#1E293B" stroke-width="2.5" /> <!-- 爪 -->
+                  <line x1="6" y1="17" x2="3" y2="28" stroke="#1E293B" stroke-width="2.5" />
+                </g>
+              </svg>
+
+
+            </div>
+          </div>
+
+          <!-- 教学建议卡 -->
+          <div class="panel-card">
+            <div class="card-title">💡 课堂教学建议</div>
+            <div class="explain-text">
+              <strong>《灰雀》核心探究点：</strong><br>
+              列宁明知是男孩捉走了灰雀，为什么“不直接批评”，反而“自言自语”表示可惜？<br><br>
+              <strong>教育智慧分析：</strong><br>
+              1. <strong>爱鸟更爱人</strong>：列宁把关爱鸟类和关爱儿童的自尊高度统一。<br>
+              2. <strong>春风化雨</strong>：通过巧妙的心理暗示，给予男孩知错改错的时间和尊严，用信任和爱心最终感化了男孩，达成了完美育人效果。
+            </div>
+          </div>
+
+        </div>
+
+      </div>
+    </div>
+
+    <!-- 勋章保存弹窗 -->
+    <div id="poster-modal" onclick="closeMedalModal()">
+      <div class="modal-content" onclick="event.stopPropagation()">
+        <div class="card-title">🏆 荣誉勋章已成功生成</div>
+        <div class="medal-preview-container">
+          <canvas id="medal-canvas" width="400" height="300"></canvas>
+        </div>
+        <div class="text-xs text-gray-500 text-center">
+          💡 长按上图或右键单击即可“保存图片”到本地
+        </div>
+        <button class="canvas-btn primary" onclick="closeMedalModal()">确定</button>
+      </div>
+    </div>
+
+    <footer class="about-banner" style="border-radius:0; margin-top:40px;">
+      ✏️ 部编版小学语文三年级上册《灰雀》互动课件 · 宾果AI 可视化教学工具
+    </footer>
+  </div>
+
+  <script>
+    // ==================== 全局状态 ====================
+    let activeTab = 'explore';
+    let currentExploreIndex = 0;
+    let isBirdMissing = false;
+    let selectedChar = null;
+    let selectedPin = null;
+    let matchedPairs = 0;
+
+    // ==================== 生字配对数据 ====================
+    const WORD_DATA = {
+      que: { char: '雀', pin: 'què', word: '灰雀', explain: 'què (灰雀)：小鸟。羽毛黑褐色，肚皮呈深红或粉红，歌声清脆。' },
+      jiao: { char: '郊', pin: 'jiāo', word: '郊外', explain: 'jiāo (郊外)：城市以外的地方。课文中列宁每天去郊外散步。' },
+      fen: { char: '粉', pin: 'fěn', word: '粉红', explain: 'fěn (粉红)：像桃花一样的淡红色。课文中描述两只灰雀是粉红色的。' },
+      yang: { char: '养', pin: 'yǎng', word: '养病', explain: 'yǎng (养病)：调养身体使恢复健康。列宁当时正在郊外养病。' }
+    };
+
+    // ==================== 标签页切换 ====================
+    function switchTab(tabId) {
+      activeTab = tabId;
+      const tabs = ['explore', 'character', 'theater', 'timeline', 'draw'];
+      tabs.forEach(t => {
+        const btn = document.querySelector(`.nav-tabs button:nth-child(${tabs.indexOf(t) + 1})`);
+        const panel = document.getElementById(`panel-${t}`);
+        if (t === tabId) {
+          btn.classList.add('active');
+          panel.classList.remove('hidden');
+          panel.classList.add('block');
+        } else {
+          btn.classList.remove('active');
+          panel.classList.add('hidden');
+          panel.classList.remove('block');
+        }
+      });
+
+      // 如果切到了画板，初始化画板
+      if (tabId === 'draw') {
+        setTimeout(initDrawCanvas, 100);
+      }
+    }
+
+    // ==================== 情境探究 ====================
+    const EXPLORE_TEXTS = [
+      "“两只粉红，一只深红，它们在树枝间跳来跳去，婉转地歌唱，非常惹人喜爱。”",
+      "“那只深红胸脯的灰雀竟然不见了。列宁在周围的树林里找了半天，也没有找到。”",
+      "“第二天，列宁来到白桦树下，果然又看到那只灰雀在枝头歌唱。男孩在旁边红着脸低下头。”"
+    ];
+
+    function switchExplore(index) {
+      currentExploreIndex = index;
+      document.querySelectorAll('.explore-btn').forEach((btn, i) => {
+        if (i === index) btn.classList.add('active');
+        else btn.classList.remove('active');
+      });
+      document.getElementById('explore-quote').textContent = EXPLORE_TEXTS[index];
+
+      // 根据情境改变小鸟状态
+      if (index === 1) {
+        setBirdMissing(true);
+      } else {
+        setBirdMissing(false);
+      }
+    }
+
+    function toggleBirdState() {
+      setBirdMissing(!isBirdMissing);
+    }
+
+    function setBirdMissing(missing) {
+      isBirdMissing = missing;
+      const bird = document.getElementById('bird-main');
+      if (isBirdMissing) {
+        bird.style.opacity = '0';
+        showToast('🍂 模拟事件：深红胸脯的灰雀失踪了！');
+      } else {
+        bird.style.opacity = '1';
+        showToast('🌸 模拟事件：灰雀重回枝头，欢快歌唱！');
+      }
+    }
+
+    // ==================== 生字连线拼图 ====================
+    function selectCard(id, type) {
+      if (type === 'char') {
+        const card = document.getElementById(`char-${id}`);
+        if (card.classList.contains('matched')) return;
+
+        if (selectedChar === id) {
+          card.classList.remove('selected');
+          selectedChar = null;
+        } else {
+          if (selectedChar) {
+            document.getElementById(`char-${selectedChar}`).classList.remove('selected');
+          }
+          selectedChar = id;
+          card.classList.add('selected');
+        }
+      } else {
+        const card = document.getElementById(`pin-${id}`);
+        if (card.classList.contains('matched')) return;
+
+        if (selectedPin === id) {
+          card.classList.remove('selected');
+          selectedPin = null;
+        } else {
+          if (selectedPin) {
+            document.getElementById(`pin-${selectedPin}`).classList.remove('selected');
+          }
+          selectedPin = id;
+          card.classList.add('selected');
+        }
+      }
+
+      checkWordMatch();
+    }
+
+    function checkWordMatch() {
+      if (selectedChar && selectedPin) {
+        if (selectedChar === selectedPin) {
+          // 成功配对
+          const charCard = document.getElementById(`char-${selectedChar}`);
+          const pinCard = document.getElementById(`pin-${selectedPin}`);
+
+          charCard.classList.remove('selected');
+          pinCard.classList.remove('selected');
+
+          charCard.classList.add('matched');
+          pinCard.classList.add('matched');
+
+          showCharDetail(selectedChar);
+          playSynthSound(440, 0.1); // 配对声
+          setTimeout(() => playSynthSound(880, 0.15), 100);
+
+          selectedChar = null;
+          selectedPin = null;
+          matchedPairs++;
+
+          if (matchedPairs === 4) {
+            showToast('🎉 太棒了！所有的生字词全部挑战成功！');
+          }
+        } else {
+          // 配对失败
+          const c = selectedChar;
+          const p = selectedPin;
+          playSynthSound(220, 0.2); // 错误声
+
+          setTimeout(() => {
+            document.getElementById(`char-${c}`).classList.remove('selected');
+            document.getElementById(`pin-${p}`).classList.remove('selected');
+          }, 300);
+
+          selectedChar = null;
+          selectedPin = null;
+        }
+      }
+    }
+
+    function showCharDetail(id) {
+      const data = WORD_DATA[id];
+      document.getElementById('detail-char').textContent = data.char;
+      document.getElementById('detail-pinyin').textContent = data.pin + ' (' + data.word + ')';
+      document.getElementById('detail-explain').textContent = data.explain;
+      document.getElementById('char-detail-box').style.display = 'block';
+    }
+
+    function resetWordGame() {
+      selectedChar = null;
+      selectedPin = null;
+      matchedPairs = 0;
+
+      const ids = ['que', 'jiao', 'fen', 'yang'];
+      ids.forEach(id => {
+        const charC = document.getElementById(`char-${id}`);
+        const pinC = document.getElementById(`pin-${id}`);
+        charC.className = 'game-card';
+        pinC.className = 'game-card';
+      });
+
+      document.getElementById('char-detail-box').style.display = 'none';
+      showToast('🔄 连线配对游戏已重新开始！');
+    }
+
+
+    // ==================== 对话剧场与情感视窗 ====================
+    const DIALOGUE_INFOS = {
+      1: {
+        desc: "列宁满怀焦急与疼爱在雪地中打听丢失的灰雀，他的言语温和亲近，完全没有命令式的口吻，极大地保护了孩子的自尊心。",
+        val: 30
+      },
+      2: {
+        desc: "小男孩第一次支吾地回答，内心极为不安与局促。他害怕被大人批评，本能地隐藏了实情，表现出小小的撒谎与道德挣扎。",
+        val: 80
+      },
+      3: {
+        desc: "列宁明知孩子说了谎，但没有当面戳穿。而是自言自语表示遗憾和惋惜。这是极高明的循循善诱，通过情感暗示给孩子留下退路。",
+        val: 20
+      },
+      4: {
+        desc: "男孩听到列宁极其真挚惋惜的叹息，深受触动。他从极度的慌乱和挣扎中做出了承诺：它一定会飞回来的。暗示了他改过的决心。",
+        val: 70
+      },
+      5: {
+        desc: "列宁以一种肯定的、关切的重复，加强了小男孩心底对诚实的承诺。这绝不是质问，而是基于无比信任的眼神鼓励。",
+        val: 10
+      },
+      6: {
+        desc: "男孩连续用两个感叹号坚定地承诺：它很健康！此时的男孩已经下定决心将灰雀归还自然，他战胜了自私，战胜了谎言，重获诚实。",
+        val: 90
+      }
+    };
+
+    let currentDiagIndex = 1;
+
+    function selectDialogue(index) {
+      currentDiagIndex = index;
+      for (let i = 1; i <= 6; i++) {
+        const bubble = document.getElementById(`diag-${i}`);
+        if (i === index) bubble.classList.add('active');
+        else bubble.classList.remove('active');
+      }
+
+      const info = DIALOGUE_INFOS[index];
+      document.getElementById('emotion-slider').value = info.val;
+      document.getElementById('emotion-desc').textContent = info.desc;
+
+      // 根据对话激活对应角色的声音
+      if (index % 2 === 1) {
+        // 列宁（低沉稳重音调）
+        playSynthSound(330, 0.2);
+      } else {
+        // 男孩（高亢清脆音调）
+        playSynthSound(660, 0.2);
+      }
+    }
+
+    function changeEmotion() {
+      const val = document.getElementById('emotion-slider').value;
+      // 寻找最接近的心理阶段
+      let closest = 1;
+      let minDiff = 100;
+
+      for (const k in DIALOGUE_INFOS) {
+        const diff = Math.abs(DIALOGUE_INFOS[k].val - val);
+        if (diff < minDiff) {
+          minDiff = diff;
+          closest = parseInt(k);
+        }
+      }
+
+      if (closest !== currentDiagIndex) {
+        selectDialogue(closest);
+      }
+    }
+
+
+    // ==================== 画板与涂鸦海报生成 ====================
+    let drawCanvas, ctx;
+    let isDrawing = false;
+    let strokeColor = '#0F766E';
+    let strokeSize = 6;
+
+    function initDrawCanvas() {
+      drawCanvas = document.getElementById('draw-canvas');
+      ctx = drawCanvas.getContext('2d');
+
+      // 初始化白板样式
+      ctx.strokeStyle = strokeColor;
+      ctx.lineWidth = strokeSize;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+
+      // 鼠标事件
+      drawCanvas.addEventListener('mousedown', startDrawing);
+      drawCanvas.addEventListener('mousemove', draw);
+      drawCanvas.addEventListener('mouseup', stopDrawing);
+      drawCanvas.addEventListener('mouseout', stopDrawing);
+
+      // 触屏事件
+      drawCanvas.addEventListener('touchstart', handleTouchStart);
+      drawCanvas.addEventListener('touchmove', handleTouch);
+      drawCanvas.addEventListener('touchend', stopDrawing);
+
+      clearCanvas();
+    }
+
+    function startDrawing(e) {
+      isDrawing = true;
+      ctx.beginPath();
+      const pos = getPos(e);
+      ctx.moveTo(pos.x, pos.y);
+    }
+
+    function draw(e) {
+      if (!isDrawing) return;
+      const pos = getPos(e);
+      ctx.lineTo(pos.x, pos.y);
+      ctx.stroke();
+    }
+
+    function stopDrawing() {
+      isDrawing = false;
+    }
+
+    function getPos(e) {
+      const rect = drawCanvas.getBoundingClientRect();
+      return {
+        x: (e.clientX - rect.left) * (drawCanvas.width / rect.width),
+        y: (e.clientY - rect.top) * (drawCanvas.height / rect.height)
+      };
+    }
+
+    function handleTouchStart(e) {
+      e.preventDefault();
+      if (e.touches.length > 0) {
+        startDrawing(e.touches[0]);
+      }
+    }
+
+    function handleTouch(e) {
+      e.preventDefault();
+      if (e.touches.length > 0) {
+        draw(e.touches[0]);
+      }
+    }
+
+    function setStrokeColor(color, element) {
+      strokeColor = color;
+      ctx.strokeStyle = color;
+      document.querySelectorAll('.color-picker').forEach(el => el.classList.remove('active'));
+      element.classList.add('active');
+    }
+
+    function setStrokeSize(size) {
+      strokeSize = parseInt(size);
+      ctx.lineWidth = strokeSize;
+    }
+
+    function clearCanvas() {
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fillRect(0, 0, drawCanvas.width, drawCanvas.height);
+
+      // 绘制提示文字
+      ctx.font = '13px "Noto Serif SC", serif';
+      ctx.fillStyle = 'rgba(15, 118, 110, 0.2)';
+      ctx.textAlign = 'center';
+      ctx.fillText('✨ 在这里用手或鼠标画一画灰雀吧 ✨', drawCanvas.width / 2, drawCanvas.height / 2);
+    }
+
+    // ==================== 勋章荣誉证书生成 (Canvas) ====================
+    function generateMedal() {
+      const medalCanvas = document.getElementById('medal-canvas');
+      const mCtx = medalCanvas.getContext('2d');
+
+      // 1. 绘制古风暖黄书信背景
+      mCtx.fillStyle = '#FDFBF7';
+      mCtx.fillRect(0, 0, medalCanvas.width, medalCanvas.height);
+
+      // 2. 绘制深松绿古典外框
+      mCtx.strokeStyle = '#0F766E';
+      mCtx.lineWidth = 6;
+      mCtx.strokeRect(10, 10, medalCanvas.width - 20, medalCanvas.height - 20);
+
+      mCtx.strokeStyle = '#D4AF37'; // 金色细内线
+      mCtx.lineWidth = 1.5;
+      mCtx.strokeRect(16, 16, medalCanvas.width - 32, medalCanvas.height - 32);
+
+      // 3. 绘制红日/荣誉印章
+      mCtx.beginPath();
+      mCtx.arc(330, 80, 36, 0, Math.PI * 2);
+      mCtx.fillStyle = 'rgba(225, 29, 72, 0.08)';
+      mCtx.fill();
+      mCtx.strokeStyle = 'rgba(225, 29, 72, 0.4)';
+      mCtx.lineWidth = 2;
+      mCtx.stroke();
+
+      mCtx.font = 'bold 10px "Noto Serif SC", serif';
+      mCtx.fillStyle = '#E11D48';
+      mCtx.textAlign = 'center';
+      mCtx.fillText('诚实守信', 330, 77);
+      mCtx.fillText('爱鸟卫士', 330, 91);
+
+      // 4. 绘制证书文字
+      mCtx.font = 'bold 20px "Noto Serif SC", serif';
+      mCtx.fillStyle = '#0F766E';
+      mCtx.textAlign = 'left';
+      mCtx.fillText('诚实爱鸟小卫士荣誉勋章', 32, 54);
+
+      mCtx.font = '12px "Noto Serif SC", serif';
+      mCtx.fillStyle = '#2C3E50';
+      mCtx.fillText('鉴于你在《灰雀》课堂实践中积极思考、笔绘大自然，并作出了诚实宣言：', 32, 86);
+
+      // 绘制宣言内容
+      const decText = '“ ' + document.getElementById('medal-declaration').value + ' ”';
+      mCtx.font = 'bold 15px "Noto Serif SC", serif';
+      mCtx.fillStyle = '#E11D48';
+      mCtx.fillText(decText, 32, 114);
+
+      // 5. 插入学生的涂鸦画作
+      mCtx.font = '11px "Noto Serif SC", serif';
+      mCtx.fillStyle = '#7F8C8D';
+      mCtx.fillText('你的手绘作品：', 32, 145);
+
+      mCtx.fillStyle = '#FFFFFF';
+      mCtx.fillRect(32, 155, 180, 115);
+      mCtx.strokeStyle = 'rgba(15, 118, 110, 0.15)';
+      mCtx.strokeRect(32, 155, 180, 115);
+
+      // 将小 Canvas 缩放贴进大 Canvas
+      mCtx.drawImage(drawCanvas, 32, 155, 180, 115);
+
+      // 右侧竖排小字“列宁与灰雀”
+      mCtx.font = 'italic 12px "Noto Serif SC", serif';
+      mCtx.fillStyle = '#0F766E';
+      mCtx.textAlign = 'center';
+      mCtx.fillText('两只粉红', 290, 180);
+      mCtx.fillText('一只深红', 290, 205);
+      mCtx.fillText('雪地寻鸟', 290, 230);
+      mCtx.fillText('知错重信', 290, 255);
+
+      // 6. 展示 Modal
+      document.getElementById('poster-modal').style.display = 'flex';
+      playSynthSound(600, 0.1);
+      setTimeout(() => playSynthSound(900, 0.2), 100);
+    }
+
+    function closeMedalModal() {
+      document.getElementById('poster-modal').style.display = 'none';
+    }
+
+
+    // ==================== Web Audio 仿真鸟鸣 ====================
+    let audioCtx = null;
+
+    function playSynthSound(freq, duration) {
+      try {
+        if (!audioCtx) {
+          audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        if (audioCtx.state === 'suspended') {
+          audioCtx.resume();
+        }
+
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+
+        osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+
+        gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+
+        osc.start();
+        osc.stop(audioCtx.currentTime + duration);
+      } catch (e) {
+        console.log('Web Audio unsupported or not initialized yet.');
+      }
+    }
+
+
+
+
+    // ==================== 飘雪 Canvas 模拟 ====================
+    let snowCanvas, sCtx;
+    let snowflakes = [];
+
+    function initSnow() {
+      snowCanvas = document.getElementById('snow-canvas');
+      sCtx = snowCanvas.getContext('2d');
+
+      resizeSnowCanvas();
+      window.addEventListener('resize', resizeSnowCanvas);
+
+      // 创建雪花
+      for (let i = 0; i < 60; i++) {
+        snowflakes.push({
+          x: Math.random() * snowCanvas.width,
+          y: Math.random() * snowCanvas.height,
+          r: Math.random() * 3 + 1,
+          d: Math.random() * 0.6 + 0.2, // 下落速度
+          w: Math.random() * 0.02 // 左右摆动
+        });
+      }
+
+      animateSnow();
+    }
+
+    function resizeSnowCanvas() {
+      snowCanvas.width = window.innerWidth;
+      snowCanvas.height = window.innerHeight;
+    }
+
+    function animateSnow() {
+      sCtx.clearRect(0, 0, snowCanvas.width, snowCanvas.height);
+      sCtx.fillStyle = 'rgba(255, 255, 255, 0.75)';
+      sCtx.beginPath();
+
+      snowflakes.forEach(f => {
+        sCtx.moveTo(f.x, f.y);
+        sCtx.arc(f.x, f.y, f.r, 0, Math.PI * 2, true);
+
+        // 更新雪花位置
+        f.y += f.d;
+        f.x += Math.sin(f.y * f.w) * 0.5;
+
+        // 越界重置
+        if (f.y > snowCanvas.height) {
+          f.y = -10;
+          f.x = Math.random() * snowCanvas.width;
+        }
+      });
+
+      sCtx.fill();
+      requestAnimationFrame(animateSnow);
+    }
+
+
+    // ==================== 极简 Toast 系统 ====================
+    let toastTimer = null;
+    function showToast(msg) {
+      let toast = document.getElementById('toast-box');
+      if (!toast) {
+        toast = document.createElement('div');
+        toast.id = 'toast-box';
+        toast.style.cssText = `
+      position: fixed;
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(15, 118, 110, 0.95);
+      color: #fff;
+      padding: 10px 24px;
+      border-radius: 20px;
+      font-size: 14px;
+      font-weight: 600;
+      z-index: 10000;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.15);
+      transition: all 0.3s ease;
+      opacity: 0;
+      pointer-events: none;
+    `;
+        document.body.appendChild(toast);
+      }
+
+      toast.textContent = msg;
+      toast.style.opacity = '1';
+      toast.style.top = '30px';
+
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.top = '20px';
+      }, 2500);
+    }
+
+
+    // ==================== 初始化 ====================
+    window.onload = function () {
+      initSnow();
+
+      // 标志 宾果AI ready
+      window.ready = true;
+    };
+  </script>
+</body>
+
+</html>

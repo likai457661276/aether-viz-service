@@ -1,0 +1,1288 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>蛋白质的结构与功能 | Protein Structure & Function</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- KaTeX 公式渲染 -->
+    <link rel="stylesheet" href="https://cdn.staticfile.net/KaTeX/0.16.9/katex.min.css">
+    <script src="https://cdn.staticfile.net/KaTeX/0.16.9/katex.min.js"></script>
+    <script src="https://cdn.staticfile.net/KaTeX/0.16.9/contrib/auto-render.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap');
+        
+        :root {
+            --bg-gradient: linear-gradient(180deg, #050B14 0%, #0A1E24 50%, #050B14 100%);
+            --glass-bg: rgba(6, 20, 24, 0.75);
+            --glass-border: rgba(255, 255, 255, 0.08);
+            --glass-border-glow: rgba(16, 185, 129, 0.25);
+            --text-primary: #F8FAFC;
+            --text-secondary: #CBD5E1;
+            --text-muted: #4B5F66;
+            --accent-carbon: #94A3B8;
+            --accent-oxygen: #EF4444;
+            --accent-nitrogen: #3B82F6;
+            --accent-hydrogen: #E2E8F0;
+            --accent-r: #10B981;
+            --theme-biology: linear-gradient(135deg, #10B981 0%, #22D3EE 100%);
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            user-select: none;
+        }
+        
+        html, body {
+            height: 100vh;
+            overflow: hidden;
+        }
+        
+        body { 
+            font-family: 'Inter', 'Outfit', sans-serif; 
+            background: var(--bg-gradient); 
+            color: var(--text-primary); 
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .glass-panel { 
+            background: var(--glass-bg); 
+            backdrop-filter: blur(16px); 
+            border: 1px solid var(--glass-border);
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.5);
+            transition: all 0.3s ease;
+        }
+
+        .glass-panel:hover {
+            border-color: var(--glass-border-glow);
+            box-shadow: 0 8px 32px 0 rgba(16, 185, 129, 0.15);
+        }
+        
+        .btn-glow {
+            background: linear-gradient(135deg, #10B981 0%, #06B6D4 100%);
+            box-shadow: 0 0 12px rgba(16, 185, 129, 0.3);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        
+        .btn-glow:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 0 20px rgba(16, 185, 129, 0.6);
+            background: linear-gradient(135deg, #34D399 0%, #22D3EE 100%);
+        }
+
+        .btn-glow:active:not(:disabled) {
+            transform: translateY(0);
+        }
+
+        .btn-glow:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+            box-shadow: none;
+        }
+
+        .tab-btn {
+            transition: all 0.3s ease;
+            border-bottom: 2px solid transparent;
+        }
+
+        .tab-btn.active {
+            border-color: #10B981;
+            color: #10B981;
+            background: rgba(16, 185, 129, 0.08);
+        }
+        
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            background: #10B981;
+            box-shadow: 0 0 10px rgba(16, 185, 129, 0.8);
+            border: 2px solid #FFFFFF;
+            cursor: pointer;
+            transition: transform 0.1s ease;
+        }
+        input[type="range"]::-webkit-slider-thumb:hover {
+            transform: scale(1.25);
+        }
+    </style>
+</head>
+<body class="w-full h-full flex flex-col">
+    <!-- 顶部导航栏 -->
+    <nav class="h-[70px] w-full px-6 flex items-center justify-between border-b border-emerald-500/10 bg-slate-950/80 backdrop-blur-md z-50">
+        <div class="flex flex-col">
+            <h1 class="text-xl font-bold bg-gradient-to-r from-emerald-400 via-teal-400 to-cyan-400 bg-clip-text text-transparent">
+                蛋白质的结构与功能 | Protein Structure & Function
+            </h1>
+            <p class="text-xs text-[#4B5F66] font-mono mt-0.5">生命活动的主要承担者：氨基酸、脱水缩合与空间结构</p>
+        </div>
+        <div class="flex gap-3">
+            <button onclick="resetExperiment()" class="btn-glow px-5 py-2 rounded-lg text-sm font-semibold text-white">重置实验</button>
+            <button onclick="randomizeExperiment()" class="btn-glow px-5 py-2 rounded-lg text-sm font-semibold text-white">随机实验</button>
+        </div>
+    </nav>
+    
+    <!-- 主体区域：左右布局 -->
+    <div class="flex-1 flex overflow-hidden relative">
+        <!-- 左侧面板 (学习目标与原理) -->
+        <aside class="w-[320px] h-full overflow-y-auto border-r border-emerald-500/10 bg-slate-950/40 backdrop-blur-md p-5 z-10 flex flex-col gap-6 no-scrollbar flex-shrink-0">
+            <!-- 学习目标 -->
+            <section class="glass-panel rounded-2xl p-4">
+                <h2 class="text-emerald-400 font-bold text-sm mb-3 tracking-wide flex items-center gap-2">
+                    <span class="inline-block w-1.5 h-3 bg-emerald-500 rounded-full"></span>学习目标
+                </h2>
+                <div class="flex flex-col gap-3 text-xs leading-relaxed text-slate-300">
+                    <label class="flex items-start gap-2.5 cursor-pointer">
+                        <input type="checkbox" checked class="mt-0.5 accent-emerald-500 rounded" disabled>
+                        <span>掌握氨基酸的结构通式及结构特点</span>
+                    </label>
+                    <label class="flex items-start gap-2.5 cursor-pointer">
+                        <input type="checkbox" id="goal-2" class="mt-0.5 accent-emerald-500 rounded">
+                        <span>理解氨基酸脱水缩合反应及计算规律</span>
+                    </label>
+                    <label class="flex items-start gap-2.5 cursor-pointer">
+                        <input type="checkbox" id="goal-3" class="mt-0.5 accent-emerald-500 rounded">
+                        <span>探究蛋白质折叠产生的多样空间结构</span>
+                    </label>
+                    <label class="flex items-start gap-2.5 cursor-pointer">
+                        <input type="checkbox" id="goal-4" class="mt-0.5 accent-emerald-500 rounded">
+                        <span>领悟“结构决定功能”的锁钥假说</span>
+                    </label>
+                </div>
+            </section>
+            
+            <!-- 原理解释与比喻 -->
+            <section class="glass-panel rounded-2xl p-4">
+                <h2 class="text-emerald-400 font-bold text-sm mb-3 tracking-wide flex items-center gap-2">
+                    <span class="inline-block w-1.5 h-3 bg-emerald-500 rounded-full"></span>生动原理比喻
+                </h2>
+                <div class="text-xs leading-relaxed text-slate-300 flex flex-col gap-2">
+                    <p><strong class="text-teal-300">1. 乐高积木：</strong> 氨基酸是组装蛋白质的通用积木。它们的“连接扣”是相同的（氨基和羧基），但“顶端装饰”（R基）各有不同。</p>
+                    <p><strong class="text-teal-300">2. 牵手与脱水：</strong> 氨基酸相遇时，一侧的“左手”与另一侧的“右手”牵起，牵手时会产生一滴汗水（脱去一分子水），形成的牢固握手就是<span class="text-emerald-400 font-semibold">肽键</span>。</p>
+                    <p><strong class="text-teal-300">3. 折叠工具：</strong> 牵成的一长串链条（多肽）没有功能，只有像毛线一样在空间折叠成特定形状，露出特定的“活性口袋”，它才能像精准的工具（如酶、抗体）一样发挥功能。</p>
+                </div>
+            </section>
+
+            <!-- 核心公式 -->
+            <section class="glass-panel rounded-2xl p-4">
+                <h2 class="text-emerald-400 font-bold text-sm mb-3 tracking-wide flex items-center gap-2">
+                    <span class="inline-block w-1.5 h-3 bg-emerald-500 rounded-full"></span>核心公式
+                </h2>
+                <div class="flex flex-col gap-3 text-xs text-slate-300">
+                    <div>
+                        <p class="text-[10px] text-slate-400 mb-1">氨基酸结构通式：</p>
+                        <div id="formula-structural" class="bg-slate-950/60 p-2 rounded border border-emerald-500/5 text-center font-mono"></div>
+                    </div>
+                    <div>
+                        <p class="text-[10px] text-slate-400 mb-1">肽键数/脱水数计算：</p>
+                        <div id="formula-peptides" class="bg-slate-950/60 p-2 rounded border border-emerald-500/5 text-center font-mono"></div>
+                    </div>
+                </div>
+            </section>
+            
+            <!-- 应用场景 -->
+            <section class="glass-panel rounded-2xl p-4">
+                <h2 class="text-emerald-400 font-bold text-sm mb-3 tracking-wide flex items-center gap-2">
+                    <span class="inline-block w-1.5 h-3 bg-emerald-500 rounded-full"></span>真实世界应用
+                </h2>
+                <div class="text-[11px] leading-relaxed text-slate-400 flex flex-col gap-2">
+                    <p><strong class="text-slate-300">胰岛素 (Insulin)：</strong> 一种小分子蛋白质，由 51 个氨基酸形成 2 条肽链，必须折叠出特定的空间构象才能与受体结合，调节血糖。</p>
+                    <p><strong class="text-slate-300">血红蛋白 (Hemoglobin)：</strong> 由 4 条肽链组成，中间携带铁离子，像一辆“四轮车”，负责在体内运输氧气。</p>
+                </div>
+            </section>
+        </aside>
+        
+        <!-- 中央主区域 -->
+        <main class="flex-1 h-full flex flex-col p-6 gap-6 overflow-hidden relative">
+            <!-- 导航Tab -->
+            <div class="flex gap-2 border-b border-emerald-500/10">
+                <button onclick="switchTab('structure')" id="tab-structure" class="tab-btn active px-6 py-3 text-sm font-semibold flex items-center gap-2">
+                    氨基酸的结构通式
+                </button>
+                <button onclick="switchTab('condensation')" id="tab-condensation" class="tab-btn px-6 py-3 text-sm font-semibold flex items-center gap-2">
+                    脱水缩合反应动画
+                </button>
+                <button onclick="switchTab('folding')" id="tab-folding" class="tab-btn px-6 py-3 text-sm font-semibold flex items-center gap-2">
+                    多肽链折叠与结构多样性
+                </button>
+            </div>
+            
+            <!-- 可视化展示画布区 -->
+            <div id="canvas-container" class="flex-1 w-full rounded-2xl border border-emerald-500/10 bg-slate-950/60 relative overflow-hidden flex items-center justify-center">
+                <canvas id="main-canvas" class="w-full h-full absolute top-0 left-0"></canvas>
+                
+                <!-- HUD 实时浮层说明 -->
+                <div id="hud-overlay" class="absolute top-4 left-4 glass-panel rounded-xl px-4 py-2.5 pointer-events-none text-xs flex flex-col gap-1 z-20">
+                    <span id="hud-mode" class="font-bold text-emerald-400">氨基酸结构模型</span>
+                    <span id="hud-desc" class="text-slate-300">点击R基以观察侧链变化对性质的影响</span>
+                </div>
+
+                <!-- 交互提示 Toast -->
+                <div id="interaction-toast" class="absolute bottom-4 left-1/2 transform -translate-x-1/2 glass-panel rounded-xl px-5 py-2.5 pointer-events-none text-xs text-emerald-300 font-semibold border-emerald-500/30 opacity-0 transition-opacity duration-300 z-20">
+                    提示语
+                </div>
+            </div>
+            
+            <!-- 底部控制与参数调节面板 -->
+            <footer class="glass-panel rounded-2xl p-5 flex flex-col gap-4 relative">
+                <!-- 模块一控制：氨基酸R基选择 -->
+                <div id="control-structure" class="flex flex-wrap items-center justify-between gap-4">
+                    <div class="flex flex-col gap-1">
+                        <span class="text-sm font-semibold text-emerald-400">选择不同R基 (侧链基团)</span>
+                        <span class="text-xs text-slate-400">不同的R基赋予了氨基酸独特的理化性质</span>
+                    </div>
+                    <div class="flex gap-2">
+                        <button onclick="selectRGroup('H')" id="r-H" class="btn-glow px-4 py-2 rounded-lg text-xs font-semibold text-white">甘氨酸 (-H)</button>
+                        <button onclick="selectRGroup('CH3')" id="r-CH3" class="btn-glow px-4 py-2 rounded-lg text-xs font-semibold text-white">丙氨酸 (-CH₃)</button>
+                        <button onclick="selectRGroup('Val')" id="r-Val" class="btn-glow px-4 py-2 rounded-lg text-xs font-semibold text-white">缬氨酸 (-CH(CH₃)₂)</button>
+                        <button onclick="selectRGroup('Glu')" id="r-Glu" class="btn-glow px-4 py-2 rounded-lg text-xs font-semibold text-white">谷氨酸 (酸性)</button>
+                        <button onclick="selectRGroup('Lys')" id="r-Lys" class="btn-glow px-4 py-2 rounded-lg text-xs font-semibold text-white">赖氨酸 (碱性)</button>
+                    </div>
+                </div>
+
+                <!-- 模块二控制：脱水缩合动画控制 -->
+                <div id="control-condensation" class="hidden flex items-center justify-between gap-4">
+                    <div class="flex flex-col gap-1">
+                        <span class="text-sm font-semibold text-emerald-400">缩合动力学模拟</span>
+                        <span class="text-xs text-slate-400">点击按钮播放或单步演示脱水缩合反应</span>
+                    </div>
+                    <div class="flex items-center gap-3">
+                        <button onclick="playCondensation()" id="btn-cond-play" class="btn-glow px-5 py-2.5 rounded-lg text-xs font-semibold text-white">开始缩合</button>
+                        <button onclick="stepCondensation()" id="btn-cond-step" class="btn-glow px-5 py-2.5 rounded-lg text-xs font-semibold text-white">单步播放</button>
+                        <button onclick="resetCondensation()" class="btn-glow px-5 py-2.5 rounded-lg text-xs font-semibold text-white">重置过程</button>
+                    </div>
+                </div>
+
+                <!-- 模块三控制：折叠与功能验证 -->
+                <div id="control-folding" class="hidden flex flex-col gap-4">
+                    <!-- 滑动条参数 -->
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        <div class="flex flex-col gap-2">
+                            <div class="flex justify-between text-xs font-semibold">
+                                <span class="text-slate-300">氨基酸数量 (n)</span>
+                                <span id="val-n" class="text-emerald-400">12 个</span>
+                            </div>
+                            <input type="range" id="slide-n" min="4" max="20" value="12" class="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-emerald-500" oninput="updateFoldingParams()">
+                        </div>
+                        <div class="flex flex-col gap-2">
+                            <div class="flex justify-between text-xs font-semibold">
+                                <span class="text-slate-300">肽链数量 (m)</span>
+                                <span id="val-m" class="text-emerald-400">1 条</span>
+                            </div>
+                            <input type="range" id="slide-m" min="1" max="4" value="1" class="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-emerald-500" oninput="updateFoldingParams()">
+                        </div>
+                        <div class="flex flex-col gap-2">
+                            <div class="flex justify-between text-xs font-semibold">
+                                <span class="text-slate-300">空间折叠程度</span>
+                                <span id="val-fold" class="text-emerald-400">0 %</span>
+                            </div>
+                            <input type="range" id="slide-fold" min="0" max="100" value="0" class="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-emerald-500" oninput="updateFoldingParams()">
+                        </div>
+                    </div>
+                    
+                    <!-- 交互与计算器计算 -->
+                    <div class="flex flex-wrap items-center justify-between border-t border-emerald-500/10 pt-4 gap-4">
+                        <div class="flex items-center gap-4 bg-slate-950/40 px-4 py-2 rounded-xl border border-emerald-500/5">
+                            <div class="flex flex-col text-[11px]">
+                                <span class="text-slate-400">肽键数 / 水分子数</span>
+                                <span id="calc-bonds" class="text-emerald-400 font-bold text-sm mt-0.5">11 个</span>
+                            </div>
+                            <div class="h-6 w-px bg-slate-800"></div>
+                            <div class="flex flex-col text-[11px]">
+                                <span class="text-slate-400">蛋白质相对分子质量</span>
+                                <span id="calc-mass" class="text-emerald-400 font-bold text-sm mt-0.5">1338 (平均质量128)</span>
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-3">
+                            <span id="fold-hint-text" class="text-xs text-slate-400 italic">拉动折叠滑块至 100% 以启动活性检测</span>
+                            <button onclick="injectSubstrate()" id="btn-substrate" disabled class="btn-glow px-5 py-2.5 rounded-lg text-xs font-semibold text-white">放入底物 (活性检测)</button>
+                        </div>
+                    </div>
+                </div>
+            </footer>
+        </main>
+    </div>
+
+    <!-- 初始化和逻辑 JavaScript -->
+    <script>
+        // 1. 状态管理
+        const state = {
+            tab: 'structure', // structure, condensation, folding
+            rGroup: 'H',      // H, CH3, Val, Glu, Lys
+            condStep: 0,      // 0: 初始, 1: 靠近, 2: 标记缩合基团, 3: 水分子飞出, 4: 形成肽键
+            condPlaying: false,
+            condTimer: null,
+            folding: {
+                n: 12,
+                m: 1,
+                foldPercent: 0, // 0 to 100
+                substrateActive: false,
+                substrateState: 'none', // none, flying, docking, reacting, exploded, failed
+                substrateX: 0,
+                substrateY: 0,
+                dockX: 0,
+                dockY: 0
+            },
+            time: 0,
+            particles: [] // 共享粒子系统
+        };
+
+        // 氨基酸数据定义
+        const rGroupsData = {
+            'H': { name: '甘氨酸 (Glycine)', formula: '-H', desc: 'R基为最简单的氢原子，分子量最小，结构极其灵活', color: '#10B981', weight: 1 },
+            'CH3': { name: '丙氨酸 (Alanine)', formula: '-CH_3', desc: 'R基为疏水性甲基，是非极性氨基酸，构成蛋白质内核', color: '#0EA5E9', weight: 15 },
+            'Val': { name: '缬氨酸 (Valine)', formula: '-CH(CH_3)_2', desc: '支链氨基酸，疏水性极强，必须从食物中摄取（必需氨基酸）', color: '#F59E0B', weight: 43 },
+            'Glu': { name: '谷氨酸 (Glutamic Acid)', formula: '-CH_2-CH_2-COOH', desc: '含有酸性羧基，带负电荷，常参与活性中心的催化反应', color: '#EF4444', weight: 73 },
+            'Lys': { name: '赖氨酸 (Lysine)', formula: '-(CH_2)_4-NH_2', desc: '含有碱性氨基，带正电荷，可与核酸等带负电分子相互作用', color: '#A855F7', weight: 72 }
+        };
+
+        // Canvas 变量
+        let canvas, ctx;
+        let animationFrameId;
+
+        // 2. 初始化
+        window.addEventListener('DOMContentLoaded', () => {
+            canvas = document.getElementById('main-canvas');
+            ctx = canvas.getContext('2d');
+
+            // 监听 Resize
+            const resizeObserver = new ResizeObserver(entries => {
+                for (let entry of entries) {
+                    if (entry.contentRect.width > 0 && entry.contentRect.height > 0) {
+                        resizeCanvas();
+                    }
+                }
+            });
+            resizeObserver.observe(document.getElementById('canvas-container'));
+
+            // 初次公式渲染
+            renderFormulas();
+            selectRGroup('H');
+            
+            // 启动主动画循环
+            lastTime = performance.now();
+            requestAnimationFrame(animationLoop);
+        });
+
+        function resizeCanvas() {
+            const container = document.getElementById('canvas-container');
+            const dpr = Math.min(window.devicePixelRatio || 1, 2);
+            canvas.width = container.clientWidth * dpr;
+            canvas.height = container.clientHeight * dpr;
+            ctx.scale(dpr, dpr);
+            
+            canvas.style.width = container.clientWidth + 'px';
+            canvas.style.height = container.clientHeight + 'px';
+        }
+
+        // KaTeX 公式渲染
+        function renderFormulas() {
+            try {
+                katex.render("R-CH(NH_2)-COOH", document.getElementById('formula-structural'), { throwOnError: false });
+                katex.render("\\text{失去水分子数} = \\text{肽键数} = n - m", document.getElementById('formula-peptides'), { throwOnError: false });
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        // 3. Tab 切换
+        function switchTab(tabName) {
+            state.tab = tabName;
+            
+            // 按钮高亮切换
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+            document.getElementById(`tab-${tabName}`).classList.add('active');
+
+            // 控制面板切换
+            document.getElementById('control-structure').classList.add('hidden');
+            document.getElementById('control-condensation').classList.add('hidden');
+            document.getElementById('control-folding').classList.add('hidden');
+
+            if (tabName === 'structure') {
+                document.getElementById('control-structure').classList.remove('hidden');
+                document.getElementById('hud-mode').innerText = "氨基酸结构通式";
+                document.getElementById('hud-desc').innerText = "点击R基按钮，探究不同R基对氨基酸理化性质的影响";
+            } else if (tabName === 'condensation') {
+                document.getElementById('control-condensation').classList.remove('hidden');
+                document.getElementById('hud-mode').innerText = "脱水缩合动态过程";
+                document.getElementById('hud-desc').innerText = "两个氨基酸靠近：左侧羧基与右侧氨基脱水并牵手";
+                resetCondensation();
+            } else if (tabName === 'folding') {
+                document.getElementById('control-folding').classList.remove('hidden');
+                document.getElementById('hud-mode').innerText = "多肽链折叠与锁钥催化";
+                document.getElementById('hud-desc').innerText = "拉动折叠滑块观察多肽链如何折叠出具有催化活性的酶";
+                updateFoldingParams();
+            }
+            
+            showToast(`切换至: ${tabName === 'structure' ? '氨基酸通式' : tabName === 'condensation' ? '脱水缩合反应' : '多肽链折叠'}`);
+            state.particles = [];
+        }
+
+        // 4. Tab 1: 氨基酸结构逻辑
+        function selectRGroup(rName) {
+            state.rGroup = rName;
+            
+            // 按钮高亮
+            document.querySelectorAll('#control-structure button').forEach(btn => {
+                btn.style.background = 'var(--btn-secondary)';
+                btn.style.border = '1px solid rgba(255, 255, 255, 0.1)';
+            });
+            const activeBtn = document.getElementById(`r-${rName}`);
+            if (activeBtn) {
+                activeBtn.style.background = 'linear-gradient(135deg, #10B981 0%, #06B6D4 100%)';
+                activeBtn.style.border = '1px solid transparent';
+            }
+
+            const data = rGroupsData[rName];
+            document.getElementById('hud-mode').innerText = `${data.name} 结构`;
+            document.getElementById('hud-desc').innerText = `${data.desc} (R基为 ${data.formula})`;
+            
+            showToast(`已选择：${data.name}`);
+            createExplosionParticles(canvas.width / (2 * (window.devicePixelRatio || 1)), canvas.height / (2 * (window.devicePixelRatio || 1)) + 80, data.color);
+        }
+
+        // 5. Tab 2: 脱水缩合逻辑
+        function playCondensation() {
+            if (state.condPlaying) return;
+            resetCondensation();
+            state.condPlaying = true;
+            runCondensationStepByStep();
+        }
+
+        function runCondensationStepByStep() {
+            if (!state.condPlaying) return;
+            if (state.condStep < 4) {
+                state.condStep++;
+                handleCondStepImpact();
+                state.condTimer = setTimeout(runCondensationStepByStep, 2000);
+            } else {
+                state.condPlaying = false;
+                showToast("缩合反应完成！形成稳定二肽");
+            }
+        }
+
+        function stepCondensation() {
+            if (state.condPlaying) {
+                clearTimeout(state.condTimer);
+                state.condPlaying = false;
+            }
+            if (state.condStep < 4) {
+                state.condStep++;
+                handleCondStepImpact();
+            } else {
+                resetCondensation();
+                showToast("重新开始单步缩合");
+            }
+        }
+
+        function resetCondensation() {
+            if (state.condTimer) clearTimeout(state.condTimer);
+            state.condPlaying = false;
+            state.condStep = 0;
+            state.particles = [];
+            document.getElementById('btn-cond-play').disabled = false;
+            document.getElementById('btn-cond-step').disabled = false;
+            document.getElementById('hud-desc').innerText = "两个相邻的氨基酸正蓄势待发。";
+        }
+
+        function handleCondStepImpact() {
+            const w = canvas.width / (window.devicePixelRatio || 1);
+            const h = canvas.height / (window.devicePixelRatio || 1);
+            
+            if (state.condStep === 1) {
+                document.getElementById('hud-desc').innerText = "步骤 1: 两个氨基酸在体液和酶的帮助下靠拢。";
+                showToast("氨基酸相互靠近...");
+            } else if (state.condStep === 2) {
+                document.getElementById('hud-desc').innerText = "步骤 2: 左侧氨基酸羧基的 -OH 与右侧氨基酸的 -H 相互吸引并结合。";
+                showToast("结合点高亮标出...");
+            } else if (state.condStep === 3) {
+                document.getElementById('hud-desc').innerText = "步骤 3: 结合的基团脱去一分子水 (H₂O) 并向上逸出。";
+                showToast("脱水缩合：水分子形成并脱离！");
+                // 产生水分子飞出的粒子
+                createWaterBubbleParticles(w / 2, h / 2 - 30);
+            } else if (state.condStep === 4) {
+                document.getElementById('hud-desc').innerText = "步骤 4: 失去水分的碳、氮原子共用电子对，形成了牢固的【肽键】连接。";
+                showToast("形成肽键，缩合成功！");
+                createExplosionParticles(w / 2, h / 2, '#10B981', 40);
+            }
+        }
+
+        // 6. Tab 3: 折叠与功能逻辑
+        function updateFoldingParams() {
+            const slideN = document.getElementById('slide-n');
+            const slideM = document.getElementById('slide-m');
+            const slideFold = document.getElementById('slide-fold');
+
+            let n = parseInt(slideN.value);
+            let m = parseInt(slideM.value);
+            
+            // 约束：肽链数不能大于等于氨基酸数
+            if (m >= n) {
+                m = n - 1;
+                slideM.value = m;
+            }
+
+            const fold = parseInt(slideFold.value);
+
+            state.folding.n = n;
+            state.folding.m = m;
+            state.folding.foldPercent = fold;
+
+            document.getElementById('val-n').innerText = `${n} 个`;
+            document.getElementById('val-m').innerText = `${m} 条`;
+            document.getElementById('val-fold').innerText = `${fold} %`;
+
+            // 计算肽键数和水数
+            const bonds = n - m;
+            const mass = 128 * n - 18 * bonds;
+
+            document.getElementById('calc-bonds').innerText = `${bonds} 个`;
+            document.getElementById('calc-mass').innerText = `${mass} (平均128)`;
+
+            // 活性检测按钮可用性
+            const btnSubstrate = document.getElementById('btn-substrate');
+            const hintText = document.getElementById('fold-hint-text');
+            if (fold === 100) {
+                btnSubstrate.disabled = false;
+                hintText.innerText = "空间折叠已100%完成！活性口袋拼装就绪";
+                hintText.classList.remove('text-slate-400');
+                hintText.classList.add('text-emerald-400', 'font-semibold');
+            } else {
+                btnSubstrate.disabled = (state.folding.substrateState === 'flying' || state.folding.substrateState === 'docking' || state.folding.substrateState === 'reacting');
+                hintText.innerText = `折叠度较浅 (${fold}%)，空间结构尚未组装好...`;
+                hintText.classList.remove('text-emerald-400', 'font-semibold');
+                hintText.classList.add('text-slate-400');
+                if (state.folding.substrateState !== 'none' && fold < 80 && state.folding.substrateState !== 'failed') {
+                    // 若中途拉低折叠，若正在反应则失败
+                    state.folding.substrateState = 'failed';
+                    showToast("降温/改变pH使蛋白质变性！空间结构破坏，底物脱落！");
+                }
+            }
+        }
+
+        function injectSubstrate() {
+            if (state.folding.substrateState === 'flying' || state.folding.substrateState === 'docking' || state.folding.substrateState === 'reacting') return;
+            
+            const w = canvas.width / (window.devicePixelRatio || 1);
+            const h = canvas.height / (window.devicePixelRatio || 1);
+            
+            state.folding.substrateActive = true;
+            state.folding.substrateX = w / 2;
+            state.folding.substrateY = 30; // 顶部掉落
+            
+            // 设定活性口袋定位
+            state.folding.dockX = w / 2;
+            state.folding.dockY = h / 2 - 20;
+
+            if (state.folding.foldPercent >= 100) {
+                state.folding.substrateState = 'flying';
+                showToast("底物分子进入！正在寻找活性口袋...");
+            } else {
+                state.folding.substrateState = 'flying'; // 低折叠度扔到底物会弹开
+                showToast("非活性状态强行放入底物...");
+            }
+        }
+
+        // 随机实验
+        function randomizeExperiment() {
+            if (state.tab === 'structure') {
+                const keys = ['H', 'CH3', 'Val', 'Glu', 'Lys'];
+                const r = keys[Math.floor(Math.random() * keys.length)];
+                selectRGroup(r);
+            } else if (state.tab === 'condensation') {
+                playCondensation();
+            } else if (state.tab === 'folding') {
+                const n = Math.floor(Math.random() * 12) + 6; // 6 to 17
+                const m = Math.floor(Math.random() * 3) + 1;  // 1 to 3
+                
+                document.getElementById('slide-n').value = n;
+                document.getElementById('slide-m').value = m;
+                document.getElementById('slide-fold').value = 100;
+                
+                updateFoldingParams();
+                showToast("已随机生成完全折叠的蛋白质分子！");
+                injectSubstrate();
+            }
+        }
+
+        function resetExperiment() {
+            if (state.tab === 'structure') {
+                selectRGroup('H');
+            } else if (state.tab === 'condensation') {
+                resetCondensation();
+            } else if (state.tab === 'folding') {
+                document.getElementById('slide-n').value = 12;
+                document.getElementById('slide-m').value = 1;
+                document.getElementById('slide-fold').value = 0;
+                state.folding.substrateState = 'none';
+                state.folding.substrateActive = false;
+                updateFoldingParams();
+                showToast("实验已全部重置");
+            }
+            state.particles = [];
+        }
+
+        // 7. Toast 与动画辅助
+        function showToast(msg) {
+            const toast = document.getElementById('interaction-toast');
+            toast.innerText = msg;
+            toast.style.opacity = 1;
+            setTimeout(() => {
+                toast.style.opacity = 0;
+            }, 3000);
+        }
+
+        function createExplosionParticles(x, y, color, count = 25) {
+            for (let i = 0; i < count; i++) {
+                const angle = Math.random() * Math.PI * 2;
+                const speed = Math.random() * 4 + 1;
+                state.particles.push({
+                    type: 'spark',
+                    x: x,
+                    y: y,
+                    vx: Math.cos(angle) * speed,
+                    vy: Math.sin(angle) * speed,
+                    radius: Math.random() * 2 + 1.5,
+                    color: color,
+                    alpha: 1,
+                    life: Math.random() * 30 + 20
+                });
+            }
+        }
+
+        function createWaterBubbleParticles(x, y) {
+            // 产生水气泡和小水滴粒子
+            for (let i = 0; i < 15; i++) {
+                state.particles.push({
+                    type: 'water',
+                    x: x + (Math.random() - 0.5) * 20,
+                    y: y + (Math.random() - 0.5) * 10,
+                    vx: (Math.random() - 0.5) * 1.5,
+                    vy: -Math.random() * 2 - 1,
+                    radius: Math.random() * 4 + 2,
+                    color: '#22D3EE',
+                    alpha: 0.8,
+                    life: Math.random() * 40 + 40
+                });
+            }
+        }
+
+        // 8. 主渲染循环 (60fps Animation Runtime)
+        let lastTime = 0;
+        const fixedStep = 1 / 60;
+        let accumulator = 0;
+
+        function animationLoop(now) {
+            animationFrameId = requestAnimationFrame(animationLoop);
+
+            const rawDt = (now - lastTime) / 1000;
+            lastTime = now;
+            const dt = Math.min(Math.max(rawDt, 0), 0.033);
+
+            state.time += dt;
+
+            // 固定时间步更新物理
+            accumulator += dt;
+            while (accumulator >= fixedStep) {
+                updatePhysics(fixedStep);
+                accumulator -= fixedStep;
+            }
+
+            // 渲染
+            render();
+        }
+
+        // 9. 物理与逻辑更新
+        function updatePhysics(dt) {
+            // 更新粒子系统
+            for (let i = state.particles.length - 1; i >= 0; i--) {
+                const p = state.particles[i];
+                p.x += p.vx;
+                p.y += p.vy;
+                p.life--;
+                
+                if (p.type === 'water') {
+                    p.alpha = Math.max(0, p.life / 80);
+                    p.radius = Math.max(0.5, p.radius - 0.02);
+                } else {
+                    p.alpha = Math.max(0, p.life / 50);
+                }
+                
+                if (p.life <= 0) {
+                    state.particles.splice(i, 1);
+                }
+            }
+
+            // 更新底物飞行动画（Tab 3）
+            if (state.tab === 'folding' && state.folding.substrateActive) {
+                const s = state.folding;
+                if (s.substrateState === 'flying') {
+                    // 向蛋白质中心（活性口袋）飘落
+                    const dx = s.dockX - s.substrateX;
+                    const dy = s.dockY - s.substrateY;
+                    const dist = Math.sqrt(dx*dx + dy*dy);
+                    
+                    if (dist < 4) {
+                        if (s.foldPercent >= 100) {
+                            s.substrateState = 'docking';
+                            s.substrateX = s.dockX;
+                            s.substrateY = s.dockY;
+                            showToast("底物与活性中心精准贴合（锁钥假说）");
+                        } else {
+                            s.substrateState = 'failed'; // 撞击后弹开
+                            s.vx = (Math.random() - 0.5) * 6;
+                            s.vy = -Math.random() * 3 - 2;
+                            showToast("空间结构不匹配！催化失败！");
+                        }
+                    } else {
+                        s.substrateX += dx * 0.08;
+                        s.substrateY += dy * 0.08;
+                    }
+                } else if (s.substrateState === 'docking') {
+                    // 精准结合，开始诱导契合反应
+                    s.substrateState = 'reacting';
+                    s.reactTimer = 60; // 反应等待帧
+                } else if (s.substrateState === 'reacting') {
+                    s.reactTimer--;
+                    if (s.reactTimer <= 0) {
+                        s.substrateState = 'exploded';
+                        // 产生大量催化爆开的粒子
+                        createExplosionParticles(s.dockX, s.dockY, '#22D3EE', 20);
+                        createExplosionParticles(s.dockX, s.dockY, '#EAB308', 20);
+                        showToast("化学键断裂，底物被水解为两个产物分子，酶重新释放！");
+                    }
+                } else if (s.substrateState === 'failed') {
+                    // 弹开物理下落
+                    s.substrateX += s.vx;
+                    s.substrateY += s.vy;
+                    s.vy += 0.2; // 重力
+                    if (s.substrateY > canvas.height / (window.devicePixelRatio || 1) + 20) {
+                        s.substrateActive = false;
+                        s.substrateState = 'none';
+                    }
+                }
+            }
+        }
+
+        // 10. 绘图渲染核心
+        function render() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            const w = canvas.width / (window.devicePixelRatio || 1);
+            const h = canvas.height / (window.devicePixelRatio || 1);
+
+            // 绘制网格背景，营造科技感
+            drawGrid(w, h);
+
+            if (state.tab === 'structure') {
+                drawStructureMode(w, h);
+            } else if (state.tab === 'condensation') {
+                drawCondensationMode(w, h);
+            } else if (state.tab === 'folding') {
+                drawFoldingMode(w, h);
+            }
+
+            // 绘制粒子
+            drawParticles();
+        }
+
+        function drawGrid(w, h) {
+            ctx.strokeStyle = 'rgba(16, 185, 129, 0.03)';
+            ctx.lineWidth = 1;
+            const step = 40;
+            
+            for (let x = 0; x < w; x += step) {
+                ctx.beginPath();
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x, h);
+                ctx.stroke();
+            }
+            for (let y = 0; y < h; y += step) {
+                ctx.beginPath();
+                ctx.moveTo(0, y);
+                ctx.lineTo(w, y);
+                ctx.stroke();
+            }
+        }
+
+        // 绘制粒子系统
+        function drawParticles() {
+            state.particles.forEach(p => {
+                ctx.save();
+                ctx.globalAlpha = p.alpha;
+                ctx.fillStyle = p.color;
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+                ctx.fill();
+                
+                if (p.type === 'water') {
+                    ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+                    ctx.lineWidth = 0.5;
+                    ctx.stroke();
+                }
+                ctx.restore();
+            });
+        }
+
+        // TAB 1: 绘制氨基酸基本通式
+        function drawStructureMode(w, h) {
+            const cx = w / 2;
+            const cy = h / 2 - 20;
+            const rData = rGroupsData[state.rGroup];
+
+            // 晃动漂浮感偏置
+            const offset = Math.sin(state.time * 2) * 5;
+
+            // 原子坐标定义
+            const atoms = {
+                C: { x: cx, y: cy + offset, label: 'C', radius: 24, fill: '#64748B', desc: '中心碳原子' },
+                H: { x: cx, y: cy - 100 + offset, label: 'H', radius: 18, fill: '#E2E8F0', textColor: '#0F172A', desc: '氢原子' },
+                N: { x: cx - 110, y: cy + offset, label: 'N', radius: 22, fill: '#3B82F6', desc: '氮原子' },
+                H1: { x: cx - 150, y: cy - 40 + offset, label: 'H', radius: 14, fill: '#E2E8F0', textColor: '#0F172A' },
+                H2: { x: cx - 150, y: cy + 40 + offset, label: 'H', radius: 14, fill: '#E2E8F0', textColor: '#0F172A' },
+                CO: { x: cx + 110, y: cy + offset, label: 'C', radius: 22, fill: '#64748B', desc: '羧基碳原子' },
+                O1: { x: cx + 150, y: cy - 40 + offset, label: 'O', radius: 20, fill: '#EF4444', desc: '氧原子' },
+                O2: { x: cx + 150, y: cy + 40 + offset, label: 'O', radius: 20, fill: '#EF4444', desc: '氧原子' },
+                H3: { x: cx + 190, y: cy + 60 + offset, label: 'H', radius: 14, fill: '#E2E8F0', textColor: '#0F172A' },
+                R: { x: cx, y: cy + 100 + offset, label: 'R', radius: 26, fill: rData.color, glow: true, desc: 'R基 (侧链基团)' }
+            };
+
+            // 1. 绘制连线(棍)
+            ctx.lineWidth = 6;
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+            
+            // C-H
+            drawLine(atoms.C, atoms.H);
+            // C-N (氨基)
+            drawLine(atoms.C, atoms.N);
+            drawLine(atoms.N, atoms.H1);
+            drawLine(atoms.N, atoms.H2);
+            // C-COOH (羧基)
+            drawLine(atoms.C, atoms.CO);
+            // 双键 C=O
+            drawDoubleLine(atoms.CO, atoms.O1);
+            drawLine(atoms.CO, atoms.O2);
+            drawLine(atoms.O2, atoms.H3);
+            // C-R
+            drawLine(atoms.C, atoms.R);
+
+            // 2. 绘制原子(球)
+            Object.keys(atoms).forEach(key => {
+                const a = atoms[key];
+                
+                // R基发光
+                if (a.glow) {
+                    ctx.save();
+                    ctx.shadowBlur = 25;
+                    ctx.shadowColor = a.fill;
+                    drawBall(a);
+                    ctx.restore();
+                } else {
+                    drawBall(a);
+                }
+            });
+
+            // 3. 绘制框框和基团名称标签
+            drawGroupLabel(cx - 130, cy + offset - 80, "氨基 (—NH₂)", "#3B82F6");
+            drawGroupLabel(cx + 130, cy + offset - 80, "羧基 (—COOH)", "#EF4444");
+            drawGroupLabel(cx - 80, cy + offset + 120, "侧链基团 (R基)", rData.color);
+
+            // 4. 文字标注具体R基的信息
+            ctx.fillStyle = '#CBD5E1';
+            ctx.font = '13px Inter';
+            ctx.textAlign = 'center';
+            ctx.fillText(`当前R基化学结构：${rData.formula}，属于 ${rData.name}`, cx, cy + 175 + offset);
+        }
+
+        // TAB 2: 绘制脱水缩合动画
+        function drawCondensationMode(w, h) {
+            const cy = h / 2 - 20;
+            const progress = state.condStep;
+
+            // 水平相对位移 (步骤 1 开始靠近)
+            let slideOffset = 130;
+            if (progress >= 1) slideOffset = 50; // 靠拢
+
+            const leftCX = w / 2 - slideOffset;
+            const rightCX = w / 2 + slideOffset;
+
+            // 绘制两个氨基酸
+            // 氨基酸1 (左)
+            const aa1 = {
+                C: { x: leftCX, y: cy, label: 'C', radius: 18, fill: '#64748B' },
+                H: { x: leftCX, y: cy - 60, label: 'H', radius: 13, fill: '#E2E8F0', textColor: '#0F172A' },
+                N: { x: leftCX - 60, y: cy, label: 'N', radius: 17, fill: '#3B82F6' },
+                R: { x: leftCX, y: cy + 60, label: 'R₁', radius: 19, fill: '#10B981' },
+                CO: { x: leftCX + 50, y: cy, label: 'C', radius: 17, fill: '#64748B' },
+                O: { x: leftCX + 50, y: cy - 40, label: 'O', radius: 15, fill: '#EF4444' },
+                OH: { x: leftCX + 85, y: cy + 25, label: 'OH', radius: 16, fill: '#EF4444' } // 准备脱水的OH
+            };
+
+            // 氨基酸2 (右)
+            const aa2 = {
+                C: { x: rightCX, y: cy, label: 'C', radius: 18, fill: '#64748B' },
+                H: { x: rightCX, y: cy - 60, label: 'H', radius: 13, fill: '#E2E8F0', textColor: '#0F172A' },
+                N: { x: rightCX - 50, y: cy, label: 'N', radius: 17, fill: '#3B82F6' },
+                R: { x: rightCX, y: cy + 60, label: 'R₂', radius: 19, fill: '#0EA5E9' },
+                CO: { x: rightCX + 60, y: cy, label: 'C', radius: 17, fill: '#64748B' },
+                O: { x: rightCX + 60, y: cy - 40, label: 'O', radius: 15, fill: '#EF4444' },
+                OH: { x: rightCX + 95, y: cy + 25, label: 'OH', radius: 16, fill: '#EF4444' },
+                H_del: { x: rightCX - 80, y: cy - 25, label: 'H', radius: 12, fill: '#E2E8F0', textColor: '#0F172A' } // 准备脱水的H
+            };
+
+            // 步骤3: 水分子飞出。此时 OH 和 H_del 位置做漂移动画
+            if (progress >= 3) {
+                // OH 与 H 融合升空动画
+                const timeFactor = (state.time * 2) % 3;
+                aa1.OH.y -= timeFactor * 40;
+                aa1.OH.x += (rightCX - leftCX - 35) / 2 * Math.min(1, timeFactor);
+                aa1.OH.label = "H₂O";
+                aa1.OH.fill = '#22D3EE';
+                aa1.OH.radius = 20;
+
+                aa2.H_del.alpha = 0; // H 融合进水里，隐藏
+            }
+
+            // 1. 连线
+            ctx.lineWidth = 4;
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+
+            // 左侧分子连线
+            drawLine(aa1.C, aa1.H);
+            drawLine(aa1.C, aa1.N);
+            drawLine(aa1.C, aa1.R);
+            drawLine(aa1.C, aa1.CO);
+            drawLine(aa1.CO, aa1.O);
+            if (progress < 3) drawLine(aa1.CO, aa1.OH);
+
+            // 右侧分子连线
+            drawLine(aa2.C, aa2.H);
+            drawLine(aa2.C, aa2.N);
+            drawLine(aa2.C, aa2.R);
+            drawLine(aa2.C, aa2.CO);
+            drawLine(aa2.CO, aa2.O);
+            drawLine(aa2.CO, aa2.OH);
+            if (progress < 3) drawLine(aa2.N, aa2.H_del);
+
+            // 步骤4: 连起肽键
+            if (progress >= 4) {
+                ctx.save();
+                ctx.strokeStyle = '#10B981';
+                ctx.lineWidth = 6;
+                ctx.shadowBlur = 15;
+                ctx.shadowColor = '#10B981';
+                drawLine(aa1.CO, aa2.N);
+                ctx.restore();
+            }
+
+            // 2. 绘制球
+            Object.keys(aa1).forEach(k => {
+                if (progress >= 3 && k === 'OH') {
+                    // 绘制升空的水分子 bubble
+                    ctx.save();
+                    ctx.shadowBlur = 10;
+                    ctx.shadowColor = '#22D3EE';
+                    drawBall(aa1.OH);
+                    ctx.restore();
+                } else {
+                    drawBall(aa1[k]);
+                }
+            });
+
+            Object.keys(aa2).forEach(k => {
+                if (aa2[k].alpha !== 0) drawBall(aa2[k]);
+            });
+
+            // 3. 步骤 2 圈出脱去基团高亮
+            if (progress === 2) {
+                ctx.strokeStyle = '#EF4444';
+                ctx.lineWidth = 2.5;
+                ctx.setLineDash([4, 4]);
+                
+                // 圈出左边 OH
+                ctx.beginPath();
+                ctx.arc(aa1.OH.x, aa1.OH.y, 24, 0, Math.PI * 2);
+                ctx.stroke();
+
+                // 圈出右边 H
+                ctx.beginPath();
+                ctx.arc(aa2.H_del.x, aa2.H_del.y, 20, 0, Math.PI * 2);
+                ctx.stroke();
+                
+                ctx.setLineDash([]);
+                ctx.fillStyle = '#EF4444';
+                ctx.font = 'bold 11px Inter';
+                ctx.textAlign = 'center';
+                ctx.fillText("释放 —OH", aa1.OH.x, aa1.OH.y + 36);
+                ctx.fillText("释放 —H", aa2.H_del.x, aa2.H_del.y - 28);
+            }
+
+            // 4. 步骤 4 肽键闪光和文字
+            if (progress >= 4) {
+                const pMidX = (aa1.CO.x + aa2.N.x) / 2;
+                const pMidY = (aa1.CO.y + aa2.N.y) / 2;
+                drawGroupLabel(pMidX - 45, pMidY - 35, "肽键 (—CO—NH—)", "#10B981");
+            }
+        }
+
+        // TAB 3: 多肽链折叠与多样性
+        function drawFoldingMode(w, h) {
+            const n = state.folding.n;
+            const m = state.folding.m;
+            const fold = state.folding.foldPercent / 100;
+
+            const cx = w / 2;
+            const cy = h / 2 - 20;
+
+            // 1. 将 n 个氨基酸分配给 m 条肽链
+            const baseCount = Math.floor(n / m);
+            const extra = n % m;
+            const chainLengths = [];
+            for (let j = 0; j < m; j++) {
+                chainLengths.push(baseCount + (j < extra ? 1 : 0));
+            }
+
+            // 2. 为每个小球计算当前坐标
+            const chains = [];
+            let globalIdx = 0;
+
+            for (let j = 0; j < m; j++) {
+                const len = chainLengths[j];
+                const chainPoints = [];
+                for (let i = 0; i < len; i++) {
+                    // 直线状态 (0%) 的坐标
+                    // 每条链左右居中，且上下平行排列
+                    const startX = cx - (len - 1) * 20 + i * 40;
+                    const startY = cy - (m - 1) * 25 + j * 50 + Math.sin(state.time * 4 + globalIdx) * 6;
+
+                    // 折叠状态 (100%) 的坐标：它们在大环的不同位置，但依然拼装成一个酶
+                    const angle = (globalIdx / (n - 1)) * Math.PI * 1.5 - Math.PI * 0.25; // 缺口朝上
+                    const r = 60 + Math.sin(state.time * 2 + globalIdx * 0.5) * 2;
+                    
+                    let foldX, foldY;
+                    if (globalIdx >= Math.floor(n/2) - 1 && globalIdx <= Math.floor(n/2) + 1) {
+                        foldX = cx + Math.cos(angle) * (r - 25);
+                        foldY = cy + Math.sin(angle) * (r - 25);
+                    } else {
+                        foldX = cx + Math.cos(angle) * r;
+                        foldY = cy + Math.sin(angle) * r;
+                    }
+
+                    // 线性插值
+                    const px = startX + (foldX - startX) * fold;
+                    const py = startY + (foldY - startY) * fold;
+
+                    const colorMap = ['#10B981', '#0EA5E9', '#F59E0B', '#EF4444', '#A855F7'];
+                    const pColor = colorMap[globalIdx % colorMap.length];
+
+                    chainPoints.push({ x: px, y: py, color: pColor, globalIdx: globalIdx });
+                    globalIdx++;
+                }
+                chains.push(chainPoints);
+            }
+
+            // 3. 绘制骨架线（每条链画自己的，链与链之间是不连线的）
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
+            ctx.lineWidth = 4;
+            chains.forEach(chain => {
+                if (chain.length > 0) {
+                    ctx.beginPath();
+                    ctx.moveTo(chain[0].x, chain[0].y);
+                    for (let i = 1; i < chain.length; i++) {
+                        ctx.lineTo(chain[i].x, chain[i].y);
+                    }
+                    ctx.stroke();
+                }
+            });
+
+            // 4. 绘制氢键虚线（二级结构示意，折叠比例在 25% - 75% 时显著）
+            if (fold > 0.1 && fold < 0.9) {
+                ctx.strokeStyle = 'rgba(234, 179, 8, 0.35)';
+                ctx.lineWidth = 1.5;
+                ctx.setLineDash([3, 3]);
+                chains.forEach(chain => {
+                    for (let i = 0; i < chain.length - 3; i++) {
+                        ctx.beginPath();
+                        ctx.moveTo(chain[i].x, chain[i].y);
+                        ctx.lineTo(chain[i+3].x, chain[i+3].y);
+                        ctx.stroke();
+                    }
+                });
+                ctx.setLineDash([]);
+                
+                ctx.fillStyle = '#EAB308';
+                ctx.font = '10px Inter';
+                ctx.textAlign = 'center';
+                ctx.fillText("氢键维持二级结构 (α-螺旋/β-折叠)", cx, cy - 90);
+            }
+
+            // 5. 绘制蛋白质的整体外廓（100% 折叠时呈现酶的形状）
+            if (fold >= 0.95) {
+                ctx.fillStyle = 'rgba(16, 185, 129, 0.04)';
+                ctx.strokeStyle = 'rgba(16, 185, 129, 0.15)';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.arc(cx, cy, 95, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.stroke();
+
+                // 活性中心高亮虚线圈
+                ctx.strokeStyle = 'rgba(34, 211, 238, 0.6)';
+                ctx.lineWidth = 1.5;
+                ctx.setLineDash([3, 2]);
+                ctx.beginPath();
+                ctx.arc(cx, cy - 25, 30, 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.setLineDash([]);
+                
+                ctx.fillStyle = '#22D3EE';
+                ctx.font = 'bold 11px Inter';
+                ctx.textAlign = 'center';
+                ctx.fillText("活性口袋", cx, cy - 65);
+            }
+
+            // 6. 绘制每个氨基酸小球
+            chains.forEach(chain => {
+                chain.forEach(p => {
+                    ctx.fillStyle = p.color;
+                    ctx.beginPath();
+                    ctx.arc(p.x, p.y, 9, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.strokeStyle = '#050B14';
+                    ctx.lineWidth = 1.5;
+                    ctx.stroke();
+                });
+            });
+
+            // 7. 绘制底物与功能检验
+            if (state.folding.substrateActive) {
+                const s = state.folding;
+                ctx.save();
+                
+                if (s.substrateState === 'exploded') {
+                    // 被催化水解，分裂为两个分子产物飞走
+                    const splitOffset = (state.time * 60) % 200;
+                    ctx.fillStyle = '#EF4444'; // 产物1: 红色
+                    ctx.beginPath();
+                    ctx.arc(s.dockX - splitOffset * 0.6, s.dockY - splitOffset * 0.3, 8, 0, Math.PI * 2);
+                    ctx.fill();
+
+                    ctx.fillStyle = '#EAB308'; // 产物2: 黄色
+                    ctx.beginPath();
+                    ctx.arc(s.dockX + splitOffset * 0.6, s.dockY - splitOffset * 0.3, 8, 0, Math.PI * 2);
+                    ctx.fill();
+                } else {
+                    // 绘制底物：锁钥匹配异形结构
+                    ctx.shadowBlur = 10;
+                    ctx.shadowColor = '#22D3EE';
+                    ctx.fillStyle = '#22D3EE';
+                    ctx.beginPath();
+                    
+                    // 画一个能够塞进活性口袋的契合拼图
+                    ctx.arc(s.substrateX, s.substrateY, 12, 0, Math.PI * 2);
+                    ctx.fill();
+
+                    // 文字 'Substrate'
+                    ctx.fillStyle = '#0F172A';
+                    ctx.font = '9px Inter';
+                    ctx.textAlign = 'center';
+                    ctx.fillText("底物", s.substrateX, s.substrateY + 3);
+                }
+                ctx.restore();
+            }
+        }
+
+        // 11. 基础图形绘制辅助函数
+        function drawLine(p1, p2) {
+            ctx.beginPath();
+            ctx.moveTo(p1.x, p1.y);
+            ctx.lineTo(p2.x, p2.y);
+            ctx.stroke();
+        }
+
+        function drawDoubleLine(p1, p2) {
+            const angle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
+            const ox = Math.sin(angle) * 3;
+            const oy = Math.cos(angle) * 3;
+            
+            ctx.beginPath();
+            ctx.moveTo(p1.x + ox, p1.y - oy);
+            ctx.lineTo(p2.x + ox, p2.y - oy);
+            ctx.moveTo(p1.x - ox, p1.y + oy);
+            ctx.lineTo(p2.x - ox, p2.y + oy);
+            ctx.stroke();
+        }
+
+        function drawBall(b) {
+            ctx.fillStyle = b.fill;
+            ctx.beginPath();
+            ctx.arc(b.x, b.y, b.radius, 0, Math.PI * 2);
+            ctx.fill();
+            
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+            ctx.lineWidth = 1;
+            ctx.stroke();
+
+            // 内高光效果
+            const grad = ctx.createRadialGradient(b.x - b.radius * 0.3, b.y - b.radius * 0.3, b.radius * 0.1, b.x, b.y, b.radius);
+            grad.addColorStop(0, 'rgba(255, 255, 255, 0.2)');
+            grad.addColorStop(1, 'rgba(0, 0, 0, 0.35)');
+            ctx.fillStyle = grad;
+            ctx.beginPath();
+            ctx.arc(b.x, b.y, b.radius, 0, Math.PI * 2);
+            ctx.fill();
+
+            if (b.label) {
+                ctx.fillStyle = b.textColor || '#F8FAFC';
+                ctx.font = `bold ${b.radius > 16 ? 12 : 10}px Inter`;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(b.label, b.x, b.y);
+            }
+        }
+
+        function drawGroupLabel(x, y, text, color) {
+            ctx.save();
+            ctx.fillStyle = 'rgba(6, 20, 24, 0.85)';
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 1;
+            
+            // 绘制气泡底板
+            const textWidth = ctx.measureText(text).width + 16;
+            roundRect(ctx, x, y, textWidth, 22, 6);
+            ctx.fill();
+            ctx.stroke();
+
+            // 绘制文字
+            ctx.fillStyle = color;
+            ctx.font = '10px Inter';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(text, x + textWidth / 2, y + 11);
+            ctx.restore();
+        }
+
+        function roundRect(ctx, x, y, width, height, radius) {
+            ctx.beginPath();
+            ctx.moveTo(x + radius, y);
+            ctx.lineTo(x + width - radius, y);
+            ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+            ctx.lineTo(x + width, y + height - radius);
+            ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+            ctx.lineTo(x + radius, y + height);
+            ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+            ctx.lineTo(x, y + radius);
+            ctx.quadraticCurveTo(x, y, x + radius, y);
+            ctx.closePath();
+        }
+    </script>
+</body>
+</html>

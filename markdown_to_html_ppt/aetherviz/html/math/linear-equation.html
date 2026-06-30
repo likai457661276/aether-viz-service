@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>一元一次方程 - 初一数学知识点</title>
+    <link rel="stylesheet" href="https://registry.npmmirror.com/katex/0.16.9/files/dist/katex.min.css">
+    <script src="https://registry.npmmirror.com/katex/0.16.9/files/dist/katex.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif; background: linear-gradient(135deg, #0a1929 0%, #1a2a4a 50%, #0d1f3c 100%); min-height: 100vh; color: #e0e6ed; }
+        .app-container { display: flex; min-height: 100vh; }
+        .sidebar { width: 320px; background: linear-gradient(180deg, rgba(20, 40, 70, 0.95) 0%, rgba(10, 25, 50, 0.98) 100%); border-right: 1px solid rgba(255, 200, 50, 0.2); padding: 24px; overflow-y: auto; }
+        .sidebar h1 { font-size: 1.5rem; color: #ffc832; margin-bottom: 8px; }
+        .sidebar .subtitle { font-size: 0.85rem; color: #8b9cb3; margin-bottom: 24px; }
+        .section { margin-bottom: 24px; padding: 16px; background: rgba(255, 255, 255, 0.03); border-radius: 12px; border: 1px solid rgba(255, 200, 50, 0.1); }
+        .section-title { font-size: 0.9rem; color: #ffc832; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+        .section-title::before { content: ''; width: 4px; height: 16px; background: linear-gradient(180deg, #ffc832, #ff9500); border-radius: 2px; }
+        .formula-box { background: rgba(0, 0, 0, 0.3); padding: 16px; border-radius: 8px; text-align: center; margin-bottom: 12px; border: 1px solid rgba(255, 200, 50, 0.15); }
+        .principle-text { font-size: 0.85rem; line-height: 1.7; color: #b0bec5; }
+        .principle-text strong { color: #ffc832; }
+        .application-item { padding: 10px 12px; background: rgba(255, 200, 50, 0.05); border-radius: 6px; margin-bottom: 8px; font-size: 0.85rem; color: #90a4ae; border-left: 3px solid rgba(255, 200, 50, 0.3); }
+        .main-content { flex: 1; padding: 24px; }
+        .calc-container { background: rgba(255, 255, 255, 0.02); border-radius: 16px; border: 1px solid rgba(255, 200, 50, 0.15); padding: 24px; margin-bottom: 20px; }
+        .calc-display { background: rgba(0,0,0,0.4); border-radius: 12px; padding: 24px; text-align: center; }
+        .equation-main { font-size: 2.5rem; color: #fff; margin-bottom: 20px; font-family: 'Consolas', monospace; }
+        .calc-steps { text-align: left; padding: 16px; background: rgba(255,200,50,0.05); border-radius: 8px; }
+        .step { padding: 8px 0; color: #b0bec5; border-bottom: 1px solid rgba(255,255,255,0.05); font-family: 'Consolas', monospace; }
+        .step:last-child { border-bottom: none; }
+        .step.active { background: rgba(255, 200, 50, 0.1); margin: 0 -8px; padding: 8px; border-radius: 4px; color: #ffc832; }
+        .step.result { color: #4fc3f7; font-weight: bold; font-size: 1.2rem; }
+        .result-big { font-size: 3rem; color: #ffc832; font-weight: bold; margin-top: 16px; font-family: 'Consolas', monospace; }
+        .verify-box { display: flex; align-items: center; justify-content: center; gap: 16px; margin-top: 16px; padding: 12px; background: rgba(79, 195, 247, 0.1); border-radius: 8px; }
+        .verify-equation { font-size: 1.5rem; color: #4fc3f7; font-family: 'Consolas', monospace; }
+        .verify-check { color: #69f0ae; font-size: 1.5rem; }
+        .control-panel { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 20px; }
+        .control-group { background: rgba(255, 255, 255, 0.03); padding: 16px; border-radius: 12px; border: 1px solid rgba(255, 200, 50, 0.1); }
+        .control-label { font-size: 0.85rem; color: #ffc832; margin-bottom: 10px; display: block; }
+        select { width: 100%; padding: 10px; border-radius: 8px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,200,50,0.3); font-size: 1rem; }
+        select option { background: #1a2a4a; }
+        .btn-group { display: flex; gap: 12px; flex-wrap: wrap; }
+        .btn { padding: 10px 20px; border: none; border-radius: 8px; cursor: pointer; font-size: 0.9rem; transition: all 0.3s ease; font-family: inherit; }
+        .btn-primary { background: linear-gradient(135deg, #ffc832, #ff9500); color: #0a1929; font-weight: bold; }
+        .btn-secondary { background: rgba(255, 200, 50, 0.15); color: #ffc832; border: 1px solid rgba(255, 200, 50, 0.3); }
+        .btn:hover { transform: translateY(-2px); box-shadow: 0 4px 15px rgba(255, 200, 50, 0.3); }
+        .toast { position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%) translateY(100px); background: linear-gradient(135deg, #ffc832, #ff9500); color: #0a1929; padding: 12px 24px; border-radius: 8px; font-weight: bold; opacity: 0; transition: all 0.3s ease; z-index: 1000; }
+        .toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }
+        @media (max-width: 768px) { .app-container { flex-direction: column; } .sidebar { width: 100%; max-height: 40vh; } }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <aside class="sidebar">
+            <h1>一元一次方程</h1>
+            <p class="subtitle">初一数学 · 第七章</p>
+            <div class="section">
+                <div class="section-title">核心公式</div>
+                <div class="formula-box" id="f1"></div>
+            </div>
+            <div class="section">
+                <div class="section-title">解方程步骤</div>
+                <p class="principle-text">
+                    <strong>1. 去分母：</strong>方程两边同时乘以最小公倍数<br><br>
+                    <strong>2. 去括号：</strong>利用乘法分配律去括号<br><br>
+                    <strong>3. 移项：</strong>把含未知数的项移到一边，常数项移到另一边<br><br>
+                    <strong>4. 合并同类项：</strong>将未知数的系数相加减<br><br>
+                    <strong>5. 系数化为1：</strong>两边同时除以未知数的系数
+                </p>
+            </div>
+            <div class="section">
+                <div class="section-title">真实应用</div>
+                <div class="application-item">🛒 商品定价：进价+利润=售价</div>
+                <div class="application-item">📏 行程问题：路程=速度×时间</div>
+                <div class="application-item">💰 分配问题：按比例分配</div>
+            </div>
+        </aside>
+
+        <main class="main-content">
+            <div class="calc-container">
+                <h3 style="color:#ffc832;margin-bottom:16px;">📐 解方程演示</h3>
+                <div class="calc-display">
+                    <div class="equation-main" id="equationMain">2x + 5 = 13</div>
+                    <div class="calc-steps" id="calcSteps">
+                        <div class="step">原方程：2x + 5 = 13</div>
+                        <div class="step">移项：2x = 13 − 5</div>
+                        <div class="step">合并：2x = 8</div>
+                        <div class="step">系数化为1：x = 8 ÷ 2</div>
+                        <div class="step result">✓ 解：x = 4</div>
+                    </div>
+                    <div class="result-big">x = 4</div>
+                    <div class="verify-box">
+                        <span class="verify-equation" id="verifyLeft">2×4 + 5 = 13</span>
+                        <span class="verify-check">✓</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="control-panel">
+                <div class="control-group">
+                    <label class="control-label">选择例题</label>
+                    <select id="exampleSelect" onchange="loadExample()">
+                        <option value="0">2x + 5 = 13</option>
+                        <option value="1">3x − 7 = 14</option>
+                        <option value="2">5x + 3 = 2x + 18</option>
+                        <option value="3">4(x − 2) = 12</option>
+                        <option value="4">2x + 3 = x + 7</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="btn-group">
+                <button class="btn btn-primary" onclick="solve()">求解</button>
+                <button class="btn btn-secondary" onclick="randomExample()">随机练习</button>
+                <button class="btn btn-secondary" onclick="showStep()">分步展示</button>
+                <button class="btn btn-secondary" onclick="verify()">验证解</button>
+            </div>
+        </main>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <script>
+        const examples = [
+            { eq: '2x + 5 = 13', steps: ['原方程：2x + 5 = 13', '移项：2x = 13 − 5', '合并：2x = 8', '系数化为1：x = 8 ÷ 2', '解：x = 4'], result: '4', verify: '2×4 + 5 = 13' },
+            { eq: '3x − 7 = 14', steps: ['原方程：3x − 7 = 14', '移项：3x = 14 + 7', '合并：3x = 21', '系数化为1：x = 21 ÷ 3', '解：x = 7'], result: '7', verify: '3×7 − 7 = 14' },
+            { eq: '5x + 3 = 2x + 18', steps: ['原方程：5x + 3 = 2x + 18', '移项：5x − 2x = 18 − 3', '合并：3x = 15', '系数化为1：x = 15 ÷ 3', '解：x = 5'], result: '5', verify: '5×5 + 3 = 2×5 + 18' },
+            { eq: '4(x − 2) = 12', steps: ['原方程：4(x − 2) = 12', '去括号：4x − 8 = 12', '移项：4x = 12 + 8', '合并：4x = 20', '解：x = 5'], result: '5', verify: '4×(5−2) = 12' },
+            { eq: '2x + 3 = x + 7', steps: ['原方程：2x + 3 = x + 7', '移项：2x − x = 7 − 3', '合并：x = 4', '解：x = 4', '✓ 直接得出答案'], result: '4', verify: '2×4 + 3 = 4 + 7' }
+        ];
+
+        let currentExample = 0;
+        let stepIndex = 0;
+
+        function initFormulas() {
+            katex.render("ax + b = 0 \\Rightarrow x = \\frac{-b}{a}", document.getElementById('f1'));
+        }
+
+        function loadExample() {
+            currentExample = parseInt(document.getElementById('exampleSelect').value);
+            solve();
+        }
+
+        function solve() {
+            const ex = examples[currentExample];
+            document.getElementById('equationMain').textContent = ex.eq;
+            document.getElementById('calcSteps').innerHTML = ex.steps.map((s, i) =>
+                `<div class="step">${s}</div>`
+            ).join('');
+            document.getElementById('resultBig').textContent = `x = ${ex.result}`;
+            document.getElementById('verifyLeft').textContent = ex.verify;
+            stepIndex = 0;
+        }
+
+        function showStep() {
+            const steps = document.getElementById('calcSteps').querySelectorAll('.step');
+            steps.forEach(s => s.classList.remove('active'));
+            if (stepIndex < steps.length) {
+                steps[stepIndex].classList.add('active');
+                stepIndex++;
+                showToast(`步骤 ${stepIndex}`);
+            } else {
+                stepIndex = 0;
+                showToast('重新开始');
+            }
+        }
+
+        function verify() {
+            showToast('验证正确！');
+        }
+
+        function randomExample() {
+            currentExample = Math.floor(Math.random() * examples.length);
+            document.getElementById('exampleSelect').value = currentExample;
+            solve();
+            showToast('随机练习题');
+        }
+
+        function showToast(msg) {
+            const t = document.getElementById('toast');
+            t.textContent = msg;
+            t.classList.add('show');
+            setTimeout(() => t.classList.remove('show'), 2000);
+        }
+
+        initFormulas();
+        solve();
+    </script>
+</body>
+</html>

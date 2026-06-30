@@ -1,0 +1,1114 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>化学反应速率与碰撞理论 | Chemical Reaction Rate</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- KaTeX 公式渲染库 -->
+    <link rel="stylesheet" href="https://cdn.staticfile.net/KaTeX/0.16.9/katex.min.css">
+    <script src="https://cdn.staticfile.net/KaTeX/0.16.9/katex.min.js"></script>
+    <script src="https://cdn.staticfile.net/KaTeX/0.16.9/contrib/auto-render.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap');
+        
+        :root {
+            --bg-gradient: linear-gradient(180deg, #090D1A 0%, #111A2E 50%, #090D1A 100%);
+            --glass-bg: rgba(10, 20, 35, 0.75);
+            --glass-border: rgba(255, 255, 255, 0.08);
+            --glass-border-glow: rgba(245, 158, 11, 0.25);
+            --text-primary: #F8FAFC;
+            --text-secondary: #CBD5E1;
+            --text-muted: #64748B;
+            --accent-a: #3B82F6; /* 反应物 A: 蓝色 */
+            --accent-b: #EF4444; /* 反应物 B: 红色 */
+            --accent-c: #A855F7; /* 生成物 C: 紫色 */
+            --theme-chemistry: linear-gradient(135deg, #F59E0B 0%, #EF4444 100%);
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            user-select: none;
+        }
+        
+        html, body {
+            height: 100vh;
+            overflow: hidden;
+        }
+        
+        body { 
+            font-family: 'Inter', 'Outfit', sans-serif; 
+            background: var(--bg-gradient); 
+            color: var(--text-primary); 
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .glass-panel { 
+            background: var(--glass-bg); 
+            backdrop-filter: blur(16px); 
+            border: 1px solid var(--glass-border);
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.45);
+            transition: all 0.3s ease;
+        }
+
+        .glass-panel:hover {
+            border-color: var(--glass-border-glow);
+            box-shadow: 0 8px 32px 0 rgba(245, 158, 11, 0.15);
+        }
+        
+        .btn-glow {
+            background: linear-gradient(135deg, #F59E0B 0%, #EF4444 100%);
+            box-shadow: 0 0 12px rgba(245, 158, 11, 0.3);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        
+        .btn-glow:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 0 20px rgba(245, 158, 11, 0.6);
+            background: linear-gradient(135deg, #FBBF24 0%, #F87171 100%);
+        }
+
+        .btn-glow:active:not(:disabled) {
+            transform: translateY(0);
+        }
+
+        .btn-glow:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            box-shadow: none;
+        }
+
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            background: #F59E0B;
+            box-shadow: 0 0 10px rgba(245, 158, 11, 0.8);
+            border: 2px solid #FFFFFF;
+            cursor: pointer;
+            transition: transform 0.1s ease;
+        }
+        input[type="range"]::-webkit-slider-thumb:hover {
+            transform: scale(1.25);
+        }
+    </style>
+</head>
+<body class="w-full h-full flex flex-col">
+    <!-- 顶部导航栏 -->
+    <nav class="h-[70px] w-full px-6 flex items-center justify-between border-b border-amber-500/10 bg-slate-950/80 backdrop-blur-md z-50">
+        <div class="flex flex-col">
+            <h1 class="text-xl font-bold bg-gradient-to-r from-amber-400 via-orange-500 to-red-500 bg-clip-text text-transparent">
+                化学反应速率与碰撞理论 | Chemical Reaction Rate
+            </h1>
+            <p class="text-xs text-[#64748B] font-mono mt-0.5">微观动力学本质：有效碰撞与活化能</p>
+        </div>
+        <div class="flex gap-3">
+            <button onclick="resetExperiment()" class="btn-glow px-5 py-2 rounded-lg text-sm font-semibold text-white">重置实验</button>
+            <button onclick="randomizeExperiment()" class="btn-glow px-5 py-2 rounded-lg text-sm font-semibold text-white">随机实验</button>
+        </div>
+    </nav>
+    
+    <!-- 主体区域：左中右布局 -->
+    <div class="flex-1 flex overflow-hidden relative">
+        <!-- 左侧面板 (学习目标与原理) -->
+        <aside class="w-[320px] h-full overflow-y-auto border-r border-amber-500/10 bg-slate-900/40 backdrop-blur-md p-5 z-10 flex flex-col gap-6 no-scrollbar flex-shrink-0">
+            <!-- 学习目标 -->
+            <section class="glass-panel rounded-2xl p-4">
+                <h2 class="text-amber-400 font-bold text-sm mb-3 tracking-wide flex items-center gap-2">
+                    <span class="inline-block w-1.5 h-3 bg-amber-500 rounded-full"></span>学习目标
+                </h2>
+                <div class="flex flex-col gap-3 text-xs leading-relaxed text-slate-300">
+                    <label class="flex items-start gap-2.5 cursor-pointer">
+                        <input type="checkbox" checked class="mt-0.5 accent-amber-500 rounded" disabled>
+                        <span>掌握化学反应速率的概念与微观碰撞理论</span>
+                    </label>
+                    <label class="flex items-start gap-2.5 cursor-pointer">
+                        <input type="checkbox" id="goal-2" class="mt-0.5 accent-amber-500 rounded">
+                        <span>探究温度、浓度和催化剂对反应速率的影响</span>
+                    </label>
+                    <label class="flex items-start gap-2.5 cursor-pointer">
+                        <input type="checkbox" id="goal-3" class="mt-0.5 accent-amber-500 rounded">
+                        <span>理解活化能及活化分子所占比率的意义</span>
+                    </label>
+                </div>
+            </section>
+            
+            <!-- 反应原理与计算 -->
+            <section class="glass-panel rounded-2xl p-4">
+                <h2 class="text-amber-400 font-bold text-sm mb-3 tracking-wide flex items-center gap-2">
+                    <span class="inline-block w-1.5 h-3 bg-amber-500 rounded-full"></span>反应原理与公式
+                </h2>
+                <div class="flex flex-col gap-4 text-xs">
+                    <div class="bg-black/30 rounded-lg p-3 font-mono border border-amber-500/10">
+                        <p class="text-slate-400 mb-1.5">模拟反应体系：</p>
+                        <p class="text-white text-center font-bold text-sm my-1 font-sans">
+                            A(g) + B(g) → C(g)
+                        </p>
+                        <p class="text-amber-400 text-center font-bold font-sans">
+                            (气体微观碰撞模型)
+                        </p>
+                    </div>
+                    
+                    <div class="bg-black/30 rounded-lg p-3 font-mono border border-amber-500/10 leading-relaxed text-slate-300">
+                        <p class="text-amber-300 font-semibold mb-1">数学模型与定义：</p>
+                        <div id="latex-formula" class="py-2 text-white" style="font-size: 1.35rem; line-height: 1.6;">
+                            $$v = \frac{\Delta c}{\Delta t}$$
+                            $$k = A \cdot e^{-\frac{E_a}{R T}}$$
+                        </div>
+                        <p class="text-[10px] text-slate-400 mt-2">
+                            阿伦尼乌斯公式揭示了温度 $T$ 及活化能 $E_a$ 对速率常数 $k$ 的决定性影响。
+                        </p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 碰撞理论机制图解 -->
+            <section class="glass-panel rounded-2xl p-4">
+                <h2 class="text-amber-400 font-bold text-sm mb-3 tracking-wide flex items-center gap-2">
+                    <span class="inline-block w-1.5 h-3 bg-amber-500 rounded-full"></span>微观反应三部曲
+                </h2>
+                <div class="flex flex-col gap-3 text-xs text-slate-300">
+                    <div class="flex items-center gap-3">
+                        <div class="w-8 h-8 rounded-full bg-slate-900 border border-slate-700 flex items-center justify-center font-bold text-amber-500">1</div>
+                        <div>
+                            <p class="font-semibold text-white">碰撞</p>
+                            <p class="text-[10px] text-slate-400">反应物分子必须发生物理接触</p>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-3">
+                        <div class="w-8 h-8 rounded-full bg-slate-900 border border-slate-700 flex items-center justify-center font-bold text-amber-500">2</div>
+                        <div>
+                            <p class="font-semibold text-white">能量 (活化分子)</p>
+                            <p class="text-[10px] text-slate-400">碰撞能量必须 $\ge$ 活化能 $E_a$</p>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-3">
+                        <div class="w-8 h-8 rounded-full bg-slate-900 border border-slate-700 flex items-center justify-center font-bold text-amber-500">3</div>
+                        <div>
+                            <p class="font-semibold text-white">取向 (有效碰撞)</p>
+                            <p class="text-[10px] text-slate-400">空间取向正确方可促成反应</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </aside>
+        
+        <!-- 中央主展区：Canvas 画布 -->
+        <main class="flex-1 h-full relative overflow-hidden bg-slate-950 flex flex-col p-4 gap-4">
+            <!-- 模拟画布容器 -->
+            <div class="flex-1 min-h-[350px] relative glass-panel rounded-2xl overflow-hidden border border-white/5 flex flex-col">
+                <!-- 模拟区头部数据 -->
+                <div class="absolute top-4 left-4 z-20 flex gap-4 pointer-events-none">
+                    <div class="bg-slate-950/80 backdrop-blur border border-white/10 px-3 py-1.5 rounded-lg text-xs">
+                        <span class="text-slate-400">反应物 A: </span>
+                        <span id="count-a" class="font-bold text-blue-400">0</span>
+                    </div>
+                    <div class="bg-slate-950/80 backdrop-blur border border-white/10 px-3 py-1.5 rounded-lg text-xs">
+                        <span class="text-slate-400">反应物 B: </span>
+                        <span id="count-b" class="font-bold text-red-400">0</span>
+                    </div>
+                    <div class="bg-slate-950/80 backdrop-blur border border-white/10 px-3 py-1.5 rounded-lg text-xs">
+                        <span class="text-slate-400">生成物 C: </span>
+                        <span id="count-c" class="font-bold text-purple-400">0</span>
+                    </div>
+                </div>
+                
+                <div class="absolute top-4 right-4 z-20 flex gap-2 pointer-events-none">
+                    <div class="bg-slate-950/80 backdrop-blur border border-white/10 px-3 py-1.5 rounded-lg text-xs flex items-center gap-1.5">
+                        <span class="w-2 h-2 rounded-full bg-yellow-400 animate-pulse"></span>
+                        <span class="text-slate-400">金色光环粒子：</span>
+                        <span class="font-bold text-yellow-400">活化分子</span>
+                    </div>
+                </div>
+
+                <!-- Canvas 画布 -->
+                <div class="flex-1 relative w-full h-full">
+                    <canvas id="simCanvas" class="absolute top-0 left-0 w-full h-full"></canvas>
+                </div>
+            </div>
+
+            <!-- 数据监测与折线图区 -->
+            <div class="h-[200px] flex gap-4 w-full flex-shrink-0">
+                <!-- 实时折线图 -->
+                <div class="flex-1 glass-panel rounded-2xl p-4 flex flex-col">
+                    <h3 class="text-xs font-bold text-slate-400 mb-2 tracking-wide flex items-center justify-between">
+                        <span>反应物与生成物浓度变化曲线</span>
+                        <span class="text-[10px] text-slate-500 font-mono">X轴: 时间 | Y轴: 粒子数</span>
+                    </h3>
+                    <div class="flex-1 relative w-full h-full overflow-hidden">
+                        <canvas id="chartCanvas" class="absolute top-0 left-0 w-full h-full"></canvas>
+                    </div>
+                </div>
+                
+                <!-- 仪表盘数据展示 -->
+                <div class="w-[280px] glass-panel rounded-2xl p-4 flex flex-col justify-between">
+                    <h3 class="text-xs font-bold text-slate-400 tracking-wide mb-2">宏观与微观数据监控</h3>
+                    
+                    <div class="flex-1 flex flex-col gap-2 justify-center font-mono">
+                        <div class="flex justify-between items-center text-xs py-1 border-b border-white/5">
+                            <span class="text-slate-400">实时反应速率:</span>
+                            <span id="val-rate" class="font-bold text-amber-400">0.00 mol/(L·s)</span>
+                        </div>
+                        <div class="flex justify-between items-center text-xs py-1 border-b border-white/5">
+                            <span class="text-slate-400">活化分子百分率:</span>
+                            <span id="val-active-pct" class="font-bold text-yellow-400">0.0%</span>
+                        </div>
+                        <div class="flex justify-between items-center text-xs py-1 border-b border-white/5">
+                            <span class="text-slate-400">总碰撞频率:</span>
+                            <span id="val-collision-freq" class="font-bold text-blue-400">0 次/s</span>
+                        </div>
+                        <div class="flex justify-between items-center text-xs py-1">
+                            <span class="text-slate-400">反应进度:</span>
+                            <span id="val-progress" class="font-bold text-purple-400">0.0%</span>
+                        </div>
+                    </div>
+                    
+                    <div class="w-full bg-slate-900/60 border border-white/5 rounded-lg h-2 overflow-hidden flex mt-2">
+                        <div id="prog-bar" class="h-full bg-gradient-to-r from-purple-500 to-indigo-500 transition-all duration-300" style="width: 0%"></div>
+                    </div>
+                </div>
+            </div>
+        </main>
+        
+        <!-- 右侧/底部控制面板 -->
+        <aside class="w-[300px] h-full overflow-y-auto border-l border-amber-500/10 bg-slate-900/40 backdrop-blur-md p-5 z-10 flex flex-col gap-6 no-scrollbar flex-shrink-0">
+            <!-- 播放控制 -->
+            <section class="glass-panel rounded-2xl p-4 flex flex-col gap-3">
+                <h2 class="text-amber-400 font-bold text-sm tracking-wide flex items-center gap-2">
+                    <span class="inline-block w-1.5 h-3 bg-amber-500 rounded-full"></span>模拟控制
+                </h2>
+                <div class="grid grid-cols-2 gap-2">
+                    <button id="btn-play" onclick="togglePlay()" class="bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold py-2 px-3 rounded-lg text-xs flex items-center justify-center gap-1 transition-all duration-200">
+                        <span id="play-icon">⏸</span> <span id="play-text">暂停</span>
+                    </button>
+                    <button onclick="stepSim()" class="bg-slate-800 hover:bg-slate-700 border border-white/10 text-white font-bold py-2 px-3 rounded-lg text-xs flex items-center justify-center gap-1 transition-all duration-200">
+                        <span>⏯</span> 单步执行
+                    </button>
+                </div>
+            </section>
+
+            <!-- 实验变量滑块 -->
+            <section class="glass-panel rounded-2xl p-4 flex flex-col gap-5">
+                <h2 class="text-amber-400 font-bold text-sm tracking-wide flex items-center gap-2">
+                    <span class="inline-block w-1.5 h-3 bg-amber-500 rounded-full"></span>控制实验变量
+                </h2>
+                
+                <!-- 温度滑块 -->
+                <div class="flex flex-col gap-1.5">
+                    <div class="flex justify-between items-center text-xs">
+                        <span class="text-slate-400">系统温度 (T):</span>
+                        <span id="lbl-temp" class="text-amber-400 font-bold font-mono">298 K</span>
+                    </div>
+                    <input type="range" id="input-temp" min="250" max="450" value="298" oninput="changeTemp(this.value)" class="w-full h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-amber-500">
+                    <p class="text-[10px] text-slate-500 leading-tight">温度升高增加分子动能，从而增大活化分子占比与碰撞频率。</p>
+                </div>
+
+                <!-- 浓度滑块 -->
+                <div class="flex flex-col gap-1.5">
+                    <div class="flex justify-between items-center text-xs">
+                        <span class="text-slate-400">反应物浓度 (A & B):</span>
+                        <span id="lbl-conc" class="text-amber-400 font-bold font-mono">50 对</span>
+                    </div>
+                    <input type="range" id="input-conc" min="10" max="100" value="50" oninput="changeConc(this.value)" class="w-full h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-amber-500">
+                    <p class="text-[10px] text-slate-500 leading-tight">浓度增大，单位体积内粒子总数增多，大幅提高分子间的碰撞频率。</p>
+                </div>
+
+                <!-- 催化剂开关 -->
+                <div class="flex flex-col gap-2">
+                    <div class="flex justify-between items-center text-xs">
+                        <span class="text-slate-400">催化剂系统:</span>
+                        <span id="lbl-catalyst" class="text-red-400 font-bold font-mono">未加入</span>
+                    </div>
+                    <div class="flex items-center gap-2 bg-slate-950/40 border border-white/5 rounded-xl p-2.5">
+                        <button id="btn-catalyst" onclick="toggleCatalyst()" class="w-12 h-6 rounded-full bg-slate-800 border border-white/10 relative transition-all duration-300">
+                            <span id="toggle-knob" class="absolute left-1 top-1 w-4 h-4 rounded-full bg-slate-400 transition-all duration-300"></span>
+                        </button>
+                        <div class="flex-1 text-[11px] leading-tight text-slate-400">
+                            加入催化剂可改变反应途径，<strong class="text-yellow-400">大幅降低活化能 $E_a$</strong>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 活化能示意图 (玻璃拟态数据卡片) -->
+            <section class="glass-panel rounded-2xl p-4 flex flex-col gap-2.5">
+                <h3 class="text-xs font-bold text-slate-400 tracking-wide">能量壁垒与活化能 $E_a$</h3>
+                <div class="bg-black/40 rounded-xl p-3 border border-white/5 flex flex-col gap-1">
+                    <div class="flex justify-between text-[11px]">
+                        <span class="text-slate-400">当前活化能:</span>
+                        <span id="val-ea" class="text-red-400 font-bold font-mono">80 kJ/mol</span>
+                    </div>
+                    <div class="flex justify-between text-[11px]">
+                        <span class="text-slate-400">活化分子阈值速:</span>
+                        <span id="val-v-threshold" class="text-yellow-400 font-bold font-mono">3.80 px/f</span>
+                    </div>
+                </div>
+                <p class="text-[10px] text-slate-500 leading-tight">只有碰撞时的瞬间总相对速度超过阈值，碰撞才能打断旧化学键并形成新化学键。</p>
+            </section>
+        </aside>
+    </div>
+
+    <!-- 底部关于/说明栏 -->
+    <footer class="h-8 w-full px-6 flex items-center justify-between border-t border-white/5 bg-slate-950 text-[10px] text-slate-500 z-50">
+        <span>科学结论：升高温度、增大浓度、加入催化剂均可有效提高反应速率。</span>
+        <span class="flex items-center gap-1">
+            由 宾果AI 为你生成❤️
+        </span>
+    </footer>
+
+    <!-- JS 逻辑代码 -->
+    <script>
+        // 1. 初始化 LaTeX 公式渲染
+        document.addEventListener("DOMContentLoaded", function() {
+            renderMathInElement(document.body, {
+                delimiters: [
+                    {left: '$$', right: '$$', display: true},
+                    {left: '$', right: '$', display: false},
+                    {left: '\\(', right: '\\)', display: false},
+                    {left: '\\[', right: '\\]', display: true}
+                ],
+                throwOnError: false
+            });
+            initSim();
+        });
+
+        // 2. 状态机定义
+        const state = {
+            mode: 'playing', // 'playing', 'paused', 'stepping'
+            time: 0,
+            speed: 1.0,
+            params: {
+                temp: 298,       // 250K - 450K
+                conc: 50,        // 10 - 100
+                catalyst: false, // true / false
+                ea: 80,          // 活化能：无催化剂 80, 有催化剂 40
+                vThreshold: 3.8  // 速度阈值，由 ea 决定
+            },
+            metrics: {
+                rate: 0,
+                activePct: 0,
+                collisionCount: 0,
+                successfulCollisions: 0,
+                totalCollisionsSec: 0,
+                progress: 0
+            }
+        };
+
+        const runtime = {
+            fixedStep: 1 / 60,
+            accumulator: 0,
+            lastTime: performance.now(),
+            maxSubSteps: 5,
+            running: true
+        };
+
+        // 3. 画布和上下文
+        let simCanvas, simCtx;
+        let chartCanvas, chartCtx;
+        let resizeObserver;
+
+        // 4. 模拟粒子和数据点
+        let particles = [];
+        let ripples = [];
+        let chartHistory = [];
+        const maxChartPoints = 150;
+        let recordingTimer = 0;
+        let animationFrameId = null;
+
+        // 5. 粒子类
+        class Particle {
+            constructor(type, x, y) {
+                this.type = type; // 'A' (blue) or 'B' (red) or 'C' (purple)
+                this.x = x;
+                this.y = y;
+                this.radius = type === 'C' ? 7.5 : 5.0;
+                
+                // 速度初始化，依据温度
+                const speedFactor = Math.sqrt(state.params.temp / 298.0) * 1.5;
+                const angle = Math.random() * Math.PI * 2;
+                const speed = (0.3 + Math.random() * 1.4) * speedFactor;
+                this.vx = Math.cos(angle) * speed;
+                this.vy = Math.sin(angle) * speed;
+                
+                this.mass = type === 'C' ? 2.0 : 1.0;
+                this.active = false; // 是否为活化分子
+            }
+
+            updateSpeedByTemp(oldTemp, newTemp) {
+                if (this.type === 'C') return;
+                const ratio = Math.sqrt(newTemp / oldTemp);
+                this.vx *= ratio;
+                this.vy *= ratio;
+            }
+
+            move(width, height) {
+                this.x += this.vx;
+                this.y += this.vy;
+
+                // 边界碰撞
+                if (this.x - this.radius < 0) {
+                    this.x = this.radius;
+                    this.vx = -this.vx;
+                } else if (this.x + this.radius > width) {
+                    this.x = width - this.radius;
+                    this.vx = -this.vx;
+                }
+
+                if (this.y - this.radius < 0) {
+                    this.y = this.radius;
+                    this.vy = -this.vy;
+                } else if (this.y + this.radius > height) {
+                    this.y = height - this.radius;
+                    this.vy = -this.vy;
+                }
+
+                // 判断是否为活化分子 (动能是否超过阈值)
+                if (this.type !== 'C') {
+                    const speedSq = this.vx * this.vx + this.vy * this.vy;
+                    const thresholdSq = state.params.vThreshold * state.params.vThreshold;
+                    this.active = speedSq >= thresholdSq;
+                } else {
+                    this.active = false;
+                }
+            }
+
+            draw(ctx) {
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                
+                let grad = ctx.createRadialGradient(this.x, this.y, 1, this.x, this.y, this.radius);
+                if (this.type === 'A') {
+                    grad.addColorStop(0, '#FFFFFF');
+                    grad.addColorStop(0.3, '#3B82F6');
+                    grad.addColorStop(1, 'rgba(59, 130, 246, 0.2)');
+                    ctx.fillStyle = grad;
+                } else if (this.type === 'B') {
+                    grad.addColorStop(0, '#FFFFFF');
+                    grad.addColorStop(0.3, '#EF4444');
+                    grad.addColorStop(1, 'rgba(239, 68, 68, 0.2)');
+                    ctx.fillStyle = grad;
+                } else {
+                    grad.addColorStop(0, '#FFFFFF');
+                    grad.addColorStop(0.3, '#A855F7');
+                    grad.addColorStop(1, 'rgba(168, 85, 247, 0.2)');
+                    ctx.fillStyle = grad;
+                }
+                ctx.fill();
+
+                // 活化分子绘制明亮的金色发光外框
+                if (this.active) {
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, this.radius + 2.5, 0, Math.PI * 2);
+                    ctx.strokeStyle = 'rgba(245, 158, 11, 0.8)';
+                    ctx.lineWidth = 1.5;
+                    ctx.shadowBlur = 8;
+                    ctx.shadowColor = '#F59E0B';
+                    ctx.stroke();
+                    ctx.shadowBlur = 0; // 重置 shadow
+                }
+            }
+        }
+
+        // 6. 涟漪类
+        class Ripple {
+            constructor(x, y, color) {
+                this.x = x;
+                this.y = y;
+                this.radius = 2;
+                this.maxRadius = 35 + Math.random() * 15;
+                this.color = color;
+                this.alpha = 1.0;
+                this.speed = 1.5;
+            }
+
+            update() {
+                this.radius += this.speed;
+                this.alpha = 1.0 - (this.radius / this.maxRadius);
+                return this.radius < this.maxRadius;
+            }
+
+            draw(ctx) {
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.strokeStyle = this.color.replace('1)', `${this.alpha})`);
+                ctx.lineWidth = 2;
+                ctx.stroke();
+            }
+        }
+
+        // 7. 初始化模拟环境
+        function initSim() {
+            simCanvas = document.getElementById('simCanvas');
+            simCtx = simCanvas.getContext('2d');
+            
+            chartCanvas = document.getElementById('chartCanvas');
+            chartCtx = chartCanvas.getContext('2d');
+
+            // 监听窗口 resize
+            resizeObserver = new ResizeObserver(entries => {
+                for (let entry of entries) {
+                    if (entry.target === simCanvas.parentElement) {
+                        const width = entry.contentRect.width;
+                        const height = entry.contentRect.height;
+                        if (width > 0 && height > 0) {
+                            simCanvas.width = width;
+                            simCanvas.height = height;
+                        }
+                    }
+                    if (entry.target === chartCanvas.parentElement) {
+                        const width = entry.contentRect.width;
+                        const height = entry.contentRect.height;
+                        if (width > 0 && height > 0) {
+                            chartCanvas.width = width;
+                            chartCanvas.height = height;
+                        }
+                    }
+                }
+                drawChart();
+            });
+
+            resizeObserver.observe(simCanvas.parentElement);
+            resizeObserver.observe(chartCanvas.parentElement);
+
+            // 初始化参数和粒子
+            resetExperiment();
+            
+            // 开始动画循环
+            animationFrameId = requestAnimationFrame(animationLoop);
+        }
+
+        // 8. 重置实验
+        function resetExperiment() {
+            particles = [];
+            ripples = [];
+            chartHistory = [];
+            state.metrics.collisionCount = 0;
+            state.metrics.successfulCollisions = 0;
+            state.metrics.totalCollisionsSec = 0;
+            state.metrics.progress = 0;
+            state.metrics.rate = 0;
+            
+            // 重置滑块为页面默认值
+            document.getElementById('input-temp').value = 298;
+            document.getElementById('input-conc').value = 50;
+            state.params.temp = 298;
+            state.params.conc = 50;
+            
+            // 确保催化剂关掉
+            if (state.params.catalyst) {
+                toggleCatalyst();
+            } else {
+                updateEaThreshold();
+            }
+            
+            updateLabels();
+
+            const width = simCanvas ? simCanvas.width : 600;
+            const height = simCanvas ? simCanvas.height : 400;
+
+            // 放置 A 和 B 粒子
+            const num = state.params.conc;
+            for (let i = 0; i < num; i++) {
+                particles.push(new Particle('A', Math.random() * (width - 20) + 10, Math.random() * (height - 20) + 10));
+                particles.push(new Particle('B', Math.random() * (width - 20) + 10, Math.random() * (height - 20) + 10));
+            }
+
+            // 初始化历史曲线
+            recordChartPoint();
+            if (chartCanvas) drawChart();
+        }
+
+        // 9. 随机实验
+        function randomizeExperiment() {
+            resetExperiment();
+            
+            // 随机温度 260 - 430
+            const randomTemp = Math.floor(260 + Math.random() * 170);
+            document.getElementById('input-temp').value = randomTemp;
+            state.params.temp = randomTemp;
+            
+            // 随机浓度 20 - 90
+            const randomConc = Math.floor(20 + Math.random() * 70);
+            document.getElementById('input-conc').value = randomConc;
+            state.params.conc = randomConc;
+
+            // 随机催化剂
+            const randomCatalyst = Math.random() > 0.5;
+            if (randomCatalyst !== state.params.catalyst) {
+                toggleCatalyst();
+            } else {
+                updateEaThreshold();
+            }
+
+            updateLabels();
+
+            // 重新初始化粒子
+            particles = [];
+            const width = simCanvas ? simCanvas.width : 600;
+            const height = simCanvas ? simCanvas.height : 400;
+            const num = state.params.conc;
+            for (let i = 0; i < num; i++) {
+                particles.push(new Particle('A', Math.random() * (width - 20) + 10, Math.random() * (height - 20) + 10));
+                particles.push(new Particle('B', Math.random() * (width - 20) + 10, Math.random() * (height - 20) + 10));
+            }
+
+            recordChartPoint();
+            if (chartCanvas) drawChart();
+        }
+
+        // 10. 更新活化能和速度阈值
+        function updateEaThreshold() {
+            // E_a: 无催化剂为 80，有催化剂为 40
+            state.params.ea = state.params.catalyst ? 40 : 80;
+            
+            // 速度阈值：与活化能的平方根成比例
+            // 无催化剂时，在 298K 约有 10% 活化分子；有催化剂时，在 298K 约有 45% 活化分子
+            state.params.vThreshold = state.params.catalyst ? 2.3 : 3.8;
+            
+            // 考虑温度对阈值的归一化（碰撞理论模型中，阈值大小是一定的，温度升高使得分子的平均动能变大，超越阈值的概率升高）
+            // 因此 vThreshold 保持恒定，直接由活化能 Ea 决定。
+
+            document.getElementById('val-ea').innerText = `${state.params.ea} kJ/mol`;
+            document.getElementById('val-v-threshold').innerText = `${state.params.vThreshold.toFixed(2)} px/f`;
+        }
+
+        // 11. 滑块和开关响应函数
+        function changeTemp(val) {
+            const oldTemp = state.params.temp;
+            const newTemp = parseInt(val);
+            state.params.temp = newTemp;
+            document.getElementById('lbl-temp').innerText = `${newTemp} K`;
+            
+            // 调整当前所有粒子的运动速度，模拟吸热/放热改变速度
+            particles.forEach(p => p.updateSpeedByTemp(oldTemp, newTemp));
+        }
+
+        function changeConc(val) {
+            const oldConc = state.params.conc;
+            const newConc = parseInt(val);
+            state.params.conc = newConc;
+            document.getElementById('lbl-conc').innerText = `${newConc} 对`;
+
+            const diff = newConc - oldConc;
+            const width = simCanvas ? simCanvas.width : 600;
+            const height = simCanvas ? simCanvas.height : 400;
+
+            if (diff > 0) {
+                // 增多粒子
+                for (let i = 0; i < diff; i++) {
+                    particles.push(new Particle('A', Math.random() * (width - 20) + 10, Math.random() * (height - 20) + 10));
+                    particles.push(new Particle('B', Math.random() * (width - 20) + 10, Math.random() * (height - 20) + 10));
+                }
+            } else if (diff < 0) {
+                // 减少粒子（优先从尚未反应的 A 和 B 中移除）
+                let removedA = 0;
+                let removedB = 0;
+                const toRemove = Math.abs(diff);
+                
+                for (let i = particles.length - 1; i >= 0; i--) {
+                    if (particles[i].type === 'A' && removedA < toRemove) {
+                        particles.splice(i, 1);
+                        removedA++;
+                    }
+                }
+                for (let i = particles.length - 1; i >= 0; i--) {
+                    if (particles[i].type === 'B' && removedB < toRemove) {
+                        particles.splice(i, 1);
+                        removedB++;
+                    }
+                }
+            }
+        }
+
+        function toggleCatalyst() {
+            state.params.catalyst = !state.params.catalyst;
+            
+            const btn = document.getElementById('btn-catalyst');
+            const knob = document.getElementById('toggle-knob');
+            const lbl = document.getElementById('lbl-catalyst');
+            
+            if (state.params.catalyst) {
+                btn.classList.remove('bg-slate-800');
+                btn.classList.add('bg-amber-500');
+                knob.style.left = '24px';
+                knob.classList.remove('bg-slate-400');
+                knob.classList.add('bg-slate-950');
+                lbl.innerText = '已加入';
+                lbl.classList.remove('text-red-400');
+                lbl.classList.add('text-green-400');
+            } else {
+                btn.classList.remove('bg-amber-500');
+                btn.classList.add('bg-slate-800');
+                knob.style.left = '4px';
+                knob.classList.remove('bg-slate-950');
+                knob.classList.add('bg-slate-400');
+                lbl.innerText = '未加入';
+                lbl.classList.remove('text-green-400');
+                lbl.classList.add('text-red-400');
+            }
+            
+            updateEaThreshold();
+        }
+
+        function togglePlay() {
+            if (state.mode === 'playing') {
+                state.mode = 'paused';
+                document.getElementById('play-icon').innerText = '▶';
+                document.getElementById('play-text').innerText = '开始';
+            } else {
+                state.mode = 'playing';
+                document.getElementById('play-icon').innerText = '⏸';
+                document.getElementById('play-text').innerText = '暂停';
+            }
+        }
+
+        // 单步执行只步进一次，如果是暂停状态就模拟一次 fixedStep
+        function stepSim() {
+            state.mode = 'stepping';
+        }
+
+        function updateLabels() {
+            document.getElementById('lbl-temp').innerText = `${state.params.temp} K`;
+            document.getElementById('lbl-conc').innerText = `${state.params.conc} 对`;
+        }
+
+        // 12. 物理演算核心
+        function updatePhysics(dt, state) {
+            const width = simCanvas ? simCanvas.width : 600;
+            const height = simCanvas ? simCanvas.height : 400;
+
+            // A/B/C 的实时计数
+            let countA = 0, countB = 0, countC = 0, countActive = 0;
+
+            // 1. 移动所有粒子
+            particles.forEach(p => {
+                p.move(width, height);
+                if (p.type === 'A') countA++;
+                else if (p.type === 'B') countB++;
+                else if (p.type === 'C') countC++;
+                if (p.active) countActive++;
+            });
+
+            // 更新上部面板计数
+            document.getElementById('count-a').innerText = countA;
+            document.getElementById('count-b').innerText = countB;
+            document.getElementById('count-c').innerText = countC;
+
+            // 计算活化分子百分率
+            const totalReactants = countA + countB;
+            const activePct = totalReactants > 0 ? (countActive / totalReactants) * 100 : 0;
+            state.metrics.activePct = activePct;
+            document.getElementById('val-active-pct').innerText = `${activePct.toFixed(1)}%`;
+
+            // 计算反应进度
+            const totalInitialPairs = state.params.conc;
+            const currentProgress = (countC / totalInitialPairs) * 100;
+            state.metrics.progress = currentProgress;
+            document.getElementById('val-progress').innerText = `${currentProgress.toFixed(1)}%`;
+            document.getElementById('prog-bar').style.width = `${currentProgress}%`;
+
+            // 2. 粒子之间的碰撞处理
+            let collisionCountThisFrame = 0;
+            let successThisFrame = 0;
+
+            for (let i = 0; i < particles.length; i++) {
+                for (let j = i + 1; j < particles.length; j++) {
+                    const p1 = particles[i];
+                    const p2 = particles[j];
+
+                    // 已经反应的生成物 C 不再参与进一步的化合反应
+                    if (p1.type === 'C' || p2.type === 'C') continue;
+
+                    const dx = p2.x - p1.x;
+                    const dy = p2.y - p1.y;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+                    const minDist = p1.radius + p2.radius;
+
+                    if (dist < minDist) {
+                        collisionCountThisFrame++;
+                        
+                        // 弹性碰撞物理反弹推力
+                        const angle = Math.atan2(dy, dx);
+                        const sin = Math.sin(angle);
+                        const cos = Math.cos(angle);
+
+                        // 旋转速度到碰撞轴
+                        const vx1 = p1.vx * cos + p1.vy * sin;
+                        const vy1 = p1.vy * cos - p1.vx * sin;
+                        const vx2 = p2.vx * cos + p2.vy * sin;
+                        const vy2 = p2.vy * cos - p2.vx * sin;
+
+                        // 避免粒子重叠粘连，微调位置
+                        const overlap = minDist - dist;
+                        p1.x -= overlap * 0.5 * cos;
+                        p1.y -= overlap * 0.5 * sin;
+                        p2.x += overlap * 0.5 * cos;
+                        p2.y += overlap * 0.5 * sin;
+
+                        // 两粒子是否是异种反应物 (A 与 B)
+                        const isReactionPair = (p1.type === 'A' && p2.type === 'B') || (p1.type === 'B' && p2.type === 'A');
+                        
+                        // 计算碰撞相对速度的平方，代表碰撞能量
+                        const rV = { x: p2.vx - p1.vx, y: p2.vy - p1.vy };
+                        const relSpeedSq = rV.x * rV.x + rV.y * rV.y;
+                        const thresholdSq = state.params.vThreshold * state.params.vThreshold;
+
+                        // 触发有效碰撞条件：是反应物配对、且碰撞总能量超越活化能阈值、且随机空间取向正确 (高中简化：85% 概率)
+                        if (isReactionPair && relSpeedSq >= thresholdSq && Math.random() < 0.85) {
+                            // 发生反应！
+                            successThisFrame++;
+                            
+                            // 生成融合后的生成物 C (位于碰撞中心点)
+                            const cx = (p1.x + p2.x) * 0.5;
+                            const cy = (p1.y + p2.y) * 0.5;
+                            const pC = new Particle('C', cx, cy);
+                            
+                            // 能量守恒动量合并
+                            pC.vx = (p1.mass * p1.vx + p2.mass * p2.vx) / (p1.mass + p2.mass);
+                            pC.vy = (p1.mass * p1.vy + p2.mass * p2.vy) / (p1.mass + p2.mass);
+
+                            // 从数组中剔除已反应粒子并插入新粒子
+                            particles.splice(j, 1); // 必须先删索引大的
+                            particles.splice(i, 1);
+                            particles.push(pC);
+
+                            // 并在融合处激起美丽的紫色霓虹涟漪
+                            ripples.push(new Ripple(cx, cy, 'rgba(168, 85, 247, 1)'));
+
+                            // 反应发生后数组发生缩短，重置内层循环以防溢出
+                            i--; 
+                            break;
+                        } else {
+                            // 弹性碰撞速度交换
+                            const new_vx1 = vx2;
+                            const new_vx2 = vx1;
+
+                            // 旋回原始坐标系
+                            p1.vx = new_vx1 * cos - vy1 * sin;
+                            p1.vy = vy1 * cos + new_vx1 * sin;
+                            p2.vx = new_vx2 * cos - vy2 * sin;
+                            p2.vy = vy2 * cos + new_vx2 * sin;
+                        }
+                    }
+                }
+            }
+
+            state.metrics.collisionCount += collisionCountThisFrame;
+            state.metrics.successfulCollisions += successThisFrame;
+
+            // 3. 计算反应速率 (基于最近的一段时间内生成物 C 的增长斜率)
+            // 在微观模型里，我们让它和单位时间（比如每秒）发生的反应成功数成正比，并归一化为通俗的数值
+            // 速率 = 成功次数比例因子 * 浓度影响因子 * 温度阿伦尼乌斯速率
+            const successRate = successThisFrame;
+            
+            // 平滑滤波反应速率
+            const instantRate = successRate * 0.08 * Math.sqrt(state.params.temp / 298.0);
+            state.metrics.rate = state.metrics.rate * 0.95 + instantRate * 0.05;
+            
+            // 为了防止反应后期粒子极少导致速率瞬间为 0，我们可以提供一个根据有效碰撞密度估算的理论数值辅助显示
+            let displayRate = state.metrics.rate;
+            if (displayRate < 0.001 && totalReactants > 0) {
+                // 兜底估算微弱速率，增加动态体验
+                displayRate = (totalReactants / 200) * (activePct / 100) * 0.05 * Math.sqrt(state.params.temp / 298.0);
+            }
+            if (totalReactants === 0) displayRate = 0;
+
+            document.getElementById('val-rate').innerText = `${displayRate.toFixed(3)} mol/(L·s)`;
+
+            // 4. 更新与清理涟漪
+            ripples = ripples.filter(r => r.update());
+
+            // 5. 每 15 帧在历史折线图记录一次数据
+            recordingTimer++;
+            if (recordingTimer >= 15) {
+                recordingTimer = 0;
+                recordChartPoint();
+            }
+        }
+
+        // 13. 记录折线图坐标点
+        function recordChartPoint() {
+            let countA = 0, countB = 0, countC = 0;
+            particles.forEach(p => {
+                if (p.type === 'A') countA++;
+                else if (p.type === 'B') countB++;
+                else if (p.type === 'C') countC++;
+            });
+
+            chartHistory.push({ a: countA, b: countB, c: countC });
+            if (chartHistory.length > maxChartPoints) {
+                chartHistory.shift();
+            }
+        }
+
+        // 14. 绘制 Canvas 微观区图像
+        function drawVisuals(state) {
+            if (!simCtx) return;
+            
+            // 带有拖尾残影的清屏，使粒子运动更加动感有微观流体特色
+            simCtx.fillStyle = 'rgba(9, 13, 26, 0.4)';
+            simCtx.fillRect(0, 0, simCanvas.width, simCanvas.height);
+
+            // 绘制美丽的发光微观网格背景
+            simCtx.strokeStyle = 'rgba(255, 255, 255, 0.015)';
+            simCtx.lineWidth = 1;
+            const gridSize = 40;
+            for (let x = 0; x < simCanvas.width; x += gridSize) {
+                simCtx.beginPath();
+                simCtx.moveTo(x, 0);
+                simCtx.lineTo(x, simCanvas.height);
+                simCtx.stroke();
+            }
+            for (let y = 0; y < simCanvas.height; y += gridSize) {
+                simCtx.beginPath();
+                simCtx.moveTo(0, y);
+                simCtx.lineTo(simCanvas.width, y);
+                simCtx.stroke();
+            }
+
+            // 绘制所有粒子
+            particles.forEach(p => p.draw(simCtx));
+
+            // 绘制所有涟漪
+            ripples.forEach(r => r.draw(simCtx));
+        }
+
+        // 15. 手写高性能 Canvas 2D 实时折线图
+        function drawChart() {
+            if (!chartCtx) return;
+            const w = chartCanvas.width;
+            const h = chartCanvas.height;
+            
+            chartCtx.clearRect(0, 0, w, h);
+
+            // 绘制图表背景网格
+            chartCtx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
+            chartCtx.lineWidth = 1;
+            const gridY = 4;
+            for (let i = 0; i <= gridY; i++) {
+                const y = 10 + (i / gridY) * (h - 30);
+                chartCtx.beginPath();
+                chartCtx.moveTo(25, y);
+                chartCtx.lineTo(w - 10, y);
+                chartCtx.stroke();
+            }
+
+            if (chartHistory.length < 2) return;
+
+            const paddingLeft = 30;
+            const paddingRight = 15;
+            const paddingTop = 10;
+            const paddingBottom = 20;
+
+            const plotW = w - paddingLeft - paddingRight;
+            const plotH = h - paddingTop - paddingBottom;
+
+            // 计算Y轴比例尺（最大初始粒子数为 100）
+            const maxVal = state.params.conc; 
+            
+            const getX = (index) => paddingLeft + (index / (maxChartPoints - 1)) * plotW;
+            const getY = (val) => paddingTop + plotH - (val / maxVal) * plotH;
+
+            // 1. 绘制反应物 A 折线
+            chartCtx.beginPath();
+            chartCtx.strokeStyle = '#3B82F6';
+            chartCtx.lineWidth = 2.5;
+            chartHistory.forEach((pt, idx) => {
+                const x = getX(idx);
+                const y = getY(pt.a);
+                if (idx === 0) chartCtx.moveTo(x, y);
+                else chartCtx.lineTo(x, y);
+            });
+            chartCtx.stroke();
+
+            // 2. 绘制反应物 B 折线
+            chartCtx.beginPath();
+            chartCtx.strokeStyle = '#EF4444';
+            chartCtx.lineWidth = 2.5;
+            chartHistory.forEach((pt, idx) => {
+                const x = getX(idx);
+                const y = getY(pt.b);
+                if (idx === 0) chartCtx.moveTo(x, y);
+                else chartCtx.lineTo(x, y);
+            });
+            chartCtx.stroke();
+
+            // 3. 绘制生成物 C 折线
+            chartCtx.beginPath();
+            chartCtx.strokeStyle = '#A855F7';
+            chartCtx.lineWidth = 3;
+            chartHistory.forEach((pt, idx) => {
+                const x = getX(idx);
+                const y = getY(pt.c);
+                if (idx === 0) chartCtx.moveTo(x, y);
+                else chartCtx.lineTo(x, y);
+            });
+            chartCtx.stroke();
+
+            // 绘制坐标轴文字标注
+            chartCtx.fillStyle = '#64748B';
+            chartCtx.font = '10px monospace';
+            chartCtx.textAlign = 'right';
+            chartCtx.fillText(maxVal.toString(), paddingLeft - 5, paddingTop + 5);
+            chartCtx.fillText('0', paddingLeft - 5, paddingTop + plotH + 5);
+
+            chartCtx.textAlign = 'left';
+            chartCtx.fillStyle = '#3B82F6';
+            chartCtx.fillText('c(A)', w - 45, paddingTop + 15);
+            chartCtx.fillStyle = '#EF4444';
+            chartCtx.fillText('c(B)', w - 45, paddingTop + 30);
+            chartCtx.fillStyle = '#A855F7';
+            chartCtx.fillText('c(C)', w - 45, paddingTop + 45);
+        }
+
+        // 16. 主循环统一动画引擎
+        function animationLoop(now) {
+            if (!runtime.running) return;
+            animationFrameId = requestAnimationFrame(animationLoop);
+
+            const rawDt = (now - runtime.lastTime) / 1000;
+            runtime.lastTime = now;
+            // 限制单帧最大时间间隔，防止后台标签激活时爆发
+            const frameDt = Math.min(Math.max(rawDt, 0), 0.033);
+
+            if (state.mode === 'playing') {
+                runtime.accumulator += frameDt * state.speed;
+            } else if (state.mode === 'stepping') {
+                runtime.accumulator += runtime.fixedStep;
+                state.mode = 'paused';
+                document.getElementById('play-icon').innerText = '▶';
+                document.getElementById('play-text').innerText = '开始';
+            }
+
+            let steps = 0;
+            while (runtime.accumulator >= runtime.fixedStep && steps < runtime.maxSubSteps) {
+                updatePhysics(runtime.fixedStep, state);
+                state.time += runtime.fixedStep;
+                runtime.accumulator -= runtime.fixedStep;
+                steps++;
+            }
+            if (steps >= runtime.maxSubSteps) runtime.accumulator = 0;
+
+            // 绘制画面
+            drawVisuals(state);
+            drawChart();
+        }
+
+        // 17. 销毁和清理（防泄漏）
+        window.addEventListener('beforeunload', () => {
+            runtime.running = false;
+            if (animationFrameId) cancelAnimationFrame(animationFrameId);
+            if (resizeObserver) resizeObserver.disconnect();
+        });
+    </script>
+</body>
+</html>

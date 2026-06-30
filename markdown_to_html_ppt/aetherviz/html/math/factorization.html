@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>整式乘除与因式分解 - 初一数学知识点</title>
+    <link rel="stylesheet" href="https://registry.npmmirror.com/katex/0.16.9/files/dist/katex.min.css">
+    <script src="https://registry.npmmirror.com/katex/0.16.9/files/dist/katex.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif; background: linear-gradient(135deg, #0a1929 0%, #1a2a4a 50%, #0d1f3c 100%); min-height: 100vh; color: #e0e6ed; }
+        .app-container { display: flex; min-height: 100vh; }
+        .sidebar { width: 320px; background: linear-gradient(180deg, rgba(20, 40, 70, 0.95) 0%, rgba(10, 25, 50, 0.98) 100%); border-right: 1px solid rgba(255, 200, 50, 0.2); padding: 24px; overflow-y: auto; }
+        .sidebar h1 { font-size: 1.5rem; color: #ffc832; margin-bottom: 8px; }
+        .sidebar .subtitle { font-size: 0.85rem; color: #8b9cb3; margin-bottom: 24px; }
+        .section { margin-bottom: 24px; padding: 16px; background: rgba(255, 255, 255, 0.03); border-radius: 12px; border: 1px solid rgba(255, 200, 50, 0.1); }
+        .section-title { font-size: 0.9rem; color: #ffc832; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+        .section-title::before { content: ''; width: 4px; height: 16px; background: linear-gradient(180deg, #ffc832, #ff9500); border-radius: 2px; }
+        .formula-box { background: rgba(0, 0, 0, 0.3); padding: 16px; border-radius: 8px; text-align: center; margin-bottom: 12px; border: 1px solid rgba(255, 200, 50, 0.15); }
+        .principle-text { font-size: 0.85rem; line-height: 1.7; color: #b0bec5; }
+        .principle-text strong { color: #ffc832; }
+        .application-item { padding: 10px 12px; background: rgba(255, 200, 50, 0.05); border-radius: 6px; margin-bottom: 8px; font-size: 0.85rem; color: #90a4ae; border-left: 3px solid rgba(255, 200, 50, 0.3); }
+        .main-content { flex: 1; padding: 24px; }
+        .method-tabs { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+        .method-tab { padding: 8px 16px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,200,50,0.2); border-radius: 6px; cursor: pointer; color: #b0bec5; transition: all 0.3s; }
+        .method-tab.active { background: rgba(255,200,50,0.2); border-color: #ffc832; color: #ffc832; }
+        .calc-container { background: rgba(255, 255, 255, 0.02); border-radius: 16px; border: 1px solid rgba(255, 200, 50, 0.15); padding: 24px; margin-bottom: 20px; }
+        .calc-display { background: rgba(0,0,0,0.4); border-radius: 12px; padding: 24px; text-align: center; }
+        .calc-expression { font-size: 2rem; color: #fff; margin-bottom: 16px; font-family: 'Consolas', monospace; }
+        .calc-steps { text-align: left; padding: 16px; background: rgba(255,200,50,0.05); border-radius: 8px; margin-top: 16px; }
+        .step { padding: 8px 0; color: #b0bec5; border-bottom: 1px solid rgba(255,255,255,0.05); font-family: 'Consolas', monospace; }
+        .step:last-child { border-bottom: none; color: #4fc3f7; font-weight: bold; }
+        .result-big { font-size: 2.5rem; color: #ffc832; font-weight: bold; margin-top: 16px; font-family: 'Consolas', monospace; }
+        .formula-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-top: 16px; }
+        .formula-item { background: rgba(0,0,0,0.2); padding: 12px; border-radius: 8px; text-align: center; }
+        .formula-item h5 { color: #ffc832; margin-bottom: 8px; font-size: 0.9rem; }
+        .formula-item p { color: #b0bec5; font-size: 0.85rem; font-family: 'Consolas', monospace; }
+        .control-panel { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 20px; }
+        .control-group { background: rgba(255, 255, 255, 0.03); padding: 16px; border-radius: 12px; border: 1px solid rgba(255, 200, 50, 0.1); }
+        .control-label { font-size: 0.85rem; color: #ffc832; margin-bottom: 10px; display: block; }
+        select { width: 100%; padding: 10px; border-radius: 8px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,200,50,0.3); font-size: 1rem; }
+        select option { background: #1a2a4a; }
+        .btn-group { display: flex; gap: 12px; flex-wrap: wrap; }
+        .btn { padding: 10px 20px; border: none; border-radius: 8px; cursor: pointer; font-size: 0.9rem; transition: all 0.3s ease; font-family: inherit; }
+        .btn-primary { background: linear-gradient(135deg, #ffc832, #ff9500); color: #0a1929; font-weight: bold; }
+        .btn-secondary { background: rgba(255, 200, 50, 0.15); color: #ffc832; border: 1px solid rgba(255, 200, 50, 0.3); }
+        .btn:hover { transform: translateY(-2px); box-shadow: 0 4px 15px rgba(255, 200, 50, 0.3); }
+        .toast { position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%) translateY(100px); background: linear-gradient(135deg, #ffc832, #ff9500); color: #0a1929; padding: 12px 24px; border-radius: 8px; font-weight: bold; opacity: 0; transition: all 0.3s ease; z-index: 1000; }
+        .toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }
+        @media (max-width: 768px) { .app-container { flex-direction: column; } .sidebar { width: 100%; max-height: 40vh; } }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <aside class="sidebar">
+            <h1>整式乘除与因式分解</h1>
+            <p class="subtitle">初一数学 · 下学期第三章</p>
+            <div class="section">
+                <div class="section-title">乘法公式</div>
+                <div class="formula-box" id="f1"></div>
+                <div class="formula-box" id="f2"></div>
+                <div class="formula-box" id="f3"></div>
+            </div>
+            <div class="section">
+                <div class="section-title">因式分解方法</div>
+                <p class="principle-text">
+                    <strong>提取公因式：</strong><br>
+                    ma + mb = m(a + b)<br><br>
+                    <strong>公式法：</strong><br>
+                    a² − b² = (a+b)(a−b)<br>
+                    a² ± 2ab + b² = (a±b)²
+                </p>
+            </div>
+            <div class="section">
+                <div class="section-title">真实应用</div>
+                <div class="application-item">📐 面积计算简化</div>
+                <div class="application-item">🔢 方程简化</div>
+                <div class="application-item">🧮 速算技巧</div>
+            </div>
+        </aside>
+
+        <main class="main-content">
+            <div class="method-tabs">
+                <div class="method-tab active" onclick="setMode('multiply')">整式乘法</div>
+                <div class="method-tab" onclick="setMode('factor')">因式分解</div>
+            </div>
+
+            <div class="calc-container">
+                <div class="calc-display">
+                    <div class="calc-expression" id="calcExpr">(x + 3)(x − 2)</div>
+                    <div class="calc-steps" id="calcSteps">
+                        <div class="step">应用乘法分配律：</div>
+                        <div class="step">= x·x + x·(−2) + 3·x + 3·(−2)</div>
+                        <div class="step">= x² − 2x + 3x − 6</div>
+                        <div class="step">合并同类项：x² + x − 6</div>
+                    </div>
+                    <div class="result-big" id="resultBig">x² + x − 6</div>
+                </div>
+            </div>
+
+            <div class="formula-grid" id="formulaGrid">
+                <div class="formula-item"><h5>平方差公式</h5><p>a² − b² = (a+b)(a−b)</p></div>
+                <div class="formula-item"><h5>完全平方和</h5><p>a² + 2ab + b² = (a+b)²</p></div>
+                <div class="formula-item"><h5>完全平方差</h5><p>a² − 2ab + b² = (a−b)²</p></div>
+            </div>
+
+            <div class="control-panel" style="margin-top:20px;">
+                <div class="control-group">
+                    <label class="control-label">选择例题</label>
+                    <select id="exampleSelect" onchange="loadExample()">
+                        <option value="0">(x + 3)(x − 2)</option>
+                        <option value="1">(x + 2)²</option>
+                        <option value="2">(2x + 1)(3x − 2)</option>
+                        <option value="3">x² − 9</option>
+                        <option value="4">x² + 4x + 4</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="btn-group">
+                <button class="btn btn-primary" onclick="calculate()">计算</button>
+                <button class="btn btn-secondary" onclick="randomExample()">随机练习</button>
+                <button class="btn btn-secondary" onclick="showFormulas()">公式表</button>
+            </div>
+        </main>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <script>
+        let mode = 'multiply';
+
+        const examples = [
+            { expr: '(x + 3)(x − 2)', mode: 'multiply', steps: ['应用乘法分配律：', '= x·x + x·(−2) + 3·x + 3·(−2)', '= x² − 2x + 3x − 6', '合并同类项：x² + x − 6'], result: 'x² + x − 6' },
+            { expr: '(x + 2)²', mode: 'multiply', steps: ['完全平方公式：(a+b)² = a² + 2ab + b²', '= x² + 2·x·2 + 2²', '= x² + 4x + 4'], result: 'x² + 4x + 4' },
+            { expr: '(2x + 1)(3x − 2)', mode: 'multiply', steps: ['乘法分配律：', '= 2x·3x + 2x·(−2) + 1·3x + 1·(−2)', '= 6x² − 4x + 3x − 2', '合并：6x² − x − 2'], result: '6x² − x − 2' },
+            { expr: 'x² − 9', mode: 'factor', steps: ['平方差公式：a² − b² = (a+b)(a−b)', '= x² − 3²', '= (x + 3)(x − 3)'], result: '(x + 3)(x − 3)' },
+            { expr: 'x² + 4x + 4', mode: 'factor', steps: ['完全平方公式：a² + 2ab + b² = (a+b)²', '= x² + 2·x·2 + 2²', '= (x + 2)²'], result: '(x + 2)²' }
+        ];
+
+        let current = 0;
+
+        function initFormulas() {
+            katex.render("(a+b)(a-b) = a^2 - b^2", document.getElementById('f1'));
+            katex.render("(a+b)^2 = a^2 + 2ab + b^2", document.getElementById('f2'));
+            katex.render("(a-b)^2 = a^2 - 2ab + b^2", document.getElementById('f3'));
+        }
+
+        function setMode(m) {
+            mode = m;
+            document.querySelectorAll('.method-tab').forEach(t => t.classList.remove('active'));
+            document.querySelector(`.method-tab:nth-child(${m === 'multiply' ? 1 : 2})`).classList.add('active');
+        }
+
+        function loadExample() {
+            current = parseInt(document.getElementById('exampleSelect').value);
+            calculate();
+        }
+
+        function calculate() {
+            const ex = examples[current];
+            document.getElementById('calcExpr').textContent = ex.expr;
+            document.getElementById('calcSteps').innerHTML = ex.steps.map(s => `<div class="step">${s}</div>`).join('');
+            document.getElementById('resultBig').textContent = ex.result;
+            setMode(ex.mode);
+        }
+
+        function randomExample() {
+            current = Math.floor(Math.random() * examples.length);
+            document.getElementById('exampleSelect').value = current;
+            calculate();
+            showToast('随机练习题');
+        }
+
+        function showFormulas() {
+            const grid = document.getElementById('formulaGrid');
+            grid.innerHTML = `
+                <div class="formula-item"><h5>平方差公式</h5><p>a² − b² = (a+b)(a−b)</p></div>
+                <div class="formula-item"><h5>完全平方和</h5><p>a² + 2ab + b² = (a+b)²</p></div>
+                <div class="formula-item"><h5>完全平方差</h5><p>a² − 2ab + b² = (a−b)²</p></div>
+                <div class="formula-item"><h5>提取公因式</h5><p>ma + mb = m(a+b)</p></div>
+                <div class="formula-item"><h5>十字相乘</h5><p>x² + (a+b)x + ab = (x+a)(x+b)</p></div>
+            `;
+            showToast('公式表');
+        }
+
+        function showToast(msg) {
+            const t = document.getElementById('toast');
+            t.textContent = msg;
+            t.classList.add('show');
+            setTimeout(() => t.classList.remove('show'), 2000);
+        }
+
+        initFormulas();
+        calculate();
+    </script>
+</body>
+</html>

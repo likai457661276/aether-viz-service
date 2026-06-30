@@ -1,0 +1,1470 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>二次函数 Quadratic Function - 高一数学互动演示</title>
+    <style>
+        :root {
+            --primary-gradient: linear-gradient(135deg, #6366F1 0%, #3B82F6 50%, #06B6D4 100%);
+            --primary-gradient-light: linear-gradient(135deg, #818CF8 0%, #60A5FA 50%, #22D3EE 100%);
+            --primary-gradient-dark: linear-gradient(135deg, #4338CA 0%, #1D4ED8 50%, #0891B2 100%);
+            --bg-gradient: linear-gradient(180deg, #090D16 0%, #0F172A 100%);
+            --bg-gradient-card: linear-gradient(145deg, rgba(99, 102, 241, 0.1) 0%, rgba(6, 182, 212, 0.05) 100%);
+            --accent-cyan: #06B6D4;
+            --accent-indigo: #6366F1;
+            --accent-emerald: #10B981;
+            --accent-amber: #F59E0B;
+            --accent-rose: #F43F5E;
+            --accent-orange: #F97316;
+            --glass-bg: rgba(15, 23, 42, 0.45);
+            --glass-border: rgba(255, 255, 255, 0.08);
+            --glass-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+            --text-primary: #F8FAFC;
+            --text-secondary: #CBD5E1;
+            --text-muted: #64748B;
+            --nav-bg: rgba(9, 13, 22, 0.85);
+            --nav-border: rgba(99, 102, 241, 0.2);
+            --sidebar-bg: rgba(9, 13, 22, 0.6);
+            --panel-bg: rgba(9, 13, 22, 0.7);
+            --panel-border: rgba(99, 102, 241, 0.15);
+            --btn-primary: linear-gradient(135deg, #6366F1 0%, #3B82F6 100%);
+            --btn-primary-hover: linear-gradient(135deg, #818CF8 0%, #60A5FA 100%);
+            --btn-secondary: rgba(255, 255, 255, 0.06);
+            --slider-track: rgba(255, 255, 255, 0.12);
+            --slider-thumb: linear-gradient(135deg, #06B6D4 0%, #3B82F6 100%);
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        html,
+        body {
+            margin: 0;
+            min-height: 100%;
+            background: #090D16;
+            color: var(--text-primary);
+            font-family: Outfit, Inter, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+            overflow: hidden;
+        }
+
+        body {
+            min-height: 100vh;
+            background: var(--bg-gradient);
+            position: relative;
+        }
+
+        /* 背景发光漫反射效果 */
+        body::before {
+            content: "";
+            position: absolute;
+            width: 600px;
+            height: 600px;
+            top: -200px;
+            left: -200px;
+            background: radial-gradient(circle, rgba(99, 102, 241, 0.15) 0%, transparent 70%);
+            z-index: 0;
+            pointer-events: none;
+        }
+        body::after {
+            content: "";
+            position: absolute;
+            width: 500px;
+            height: 500px;
+            bottom: -100px;
+            right: -100px;
+            background: radial-gradient(circle, rgba(6, 182, 212, 0.12) 0%, transparent 70%);
+            z-index: 0;
+            pointer-events: none;
+        }
+
+        button,
+        input {
+            font: inherit;
+        }
+
+        .shell {
+            height: 100vh;
+            display: grid;
+            grid-template-rows: 68px 1fr;
+            position: relative;
+            z-index: 1;
+        }
+
+        .topbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 18px;
+            padding: 0 24px;
+            background: var(--nav-bg);
+            border-bottom: 1px solid var(--nav-border);
+            backdrop-filter: blur(20px);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+            z-index: 5;
+        }
+
+        .brand {
+            min-width: 0;
+        }
+
+        .brand h1 {
+            margin: 0;
+            font-size: 22px;
+            font-weight: 800;
+            line-height: 1.1;
+            letter-spacing: -0.5px;
+            background: linear-gradient(135deg, #FFFFFF 30%, #CBD5E1 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .brand p {
+            margin: 4px 0 0;
+            color: #94A3B8;
+            font-size: 12px;
+            font-weight: 500;
+        }
+
+        .nav-actions {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+        }
+
+        .icon-btn,
+        .text-btn {
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: var(--text-primary);
+            background: rgba(255, 255, 255, 0.05);
+            min-height: 38px;
+            border-radius: 10px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .icon-btn {
+            width: 40px;
+            display: grid;
+            place-items: center;
+            font-size: 16px;
+        }
+
+        .text-btn {
+            padding: 0 16px;
+            font-size: 13px;
+        }
+
+        .icon-btn:hover,
+        .text-btn:hover {
+            transform: translateY(-2px);
+            border-color: rgba(99, 102, 241, 0.45);
+            background: rgba(99, 102, 241, 0.15);
+            box-shadow: 0 4px 12px rgba(99, 102, 241, 0.2);
+        }
+
+        .icon-btn:active,
+        .text-btn:active {
+            transform: translateY(0);
+        }
+
+        .content {
+            display: grid;
+            grid-template-columns: minmax(320px, 25%) minmax(0, 1fr);
+            min-height: 0;
+        }
+
+        .sidebar {
+            min-height: 0;
+            overflow-y: auto;
+            padding: 24px;
+            background: var(--sidebar-bg);
+            border-right: 1px solid rgba(99, 102, 241, 0.1);
+            backdrop-filter: blur(10px);
+        }
+
+        .section {
+            padding: 20px;
+            margin-bottom: 20px;
+            background: var(--glass-bg);
+            border: 1px solid var(--glass-border);
+            border-radius: 12px;
+            box-shadow: var(--glass-shadow);
+            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .section:hover {
+            transform: translateY(-2px);
+            border-color: rgba(99, 102, 241, 0.25);
+            box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6), 0 0 15px rgba(99, 102, 241, 0.1);
+        }
+
+        .section h2 {
+            margin: 0 0 14px;
+            color: #FFFFFF;
+            font-size: 15px;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+            border-left: 3px solid #6366F1;
+            padding-left: 8px;
+        }
+
+        .goals {
+            display: grid;
+            gap: 12px;
+            margin: 0;
+            padding: 0;
+            list-style: none;
+        }
+
+        .goals label {
+            display: grid;
+            grid-template-columns: 20px 1fr;
+            gap: 10px;
+            align-items: start;
+            color: var(--text-secondary);
+            font-size: 13px;
+            line-height: 1.5;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .goals label:hover {
+            color: var(--text-primary);
+        }
+
+        .goals input {
+            accent-color: #6366F1;
+            margin-top: 3px;
+            width: 14px;
+            height: 14px;
+            cursor: pointer;
+        }
+
+        .formula {
+            margin: 12px 0;
+            padding: 14px;
+            color: var(--accent-cyan);
+            background: rgba(9, 13, 22, 0.6);
+            border: 1px solid rgba(6, 182, 212, 0.25);
+            border-radius: 10px;
+            font-family: "Fira Code", Consolas, "Times New Roman", serif;
+            font-size: 18px;
+            font-weight: 600;
+            text-align: center;
+            text-shadow: 0 0 8px rgba(6, 182, 212, 0.2);
+            transition: all 0.2s ease;
+        }
+
+        .formula:hover {
+            border-color: rgba(6, 182, 212, 0.5);
+            background: rgba(9, 13, 22, 0.8);
+            box-shadow: 0 0 15px rgba(6, 182, 212, 0.15);
+        }
+
+        .copy {
+            margin: 0;
+            color: #94A3B8;
+            font-size: 13px;
+            line-height: 1.7;
+        }
+
+        .links {
+            display: grid;
+            gap: 10px;
+            margin-top: 14px;
+        }
+
+        .links a {
+            color: #60A5FA;
+            text-decoration: none;
+            font-size: 13px;
+            font-weight: 500;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            transition: color 0.2s ease;
+        }
+
+        .links a:hover {
+            color: #38BDF8;
+            text-decoration: underline;
+        }
+
+        .main {
+            min-width: 0;
+            min-height: 0;
+            display: grid;
+            grid-template-rows: minmax(0, 1fr) auto;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .stage {
+            min-height: 0;
+            position: relative;
+            overflow: hidden;
+            background:
+                radial-gradient(circle at 10% 10%, rgba(99, 102, 241, 0.1) 0%, transparent 40%),
+                radial-gradient(circle at 90% 90%, rgba(6, 182, 212, 0.08) 0%, transparent 45%),
+                #0B0F19;
+        }
+
+        #graph {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            touch-action: none;
+        }
+
+        .hud {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            display: grid;
+            gap: 8px;
+            width: min(340px, calc(100% - 40px));
+            pointer-events: none;
+            z-index: 2;
+        }
+
+        .hud-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            padding: 10px 14px;
+            border-radius: 10px;
+            background: rgba(9, 13, 22, 0.7);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            backdrop-filter: blur(16px);
+            font-size: 13px;
+            color: var(--text-secondary);
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+            transition: all 0.2s ease;
+        }
+
+        .hud-row strong {
+            color: #FFFFFF;
+            font-weight: 700;
+            text-align: right;
+        }
+        
+        .hud-row:first-child strong {
+            color: var(--accent-cyan);
+            text-shadow: 0 0 8px rgba(6, 182, 212, 0.3);
+            font-family: "Fira Code", Consolas, serif;
+            font-size: 14px;
+        }
+
+        .panel {
+            display: grid;
+            grid-template-columns: minmax(0, 1.3fr) minmax(260px, 0.7fr);
+            gap: 16px;
+            padding: 18px 24px 24px;
+            background: var(--panel-bg);
+            border-top: 1px solid var(--panel-border);
+            backdrop-filter: blur(20px);
+            z-index: 2;
+        }
+
+        .controls {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 16px;
+        }
+
+        .control {
+            min-width: 0;
+            padding: 14px 16px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.03);
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .control:hover {
+            border-color: rgba(99, 102, 241, 0.2);
+            background: rgba(255, 255, 255, 0.06);
+            box-shadow: inset 0 0 10px rgba(255, 255, 255, 0.02);
+        }
+
+        .control label {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 4px;
+            color: var(--text-secondary);
+            font-size: 12px;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+
+        .control label span {
+            color: #94A3B8;
+        }
+
+        .control output {
+            color: var(--accent-cyan);
+            font-weight: 700;
+            font-family: "Fira Code", monospace;
+        }
+
+        /* 新型精美滑块设计 */
+        input[type="range"] {
+            width: 100%;
+            height: 5px;
+            appearance: none;
+            border-radius: 99px;
+            background: var(--slider-track);
+            outline: none;
+            cursor: pointer;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            border-radius: 99px;
+            background: var(--slider-thumb);
+            box-shadow: 0 0 0 4px rgba(6, 182, 212, 0.15), 0 0 10px rgba(6, 182, 212, 0.4);
+            cursor: pointer;
+            transition: transform 0.15s ease, box-shadow 0.15s ease;
+        }
+
+        input[type="range"]::-webkit-slider-thumb:hover {
+            transform: scale(1.25);
+            box-shadow: 0 0 0 6px rgba(6, 182, 212, 0.25), 0 0 15px rgba(6, 182, 212, 0.6);
+        }
+
+        input[type="range"]::-webkit-slider-thumb:active {
+            transform: scale(1.35);
+            box-shadow: 0 0 0 8px rgba(6, 182, 212, 0.35), 0 0 20px rgba(6, 182, 212, 0.8);
+        }
+
+        .runtime {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+            align-content: start;
+        }
+
+        .runtime button {
+            min-height: 40px;
+            border: 0;
+            border-radius: 10px;
+            color: #FFFFFF;
+            background: var(--btn-primary);
+            font-weight: 700;
+            font-size: 13px;
+            cursor: pointer;
+            box-shadow: 0 4px 15px rgba(99, 102, 241, 0.25);
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .runtime button:hover {
+            background: var(--btn-primary-hover);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(99, 102, 241, 0.4);
+        }
+
+        .runtime button:active {
+            transform: translateY(0);
+        }
+
+        .runtime button.secondary {
+            color: var(--text-primary);
+            background: var(--btn-secondary);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            box-shadow: none;
+        }
+
+        .runtime button.secondary:hover {
+            background: rgba(255, 255, 255, 0.1);
+            border-color: rgba(255, 255, 255, 0.2);
+            transform: translateY(-2px);
+        }
+
+        .status {
+            grid-column: 1 / -1;
+            min-height: 48px;
+            padding: 12px 14px;
+            border-radius: 10px;
+            color: var(--text-secondary);
+            background: rgba(9, 13, 22, 0.4);
+            border: 1px solid rgba(255, 255, 255, 0.04);
+            font-size: 13px;
+            line-height: 1.5;
+            transition: all 0.2s ease;
+        }
+
+        .toast,
+        .error-panel,
+        .about {
+            position: fixed;
+            z-index: 20;
+        }
+
+        .toast {
+            left: 50%;
+            bottom: 24px;
+            transform: translate(-50%, 24px);
+            opacity: 0;
+            max-width: min(520px, calc(100vw - 32px));
+            padding: 12px 20px;
+            border-radius: 10px;
+            color: #FFFFFF;
+            background: linear-gradient(135deg, #6366F1 0%, #3B82F6 100%);
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4), 0 0 20px rgba(99, 102, 241, 0.3);
+            transition: all 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            font-weight: 700;
+            text-align: center;
+            font-size: 13px;
+        }
+
+        .toast.show {
+            opacity: 1;
+            transform: translate(-50%, 0);
+        }
+
+        .about {
+            top: 80px;
+            right: 24px;
+            width: min(380px, calc(100vw - 48px));
+            display: none;
+            padding: 20px;
+            border-radius: 12px;
+            color: var(--text-secondary);
+            background: rgba(9, 13, 22, 0.95);
+            border: 1px solid rgba(99, 102, 241, 0.3);
+            box-shadow: var(--glass-shadow), 0 0 25px rgba(99, 102, 241, 0.15);
+            line-height: 1.6;
+            backdrop-filter: blur(12px);
+            animation: slideIn 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+
+        @keyframes slideIn {
+            from { transform: translateY(-10px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+
+        .about.show {
+            display: block;
+        }
+
+        .about strong {
+            display: block;
+            color: #FFFFFF;
+            font-size: 15px;
+            margin-bottom: 10px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            padding-bottom: 8px;
+        }
+
+        .error-panel {
+            inset: 90px 24px auto;
+            display: none;
+            padding: 18px;
+            border-radius: 10px;
+            background: rgba(244, 63, 94, 0.9);
+            border: 1px solid rgba(244, 63, 94, 0.5);
+            color: #FFFFFF;
+            font-weight: 600;
+            box-shadow: 0 10px 30px rgba(244, 63, 94, 0.3);
+        }
+
+        .error-panel.show {
+            display: block;
+        }
+
+        /* SVG 样式精细化 */
+        .axis {
+            stroke: rgba(255, 255, 255, 0.25);
+            stroke-width: 1.5;
+        }
+
+        .grid {
+            stroke: rgba(255, 255, 255, 0.08);
+            stroke-width: 1;
+            stroke-dasharray: 2 4;
+        }
+
+        .tick-text,
+        .label-text {
+            fill: #94A3B8;
+            font-size: 11px;
+            font-family: "Fira Code", monospace;
+            user-select: none;
+        }
+
+        .curve {
+            fill: none;
+            stroke: url(#curveGradient);
+            stroke-width: 3.5;
+            stroke-linecap: round;
+            filter: url(#glow);
+        }
+
+        .ghost {
+            fill: none;
+            stroke: rgba(255, 255, 255, 0.15);
+            stroke-width: 1.5;
+            stroke-dasharray: 4 6;
+        }
+
+        .axis-line {
+            stroke: rgba(139, 92, 246, 0.45);
+            stroke-width: 1.5;
+            stroke-dasharray: 6 5;
+        }
+
+        .root-dot {
+            fill: var(--accent-emerald);
+            stroke: #FFFFFF;
+            stroke-width: 1.5;
+            filter: drop-shadow(0 0 4px rgba(16, 185, 129, 0.6));
+        }
+
+        .vertex-dot {
+            fill: var(--accent-rose);
+            stroke: #FFFFFF;
+            stroke-width: 2;
+            filter: url(#softGlow);
+        }
+
+        .point-dot {
+            fill: var(--accent-amber);
+            stroke: #FFFFFF;
+            stroke-width: 1.5;
+            filter: drop-shadow(0 0 4px rgba(245, 158, 11, 0.6));
+        }
+
+        .area-fill {
+            fill: rgba(6, 182, 212, 0.03);
+            stroke: rgba(6, 182, 212, 0.1);
+            stroke-width: 1;
+        }
+
+        @media (max-width: 1040px) {
+            html,
+            body {
+                overflow: auto;
+            }
+
+            .shell {
+                min-height: 100vh;
+                grid-template-rows: auto 1fr;
+            }
+
+            .content {
+                grid-template-columns: 1fr;
+                grid-template-rows: auto minmax(500px, 1fr);
+            }
+
+            .sidebar {
+                max-height: 300px;
+                border-right: 0;
+                border-bottom: 1px solid rgba(99, 102, 241, 0.1);
+            }
+
+            .panel {
+                grid-template-columns: 1fr;
+                padding: 16px;
+            }
+
+            .controls {
+                grid-template-columns: repeat(2, minmax(140px, 1fr));
+            }
+        }
+
+        @media (max-width: 640px) {
+            .shell {
+                grid-template-rows: auto 1fr;
+            }
+
+            .topbar {
+                align-items: flex-start;
+                flex-direction: column;
+                padding: 14px;
+                gap: 10px;
+            }
+
+            .nav-actions {
+                width: 100%;
+                justify-content: flex-start;
+            }
+
+            .brand h1 {
+                font-size: 19px;
+            }
+
+            .content {
+                grid-template-rows: auto minmax(580px, 1fr);
+            }
+
+            .stage {
+                min-height: 350px;
+            }
+
+            .hud {
+                position: static;
+                width: auto;
+                margin: 12px;
+            }
+
+            .controls {
+                grid-template-columns: 1fr;
+                gap: 10px;
+            }
+
+            .runtime {
+                grid-template-columns: 1fr 1fr;
+            }
+
+            .runtime button:first-child {
+                grid-column: 1 / -1;
+            }
+        }
+    </style>
+</head>
+<body>
+<div class="shell">
+    <header class="topbar">
+        <div class="brand">
+            <h1>二次函数 Quadratic Function</h1>
+            <p>高一数学 · 抛物线、顶点、对称轴与零点的动态实验</p>
+        </div>
+        <div class="nav-actions" aria-label="全局操作">
+            <button class="icon-btn" id="resetTop" title="重置" aria-label="重置">↺</button>
+            <button class="icon-btn" id="randomTop" title="随机实验" aria-label="随机实验">⚄</button>
+            <button class="icon-btn" id="fullscreenBtn" title="全屏" aria-label="全屏">⛶</button>
+            <button class="text-btn" id="aboutBtn">关于</button>
+        </div>
+    </header>
+
+    <div class="content">
+        <aside class="sidebar">
+            <section class="section">
+                <h2>学习目标</h2>
+                <ul class="goals">
+                    <li><label><input type="checkbox">识别 y = ax² + bx + c 中 a、b、c 对图像的影响。</label></li>
+                    <li><label><input type="checkbox">用顶点式理解抛物线的平移、开口方向和宽窄。</label></li>
+                    <li><label><input type="checkbox">观察判别式 Δ 与 x 轴交点个数之间的关系。</label></li>
+                    <li><label><input type="checkbox">把函数图像和实际最值问题联系起来。</label></li>
+                </ul>
+            </section>
+
+            <section class="section">
+                <h2>核心公式</h2>
+                <div class="formula">y = ax² + bx + c</div>
+                <div class="formula">xᵥ = -b / 2a，yᵥ = f(xᵥ)</div>
+                <div class="formula">Δ = b² - 4ac</div>
+                <p class="copy">当 a &gt; 0 时，抛物线向上开口，顶点是最低点；当 a &lt; 0 时，抛物线向下开口，顶点是最高点。b 主要改变对称轴位置，c 是图像与 y 轴的交点。</p>
+            </section>
+
+            <section class="section">
+                <h2>原理解释</h2>
+                <p class="copy">二次函数像一条可以弯曲、翻转、平移的轨道。参数 a 控制轨道的“弯曲力度”和开口方向，b 会把对称轴推向左右，c 决定轨道穿过 y 轴的高度。拖动滑块时，图像不是在背公式，而是在把代数信息直接变成几何形状。</p>
+            </section>
+
+            <section class="section">
+                <h2>为什么重要</h2>
+                <p class="copy">抛物线出现在抛体运动、桥拱设计、利润最大化、信号拟合和机器学习损失函数中。掌握顶点和零点，就是学会从变化中找关键位置。</p>
+                <div class="links">
+                    <a href="https://zh.wikipedia.org/wiki/%E4%BA%8C%E6%AC%A1%E5%87%BD%E6%95%B0" target="_blank" rel="noreferrer">扩展阅读：二次函数</a>
+                    <a href="https://zh.wikipedia.org/wiki/%E6%8A%9B%E7%89%A9%E7%BA%BF" target="_blank" rel="noreferrer">扩展阅读：抛物线</a>
+                </div>
+            </section>
+        </aside>
+
+        <main class="main">
+            <section class="stage" id="stage">
+                <svg id="graph" role="img" aria-label="二次函数动态图像"></svg>
+                <div class="hud" aria-live="polite">
+                    <div class="hud-row"><span>当前函数</span><strong id="formulaText">y = x²</strong></div>
+                    <div class="hud-row"><span>顶点</span><strong id="vertexText">(0, 0)</strong></div>
+                    <div class="hud-row"><span>对称轴</span><strong id="axisText">x = 0</strong></div>
+                    <div class="hud-row"><span>判别式</span><strong id="deltaText">Δ = 0</strong></div>
+                </div>
+            </section>
+
+            <section class="panel">
+                <div class="controls">
+                    <div class="control">
+                        <label for="aRange"><span>开口方向与陡峭度 a</span><output id="aOut">1</output></label>
+                        <input id="aRange" type="range" min="-2" max="2" step="0.5" value="1">
+                    </div>
+                    <div class="control">
+                        <label for="bRange"><span>对称轴左右位置 b</span><output id="bOut">0</output></label>
+                        <input id="bRange" type="range" min="-4" max="4" step="1" value="0">
+                    </div>
+                    <div class="control">
+                        <label for="cRange"><span>轨道上下平移高度 c</span><output id="cOut">0</output></label>
+                        <input id="cRange" type="range" min="-4" max="4" step="1" value="0">
+                    </div>
+                    <div class="control">
+                        <label for="probeRange"><span>探针点位置 x</span><output id="probeOut">1</output></label>
+                        <input id="probeRange" type="range" min="-4" max="4" step="0.5" value="1">
+                    </div>
+                </div>
+                <div class="runtime">
+                    <button id="playBtn">暂停</button>
+                    <button class="secondary" id="stepBtn">单步</button>
+                    <button class="secondary" id="resetBtn">重置</button>
+                    <button class="secondary" id="randomBtn">随机实验</button>
+                    <button class="secondary" id="speedBtn">速度 1×</button>
+                    <button class="secondary" id="focusBtn">看顶点</button>
+                    <div class="status" id="statusText">拖动 a、b、c，观察抛物线如何改变。探针会沿曲线运动，帮助你读出某个 x 对应的函数值。</div>
+                </div>
+            </section>
+        </main>
+    </div>
+</div>
+
+<div class="toast" id="toast">已更新</div>
+<div class="about" id="aboutPanel">
+    <strong>二次函数互动实验</strong>
+    这是一个零依赖 SVG 教学动画：所有参数、曲线、顶点、零点和探针都由同一个动画运行时驱动。勇敢调参，图像会告诉你答案。<br><br>
+    由 宾果AI 为你生成❤️
+</div>
+<div class="error-panel" id="errorPanel"></div>
+
+<script>
+(function () {
+    "use strict";
+
+    const svg = document.getElementById("graph");
+    const stage = document.getElementById("stage");
+    const errorPanel = document.getElementById("errorPanel");
+    const toast = document.getElementById("toast");
+
+    const state = {
+        mode: "playing",
+        time: 0,
+        speed: 1,
+        selectedId: null,
+        seed: 7,
+        focusVertex: false,
+        autoProbe: true,
+        probePhase: 0.58,
+        probeDirection: 1,
+        params: { a: 1, b: 0, c: 0, probe: 1 },
+        target: { a: 1, b: 0, c: 0, probe: 1 },
+        metrics: {}
+    };
+
+    const runtime = {
+        fixedStep: 1 / 60,
+        accumulator: 0,
+        lastTime: performance.now(),
+        maxSubSteps: 5,
+        running: true,
+        width: 1,
+        height: 1,
+        view: { xMin: -4.5, xMax: 4.5, yMin: -5, yMax: 24 },
+        lastViewKey: ""
+    };
+
+    const el = {};
+    const controls = {
+        a: document.getElementById("aRange"),
+        b: document.getElementById("bRange"),
+        c: document.getElementById("cRange"),
+        probe: document.getElementById("probeRange")
+    };
+    const outs = {
+        a: document.getElementById("aOut"),
+        b: document.getElementById("bOut"),
+        c: document.getElementById("cOut"),
+        probe: document.getElementById("probeOut")
+    };
+
+    function init() {
+        try {
+            buildSvg();
+            bindControls();
+            resize();
+            updateAllOutputs();
+            requestAnimationFrame(animationLoop);
+            showToast("二次函数实验已启动");
+        } catch (error) {
+            fail(error);
+        }
+    }
+
+    function buildSvg() {
+        svg.innerHTML = [
+            "<defs>",
+            "<linearGradient id='curveGradient' x1='0%' y1='0%' x2='100%' y2='0%'><stop offset='0%' stop-color='#6366F1'/><stop offset='50%' stop-color='#3B82F6'/><stop offset='100%' stop-color='#06B6D4'/></linearGradient>",
+            "<filter id='glow'><feGaussianBlur stdDeviation='3' result='blur'/><feMerge><feMergeNode in='blur'/><feMergeNode in='SourceGraphic'/></feMerge></filter>",
+            "<filter id='softGlow'><feGaussianBlur stdDeviation='4' result='blur'/><feMerge><feMergeNode in='blur'/><feMergeNode in='SourceGraphic'/></feMerge></filter>",
+            "</defs>",
+            "<g id='gridLayer'></g>",
+            "<g id='axisLayer'></g>",
+            "<path id='areaFill' class='area-fill'></path>",
+            "<path id='ghostCurve' class='ghost'></path>",
+            "<path id='curve' class='curve'></path>",
+            "<line id='symmetryAxis' class='axis-line'></line>",
+            "<g id='roots'></g>",
+            "<circle id='vertexDot' class='vertex-dot' r='7'></circle>",
+            "<circle id='probeDot' class='point-dot' r='6'></circle>",
+            "<line id='probeLine' stroke='rgba(6,182,212,0.4)' stroke-width='1.5' stroke-dasharray='4 4'></line>",
+            "<text id='vertexLabel' class='label-text'></text>",
+            "<text id='probeLabel' class='label-text'></text>",
+            "<text id='encourage' class='label-text'></text>"
+        ].join("");
+
+        [
+            "gridLayer", "axisLayer", "areaFill", "ghostCurve", "curve", "symmetryAxis",
+            "roots", "vertexDot", "probeDot", "probeLine", "vertexLabel", "probeLabel", "encourage"
+        ].forEach((id) => {
+            el[id] = document.getElementById(id);
+        });
+    }
+
+    function bindControls() {
+        Object.keys(controls).forEach((key) => {
+            controls[key].addEventListener("input", () => {
+                state.target[key] = Number(controls[key].value);
+                if (key === "probe") {
+                    state.autoProbe = false;
+                    state.probePhase = probeToPhase(state.target.probe);
+                }
+                state.mode = state.mode === "paused" ? "paused" : "playing";
+                updateAllOutputs();
+            });
+        });
+
+        document.getElementById("playBtn").addEventListener("click", togglePlay);
+        document.getElementById("stepBtn").addEventListener("click", () => {
+            state.mode = "stepping";
+            updatePlayButton();
+            showToast("前进一步，观察参数趋近目标值");
+        });
+        document.getElementById("resetBtn").addEventListener("click", resetExperiment);
+        document.getElementById("resetTop").addEventListener("click", resetExperiment);
+        document.getElementById("randomBtn").addEventListener("click", randomize);
+        document.getElementById("randomTop").addEventListener("click", randomize);
+        document.getElementById("speedBtn").addEventListener("click", cycleSpeed);
+        document.getElementById("focusBtn").addEventListener("click", () => {
+            state.focusVertex = !state.focusVertex;
+            document.getElementById("focusBtn").textContent = state.focusVertex ? "看全景" : "看顶点";
+            resize();
+            showToast(state.focusVertex ? "已聚焦顶点附近" : "已回到完整坐标系");
+        });
+        document.getElementById("fullscreenBtn").addEventListener("click", toggleFullscreen);
+        document.getElementById("aboutBtn").addEventListener("click", () => {
+            document.getElementById("aboutPanel").classList.toggle("show");
+        });
+
+        const observer = new ResizeObserver(resize);
+        observer.observe(stage);
+    }
+
+    function animationLoop(now) {
+        requestAnimationFrame(animationLoop);
+        if (!runtime.running) return;
+
+        const rawDt = (now - runtime.lastTime) / 1000;
+        runtime.lastTime = now;
+        const frameDt = Math.min(Math.max(rawDt, 0), 0.033);
+
+        if (state.mode === "playing") {
+            runtime.accumulator += frameDt * state.speed;
+        } else if (state.mode === "stepping") {
+            runtime.accumulator += runtime.fixedStep;
+            state.mode = "paused";
+        }
+
+        let steps = 0;
+        while (runtime.accumulator >= runtime.fixedStep && steps < runtime.maxSubSteps) {
+            updatePhysics(runtime.fixedStep);
+            state.time += runtime.fixedStep;
+            runtime.accumulator -= runtime.fixedStep;
+            steps++;
+        }
+        if (steps >= runtime.maxSubSteps) runtime.accumulator = 0;
+
+        updateVisuals();
+        updateHUD();
+        updatePlayButton();
+    }
+
+    function updatePhysics(dt) {
+        const spring = 11;
+        const damping = Math.exp(-spring * dt);
+        if (state.autoProbe) {
+            const scanSpeed = 0.18;
+            state.probePhase += scanSpeed * state.probeDirection * dt;
+            if (state.probePhase >= 1) {
+                state.probePhase = 1;
+                state.probeDirection = -1;
+            } else if (state.probePhase <= 0) {
+                state.probePhase = 0;
+                state.probeDirection = 1;
+            }
+            state.target.probe = phaseToProbe(state.probePhase);
+            controls.probe.value = state.target.probe;
+        }
+        ["a", "b", "c"].forEach((key) => {
+            state.params[key] = state.target[key];
+        });
+        state.params.probe = state.target.probe + (state.params.probe - state.target.probe) * damping;
+    }
+
+    function updateVisuals() {
+        if (runtime.width <= 0 || runtime.height <= 0) return;
+        updateView();
+
+        const samples = [];
+        const area = [];
+        const ghost = [];
+        const { xMin, xMax } = runtime.view;
+        const count = 170;
+        for (let i = 0; i <= count; i++) {
+            const x = xMin + (xMax - xMin) * (i / count);
+            const y = f(x, state.params);
+            const p = toScreen(x, y);
+            samples.push(`${i === 0 ? "M" : "L"}${p.x.toFixed(2)},${p.y.toFixed(2)}`);
+
+            const gy = f(x, state.target);
+            const gp = toScreen(x, gy);
+            ghost.push(`${i === 0 ? "M" : "L"}${gp.x.toFixed(2)},${gp.y.toFixed(2)}`);
+
+            const base = toScreen(x, 0);
+            if (i === 0) area.push(`M${base.x.toFixed(2)},${base.y.toFixed(2)}`);
+            area.push(`L${p.x.toFixed(2)},${p.y.toFixed(2)}`);
+            if (i === count) area.push(`L${base.x.toFixed(2)},${base.y.toFixed(2)}Z`);
+        }
+        el.curve.setAttribute("d", samples.join(" "));
+        el.ghostCurve.setAttribute("d", ghost.join(" "));
+        el.areaFill.setAttribute("d", area.join(" "));
+
+        const metrics = computeMetrics(state.params);
+        state.metrics = metrics;
+        const vx = metrics.vertex.x;
+        const vy = metrics.vertex.y;
+        const vertex = toScreen(vx, vy);
+        const yTop = toScreen(vx, runtime.view.yMax);
+        const yBottom = toScreen(vx, runtime.view.yMin);
+        el.symmetryAxis.setAttribute("x1", yTop.x);
+        el.symmetryAxis.setAttribute("y1", yTop.y);
+        el.symmetryAxis.setAttribute("x2", yBottom.x);
+        el.symmetryAxis.setAttribute("y2", yBottom.y);
+        el.vertexDot.setAttribute("cx", vertex.x);
+        el.vertexDot.setAttribute("cy", vertex.y);
+        el.vertexLabel.setAttribute("x", clamp(vertex.x + 10, 8, runtime.width - 116));
+        el.vertexLabel.setAttribute("y", clamp(vertex.y - 12, 16, runtime.height - 12));
+        el.vertexLabel.textContent = `顶点 (${fmt(vx)}, ${fmt(vy)})`;
+
+        const probeX = state.params.probe;
+        const probeY = f(probeX, state.params);
+        const probe = toScreen(probeX, probeY);
+        const probeAxis = toScreen(probeX, 0);
+        el.probeDot.setAttribute("cx", probe.x);
+        el.probeDot.setAttribute("cy", probe.y);
+        el.probeLine.setAttribute("x1", probe.x);
+        el.probeLine.setAttribute("y1", probe.y);
+        el.probeLine.setAttribute("x2", probeAxis.x);
+        el.probeLine.setAttribute("y2", probeAxis.y);
+        el.probeLabel.setAttribute("x", clamp(probe.x + 10, 8, runtime.width - 124));
+        el.probeLabel.setAttribute("y", clamp(probe.y + 22, 20, runtime.height - 10));
+        el.probeLabel.textContent = `f(${fmt(probeX)}) = ${fmt(probeY)}`;
+
+        drawRoots(metrics.roots);
+    }
+
+    function getParamDescription(key, value) {
+        if (key === "a") {
+            if (value > 1) return `${fmt(value)} (开口向上，陡峭)`;
+            if (value === 1) return `${fmt(value)} (开口向上，标准)`;
+            if (value > 0) return `${fmt(value)} (开口向上，平缓)`;
+            if (value < -1) return `${fmt(value)} (开口向下，陡峭)`;
+            if (value === -1) return `${fmt(value)} (开口向下，标准)`;
+            if (value < 0) return `${fmt(value)} (开口向下，平缓)`;
+            return `${fmt(value)} (退化为水平直线)`;
+        }
+        if (key === "b") {
+            const a = state.params.a || 0.01;
+            const axis = -value / (2 * a);
+            if (Math.abs(axis) < 0.01) return `${fmt(value)} (对称轴在 y 轴)`;
+            return `${fmt(value)} (对称轴在 x = ${fmt(axis)} 偏${axis < 0 ? "左" : "右"})`;
+        }
+        if (key === "c") {
+            if (value > 0) return `${fmt(value)} (向上平移 ${fmt(value)} 格)`;
+            if (value < 0) return `${fmt(value)} (向下平移 ${fmt(Math.abs(value))} 格)`;
+            return `${fmt(value)} (过坐标原点)`;
+        }
+        if (key === "probe") {
+            const yVal = f(value, state.params);
+            return `x = ${fmt(value)} 时，y = ${fmt(yVal)}`;
+        }
+        return fmt(value);
+    }
+
+    function updateHUD() {
+        const { a, b, c } = state.params;
+        const metrics = state.metrics;
+        document.getElementById("formulaText").textContent = formatFormula(a, b, c);
+        document.getElementById("vertexText").textContent = `(${fmt(metrics.vertex.x)}, ${fmt(metrics.vertex.y)})`;
+        document.getElementById("axisText").textContent = `x = ${fmt(metrics.vertex.x)}`;
+        document.getElementById("deltaText").textContent = `Δ = ${fmt(metrics.delta)}，${deltaMeaning(metrics.delta)}`;
+        outs.probe.textContent = getParamDescription("probe", state.params.probe);
+        document.getElementById("statusText").textContent = buildStatus(metrics);
+    }
+
+    function updateAllOutputs() {
+        ["a", "b", "c", "probe"].forEach((key) => {
+            const value = key === "probe" && state.autoProbe ? state.params.probe : state.target[key];
+            outs[key].textContent = getParamDescription(key, value);
+        });
+    }
+
+    function drawGrid() {
+        const grid = [];
+        const axis = [];
+        const { xMin, xMax, yMin, yMax } = runtime.view;
+        const xStep = chooseStep((xMax - xMin) / 10);
+        const yStep = chooseStep((yMax - yMin) / 8);
+        const xStart = Math.ceil(xMin / xStep) * xStep;
+        const xEnd = Math.floor(xMax / xStep) * xStep;
+        const yStart = Math.ceil(yMin / yStep) * yStep;
+        const yEnd = Math.floor(yMax / yStep) * yStep;
+        const origin = toScreen(0, 0);
+
+        for (let x = xStart; x <= xEnd + xStep * 0.1; x += xStep) {
+            const p1 = toScreen(x, yMin);
+            const p2 = toScreen(x, yMax);
+            grid.push(`<line class="grid" x1="${p1.x}" y1="${p1.y}" x2="${p2.x}" y2="${p2.y}"></line>`);
+            if (Math.abs(x) > xStep * 0.05) grid.push(`<text class="tick-text" x="${p1.x + 3}" y="${clamp(origin.y + 15, 16, runtime.height - 6)}">${formatTick(x)}</text>`);
+        }
+        for (let y = yStart; y <= yEnd + yStep * 0.1; y += yStep) {
+            const p1 = toScreen(xMin, y);
+            const p2 = toScreen(xMax, y);
+            grid.push(`<line class="grid" x1="${p1.x}" y1="${p1.y}" x2="${p2.x}" y2="${p2.y}"></line>`);
+            if (Math.abs(y) > yStep * 0.05) grid.push(`<text class="tick-text" x="${clamp(origin.x + 6, 6, runtime.width - 36)}" y="${p1.y - 4}">${formatTick(y)}</text>`);
+        }
+        const xAxis1 = toScreen(xMin, 0);
+        const xAxis2 = toScreen(xMax, 0);
+        const yAxis1 = toScreen(0, yMin);
+        const yAxis2 = toScreen(0, yMax);
+        axis.push(`<line class="axis" x1="${xAxis1.x}" y1="${xAxis1.y}" x2="${xAxis2.x}" y2="${xAxis2.y}"></line>`);
+        axis.push(`<line class="axis" x1="${yAxis1.x}" y1="${yAxis1.y}" x2="${yAxis2.x}" y2="${yAxis2.y}"></line>`);
+        axis.push(`<text class="label-text" x="${runtime.width - 24}" y="${xAxis1.y - 8}">x</text>`);
+        axis.push(`<text class="label-text" x="${yAxis1.x + 8}" y="20">y</text>`);
+        el.gridLayer.innerHTML = grid.join("");
+        el.axisLayer.innerHTML = axis.join("");
+    }
+
+    function drawRoots(roots) {
+        el.roots.innerHTML = roots.map((x) => {
+            const p = toScreen(x, 0);
+            if (p.x < -20 || p.x > runtime.width + 20) return "";
+            return `<g><circle class="root-dot" cx="${p.x}" cy="${p.y}" r="6"></circle><text class="label-text" x="${clamp(p.x + 8, 8, runtime.width - 90)}" y="${clamp(p.y - 8, 18, runtime.height - 8)}">零点 ${fmt(x)}</text></g>`;
+        }).join("");
+    }
+
+    function resize() {
+        const rect = stage.getBoundingClientRect();
+        runtime.width = Math.max(1, Math.floor(rect.width));
+        runtime.height = Math.max(1, Math.floor(rect.height));
+        svg.setAttribute("viewBox", `0 0 ${runtime.width} ${runtime.height}`);
+        svg.setAttribute("width", runtime.width);
+        svg.setAttribute("height", runtime.height);
+
+        updateView(true);
+        const msg = runtime.width < 560 ? "手机视图：图像区域已压缩，滑块在下方继续可用。" : "调整窗口时，坐标轴和曲线会同步重排。";
+        el.encourage.setAttribute("x", 18);
+        el.encourage.setAttribute("y", runtime.height - 18);
+        el.encourage.textContent = msg;
+    }
+
+    function resetExperiment() {
+        state.seed = 7;
+        Object.assign(state.target, { a: 1, b: 0, c: 0, probe: 1 });
+        Object.assign(state.params, state.target);
+        state.autoProbe = true;
+        state.probePhase = probeToPhase(state.target.probe);
+        state.probeDirection = 1;
+        setControlValues();
+        state.mode = "playing";
+        state.time = 0;
+        runtime.accumulator = 0;
+        updateAllOutputs();
+        showToast("已重置到标准二次函数 y = x²");
+    }
+
+    function randomize() {
+        state.seed = (state.seed * 1664525 + 1013904223) >>> 0;
+        const rand = seeded(state.seed);
+        const experiment = pickFrom(rand, [
+            { a: 1, b: 0, c: 0 },
+            { a: 1, b: -2, c: 1 },
+            { a: 1, b: 2, c: 1 },
+            { a: -1, b: 0, c: 4 },
+            { a: 0.5, b: 0, c: -2 },
+            { a: -0.5, b: 0, c: 3 },
+            { a: 2, b: 0, c: -2 },
+            { a: -2, b: 0, c: 2 },
+            { a: 1, b: -4, c: 3 },
+            { a: 1, b: 4, c: 3 }
+        ]);
+        Object.assign(state.target, {
+            a: experiment.a,
+            b: experiment.b,
+            c: experiment.c,
+            probe: pickFrom(rand, [-4, -3.5, -3, -2.5, -2, -1.5, -1, -0.5, 0, 0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4])
+        });
+        state.autoProbe = true;
+        state.probePhase = probeToPhase(state.target.probe);
+        state.probeDirection = rand() > 0.5 ? 1 : -1;
+        setControlValues();
+        state.mode = "playing";
+        updateAllOutputs();
+        showToast("已生成一组新的二次函数参数");
+    }
+
+    function setControlValues() {
+        ["a", "b", "c", "probe"].forEach((key) => {
+            controls[key].value = state.target[key];
+        });
+    }
+
+    function togglePlay() {
+        state.mode = state.mode === "playing" ? "paused" : "playing";
+        if (state.mode === "playing") state.autoProbe = true;
+        showToast(state.mode === "playing" ? "继续播放，探针开始沿曲线扫描" : "已暂停，探针位置冻结");
+        updatePlayButton();
+    }
+
+    function updatePlayButton() {
+        document.getElementById("playBtn").textContent = state.mode === "playing" ? "暂停" : "播放";
+    }
+
+    function cycleSpeed() {
+        const speeds = [0.5, 1, 1.5, 2];
+        const next = speeds[(speeds.indexOf(state.speed) + 1) % speeds.length];
+        state.speed = next;
+        document.getElementById("speedBtn").textContent = `速度 ${next}×`;
+        showToast(`动画速度已切换为 ${next}×`);
+    }
+
+    function toggleFullscreen() {
+        if (!document.fullscreenElement) {
+            document.documentElement.requestFullscreen().catch(() => showToast("当前浏览器未允许全屏"));
+        } else {
+            document.exitFullscreen();
+        }
+    }
+
+    function f(x, params) {
+        return params.a * x * x + params.b * x + params.c;
+    }
+
+    function updateView(force) {
+        const nextView = state.focusVertex ? vertexView() : fittedView();
+        const key = [nextView.xMin, nextView.xMax, nextView.yMin, nextView.yMax]
+            .map((value) => value.toFixed(2))
+            .join(",");
+        if (!force && key === runtime.lastViewKey) return;
+        runtime.view = nextView;
+        runtime.lastViewKey = key;
+        drawGrid();
+    }
+
+    function fittedView() {
+        const xMin = -4.5;
+        const xMax = 4.5;
+        let yMin = Math.min(0, f(0, state.params), f(state.params.probe, state.params));
+        let yMax = Math.max(0, f(0, state.params), f(state.params.probe, state.params));
+        const count = 96;
+        for (let i = 0; i <= count; i++) {
+            const x = xMin + (xMax - xMin) * (i / count);
+            const y = f(x, state.params);
+            yMin = Math.min(yMin, y);
+            yMax = Math.max(yMax, y);
+        }
+        const span = Math.max(8, yMax - yMin);
+        const pad = Math.max(1.2, span * 0.12);
+        return {
+            xMin,
+            xMax,
+            yMin: niceFloor(yMin - pad),
+            yMax: niceCeil(yMax + pad)
+        };
+    }
+
+    function vertexView() {
+        const m = computeMetrics(state.params);
+        const halfX = 3.6;
+        const yPad = 5;
+        const xMin = m.vertex.x - halfX;
+        const xMax = m.vertex.x + halfX;
+        let yMin = m.vertex.y;
+        let yMax = m.vertex.y;
+        const count = 64;
+        for (let i = 0; i <= count; i++) {
+            const x = xMin + (xMax - xMin) * (i / count);
+            const y = f(x, state.params);
+            yMin = Math.min(yMin, y);
+            yMax = Math.max(yMax, y);
+        }
+        return {
+            xMin: niceFloor(xMin),
+            xMax: niceCeil(xMax),
+            yMin: niceFloor(yMin - yPad),
+            yMax: niceCeil(yMax + yPad)
+        };
+    }
+
+    function phaseToProbe(phase) {
+        return -4 + clamp(phase, 0, 1) * 8;
+    }
+
+    function probeToPhase(probe) {
+        return clamp((probe + 4) / 8, 0, 1);
+    }
+
+    function chooseStep(rawStep) {
+        const magnitude = Math.pow(10, Math.floor(Math.log10(Math.max(rawStep, 0.001))));
+        const normalized = rawStep / magnitude;
+        if (normalized <= 1) return magnitude;
+        if (normalized <= 2) return 2 * magnitude;
+        if (normalized <= 5) return 5 * magnitude;
+        return 10 * magnitude;
+    }
+
+    function formatTick(value) {
+        const rounded = Math.abs(value) < 0.0001 ? 0 : value;
+        if (Math.abs(rounded) >= 10 || Number.isInteger(rounded)) return String(Math.round(rounded));
+        return rounded.toFixed(1);
+    }
+
+    function niceFloor(value) {
+        const step = chooseStep(Math.abs(value) / 6 || 1);
+        return Math.floor(value / step) * step;
+    }
+
+    function niceCeil(value) {
+        const step = chooseStep(Math.abs(value) / 6 || 1);
+        return Math.ceil(value / step) * step;
+    }
+
+    function computeMetrics(params) {
+        const a = Math.abs(params.a) < 0.01 ? (params.a < 0 ? -0.01 : 0.01) : params.a;
+        const b = params.b;
+        const c = params.c;
+        const vx = -b / (2 * a);
+        const vy = a * vx * vx + b * vx + c;
+        const delta = b * b - 4 * a * c;
+        const roots = [];
+        if (delta >= -0.0001) {
+            const d = Math.max(0, delta);
+            const sqrt = Math.sqrt(d);
+            roots.push((-b - sqrt) / (2 * a));
+            if (sqrt > 0.0001) roots.push((-b + sqrt) / (2 * a));
+        }
+        return { vertex: { x: vx, y: vy }, delta, roots };
+    }
+
+    function toScreen(x, y) {
+        const { xMin, xMax, yMin, yMax } = runtime.view;
+        return {
+            x: ((x - xMin) / (xMax - xMin)) * runtime.width,
+            y: runtime.height - ((y - yMin) / (yMax - yMin)) * runtime.height
+        };
+    }
+
+    function fmt(value) {
+        if (!Number.isFinite(value)) return "0";
+        const rounded = Math.abs(value) < 0.005 ? 0 : value;
+        if (Math.abs(rounded - Math.round(rounded)) < 0.005) return String(Math.round(rounded));
+        return rounded.toFixed(1);
+    }
+
+    function signed(value) {
+        return value >= 0 ? `+ ${fmt(value)}` : `- ${fmt(Math.abs(value))}`;
+    }
+
+    function formatFormula(a, b, c) {
+        const parts = [termText(a, "x²", true), termText(b, "x", false), termText(c, "", false)]
+            .filter(Boolean);
+        return `y = ${parts.join(" ") || "0"}`;
+    }
+
+    function termText(value, variable, first) {
+        if (Math.abs(value) < 0.005) return "";
+        const sign = value < 0 ? "-" : "+";
+        const abs = Math.abs(value);
+        const coefficient = variable && Math.abs(abs - 1) < 0.005 ? "" : fmt(abs);
+        const body = `${coefficient}${variable}`;
+        return first ? (value < 0 ? `-${body}` : body) : `${sign} ${body}`;
+    }
+
+    function deltaMeaning(delta) {
+        if (delta > 0.01) return "2个零点 (与 x 轴相交)";
+        if (delta < -0.01) return "无零点 (与 x 轴不相交)";
+        return "1个零点 (与 x 轴相切)";
+    }
+
+    function buildStatus(metrics) {
+        const aText = state.params.a > 0 
+            ? "开口向上（像水杯一样装水），顶点是轨道的最低谷。" 
+            : "开口向下（像彩虹或小帐篷），顶点是轨道的最高峰。";
+        
+        let rootText = "";
+        if (metrics.roots.length === 0) {
+            rootText = "判别式 Δ < 0，整条曲线悬空（在 x 轴上方或下方），与地面没有交点。";
+        } else if (metrics.roots.length === 1) {
+            rootText = "判别式 Δ = 0，曲线的顶点刚好“吻”在地面（x 轴）上。";
+        } else {
+            rootText = `判别式 Δ > 0，曲线向下（或向上）穿过地面，留下了 2 个交点（零点分别在 x = ${metrics.roots.map(fmt).join(" 和 ")} 处）。`;
+        }
+        
+        return `${aText} ${rootText} 绿色的探针点正沿曲线滑动展示自变量与函数值的一一对应。`;
+    }
+
+    function seeded(seed) {
+        let value = seed >>> 0;
+        return function () {
+            value = (value * 1664525 + 1013904223) >>> 0;
+            return value / 4294967296;
+        };
+    }
+
+    function pickFrom(rand, values) {
+        return values[Math.floor(rand() * values.length)];
+    }
+
+    function round(value, digits) {
+        const scale = Math.pow(10, digits);
+        return Math.round(value * scale) / scale;
+    }
+
+    function clamp(value, min, max) {
+        return Math.min(max, Math.max(min, value));
+    }
+
+    function showToast(message) {
+        toast.textContent = message;
+        toast.classList.add("show");
+        clearTimeout(showToast.timer);
+        showToast.timer = setTimeout(() => toast.classList.remove("show"), 1800);
+    }
+
+    function fail(error) {
+        runtime.running = false;
+        errorPanel.textContent = `二次函数演示初始化失败：${error && error.message ? error.message : error}`;
+        errorPanel.classList.add("show");
+    }
+
+    init();
+})();
+</script>
+</body>
+</html>

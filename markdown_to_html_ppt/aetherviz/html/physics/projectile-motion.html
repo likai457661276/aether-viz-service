@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>抛体运动 - Projectile Motion</title>
+<script src="https://registry.npmmirror.com/@tailwindcss/browser/4.3.0/files/dist/index.global.js"></script>
+<link rel="preconnect" href="https://fonts.font.im">
+<link rel="preconnect" href="https://fonts.gstatic.font.im" crossorigin>
+<link href="https://fonts.font.im/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://registry.npmmirror.com/katex/0.16.11/files/dist/katex.min.css">
+<script src="https://registry.npmmirror.com/katex/0.16.11/files/dist/katex.min.js"></script>
+<script src="https://registry.npmmirror.com/katex/0.16.11/files/dist/contrib/auto-render.min.js"></script>
+<style>
+:root{--primary-gradient:linear-gradient(135deg,#14B8A6 0%,#06B6D4 50%,#22D3EE 100%);--bg-gradient:linear-gradient(180deg,#0F172A 0%,#164E63 50%,#155E75 100%);--accent-cyan:#22D3EE;--accent-amber:#FBBF24;--theme-physics: linear-gradient(135deg, #14B8A6 0%, #147BB8 100%);--glass-bg:rgba(255,255,255,0.08);--glass-border:rgba(255,255,255,0.15);--glass-shadow:0 8px 32px rgba(0,0,0,0.3);--text-primary:#F8FAFC;--text-secondary:#CBD5E1;--text-muted:#94A3B8;--nav-bg:rgba(15,23,42,0.85);--nav-border:rgba(20,184,166,0.3);--sidebar-bg:rgba(15,23,42,0.9);--panel-bg:rgba(22,78,99,0.7);--panel-border:rgba(20,184,166,0.25);--btn-primary:linear-gradient(135deg,#14B8A6 0%,#06B6D4 100%);--btn-secondary:rgba(255,255,255,0.1);--slider-track:rgba(255,255,255,0.2);--slider-thumb:linear-gradient(135deg,#2DD4BF 0%,#5EEAD4 100%);}
+*{margin:0;padding:0;box-sizing:border-box;}html,body{width:100%;height:100%;overflow:hidden;font-family:'Inter',sans-serif;background:#0F172A;color:var(--text-primary);}
+#app{display:flex;flex-direction:column;width:100%;height:100vh;}
+#navbar{display:flex;align-items:center;justify-content:space-between;padding:0 24px;height:56px;background:var(--nav-bg);border-bottom:1px solid var(--nav-border);backdrop-filter:blur(12px);z-index:100;}
+.nav-title{font-size:20px;font-weight:700;background:var(--theme-physics);-webkit-background-clip:text;}.nav-title span{font-weight:400;font-size:13px;-webkit-text-fill-color:var(--text-muted);}
+.nav-btns{display:flex;gap:8px;}.nav-btn{padding:7px 16px;border-radius:8px;border:none;cursor:pointer;font-size:13px;font-weight:500;color:var(--text-primary);background:var(--btn-secondary);}
+.nav-btn:hover{background:rgba(255,255,255,0.18);}
+#main{display:flex;flex:1;overflow:hidden;position:relative;}
+#sidebar{width:320px;min-width:320px;background:var(--sidebar-bg);backdrop-filter:blur(12px);border-right:1px solid var(--glass-border);overflow-y:auto;padding:20px 18px;flex-shrink:0;}
+.sidebar-section{margin-bottom:18px;}.sidebar-section h3{font-size:13px;font-weight:600;color:var(--accent-cyan);text-transform:uppercase;margin-bottom:10px;}
+.obj-item{display:flex;align-items:flex-start;gap:10px;padding:8px 10px;border-radius:8px;background:var(--glass-bg);margin-bottom:6px;cursor:pointer;}
+.obj-text{font-size:14px;color:var(--text-secondary);}.obj-text.done{text-decoration:line-through;color:var(--text-muted);}
+.formula-box{padding:14px 16px;background:linear-gradient(145deg,rgba(20,184,166,0.15),rgba(6,182,212,0.1));border-radius:12px;border:1px solid var(--glass-border);text-align:center;margin-bottom:8px;}
+.formula-box .katex{font-size:1.2em;}
+.explain-text{font-size:14px;line-height:1.7;color:var(--text-secondary);}.explain-text strong{color:var(--accent-cyan);}
+.highlight{display:inline-block;padding:1px 6px;border-radius:4px;background:rgba(34,211,238,0.15);color:var(--accent-cyan);}
+.app-tag{display:inline-block;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:500;margin:3px 4px 3px 0;background:var(--glass-bg);color:var(--text-secondary);border:1px solid var(--glass-border);}
+#canvas-area{flex:1;position:relative;overflow:hidden;background:var(--bg-gradient);}
+#canvas-container{width:100%;height:100%;position:relative;}
+#hud-overlay{position:absolute;top:16px;left:16px;pointer-events:none;z-index:10;}
+.hud-item{display:flex;align-items:center;gap:10px;margin-bottom:6px;padding:6px 12px;background:rgba(0,0,0,0.4);backdrop-filter:blur(6px);border-radius:8px;}
+.hud-dot{width:10px;height:10px;border-radius:50%;}.hud-label{font-size:11px;color:var(--text-muted);}.hud-value{font-size:14px;font-weight:600;min-width:60px;}
+#control-panel{position:absolute;bottom:20px;left:50%;transform:translateX(-50%);z-index:20;display:flex;gap:12px;padding:16px 24px;background:var(--panel-bg);backdrop-filter:blur(16px);border-radius:16px;border:1px solid var(--panel-border);box-shadow:var(--glass-shadow);align-items:center;flex-wrap:wrap;justify-content:center;}
+.ctrl-group{display:flex;flex-direction:column;align-items:center;gap:2px;}.ctrl-group label{font-size:11px;color:var(--text-muted);font-weight:500;}
+.ctrl-group input[type=range]{width:90px;height:4px;-webkit-appearance:none;appearance:none;background:var(--slider-track);border-radius:2px;outline:none;}
+.ctrl-group input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;height:16px;border-radius:50%;background:var(--slider-thumb);cursor:pointer;border:2px solid rgba(255,255,255,0.3);}
+.ctrl-group .val{font-size:15px;font-weight:700;}.ctrl-group .val-unit{font-size:11px;color:var(--text-muted);}
+.ctrl-btns{display:flex;gap:6px;}.ctrl-btn{width:36px;height:36px;border-radius:50%;border:none;cursor:pointer;background:var(--btn-secondary);color:var(--text-primary);font-size:16px;display:flex;align-items:center;justify-content:center;}
+.ctrl-btn:hover{background:rgba(255,255,255,0.18);}.ctrl-btn.active{background:var(--btn-primary);}
+#toast{position:fixed;top:70px;left:50%;transform:translateX(-50%) translateY(-20px);background:rgba(15,23,42,0.9);backdrop-filter:blur(12px);border:1px solid var(--glass-border);border-radius:12px;padding:10px 20px;color:var(--text-primary);font-size:14px;z-index:999;opacity:0;pointer-events:none;transition:all 0.4s;white-space:nowrap;}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+#sidebar-toggle{display:none;position:absolute;left:10px;top:65px;z-index:50;width:40px;height:40px;border-radius:50%;background:var(--panel-bg);border:1px solid var(--glass-border);color:var(--text-primary);font-size:18px;cursor:pointer;}
+#sidebar-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:35;}
+@media(max-width:768px){
+  #sidebar{position:fixed;left:-340px;top:56px;bottom:0;transition:left 0.3s;width:280px;}
+  #sidebar.open{left:0;}#sidebar-toggle{display:flex;}#control-panel{width:calc(100% - 20px);bottom:12px;flex-wrap:wrap;}
+}
+</style>
+</head>
+<body>
+<div id="app">
+  <nav id="navbar">
+    <div class="nav-title">抛体运动 <span>Projectile Motion</span></div>
+    <div class="nav-btns">
+      <button class="nav-btn" onclick="resetSim()">&#x1F504; 重置</button>
+      <button class="nav-btn" onclick="launch()">&#x1F680; 发射</button>
+      <button class="nav-btn" onclick="toggleFullscreen()">&#x26F6; 全屏</button>
+      <button class="nav-btn" onclick="showAbout()">&#x2139; 关于</button>
+    </div>
+  </nav>
+  <div id="main">
+    <button id="sidebar-toggle" onclick="toggleSidebar()">&#x2630;</button>
+    <div id="sidebar-overlay" onclick="toggleSidebar()"></div>
+    <aside id="sidebar">
+      <div class="sidebar-section">
+        <h3>&#x1F3AF; 学习目标</h3>
+        <div class="obj-item"><div class="obj-text">理解抛体运动的水平与竖直分解</div></div>
+        <div class="obj-item"><div class="obj-text">掌握抛射角对射程的影响</div></div>
+        <div class="obj-item"><div class="obj-text">观察45°角时射程最大</div></div>
+      </div>
+      <div class="sidebar-section">
+        <h3>&#x1F4D0; 核心公式</h3>
+        <div class="formula-box">\( x = v_0\cos\theta \cdot t \)</div>
+        <div class="formula-box">\( y = v_0\sin\theta \cdot t - \frac{1}{2}gt^2 \)</div>
+        <div class="formula-box">\( R = \frac{v_0^2\sin2\theta}{g} \)</div>
+      </div>
+      <div class="sidebar-section">
+        <h3>&#x1F4A1; 原理解读</h3>
+        <div class="explain-text">
+          <strong>抛体运动</strong>是最常见的二维运动形式。<br><br>
+          &#x1F3C0 投篮时球在空中画出一道美丽的<span class="highlight">抛物线</span><br>
+          &#x27A1 水平方向：匀速直线运动<br>
+          &#x2B07 竖直方向：自由落体运动<br><br>
+          两个方向的运动<span class="highlight">独立</span>进行，互不影响！<br>
+          最佳发射角度45°时可达到<span class="highlight">最远射程</span>。
+        </div>
+      </div>
+      <div class="sidebar-section">
+        <h3>&#x1F30D; 真实世界应用</h3>
+        <span class="app-tag">&#x1F3C0; 投篮</span>
+        <span class="app-tag">&#x1F3AF; 弓箭</span>
+        <span class="app-tag">&#x1F4A3; 炮弹</span>
+        <span class="app-tag">&#x26BD; 任意球</span>
+        <span class="app-tag">&#x1F680; 火箭</span>
+      </div>
+    </aside>
+    <div id="canvas-area">
+      <div id="canvas-container"></div>
+      <div id="hud-overlay">
+        <div class="hud-item"><div class="hud-dot" style="background:var(--accent-cyan)"></div><span class="hud-label">v_x</span><span class="hud-value" id="hud-vx" style="color:var(--accent-cyan)">0 m/s</span></div>
+        <div class="hud-item"><div class="hud-dot" style="background:var(--accent-amber)"></div><span class="hud-label">v_y</span><span class="hud-value" id="hud-vy" style="color:var(--accent-amber)">0 m/s</span></div>
+        <div class="hud-item"><div class="hud-dot" style="background:var(--accent-amber)"></div><span class="hud-label">射程</span><span class="hud-value" id="hud-range" style="color:var(--accent-amber)">0 m</span></div>
+      </div>
+      <div id="control-panel">
+        <div class="ctrl-group"><label>&#x26A1; 初速度 (m/s)</label><input type="range" id="slider-v0" min="5" max="25" step="0.5" value="12" oninput="updateParams()"><div><span class="val" id="disp-v0">12.0</span></div></div>
+        <div class="ctrl-group"><label>&#x1F3AF; 角度 (°)</label><input type="range" id="slider-angle" min="10" max="80" step="1" value="45" oninput="updateParams()"><div><span class="val" id="disp-angle">45</span><span class="val-unit">°</span></div></div>
+        <div class="ctrl-group"><label>&#x1F30D; g (m/s²)</label><input type="range" id="slider-g" min="1" max="20" step="0.5" value="9.8" oninput="updateParams()"><div><span class="val" id="disp-g">9.8</span></div></div>
+        <div class="ctrl-btns">
+          <button class="ctrl-btn" id="btn-play" onclick="togglePlay()">&#x25B6;</button>
+          <button class="ctrl-btn" onclick="resetSim()">&#x27F3;</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<div id="toast"></div>
+<script src="https://registry.npmmirror.com/three/0.134.0/files/build/three.min.js"></script>
+<script>
+class OrbitControls{
+  constructor(c,de){this.camera=c;this.domElement=de;this.enableDamping=true;this.dampingFactor=0.08;this.rotateSpeed=0.4;this.zoomSpeed=1.0;this.minDistance=4;this.maxDistance=30;this.target=new THREE.Vector3(0,0,0);this._spherical=new THREE.Spherical();this._sphericalDelta=new THREE.Spherical();this._rotateStart=new THREE.Vector2();this._rotateEnd=new THREE.Vector2();this._isRotating=false;this._onDown=this._onDown.bind(this);this._onMove=this._onMove.bind(this);this._onUp=this._onUp.bind(this);this._onWheel=this._onWheel.bind(this);de.addEventListener('pointerdown',this._onDown);de.addEventListener('wheel',this._onWheel,{passive:false});this._updateSpherical();}
+  _updateSpherical(){const p=this.camera.position.clone().sub(this.target);this._spherical.setFromVector3(p);}
+  _applySpherical(){const p=new THREE.Vector3().setFromSpherical(this._spherical).add(this.target);this.camera.position.copy(p);this.camera.lookAt(this.target);}
+  _onDown(e){this._isRotating=true;this._rotateStart.set(e.clientX,e.clientY);this.domElement.setPointerCapture(e.pointerId);this.domElement.addEventListener('pointermove',this._onMove);this.domElement.addEventListener('pointerup',this._onUp);}
+  _onMove(e){if(this._isRotating){this._rotateEnd.set(e.clientX,e.clientY);const dx=this._rotateEnd.x-this._rotateStart.x;const dy=this._rotateEnd.y-this._rotateStart.y;this._sphericalDelta.theta-=2*Math.PI*dx/this.domElement.clientWidth*this.rotateSpeed;this._sphericalDelta.phi-=2*Math.PI*dy/this.domElement.clientHeight*this.rotateSpeed;this._sphericalDelta.phi=Math.max(0.1,Math.min(Math.PI-0.1,this._sphericalDelta.phi));this._spherical.theta+=this._sphericalDelta.theta;this._spherical.phi+=this._sphericalDelta.phi;this._sphericalDelta.set(0,0,0);this._rotateStart.copy(this._rotateEnd);this._needsUpdate=true;}}
+  _onUp(e){this._isRotating=false;this.domElement.releasePointerCapture(e.pointerId);this.domElement.removeEventListener('pointermove',this._onMove);this.domElement.removeEventListener('pointerup',this._onUp);}
+  _onWheel(e){e.preventDefault();const d=e.deltaY>0?1:-1;this._spherical.radius*=1+d*0.08;this._spherical.radius=Math.max(this.minDistance,Math.min(this.maxDistance,this._spherical.radius));this._needsUpdate=true;}
+  update(){if(this.enableDamping){this._spherical.theta+=this._sphericalDelta.theta*this.dampingFactor;this._spherical.phi+=this._sphericalDelta.phi*this.dampingFactor;this._spherical.radius+=this._sphericalDelta.radius*this.dampingFactor;this._sphericalDelta.set(0,0,0);}this._applySpherical();}
+}
+document.addEventListener('DOMContentLoaded',function(){if(typeof renderMathInElement==='function')renderMathInElement(document.body,{delimiters:[{left:'\\(',right:'\\)',display:false},{left:'\\[',right:'\\]',display:true}]});});
+setTimeout(function(){if(typeof renderMathInElement==='function')renderMathInElement(document.body,{delimiters:[{left:'\\(',right:'\\)',display:false},{left:'\\[',right:'\\]',display:true}]});},200);
+
+let v0=12,angle=45,gVal=9.8;
+let px=0,py=0,vx=0,vy=0;
+let isPlaying=false,hasLaunched=false;
+let launchPx=0;
+let trailPositions=[];
+let clock=new THREE.Clock(),scene,camera,renderer,controls;
+let ball,ground,arrowV,arrowVx,arrowVy;
+let trailLine,trailGeometry;
+let particleSystem,particleCount=200;
+const MAX_TRAIL=250;
+const GROUND_Y=-1.5;
+
+function initThree(){
+  const c=document.getElementById('canvas-container');const w=c.clientWidth,h=c.clientHeight;
+  scene=new THREE.Scene();camera=new THREE.PerspectiveCamera(50,w/h,0.1,100);camera.position.set(0,5,14);
+  renderer=new THREE.WebGLRenderer({antialias:true,alpha:true});renderer.setSize(w,h);renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));renderer.shadowMap.enabled=true;
+  c.appendChild(renderer.domElement);
+  controls=new OrbitControls(camera,renderer.domElement);controls.enableDamping=true;controls.target.set(4,0,0);
+  scene.add(new THREE.HemisphereLight(0x87CEEB,0x0F172A,0.8));
+  const d=new THREE.DirectionalLight(0xFFEECC,1.2);d.position.set(10,15,10);d.castShadow=true;scene.add(d);
+  scene.add(new THREE.AmbientLight(0x334466,0.4));
+  const gp=new THREE.PlaneGeometry(160,20);const gm=new THREE.MeshStandardMaterial({color:0x1a2a3a,roughness:0.7,metalness:0.1,transparent:true,opacity:0.6,side:THREE.DoubleSide});
+  ground=new THREE.Mesh(gp,gm);ground.rotation.x=-Math.PI/2;ground.position.set(40,GROUND_Y,0);ground.receiveShadow=true;scene.add(ground);
+  const gr=new THREE.GridHelper(160,80,0x22D3EE,0x0D9488);gr.position.set(40,GROUND_Y+0.1,0);gr.material.transparent=true;gr.material.opacity=0.3;scene.add(gr);
+  const bg=new THREE.SphereGeometry(0.4,32,32);
+  const bm=new THREE.MeshStandardMaterial({color:0x3B82F6,roughness:0.15,metalness:0.5,emissive:0x1d4ed8,emissiveIntensity:0.2});
+  ball=new THREE.Mesh(bg,bm);ball.position.set(0,GROUND_Y,0);ball.castShadow=true;scene.add(ball);
+  const be=new THREE.LineSegments(new THREE.EdgesGeometry(bg),new THREE.LineBasicMaterial({color:0x60A5FA,transparent:true,opacity:0.5}));ball.add(be);
+  // Trail
+  trailGeometry=new THREE.BufferGeometry();const pa=new Float32Array(MAX_TRAIL*3);trailGeometry.setAttribute('position',new THREE.BufferAttribute(pa,3));trailGeometry.setDrawRange(0,0);
+  trailLine=new THREE.Line(trailGeometry,new THREE.LineBasicMaterial({color:0x22D3EE,transparent:true,opacity:0.6}));scene.add(trailLine);
+  // Arrows
+  arrowV=new THREE.ArrowHelper(new THREE.Vector3(1,0,0),new THREE.Vector3(0,0,0),1,0x3B82F6,0.3,0.15);
+  arrowV.position.set(0,GROUND_Y+0.1,0.6);scene.add(arrowV);
+  arrowVx=new THREE.ArrowHelper(new THREE.Vector3(1,0,0),new THREE.Vector3(0,0,0),1,0x22C55E,0.2,0.1);
+  arrowVx.position.set(0,GROUND_Y+0.1,0.4);scene.add(arrowVx);
+  arrowVy=new THREE.ArrowHelper(new THREE.Vector3(0,1,0),new THREE.Vector3(0,0,0),1,0xFBBF24,0.2,0.1);
+  arrowVy.position.set(0,GROUND_Y+0.1,0.4);scene.add(arrowVy);
+  // Particles
+  const pGeo=new THREE.BufferGeometry();const pPos=new Float32Array(particleCount*3);
+  for(let i=0;i<particleCount;i++){pPos[i*3]=(Math.random()-0.5)*18;pPos[i*3+1]=(Math.random()-0.5)*10+2;pPos[i*3+2]=(Math.random()-0.5)*14;}
+  pGeo.setAttribute('position',new THREE.BufferAttribute(pPos,3));
+  const pc=document.createElement('canvas');pc.width=32;pc.height=32;const pctx=pc.getContext('2d');const pg=pctx.createRadialGradient(16,16,0,16,16,16);
+  pg.addColorStop(0,'rgba(34,211,238,0.8)');pg.addColorStop(0.5,'rgba(6,182,212,0.3)');pg.addColorStop(1,'rgba(6,182,212,0)');
+  pctx.fillStyle=pg;pctx.beginPath();pctx.arc(16,16,16,0,Math.PI*2);pctx.fill();
+  particleSystem=new THREE.Points(pGeo,new THREE.PointsMaterial({size:0.12,map:new THREE.CanvasTexture(pc),transparent:true,blending:THREE.AdditiveBlending,depthWrite:false,opacity:0.5}));
+  scene.add(particleSystem);
+  window.addEventListener('resize',onResize);onResize();updateParams();animate();
+}
+function onResize(){const c=document.getElementById('canvas-container');const w=c.clientWidth,h=c.clientHeight;if(!camera||!renderer)return;camera.aspect=w/h;camera.updateProjectionMatrix();renderer.setSize(w,h);}
+function updateParams(){
+  v0=parseFloat(document.getElementById('slider-v0').value);angle=parseFloat(document.getElementById('slider-angle').value);gVal=parseFloat(document.getElementById('slider-g').value);
+  const dispV0 = document.getElementById('disp-v0');
+  const dispAngle = document.getElementById('disp-angle');
+  const dispG = document.getElementById('disp-g');
+  if (dispV0) dispV0.textContent=v0.toFixed(1);
+  if (dispAngle) dispAngle.textContent=angle;
+  if (dispG) dispG.textContent=gVal.toFixed(1);
+
+  if(!hasLaunched) {
+    const rad = angle * Math.PI / 180;
+    const vx0 = v0 * Math.cos(rad);
+    const vy0 = v0 * Math.sin(rad);
+    const estRange = (v0 * v0 * Math.sin(2 * rad)) / gVal;
+    
+    const hvx = document.getElementById('hud-vx');
+    const hvy = document.getElementById('hud-vy');
+    const hr = document.getElementById('hud-range');
+    if (hvx) hvx.textContent = vx0.toFixed(2) + ' m/s';
+    if (hvy) hvy.textContent = vy0.toFixed(2) + ' m/s';
+    if (hr) hr.textContent = '预估: ' + estRange.toFixed(2) + ' m';
+    
+    if (arrowV) {
+      arrowV.setDirection(new THREE.Vector3(Math.cos(rad), Math.sin(rad), 0));
+      arrowV.setLength(v0 * 0.08 + 0.3, 0.3, 0.15);
+    }
+    if (arrowVx) {
+      arrowVx.setDirection(new THREE.Vector3(1, 0, 0));
+      arrowVx.setLength(vx0 * 0.08 + 0.2, 0.2, 0.1);
+    }
+    if (arrowVy) {
+      arrowVy.setDirection(new THREE.Vector3(0, 1, 0));
+      arrowVy.setLength(vy0 * 0.08 + 0.2, 0.2, 0.1);
+    }
+  } else {
+    showToast('已在运动中，修改的参数将在下一次发射时生效');
+  }
+}
+function simStep(dt){
+  if(!dt||dt>0.05)dt=0.016;
+  if(!hasLaunched)return;
+  px+=vx*dt;py+=vy*dt;
+  vy-=gVal*dt;
+  if(px>=80){
+    px=80;
+    if(ball) ball.position.x=px;
+    isPlaying=false;
+    const btnPlay = document.getElementById('btn-play');
+    if (btnPlay) btnPlay.textContent='\u25B6';
+    showToast('\u26A0\uFE0F \u7269\u4F53\u5DF2\u8FBE\u5230\u8FB9\u7F18\uFF0C\u81EA\u52A8\u6682\u505C\u3002\u53EF\u70B9\u51FB\u91CD\u7F6E\u91CD\u65B0\u5F00\u59CB\u3002');
+    return;
+  }
+  if(ball) {
+    ball.position.x=px;
+    ball.position.y=py;
+  }
+  if(controls){
+    controls.target.x+=(px-controls.target.x)*0.15;
+    const targetY=Math.max(0,(py-GROUND_Y)*0.4);
+    controls.target.y+=(targetY-controls.target.y)*0.15;
+  }
+  if(py<=GROUND_Y){
+    py=GROUND_Y;
+    if(ball) ball.position.y=GROUND_Y;
+    isPlaying=false;
+    const btnPlay = document.getElementById('btn-play');
+    if (btnPlay) btnPlay.textContent='\u25B6';
+    const range=px-launchPx;
+    const hudRange = document.getElementById('hud-range');
+    if (hudRange) hudRange.textContent=range.toFixed(2)+' m';
+    showToast('\u2705 \u843D\u5730\uFF01\u5C04\u7A0B: '+range.toFixed(2)+' m');
+    return;
+  }
+  const hudVx = document.getElementById('hud-vx');
+  const hudVy = document.getElementById('hud-vy');
+  if (hudVx) hudVx.textContent=vx.toFixed(2)+' m/s';
+  if (hudVy) hudVy.textContent=vy.toFixed(2)+' m/s';
+  // Arrows
+  const vs=Math.sqrt(vx*vx+vy*vy);
+  if(vs>0.1 && arrowV){
+    arrowV.setDirection(new THREE.Vector3(vx/vs,vy/vs,0));
+    arrowV.setLength(vs*0.08+0.3,0.3,0.15);
+  }
+  if(arrowV) arrowV.position.set(px,py+0.1,0.6);
+  if(arrowVx) {
+    arrowVx.setDirection(new THREE.Vector3(1,0,0));
+    arrowVx.setLength(Math.abs(vx)*0.08+0.2,0.2,0.1);
+    arrowVx.position.set(px,py+0.1,0.4);
+  }
+  if(arrowVy) {
+    arrowVy.setDirection(new THREE.Vector3(0,Math.sign(vy)||1,0));
+    arrowVy.setLength(Math.abs(vy)*0.08+0.2,0.2,0.1);
+    arrowVy.position.set(px,py+0.1,0.4);
+  }
+  // Trail
+  trailPositions.push({x:px,y:py});
+  if(trailPositions.length>MAX_TRAIL)trailPositions.shift();
+  if(trailLine && trailLine.geometry && trailLine.geometry.attributes.position) {
+    const arr=trailLine.geometry.attributes.position.array;
+    for(let i=0;i<trailPositions.length;i++){
+      arr[i*3]=trailPositions[i].x;
+      arr[i*3+1]=trailPositions[i].y;
+      arr[i*3+2]=0;
+    }
+    trailLine.geometry.attributes.position.needsUpdate=true;
+    trailLine.geometry.setDrawRange(0,trailPositions.length);
+  }
+  // Particles
+  if(particleSystem && particleSystem.geometry && particleSystem.geometry.attributes.position) {
+    const pp=particleSystem.geometry.attributes.position.array;
+    for(let i=0;i<particleCount;i++){
+      pp[i*3]+=(Math.random()-0.5)*0.01;
+      pp[i*3+1]-=0.005;
+      pp[i*3+2]+=(Math.random()-0.5)*0.01;
+      if(pp[i*3+1]<-2){
+        pp[i*3]=(Math.random()-0.5)*8+4;
+        pp[i*3+1]=Math.random()*8+2;
+        pp[i*3+2]=(Math.random()-0.5)*8;
+      }
+    }
+    particleSystem.geometry.attributes.position.needsUpdate=true;
+  }
+}
+function togglePlay(){
+  if(!hasLaunched){launch();return;}
+  isPlaying=!isPlaying;
+  const btnPlay = document.getElementById('btn-play');
+  if (btnPlay) btnPlay.textContent=isPlaying?'\u23F8':'\u25B6';
+  if(isPlaying)clock.start();
+}
+function launch(){
+  const rad=angle*Math.PI/180;
+  vx=v0*Math.cos(rad);vy=v0*Math.sin(rad);
+  px=0;py=GROUND_Y;
+  launchPx=0;
+  hasLaunched=true;isPlaying=true;
+  trailPositions=[];
+  const btnPlay = document.getElementById('btn-play');
+  if (btnPlay) btnPlay.textContent='\u23F8';
+  clock.start();
+  showToast('\uD83D\uDE80 \u53D1\u5C04\uFF01\u521D\u901F '+v0.toFixed(1)+' m/s, \u89D2\u5EA6 '+angle+'\u00B0');
+}
+function resetSim(){
+  isPlaying=false;hasLaunched=false;px=0;py=GROUND_Y;vx=0;vy=0;
+  if(ball) ball.position.set(0,GROUND_Y,0);
+  const btnPlay = document.getElementById('btn-play');
+  if (btnPlay) btnPlay.textContent='\u25B6';
+  const hudVx = document.getElementById('hud-vx');
+  const hudVy = document.getElementById('hud-vy');
+  const hudRange = document.getElementById('hud-range');
+  if (hudVx) hudVx.textContent='0.00 m/s';
+  if (hudVy) hudVy.textContent='0.00 m/s';
+  if (hudRange) hudRange.textContent='0 m';
+  trailPositions=[];
+  if(trailLine && trailLine.geometry) trailLine.geometry.setDrawRange(0,0);
+  if(controls)controls.target.set(4,0,0);
+  if(arrowV){
+    arrowV.position.set(0,GROUND_Y+0.1,0.6);
+    arrowV.setDirection(new THREE.Vector3(1,0,0));
+    arrowV.setLength(1,0.3,0.15);
+  }
+  if(arrowVx){
+    arrowVx.position.set(0,GROUND_Y+0.1,0.4);
+    arrowVx.setDirection(new THREE.Vector3(1,0,0));
+    arrowVx.setLength(1,0.2,0.1);
+  }
+  if(arrowVy){
+    arrowVy.position.set(0,GROUND_Y+0.1,0.4);
+    arrowVy.setDirection(new THREE.Vector3(0,1,0));
+    arrowVy.setLength(1,0.2,0.1);
+  }
+  clock.stop();
+  clock=new THREE.Clock();
+  updateParams();
+  showToast('\uD83D\uDD04 \u5DF2\u91CD\u7F6E');
+}
+function toggleFullscreen(){if(!document.fullscreenElement)document.documentElement.requestFullscreen().catch(()=>{});else document.exitFullscreen();}
+function showAbout(){showToast('\u26A1 \u629B\u4F53\u8FD0\u52A8 \xB7 \u7531 宾果AI \u751F\u6210 \u2764\uFE0F');}
+function toggleSidebar(){document.getElementById('sidebar').classList.toggle('open');document.getElementById('sidebar-overlay').classList.toggle('show');}
+
+
+
+function animate() {
+  requestAnimationFrame(animate);
+  if (isPlaying) {
+    const dt = clock.getDelta();
+    simStep(dt);
+  } else {
+    clock.getDelta();
+  }
+  if (controls) controls.update();
+  if (renderer && scene && camera) {
+    renderer.render(scene, camera);
+  }
+}
+
+function showToast(msg) {
+  const toast = document.getElementById('toast');
+  if (!toast) return;
+  toast.textContent = msg;
+  toast.classList.add('show');
+  clearTimeout(toast.timer);
+  toast.timer = setTimeout(() => {
+    toast.classList.remove('show');
+  }, 3000);
+}
+
+initThree();
+setTimeout(()=>showToast('\uD83C\uDF1F 调整角度和初速度，点击「发射」观察抛体运动轨迹！'),600);
+</script>
+</body>
+</html>

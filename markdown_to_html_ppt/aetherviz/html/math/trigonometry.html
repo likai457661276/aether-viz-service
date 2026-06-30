@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>三角函数基础 - Basic Trigonometry</title>
+    <link rel="stylesheet" href="https://cdn.staticfile.net/KaTeX/0.16.9/katex.min.css">
+    <script src="https://cdn.staticfile.net/KaTeX/0.16.9/katex.min.js"></script>
+    <style>
+        :root {
+            --bg-gradient: linear-gradient(180deg, #0F172A 0%, #164E63 50%, #155E75 100%);
+            --bg-gradient-card: linear-gradient(145deg, rgba(20, 184, 166, 0.15) 0%, rgba(6, 182, 212, 0.1) 100%);
+            --theme-math: linear-gradient(135deg, #F59E0B 0%, #EAB308 100%);
+            --accent-amber: #FBBF24;
+            --accent-cyan: #22D3EE;
+            --accent-emerald: #34D399;
+            --glass-bg: rgba(255, 255, 255, 0.08);
+            --glass-border: rgba(255, 255, 255, 0.15);
+            --text-primary: #F8FAFC;
+            --text-secondary: #CBD5E1;
+            --text-muted: #94A3B8;
+            --nav-bg: rgba(15, 23, 42, 0.85);
+            --sidebar-bg: rgba(15, 23, 42, 0.9);
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg-gradient);
+            color: var(--text-primary);
+            min-height: 100vh;
+        }
+        .nav {
+            position: fixed; top: 0; left: 0; right: 0; height: 60px;
+            background: var(--nav-bg);
+            border-bottom: 1px solid rgba(245, 158, 11, 0.3);
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 0 24px; z-index: 100;
+            backdrop-filter: blur(12px);
+        }
+        .nav-title {
+            font-size: 1.5rem; font-weight: 700;
+            background: var(--theme-math);
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+        }
+        .nav-buttons { display: flex; gap: 12px; }
+        .nav-btn {
+            background: var(--glass-bg); border: 1px solid var(--glass-border);
+            color: var(--text-primary); padding: 8px 16px;
+            border-radius: 8px; cursor: pointer; transition: all 0.3s;
+        }
+        .nav-btn:hover { background: rgba(245, 158, 11, 0.3); }
+        .sidebar {
+            position: fixed; top: 60px; left: 0; width: 320px;
+            height: calc(100vh - 60px); background: var(--sidebar-bg);
+            border-right: 1px solid rgba(245, 158, 11, 0.2);
+            padding: 24px; overflow-y: auto;
+            backdrop-filter: blur(12px);
+        }
+        .sidebar-section { margin-bottom: 24px; }
+        .sidebar-title {
+            font-size: 0.85rem; text-transform: uppercase; letter-spacing: 1px;
+            color: var(--accent-amber); margin-bottom: 12px;
+        }
+        .goal-text { padding: 8px 0; color: var(--text-secondary); line-height: 1.6; }
+        .formula-box {
+            background: var(--glass-bg); border: 1px solid var(--glass-border);
+            border-radius: 12px; padding: 16px; text-align: center;
+        }
+        .explanation { color: var(--text-secondary); line-height: 1.7; font-size: 0.95rem; }
+        .main-content { margin-left: 320px; padding: 80px 24px 24px; min-height: 100vh; }
+        .canvas-container {
+            position: relative; width: 100%; height: 450px;
+            background: var(--bg-gradient-card);
+            border-radius: 16px; border: 1px solid var(--glass-border);
+            overflow: hidden;
+        }
+        .control-panel {
+            margin-top: 24px;
+            background: rgba(22, 78, 99, 0.7);
+            border: 1px solid rgba(245, 158, 11, 0.25);
+            border-radius: 16px; padding: 24px;
+            backdrop-filter: blur(12px);
+        }
+        .control-row { display: flex; align-items: center; gap: 16px; margin-bottom: 16px; }
+        .slider-container { flex: 1; }
+        .slider-label { color: var(--text-muted); font-size: 0.85rem; margin-bottom: 8px; }
+        .slider {
+            width: 100%; height: 6px; border-radius: 3px;
+            background: rgba(255, 255, 255, 0.2);
+            -webkit-appearance: none; cursor: pointer;
+        }
+        .slider::-webkit-slider-thumb {
+            -webkit-appearance: none; width: 20px; height: 20px;
+            border-radius: 50%; background: var(--theme-math);
+            cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+        }
+        .value-display {
+            background: var(--glass-bg); border: 1px solid var(--glass-border);
+            padding: 8px 16px; border-radius: 8px; min-width: 100px;
+            text-align: center; font-family: monospace;
+        }
+        .toast {
+            position: fixed; bottom: 100px; left: 50%; transform: translateX(-50%);
+            background: var(--sidebar-bg); border: 1px solid var(--accent-emerald);
+            padding: 12px 24px; border-radius: 8px; color: var(--accent-emerald);
+            opacity: 0; transition: opacity 0.3s; z-index: 200;
+        }
+        .toast.show { opacity: 1; }
+        .footer-quote { text-align: center; margin-top: 40px; padding: 24px; color: var(--text-muted); font-style: italic; }
+        .unit-circle { stroke: var(--accent-cyan); fill: none; stroke-width: 2; }
+        .axis-line { stroke: var(--text-muted); stroke-width: 1; }
+        .triangle-line { stroke: var(--accent-amber); stroke-width: 3; }
+        .radius-line { stroke: var(--accent-emerald); stroke-width: 2; stroke-dasharray: 5,3; }
+        .sin-line { stroke: #EF4444; stroke-width: 2; }
+        .cos-line { stroke: #3B82F6; stroke-width: 2; }
+        .tan-line { stroke: #22C55E; stroke-width: 2; }
+        .point { fill: var(--accent-amber); stroke: #fff; stroke-width: 2; }
+        .func-label { fill: var(--text-primary); font-size: 12px; }
+        .angle-arc { fill: rgba(245, 158, 11, 0.3); stroke: var(--accent-amber); stroke-width: 1; }
+    </style>
+</head>
+<body>
+    <nav class="nav">
+        <h1 class="nav-title">三角函数基础 · Basic Trigonometry</h1>
+        <div class="nav-buttons">
+            <button class="nav-btn" onclick="resetDemo()">重置</button>
+            <button class="nav-btn" onclick="randomDemo()">随机角度</button>
+            <button class="nav-btn" onclick="toggleFullscreen()">全屏</button>
+        </div>
+    </nav>
+
+    <aside class="sidebar">
+        <div class="sidebar-section">
+            <div class="sidebar-title">📚 学习目标</div>
+            <div class="goal-text">• 理解sin、cos、tan的定义</div>
+            <div class="goal-text">• 掌握单位圆与三角函数的关系</div>
+            <div class="goal-text">• 学会使用计算器求三角函数值</div>
+        </div>
+
+        <div class="sidebar-section">
+            <div class="sidebar-title">📐 核心公式</div>
+            <div class="formula-box">
+                <div id="formula-sin"></div>
+                <div style="margin:8px 0"></div>
+                <div id="formula-cos"></div>
+                <div style="margin:8px 0"></div>
+                <div id="formula-tan"></div>
+            </div>
+        </div>
+
+        <div class="sidebar-section">
+            <div class="sidebar-title">💡 原理解释</div>
+            <p class="explanation">
+                想象一下你站在原点，面朝x轴正方向。现在你向左转θ角度，你的位置在单位圆上。sin(θ)就是你的y坐标（对边），cos(θ)就是你的x坐标（邻边），而tan(θ)=sin/cos就是"高与宽的比值"。这就是为什么三角函数叫做"三角"函数——它们诞生于三角形的比例之中！
+            </p>
+        </div>
+
+        <div class="sidebar-section">
+            <div class="sidebar-title">🌍 真实应用</div>
+            <p class="explanation">
+                • 建筑工程：计算斜坡坡度<br>
+                • 物理学：波的传播分析<br>
+                • 音乐：声音的频率与音调<br>
+                • GPS导航：位置计算
+            </p>
+        </div>
+    </aside>
+
+    <main class="main-content">
+        <div class="canvas-container">
+            <svg id="svg-canvas" viewBox="0 0 700 420">
+                <defs>
+                    <linearGradient id="gradAmber" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" style="stop-color:#F59E0B;stop-opacity:0.8"/>
+                        <stop offset="100%" style="stop-color:#EAB308;stop-opacity:0.6"/>
+                    </linearGradient>
+                </defs>
+                <g id="diagram"></g>
+            </svg>
+        </div>
+
+        <div class="control-panel">
+            <div class="control-row">
+                <div class="slider-container">
+                    <div class="slider-label">角度 θ = <span id="val-angle">45</span>°</div>
+                    <input type="range" class="slider" id="slider-angle" min="0" max="360" value="45">
+                </div>
+                <div class="value-display" id="display-angle">45°</div>
+            </div>
+            <div class="control-row">
+                <div class="value-display" style="color:var(--accent-amber)">sin θ = <span id="sin-val">0.707</span></div>
+                <div class="value-display" style="color:#3B82F6">cos θ = <span id="cos-val">0.707</span></div>
+                <div class="value-display" style="color:#22C55E">tan θ = <span id="tan-val">1.000</span></div>
+            </div>
+            <div id="formula-result" style="text-align:center;margin-top:16px;font-size:1.1rem;color:var(--accent-amber);"></div>
+        </div>
+    </main>
+
+    <div class="toast" id="toast"></div>
+
+    <script>
+        let angle = 45;
+        const cx = 250, cy = 200, r = 120;
+
+        function updateDiagram() {
+            const rad = angle * Math.PI / 180;
+            const px = cx + r * Math.cos(rad);
+            const py = cy - r * Math.sin(rad);
+            const sinVal = Math.sin(rad).toFixed(3);
+            const cosVal = Math.cos(rad).toFixed(3);
+            const tanVal = (Math.abs(Math.cos(rad)) < 1e-10 ? '∞' : Math.tan(rad).toFixed(3));
+
+            document.getElementById('val-angle').textContent = angle;
+            document.getElementById('display-angle').textContent = angle + '°';
+            document.getElementById('sin-val').textContent = sinVal;
+            document.getElementById('cos-val').textContent = cosVal;
+            document.getElementById('tan-val').textContent = tanVal;
+
+            document.getElementById('diagram').innerHTML = `
+                <line x1="50" y1="200" x2="450" y2="200" class="axis-line"/>
+                <line x1="250" y1="20" x2="250" y2="380" class="axis-line"/>
+                <text x="455" y="205" class="func-label">x</text>
+                <text x="255" y="20" class="func-label">y</text>
+                
+                <circle cx="${cx}" cy="${cy}" r="${r}" class="unit-circle"/>
+                
+                <path d="M ${cx+50} ${cy} A 50 50 0 0 ${angle > 180 ? 1 : 0} ${cx + 50*Math.cos(-rad)} ${cy + 50*Math.sin(-rad)}" 
+                      class="angle-arc" fill="rgba(245,158,11,0.2)"/>
+                
+                <line x1="${cx}" y1="${cy}" x2="${px}" y2="${py}" class="radius-line"/>
+                <line x1="${cx}" y1="${cy}" x2="${px}" y2="${cy}" class="triangle-line"/>
+                <line x1="${px}" y1="${cy}" x2="${px}" y2="${py}" class="sin-line"/>
+                
+                <circle cx="${px}" cy="${py}" r="8" class="point"/>
+                
+                <line x1="${px}" y1="${py}" x2="${px}" y2="${cy}" stroke="#EF4444" stroke-width="1" stroke-dasharray="4,4" opacity="0.6"/>
+                <line x1="${px}" y1="${py}" x2="${cx}" y2="${py}" stroke="#3B82F6" stroke-width="1" stroke-dasharray="4,4" opacity="0.6"/>
+                
+                <text x="${px+10}" y="${py-10}" fill="#F59E0B" font-size="14" font-weight="bold">P(${cosVal}, ${sinVal})</text>
+                <text x="${cx+r*0.7}" y="${cy-r*0.3}" fill="#34D399" font-size="14">r=1</text>
+                
+                <text x="500" y="60" fill="#EF4444" font-size="16">sin θ = ${sinVal}</text>
+                <text x="500" y="100" fill="#3B82F6" font-size="16">cos θ = ${cosVal}</text>
+                <text x="500" y="140" fill="#22C55E" font-size="16">tan θ = ${tanVal}</text>
+                
+                <text x="${cx+r+10}" y="${cy+5}" fill="#94A3B8" font-size="12">(1, 0)</text>
+                <text x="${cx-10}" y="${cy-r-10}" fill="#94A3B8" font-size="12">(0, 1)</text>
+                <text x="${cx-r-10}" y="${cy+5}" fill="#94A3B8" font-size="12">(-1, 0)</text>
+                <text x="${cx-10}" y="${cy+r+20}" fill="#94A3B8" font-size="12">(0, -1)</text>
+                
+                <polygon points="450,195 460,200 450,205" fill="#94A3B8"/>
+                <polygon points="245,25 250,15 255,25" fill="#94A3B8"/>
+                
+                <circle cx="${cx+r}" cy="${cy}" r="4" fill="#94A3B8"/>
+                <circle cx="${cx}" cy="${cy-r}" r="4" fill="#94A3B8"/>
+            `;
+
+            document.getElementById('formula-result').innerHTML = 
+                `θ = ${angle}° → sin(${angle}°) = ${sinVal}, cos(${angle}°) = ${cosVal}, tan(${angle}°) = ${tanVal}`;
+
+            renderFormulas();
+        }
+
+        function renderFormulas() {
+            try {
+                katex.render("sin\\theta = \\frac{对边}{斜边} = \\frac{y}{r}", document.getElementById('formula-sin'), { throwOnError: false, displayMode: true });
+                katex.render("cos\\theta = \\frac{邻边}{斜边} = \\frac{x}{r}", document.getElementById('formula-cos'), { throwOnError: false, displayMode: true });
+                katex.render("tan\\theta = \\frac{sin\\theta}{cos\\theta} = \\frac{对边}{邻边}", document.getElementById('formula-tan'), { throwOnError: false, displayMode: true });
+            } catch(e) {}
+        }
+
+        function resetDemo() {
+            angle = 45;
+            document.getElementById('slider-angle').value = angle;
+            updateDiagram();
+            showToast('已重置到 45°');
+        }
+
+        function randomDemo() {
+            const angles = [0, 30, 45, 60, 90, 120, 135, 150, 180, 225, 270, 315, 360];
+            angle = angles[Math.floor(Math.random() * angles.length)];
+            document.getElementById('slider-angle').value = angle;
+            updateDiagram();
+            showToast(`随机角度: ${angle}°`);
+        }
+
+        function toggleFullscreen() {
+            if (!document.fullscreenElement) document.documentElement.requestFullscreen();
+            else document.exitFullscreen();
+        }
+
+        function showToast(msg) {
+            const toast = document.getElementById('toast');
+            toast.textContent = msg;
+            toast.classList.add('show');
+            setTimeout(() => toast.classList.remove('show'), 2500);
+        }
+
+        document.getElementById('slider-angle').addEventListener('input', e => {
+            angle = parseInt(e.target.value);
+            updateDiagram();
+        });
+
+        updateDiagram();
+    </script>
+    <div class="footer-quote">
+        "数学是打开宇宙奥秘的钥匙，而三角函数是其中最闪耀的一枚。"<br>
+        — 由 宾果AI 为你生成❤️
+    </div>
+</body>
+</html>

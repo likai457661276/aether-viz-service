@@ -1,0 +1,39 @@
+[project]
+name = "aetherviz-service"
+version = "0.1.0"
+description = "A FastAPI service for generating AetherViz interactive teaching HTML."
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "beautifulsoup4>=4.13.4,<5.0.0",
+  "fastapi>=0.115.12,<1.0.0",
+  "openai>=1.78.1,<2.0.0",
+  "pydantic-settings>=2.9.1,<3.0.0",
+  "python-dotenv>=1.1.0,<2.0.0",
+  "uvicorn[standard]>=0.34.2,<0.35.0",
+]
+
+[dependency-groups]
+dev = [
+  "httpx>=0.28.1,<0.29.0",
+  "pytest>=8.3.5,<9.0.0",
+]
+
+[build-system]
+requires = ["hatchling>=1.27.0"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["markdown_to_html_ppt"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.uv]
+default-groups = ["dev"]
+
+[[tool.uv.index]]
+name = "aliyun"
+url = "https://mirrors.aliyun.com/pypi/simple/"
+default = true

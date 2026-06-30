@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>元素周期表 | Periodic Table</title>
+    <link rel="stylesheet" href="https://registry.npmmirror.com/katex/0.16.9/files/dist/katex.min.css">
+    <script src="https://registry.npmmirror.com/@tailwindcss/browser/4.3.0/files/dist/index.global.js"></script>
+    <style>
+        @import url('https://fonts.font.im/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        
+        :root {
+            --primary-gradient: linear-gradient(135deg, #F59E0B 0%, #EF4444 100%);
+            --bg-gradient: linear-gradient(180deg, #1C1917 0%, #7C2D12 50%, #C2410C 100%);
+            --glass-bg: rgba(255, 255, 255, 0.08);
+            --glass-border: rgba(251, 191, 36, 0.3);
+            --text-primary: #F8FAFC;
+            --text-secondary: #FED7AA;
+            --accent-amber: #FBBF24;
+            --accent-red: #EF4444;
+        }
+        
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            font-family: 'Inter', sans-serif; 
+            background: var(--bg-gradient); 
+            color: var(--text-primary); 
+            min-height: 100vh;
+        }
+        
+        .glass { 
+            background: var(--glass-bg); 
+            backdrop-filter: blur(20px); 
+            border: 1px solid var(--glass-border);
+            border-radius: 16px;
+        }
+        
+        .btn-primary {
+            background: var(--primary-gradient);
+            transition: all 0.3s ease;
+        }
+        .btn-primary:hover {
+            background: linear-gradient(135deg, #FBBF24 0%, #F97316 100%);
+            transform: translateY(-2px);
+        }
+        
+        #canvas-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+        }
+        
+        .nav-bar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 70px;
+            background: rgba(28, 25, 23, 0.9);
+            backdrop-filter: blur(20px);
+            border-bottom: 1px solid rgba(251, 191, 36, 0.2);
+            z-index: 100;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 30px;
+        }
+        
+        .nav-title {
+            font-size: 1.5rem;
+            font-weight: 700;
+            background: var(--primary-gradient);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        
+        .element-card {
+            width: 60px;
+            height: 70px;
+            border-radius: 8px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        
+        .element-card:hover {
+            transform: scale(1.15) translateY(-5px);
+            z-index: 10;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        }
+        
+        .element-card.selected {
+            transform: scale(1.2);
+            box-shadow: 0 0 20px var(--accent-amber);
+        }
+        
+        .main-content {
+            position: relative;
+            z-index: 5;
+            padding: 90px 20px 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        
+        .sidebar {
+            position: fixed;
+            top: 80px;
+            right: 20px;
+            width: 320px;
+            z-index: 10;
+        }
+        
+        .element-grid {
+            display: grid;
+            grid-template-columns: repeat(18, 65px);
+            gap: 4px;
+            margin-bottom: 20px;
+        }
+        
+        .category-legend {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 15px;
+            justify-content: center;
+        }
+        
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.75rem;
+            padding: 4px 8px;
+            border-radius: 4px;
+            background: rgba(0,0,0,0.3);
+        }
+        
+        .toast {
+            position: fixed;
+            bottom: 100px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.8);
+            color: var(--accent-amber);
+            padding: 12px 24px;
+            border-radius: 25px;
+            z-index: 1000;
+            animation: fadeInOut 2s ease;
+        }
+        
+        @keyframes fadeInOut {
+            0%, 100% { opacity: 0; transform: translateX(-50%) translateY(20px); }
+            20%, 80% { opacity: 1; transform: translateX(-50%) translateY(0); }
+        }
+    </style>
+</head>
+<body>
+    <nav class="nav-bar">
+        <div>
+            <h1 class="nav-title">元素周期表 | Periodic Table</h1>
+            <p style="font-size: 0.75rem; color: var(--text-muted);">元素的周期性规律</p>
+        </div>
+        <div class="flex gap-3">
+            <button onclick="resetView()" class="btn-primary px-4 py-2 rounded-lg text-sm">重置视图</button>
+            <button onclick="showRandomElement()" class="btn-primary px-4 py-2 rounded-lg text-sm">随机元素</button>
+        </div>
+    </nav>
+    
+    <div id="canvas-container"></div>
+    
+    <main class="main-content">
+        <div class="element-grid" id="periodicTable"></div>
+        
+        <div class="category-legend">
+            <div class="legend-item" style="background: rgba(239,68,68,0.3); border-left: 3px solid #EF4444;">碱金属</div>
+            <div class="legend-item" style="background: rgba(249,115,22,0.3); border-left: 3px solid #F97316;">碱土金属</div>
+            <div class="legend-item" style="background: rgba(234,179,8,0.3); border-left: 3px solid #EAB308;">过渡金属</div>
+            <div class="legend-item" style="background: rgba(34,197,94,0.3); border-left: 3px solid #22C55E;">非金属</div>
+            <div class="legend-item" style="background: rgba(59,130,246,0.3); border-left: 3px solid #3B82F6;">稀有气体</div>
+            <div class="legend-item" style="background: rgba(168,85,247,0.3); border-left: 3px solid #A855F7;">卤素</div>
+        </div>
+    </main>
+    
+    <aside class="sidebar glass p-5" id="elementDetail" style="display: none;">
+        <div style="display: flex; justify-content: space-between; align-items: start;">
+            <div>
+                <h2 id="detailSymbol" style="font-size: 2.5rem; color: var(--accent-amber);">H</h2>
+                <p id="detailName" style="color: var(--text-secondary);">氢</p>
+            </div>
+            <button onclick="hideDetail()" style="background: none; border: none; color: var(--text-muted); font-size: 1.5rem; cursor: pointer;">✕</button>
+        </div>
+        <div style="margin-top: 15px; font-size: 0.85rem; color: var(--text-secondary);">
+            <p>原子序数: <span id="detailAtomic" style="color: var(--accent-amber);">1</span></p>
+            <p>相对原子质量: <span id="detailMass" style="color: var(--accent-amber);">1.008</span></p>
+            <p>电子排布: <span id="detailConfig" style="color: var(--accent-amber);">1</span></p>
+            <p>分类: <span id="detailCategory" style="color: var(--accent-amber);">非金属</span></p>
+        </div>
+        <div style="margin-top: 15px; padding: 10px; background: rgba(0,0,0,0.3); border-radius: 8px;">
+            <p id="detailDesc" style="font-size: 0.8rem; color: var(--text-muted); line-height: 1.6;"></p>
+        </div>
+    </aside>
+    
+    <script src="https://registry.npmmirror.com/three/0.134.0/files/build/three.min.js"></script>
+    <script>
+        const elements = [
+            { h: 1, e: 'H', n: '氢', a: 1, m: 1.008, c: '1', cat: '非金属', col: '#22C55E', desc: '宇宙中最丰富的元素' },
+            { h: 2, e: 'He', n: '氦', a: 2, m: 4.003, c: '2', cat: '稀有气体', col: '#3B82F6', desc: '惰性气体，用于气球和飞艇' },
+            { h: 3, e: 'Li', n: '锂', a: 3, m: 6.941, c: '2,1', cat: '碱金属', col: '#EF4444', desc: '最轻的金属，用于电池' },
+            { h: 4, e: 'Be', n: '铍', a: 4, m: 9.012, c: '2,2', cat: '碱土金属', col: '#F97316', desc: '稀有碱土金属' },
+            { h: 5, e: 'B', n: '硼', a: 5, m: 10.81, c: '2,3', cat: '非金属', col: '#22C55E', desc: '半导体材料' },
+            { h: 6, e: 'C', n: '碳', a: 6, m: 12.01, c: '2,4', cat: '非金属', col: '#22C55E', desc: '生命的基础元素' },
+            { h: 7, e: 'N', n: '氮', a: 7, m: 14.01, c: '2,5', cat: '非金属', col: '#22C55E', desc: '空气中78%是氮气' },
+            { h: 8, e: 'O', n: '氧', a: 8, m: 16.00, c: '2,6', cat: '非金属', col: '#22C55E', desc: '支持燃烧和呼吸' },
+            { h: 9, e: 'F', n: '氟', a: 9, m: 19.00, c: '2,7', cat: '卤素', col: '#A855F7', desc: '最强的非金属单质' },
+            { h: 10, e: 'Ne', n: '氖', a: 10, m: 20.18, c: '2,8', cat: '稀有气体', col: '#3B82F6', desc: '霓虹灯的发光气体' },
+            { h: 11, e: 'Na', n: '钠', a: 11, m: 22.99, c: '2,8,1', cat: '碱金属', col: '#EF4444', desc: '银白色金属，与水剧烈反应' },
+            { h: 12, e: 'Mg', n: '镁', a: 12, m: 24.31, c: '2,8,2', cat: '碱土金属', col: '#F97316', desc: '轻质金属，用于合金' },
+            { h: 13, e: 'Al', n: '铝', a: 13, m: 26.98, c: '2,8,3', cat: '金属', col: '#EAB308', desc: '地壳中含量最多的金属' },
+            { h: 14, e: 'Si', n: '硅', a: 14, m: 28.09, c: '2,8,4', cat: '非金属', col: '#22C55E', desc: '半导体工业的基础' },
+            { h: 15, e: 'P', n: '磷', a: 15, m: 30.97, c: '2,8,5', cat: '非金属', col: '#22C55E', desc: '火柴头的成分' },
+            { h: 16, e: 'S', n: '硫', a: 16, m: 32.07, c: '2,8,6', cat: '非金属', col: '#22C55E', desc: '淡黄色固体，有刺激性气味' },
+            { h: 17, e: 'Cl', n: '氯', a: 17, m: 35.45, c: '2,8,7', cat: '卤素', col: '#A855F7', desc: '黄绿色有毒气体，用于消毒' },
+            { h: 18, e: 'Ar', n: '氩', a: 18, m: 39.95, c: '2,8,8', cat: '稀有气体', col: '#3B82F6', desc: '惰性气体，用于焊接保护' },
+            { h: 19, e: 'K', n: '钾', a: 19, m: 39.10, c: '2,8,8,1', cat: '碱金属', col: '#EF4444', desc: '比钠更活泼的碱金属' },
+            { h: 20, e: 'Ca', n: '钙', a: 20, m: 40.08, c: '2,8,8,2', cat: '碱土金属', col: '#F97316', desc: '骨骼和牙齿的主要成分' },
+            { h: 26, e: 'Fe', n: '铁', a: 26, m: 55.85, c: '2,8,8,2', cat: '过渡金属', col: '#EAB308', desc: '使用最广泛的金属' },
+            { h: 29, e: 'Cu', n: '铜', a: 29, m: 63.55, c: '2,8,8,1', cat: '过渡金属', col: '#EAB308', desc: '优良的导电导热金属' },
+            { h: 30, e: 'Zn', n: '锌', a: 30, m: 65.38, c: '2,8,8,2', cat: '过渡金属', col: '#EAB308', desc: '镀锌防腐' },
+            { h: 35, e: 'Br', n: '溴', a: 35, m: 79.90, c: '2,8,8,7', cat: '卤素', col: '#A855F7', desc: '常温下唯一液态非金属' },
+            { h: 47, e: 'Ag', n: '银', a: 47, m: 107.87, c: '2,8,8,1', cat: '过渡金属', col: '#EAB308', desc: '导电性最好的金属' },
+            { h: 53, e: 'I', n: '碘', a: 53, m: 126.90, c: '2,8,8,7', cat: '卤素', col: '#A855F7', desc: '甲状腺激素的成分' },
+            { h: 79, e: 'Au', n: '金', a: 79, m: 196.97, c: '2,8,8,1', cat: '过渡金属', col: '#EAB308', desc: '贵金属，货币储备' },
+            { h: 80, e: 'Hg', n: '汞', a: 80, m: 200.59, c: '2,8,8,2', cat: '过渡金属', col: '#EAB308', desc: '常温下唯一液态金属' },
+        ];
+        
+        let scene, camera, renderer, atomMesh, electronMeshes = [];
+        
+        function init() {
+            scene = new THREE.Scene();
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(0, 0, 20);
+            
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setClearColor(0x000000, 0);
+            document.getElementById('canvas-container').appendChild(renderer.domElement);
+            
+            scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 0.6));
+            const dirLight = new THREE.DirectionalLight(0xffffff, 1);
+            dirLight.position.set(5, 10, 7);
+            scene.add(dirLight);
+            
+            createPeriodicTable();
+            animate();
+            
+            window.addEventListener('resize', onWindowResize);
+        }
+        
+        function createPeriodicTable() {
+            const container = document.getElementById('periodicTable');
+            const positions = {
+                1: [0, 0], 2: [17, 0], 3: [0, 1], 4: [1, 1], 5: [12, 1], 6: [13, 1], 7: [14, 1], 8: [15, 1], 9: [16, 1], 10: [17, 1],
+                11: [0, 2], 12: [1, 2], 13: [12, 2], 14: [13, 2], 15: [14, 2], 16: [15, 2], 17: [16, 2], 18: [17, 2],
+                19: [0, 3], 20: [1, 3], 21: [2, 3], 22: [3, 3], 23: [4, 3], 24: [5, 3], 25: [6, 3], 26: [7, 3], 27: [8, 3], 28: [9, 3], 29: [10, 3], 30: [11, 3], 31: [12, 3], 32: [13, 3], 33: [14, 3], 34: [15, 3], 35: [16, 3], 36: [17, 3]
+            };
+            
+            const simpleElements = [
+                { a: 1, e: 'H', n: '氢', col: '#22C55E' }, { a: 2, e: 'He', n: '氦', col: '#3B82F6' },
+                { a: 6, e: 'C', n: '碳', col: '#22C55E' }, { a: 7, e: 'N', n: '氮', col: '#22C55E' },
+                { a: 8, e: 'O', n: '氧', col: '#22C55E' }, { a: 11, e: 'Na', n: '钠', col: '#EF4444' },
+                { a: 12, e: 'Mg', n: '镁', col: '#F97316' }, { a: 13, e: 'Al', n: '铝', col: '#EAB308' },
+                { a: 14, e: 'Si', n: '硅', col: '#22C55E' }, { a: 16, e: 'S', n: '硫', col: '#22C55E' },
+                { a: 17, e: 'Cl', n: '氯', col: '#A855F7' }, { a: 19, e: 'K', n: '钾', col: '#EF4444' },
+                { a: 20, e: 'Ca', n: '钙', col: '#F97316' }, { a: 26, e: 'Fe', n: '铁', col: '#EAB308' },
+                { a: 29, e: 'Cu', n: '铜', col: '#EAB308' }, { a: 30, e: 'Zn', n: '锌', col: '#EAB308' },
+                { a: 35, e: 'Br', n: '溴', col: '#A855F7' }, { a: 47, e: 'Ag', n: '银', col: '#EAB308' },
+                { a: 53, e: 'I', n: '碘', col: '#A855F7' }, { a: 79, e: 'Au', n: '金', col: '#EAB308' }
+            ];
+            
+            simpleElements.forEach(el => {
+                const card = document.createElement('div');
+                card.className = 'element-card';
+                card.style.background = `linear-gradient(135deg, ${el.col}40, ${el.col}20)`;
+                card.style.borderColor = el.col;
+                card.innerHTML = `
+                    <span style="font-size: 0.7rem; color: ${el.col};">${el.a}</span>
+                    <span style="font-size: 1rem; font-weight: bold; color: white;">${el.e}</span>
+                    <span style="font-size: 0.6rem; color: var(--text-muted);">${el.n}</span>
+                `;
+                card.onclick = () => selectElement(el);
+                container.appendChild(card);
+            });
+        }
+        
+        function selectElement(el) {
+            document.querySelectorAll('.element-card').forEach(c => c.classList.remove('selected'));
+            event.currentTarget.classList.add('selected');
+            
+            const detail = document.getElementById('elementDetail');
+            detail.style.display = 'block';
+            
+            const fullEl = elements.find(e => e.a === el.a) || el;
+            document.getElementById('detailSymbol').textContent = fullEl.e;
+            document.getElementById('detailName').textContent = fullEl.n;
+            document.getElementById('detailAtomic').textContent = fullEl.a;
+            document.getElementById('detailMass').textContent = fullEl.m;
+            document.getElementById('detailConfig').textContent = fullEl.c;
+            document.getElementById('detailCategory').textContent = fullEl.cat;
+            document.getElementById('detailDesc').textContent = fullEl.desc;
+            
+            create3DAtom(fullEl.col);
+            showToast(`查看: ${fullEl.n} (${fullEl.e})`);
+        }
+        
+        function create3DAtom(colorHex) {
+            if (atomMesh) scene.remove(atomMesh);
+            electronMeshes.forEach(e => scene.remove(e));
+            electronMeshes = [];
+            
+            const geom = new THREE.SphereGeometry(1.5, 32, 32);
+            const mat = new THREE.MeshPhongMaterial({ 
+                color: colorHex, 
+                emissive: colorHex, 
+                emissiveIntensity: 0.4 
+            });
+            atomMesh = new THREE.Mesh(geom, mat);
+            scene.add(atomMesh);
+            
+            for (let i = 0; i < 3; i++) {
+                const eGeom = new THREE.SphereGeometry(0.15, 16, 16);
+                const eMat = new THREE.MeshPhongMaterial({ color: 0x22C55E, emissive: 0x22C55E, emissiveIntensity: 0.6 });
+                const electron = new THREE.Mesh(eGeom, eMat);
+                
+                const angle = (i / 3) * Math.PI * 2;
+                electron.position.x = Math.cos(angle) * 3.5;
+                electron.position.z = Math.sin(angle) * 3.5;
+                
+                const group = new THREE.Group();
+                group.rotation.x = i * 0.5;
+                group.add(electron);
+                scene.add(group);
+                electronMeshes.push(group);
+            }
+        }
+        
+        function hideDetail() {
+            document.getElementById('elementDetail').style.display = 'none';
+        }
+        
+        function resetView() {
+            camera.position.set(0, 0, 20);
+            showToast('视图已重置');
+        }
+        
+        function showRandomElement() {
+            const cards = document.querySelectorAll('.element-card');
+            const random = cards[Math.floor(Math.random() * cards.length)];
+            random.click();
+        }
+        
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+        
+        function showToast(message) {
+            const toast = document.createElement('div');
+            toast.className = 'toast';
+            toast.textContent = message;
+            document.body.appendChild(toast);
+            setTimeout(() => toast.remove(), 2000);
+        }
+        
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            const time = Date.now() * 0.001;
+            
+            if (atomMesh) {
+                atomMesh.rotation.y = time * 0.5;
+            }
+            
+            electronMeshes.forEach((g, i) => {
+                g.rotation.y = time * (1 + i * 0.3);
+            });
+            
+            renderer.render(scene, camera);
+        }
+        
+        init();
+    </script>
+</body>
+</html>

@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>几何图形 - 初一数学知识点</title>
+    <link rel="stylesheet" href="https://registry.npmmirror.com/katex/0.16.9/files/dist/katex.min.css">
+    <script src="https://registry.npmmirror.com/katex/0.16.9/files/dist/katex.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif; background: linear-gradient(135deg, #0a1929 0%, #1a2a4a 50%, #0d1f3c 100%); min-height: 100vh; color: #e0e6ed; }
+        .app-container { display: flex; min-height: 100vh; }
+        .sidebar { width: 320px; background: linear-gradient(180deg, rgba(20, 40, 70, 0.95) 0%, rgba(10, 25, 50, 0.98) 100%); border-right: 1px solid rgba(255, 200, 50, 0.2); padding: 24px; overflow-y: auto; }
+        .sidebar h1 { font-size: 1.5rem; color: #ffc832; margin-bottom: 8px; }
+        .sidebar .subtitle { font-size: 0.85rem; color: #8b9cb3; margin-bottom: 24px; }
+        .section { margin-bottom: 24px; padding: 16px; background: rgba(255, 255, 255, 0.03); border-radius: 12px; border: 1px solid rgba(255, 200, 50, 0.1); }
+        .section-title { font-size: 0.9rem; color: #ffc832; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+        .section-title::before { content: ''; width: 4px; height: 16px; background: linear-gradient(180deg, #ffc832, #ff9500); border-radius: 2px; }
+        .formula-box { background: rgba(0, 0, 0, 0.3); padding: 16px; border-radius: 8px; text-align: center; margin-bottom: 12px; border: 1px solid rgba(255, 200, 50, 0.15); }
+        .principle-text { font-size: 0.85rem; line-height: 1.7; color: #b0bec5; }
+        .principle-text strong { color: #ffc832; }
+        .application-item { padding: 10px 12px; background: rgba(255, 200, 50, 0.05); border-radius: 6px; margin-bottom: 8px; font-size: 0.85rem; color: #90a4ae; border-left: 3px solid rgba(255, 200, 50, 0.3); }
+        .main-content { flex: 1; padding: 24px; }
+        .figure-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; margin-bottom: 20px; }
+        .figure-card { background: rgba(255, 255, 255, 0.02); border-radius: 16px; border: 1px solid rgba(255, 200, 50, 0.15); padding: 20px; text-align: center; }
+        .figure-card h4 { color: #ffc832; margin-bottom: 12px; font-size: 1.1rem; }
+        .figure-svg { width: 100%; height: 150px; margin-bottom: 12px; }
+        .figure-info { font-size: 0.9rem; color: #b0bec5; margin-bottom: 8px; }
+        .figure-formula { font-size: 1.2rem; color: #4fc3f7; font-weight: bold; margin-top: 8px; }
+        .control-panel { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 20px; }
+        .control-group { background: rgba(255, 255, 255, 0.03); padding: 16px; border-radius: 12px; border: 1px solid rgba(255, 200, 50, 0.1); }
+        .control-label { font-size: 0.85rem; color: #ffc832; margin-bottom: 10px; display: block; }
+        .control-value { font-size: 1.2rem; color: #fff; margin-bottom: 8px; font-weight: bold; }
+        input[type="range"] { width: 100%; height: 6px; border-radius: 3px; background: rgba(255, 200, 50, 0.2); outline: none; -webkit-appearance: none; }
+        input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 18px; border-radius: 50%; background: linear-gradient(135deg, #ffc832, #ff9500); cursor: pointer; }
+        select { width: 100%; padding: 10px; border-radius: 8px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,200,50,0.3); font-size: 1rem; }
+        select option { background: #1a2a4a; }
+        .btn-group { display: flex; gap: 12px; flex-wrap: wrap; }
+        .btn { padding: 10px 20px; border: none; border-radius: 8px; cursor: pointer; font-size: 0.9rem; transition: all 0.3s ease; font-family: inherit; }
+        .btn-primary { background: linear-gradient(135deg, #ffc832, #ff9500); color: #0a1929; font-weight: bold; }
+        .btn-secondary { background: rgba(255, 200, 50, 0.15); color: #ffc832; border: 1px solid rgba(255, 200, 50, 0.3); }
+        .btn:hover { transform: translateY(-2px); box-shadow: 0 4px 15px rgba(255, 200, 50, 0.3); }
+        .toast { position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%) translateY(100px); background: linear-gradient(135deg, #ffc832, #ff9500); color: #0a1929; padding: 12px 24px; border-radius: 8px; font-weight: bold; opacity: 0; transition: all 0.3s ease; z-index: 1000; }
+        .toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }
+        @media (max-width: 768px) { .app-container { flex-direction: column; } .sidebar { width: 100%; max-height: 40vh; } }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <aside class="sidebar">
+            <h1>几何图形</h1>
+            <p class="subtitle">初一数学 · 第八章</p>
+            <div class="section">
+                <div class="section-title">基本概念</div>
+                <p class="principle-text">
+                    <strong>线段：</strong>有两个端点的直线的一部分<br><br>
+                    <strong>射线：</strong>有一个端点，向一方向无限延伸<br><br>
+                    <strong>直线：</strong>没有端点，向两方向无限延伸<br><br>
+                    <strong>角：</strong>由一点发出的两条射线组成的图形
+                </p>
+            </div>
+            <div class="section">
+                <div class="section-title">角的度量</div>
+                <div class="formula-box" id="f1"></div>
+                <div class="formula-box" id="f2"></div>
+            </div>
+            <div class="section">
+                <div class="section-title">真实应用</div>
+                <div class="application-item">📐 建筑设计：角度测量</div>
+                <div class="application-item">🧭 导航：方向角</div>
+                <div class="application-item">⏰ 时钟：夹角计算</div>
+            </div>
+        </aside>
+
+        <main class="main-content">
+            <div class="figure-grid">
+                <div class="figure-card">
+                    <h4>📏 线段</h4>
+                    <svg class="figure-svg" viewBox="0 0 200 100">
+                        <line x1="30" y1="50" x2="170" y2="50" stroke="#ffc832" stroke-width="3"/>
+                        <circle cx="30" cy="50" r="5" fill="#ff5252"/>
+                        <circle cx="170" cy="50" r="5" fill="#ff5252"/>
+                        <text x="100" y="75" text-anchor="middle" fill="#b0bec5" font-size="12">A ─────── B</text>
+                    </svg>
+                    <div class="figure-info">有两个端点的直线部分</div>
+                    <div class="figure-formula">长度 = 两端点距离</div>
+                </div>
+
+                <div class="figure-card">
+                    <h4>➡️ 射线</h4>
+                    <svg class="figure-svg" viewBox="0 0 200 100">
+                        <line x1="30" y1="50" x2="190" y2="50" stroke="#ffc832" stroke-width="3"/>
+                        <circle cx="30" cy="50" r="5" fill="#ff5252"/>
+                        <polygon points="190,45 180,40 180,60" fill="#ffc832"/>
+                        <text x="100" y="75" text-anchor="middle" fill="#b0bec5" font-size="12">●────────→</text>
+                    </svg>
+                    <div class="figure-info">一个端点，一端无限延伸</div>
+                    <div class="figure-formula">端点 + 方向</div>
+                </div>
+
+                <div class="figure-card">
+                    <h4>📍 直线</h4>
+                    <svg class="figure-svg" viewBox="0 0 200 100">
+                        <line x1="10" y1="50" x2="190" y2="50" stroke="#ffc832" stroke-width="3"/>
+                        <polygon points="10,45 20,40 20,60" fill="#ffc832"/>
+                        <polygon points="190,45 180,40 180,60" fill="#ffc832"/>
+                        <text x="100" y="75" text-anchor="middle" fill="#b0bec5" font-size="12">←────────→</text>
+                    </svg>
+                    <div class="figure-info">没有端点，两端无限延伸</div>
+                    <div class="figure-formula">无长度概念</div>
+                </div>
+
+                <div class="figure-card">
+                    <h4>📐 角</h4>
+                    <svg class="figure-svg" viewBox="0 0 200 100">
+                        <line x1="100" y1="70" x2="30" y2="70" stroke="#ffc832" stroke-width="3"/>
+                        <line x1="100" y1="70" x2="150" y2="30" stroke="#ffc832" stroke-width="3"/>
+                        <path d="M 70 70 A 30 30 0 0 1 90 55" stroke="#ff5252" fill="none" stroke-width="2"/>
+                        <circle cx="100" cy="70" r="4" fill="#ff5252"/>
+                        <text x="100" y="95" text-anchor="middle" fill="#b0bec5" font-size="12">顶点</text>
+                    </svg>
+                    <div class="figure-info">由一点发出的两条射线</div>
+                    <div class="figure-formula">角度 = 0° ~ 180°</div>
+                </div>
+            </div>
+
+            <div class="control-panel">
+                <div class="control-group">
+                    <label class="control-label">图形类型</label>
+                    <select id="typeSelect" onchange="showFigure()">
+                        <option value="segment">线段</option>
+                        <option value="ray">射线</option>
+                        <option value="line">直线</option>
+                        <option value="angle">角</option>
+                    </select>
+                </div>
+                <div class="control-group">
+                    <label class="control-label">角度（度）</label>
+                    <div class="control-value" id="angleValue">45°</div>
+                    <input type="range" id="angleSlider" min="0" max="180" value="45" oninput="updateAngle()">
+                </div>
+            </div>
+
+            <div class="btn-group">
+                <button class="btn btn-secondary" onclick="randomAngle()">随机角度</button>
+                <button class="btn btn-secondary" onclick="showSpecialAngles()">特殊角度</button>
+            </div>
+        </main>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <script>
+        function initFormulas() {
+            katex.render("1° = 60'", document.getElementById('f1'));
+            katex.render("1' = 60''", document.getElementById('f2'));
+        }
+
+        function showFigure() {
+            const type = document.getElementById('typeSelect').value;
+            const angle = document.getElementById('angleSlider').value;
+            document.getElementById('angleValue').textContent = `${angle}°`;
+            showToast(`显示${type === 'segment' ? '线段' : type === 'ray' ? '射线' : type === 'line' ? '直线' : '角'}`);
+        }
+
+        function updateAngle() {
+            const angle = document.getElementById('angleSlider').value;
+            document.getElementById('angleValue').textContent = `${angle}°`;
+        }
+
+        function randomAngle() {
+            const angle = Math.floor(Math.random() * 181);
+            document.getElementById('angleSlider').value = angle;
+            document.getElementById('angleValue').textContent = `${angle}°`;
+            showToast(`随机角度: ${angle}°`);
+        }
+
+        function showSpecialAngles() {
+            const angles = [0, 30, 45, 60, 90, 120, 180];
+            const angle = angles[Math.floor(Math.random() * angles.length)];
+            document.getElementById('angleSlider').value = angle;
+            document.getElementById('angleValue').textContent = `${angle}°`;
+            showToast(`特殊角度: ${angle}°`);
+        }
+
+        function showToast(msg) {
+            const t = document.getElementById('toast');
+            t.textContent = msg;
+            t.classList.add('show');
+            setTimeout(() => t.classList.remove('show'), 2000);
+        }
+
+        initFormulas();
+    </script>
+</body>
+</html>

@@ -1,0 +1,1027 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>勾股定理 - Pythagorean Theorem</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://registry.npmmirror.com/@tailwindcss/browser/4.3.0/files/dist/index.global.js"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            teal: '#14B8A6',
+                            cyan: '#06B6D4',
+                            amber: '#FBBF24',
+                            rose: '#FB7185',
+                            emerald: '#34D399',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- D3.js CDN -->
+    <script src="https://cdn.staticfile.net/d3/7.9.0/d3.min.js"></script>
+    <!-- KaTeX CDN -->
+    <link rel="stylesheet" href="https://cdn.staticfile.net/KaTeX/0.16.9/katex.min.css">
+    <script src="https://cdn.staticfile.net/KaTeX/0.16.9/katex.min.js"></script>
+    <script src="https://cdn.staticfile.net/KaTeX/0.16.9/contrib/auto-render.min.js"></script>
+    <style>
+        :root {
+            --primary-gradient: linear-gradient(135deg, #14B8A6 0%, #06B6D4 50%, #22D3EE 100%);
+            --bg-gradient: linear-gradient(180deg, #0F172A 0%, #164E63 50%, #155E75 100%);
+            --bg-gradient-card: linear-gradient(145deg, rgba(20, 184, 166, 0.12) 0%, rgba(6, 182, 212, 0.08) 100%);
+            --theme-math: linear-gradient(135deg, #F59E0B 0%, #EAB308 100%);
+            --glass-bg: rgba(15, 23, 42, 0.45);
+            --glass-border: rgba(255, 255, 255, 0.1);
+            --text-primary: #F8FAFC;
+            --text-secondary: #CBD5E1;
+            --text-muted: #94A3B8;
+        }
+
+        body {
+            background: var(--bg-gradient);
+            color: var(--text-primary);
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
+
+        .glass-panel {
+            background: var(--glass-bg);
+            border: 1px solid var(--glass-border);
+            backdrop-filter: blur(16px);
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+        }
+
+        .math-text {
+            font-family: 'KaTeX_Main', 'Inter', serif;
+        }
+
+        /* 隐藏滚动条 */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(15, 23, 42, 0.3);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(20, 184, 166, 0.3);
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(20, 184, 166, 0.5);
+        }
+    </style>
+</head>
+<body class="min-height-screen overflow-x-hidden">
+
+    <!-- 顶部导航栏 -->
+    <nav class="fixed top-0 left-0 right-0 h-16 glass-panel border-b border-brand-teal/20 flex items-center justify-between px-6 z-50">
+        <div class="flex items-center gap-3">
+            <div class="w-8 h-8 rounded-lg bg-gradient-to-tr from-amber-500 to-yellow-400 flex items-center justify-center font-bold text-slate-900 shadow-lg shadow-amber-500/20">📐</div>
+            <h1 class="text-xl font-bold bg-gradient-to-r from-amber-400 to-yellow-300 bg-clip-text text-transparent">勾股定理 · Pythagorean Theorem</h1>
+        </div>
+        <div class="flex items-center gap-3">
+            <button onclick="resetParams()" class="px-4 py-2 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-sm font-medium transition-all duration-300">重置</button>
+            <button onclick="triggerRandom()" class="px-4 py-2 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-sm font-medium transition-all duration-300">随机演示</button>
+            <button onclick="toggleFullscreen()" class="px-4 py-2 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-sm font-medium transition-all duration-300">全屏</button>
+        </div>
+    </nav>
+
+    <!-- 主布局容器 -->
+    <div class="pt-16 flex min-h-screen">
+        
+        <!-- 左侧侧边栏 -->
+        <aside class="w-80 fixed left-0 top-16 bottom-0 glass-panel border-r border-brand-teal/20 p-6 overflow-y-auto flex flex-col gap-6 z-30">
+            
+            <!-- 学习目标 -->
+            <div>
+                <h3 class="text-xs uppercase tracking-widest text-brand-amber font-semibold mb-3 flex items-center gap-2">
+                    <span>📚</span> 学习目标
+                </h3>
+                <ul class="space-y-2 text-sm text-slate-300">
+                    <li class="flex items-start gap-2">
+                        <span class="text-brand-teal">✓</span>
+                        <span>直观理解直角三角形三边边长与面积的几何关联</span>
+                    </li>
+                    <li class="flex items-start gap-2">
+                        <span class="text-brand-teal">✓</span>
+                        <span>通过数格子直观数出：两直角边正方形格子数之和 = 斜边正方形格子数</span>
+                    </li>
+                    <li class="flex items-start gap-2">
+                        <span class="text-brand-teal">✓</span>
+                        <span>学习通过无缝面积割补与重组证明该定理</span>
+                    </li>
+                    <li class="flex items-start gap-2">
+                        <span class="text-brand-teal">✓</span>
+                        <span>了解勾股数在现实定位与测绘中的应用</span>
+                    </li>
+                </ul>
+            </div>
+
+            <hr class="border-white/5">
+
+            <!-- 核心公式 -->
+            <div>
+                <h3 class="text-xs uppercase tracking-widest text-brand-amber font-semibold mb-3 flex items-center gap-2">
+                    <span>📐</span> 核心公式
+                </h3>
+                <div class="p-4 rounded-xl bg-white/5 border border-white/5 flex flex-col items-center justify-center gap-2">
+                    <div id="katex-formula" class="text-lg"></div>
+                </div>
+            </div>
+
+            <hr class="border-white/5">
+
+            <!-- 原理解释 -->
+            <div class="flex-grow">
+                <h3 class="text-xs uppercase tracking-widest text-brand-amber font-semibold mb-3 flex items-center gap-2">
+                    <span>💡</span> 原理解释
+                </h3>
+                <p id="explanation-text" class="text-xs text-slate-300 leading-relaxed">
+                    在任意直角三角形中，两直角边（勾 $a$、股 $b$）的平方和，恰好等于斜边（弦 $c$）的平方。
+                    通过开启“显示面积网格数”，你能数出勾 $a$ 的正方形里有 $a^2$ 个格子，股 $b$ 的正方形里有 $b^2$ 个格子，它们的总和恰好等于斜边 $c$ 的正方形格子数 $c^2$！
+                </p>
+            </div>
+
+            <!-- 应用场景 -->
+            <div class="mt-auto">
+                <h3 class="text-xs uppercase tracking-widest text-brand-amber font-semibold mb-2 flex items-center gap-2">
+                    <span>🌍</span> 真实世界应用
+                </h3>
+                <div class="text-[11px] text-slate-400 space-y-1">
+                    <p>• <strong>GPS 卫星定位</strong>：利用三边测量多点定位距离</p>
+                    <p>• <strong>三维渲染</strong>：着色器中像素距离与法向量计算</p>
+                    <p>• <strong>精密建筑</strong>：利用 3:4:5 比例拉绳确定绝对直角</p>
+                </div>
+            </div>
+        </aside>
+
+        <!-- 右侧主展示区 -->
+        <main class="ml-80 flex-grow p-6 flex flex-col gap-6 min-h-screen">
+            
+            <!-- 模式切换与选项卡 -->
+            <div class="flex justify-between items-center bg-slate-900/60 p-1.5 rounded-xl border border-white/5 max-w-md">
+                <button id="tab-classic" onclick="switchMode('classic')" class="flex-1 py-2 px-4 rounded-lg text-sm font-semibold transition-all duration-300 bg-gradient-to-r from-teal-500 to-cyan-500 text-slate-900 shadow-md">
+                    📐 经典几何直观
+                </button>
+                <button id="tab-proof" onclick="switchMode('proof')" class="flex-1 py-2 px-4 rounded-lg text-sm font-semibold text-slate-400 hover:text-white transition-all duration-300">
+                    🧩 拼图平移证明
+                </button>
+            </div>
+
+            <!-- SVG 画布容器 -->
+            <div class="relative w-full h-[520px] rounded-2xl border border-white/10 bg-slate-950/40 overflow-hidden shadow-2xl flex items-center justify-center">
+                <!-- SVG Canvas -->
+                <svg id="canvas" viewBox="0 0 800 600" class="w-full h-full select-none">
+                    <defs>
+                        <!-- 网格背景 -->
+                        <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+                            <path d="M 40 0 L 0 0 0 40" fill="none" stroke="rgba(20, 184, 166, 0.04)" stroke-width="1"/>
+                        </pattern>
+                        <!-- 渐变色 -->
+                        <linearGradient id="grad-a" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" stop-color="#06B6D4" stop-opacity="0.75"/>
+                            <stop offset="100%" stop-color="#0891B2" stop-opacity="0.45"/>
+                        </linearGradient>
+                        <linearGradient id="grad-b" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" stop-color="#34D399" stop-opacity="0.75"/>
+                            <stop offset="100%" stop-color="#059669" stop-opacity="0.45"/>
+                        </linearGradient>
+                        <linearGradient id="grad-c" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" stop-color="#FB7185" stop-opacity="0.75"/>
+                            <stop offset="100%" stop-color="#E11D48" stop-opacity="0.45"/>
+                        </linearGradient>
+                        <!-- 拼图三角形的渐变色 -->
+                        <linearGradient id="grad-t1" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" stop-color="#F59E0B" stop-opacity="0.75"/>
+                            <stop offset="100%" stop-color="#D97706" stop-opacity="0.45"/>
+                        </linearGradient>
+                        <linearGradient id="grad-t2" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" stop-color="#3B82F6" stop-opacity="0.75"/>
+                            <stop offset="100%" stop-color="#2563EB" stop-opacity="0.45"/>
+                        </linearGradient>
+                        <linearGradient id="grad-t3" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" stop-color="#EC4899" stop-opacity="0.75"/>
+                            <stop offset="100%" stop-color="#DB2777" stop-opacity="0.45"/>
+                        </linearGradient>
+                        <linearGradient id="grad-t4" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" stop-color="#8B5CF6" stop-opacity="0.75"/>
+                            <stop offset="100%" stop-color="#7C3AED" stop-opacity="0.45"/>
+                        </linearGradient>
+                    </defs>
+
+                    <!-- 背景网格 -->
+                    <rect width="100%" height="100%" fill="url(#grid)" />
+
+                    <!-- 动态绘制组 -->
+                    <g id="draw-group"></g>
+                </svg>
+
+                <!-- 浮动的状态计算覆盖层 -->
+                <div class="absolute top-4 right-4 py-3 px-5 rounded-xl border border-white/5 bg-slate-900/80 backdrop-blur-md shadow-lg flex flex-col gap-1 pointer-events-none">
+                    <div class="text-[11px] text-slate-400 uppercase tracking-widest text-center">定理等式关系</div>
+                    <div id="live-calculation" class="text-sm font-semibold text-brand-amber font-mono min-w-[200px] text-center"></div>
+                </div>
+            </div>
+
+            <!-- 底部控制面板 -->
+            <div class="glass-panel border border-white/10 rounded-2xl p-6 flex flex-col gap-4 shadow-xl">
+                
+                <!-- 直角边控制 -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div class="flex flex-col gap-2">
+                        <div class="flex justify-between items-center">
+                            <label class="text-xs text-slate-400 font-semibold uppercase tracking-wider flex items-center gap-2">
+                                <span class="w-2.5 h-2.5 rounded-full bg-cyan-400 shadow-[0_0_8px_#22d3ee]"></span>
+                                直角边 a (勾)
+                            </label>
+                            <span id="label-a-val" class="text-sm font-bold text-cyan-400 font-mono"></span>
+                        </div>
+                        <input type="range" id="slider-a" min="3" max="12" step="1" class="w-full h-1.5 rounded-lg appearance-none cursor-pointer bg-slate-800 accent-cyan-400">
+                    </div>
+                    <div class="flex flex-col gap-2">
+                        <div class="flex justify-between items-center">
+                            <label class="text-xs text-slate-400 font-semibold uppercase tracking-wider flex items-center gap-2">
+                                <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399]"></span>
+                                直角边 b (股)
+                            </label>
+                            <span id="label-b-val" class="text-sm font-bold text-emerald-400 font-mono"></span>
+                        </div>
+                        <input type="range" id="slider-b" min="3" max="12" step="1" class="w-full h-1.5 rounded-lg appearance-none cursor-pointer bg-slate-800 accent-emerald-400">
+                    </div>
+                </div>
+
+                <!-- 网格与吸附控制 -->
+                <div class="border-t border-white/5 pt-4 flex flex-wrap items-center gap-6">
+                    <label class="flex items-center gap-2 cursor-pointer text-xs text-slate-300">
+                        <input type="checkbox" id="checkbox-grid" checked class="w-4 h-4 rounded bg-slate-800 border-white/10 text-teal-500 focus:ring-0">
+                        <span>显示单位面积网格数 (Show Grid Units)</span>
+                    </label>
+                    <label class="flex items-center gap-2 cursor-pointer text-xs text-slate-300">
+                        <input type="checkbox" id="checkbox-snap" checked class="w-4 h-4 rounded bg-slate-800 border-white/10 text-teal-500 focus:ring-0">
+                        <span>锁定为经典勾股数组合 (Snap to Pythagorean Triples)</span>
+                    </label>
+                </div>
+
+                <!-- 拼图动画控制（仅在拼图证明模式显示） -->
+                <div id="proof-animation-controls" class="hidden border-t border-white/5 pt-4 flex flex-wrap items-center justify-between gap-4">
+                    <div class="flex items-center gap-3">
+                        <button id="btn-play-pause" onclick="togglePlay()" class="px-5 py-2 rounded-xl bg-gradient-to-r from-teal-500 to-cyan-500 text-slate-900 font-semibold text-sm hover:opacity-90 active:scale-95 transition-all shadow-lg shadow-teal-500/10 flex items-center gap-1.5">
+                            <span id="play-icon">▶</span>
+                            <span id="play-text">播放证明</span>
+                        </button>
+                        <button onclick="resetAnimation()" class="px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-sm font-medium transition-all">
+                            ↺ 复位
+                        </button>
+                    </div>
+                    <!-- 进度控制 -->
+                    <div class="flex-grow max-w-md flex items-center gap-4">
+                        <span class="text-xs text-slate-400 font-semibold">手动演示:</span>
+                        <input type="range" id="slider-t" min="0" max="1" step="0.001" value="0" class="flex-grow h-1.5 rounded-lg appearance-none cursor-pointer bg-slate-800 accent-teal-400">
+                        <span id="t-pct" class="text-xs font-bold text-teal-400 font-mono w-10 text-right">0%</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 底部励志结语 -->
+            <footer class="mt-8 text-center text-xs text-slate-500 italic pb-8 flex flex-col gap-1">
+                <p>“数学是宇宙的通用语言，而几何证明是它最美妙的音符。”</p>
+                <p class="text-brand-teal font-medium mt-1">由 宾果AI 为你生成❤️</p>
+            </footer>
+        </main>
+    </div>
+
+    <!-- Toast提示 -->
+    <div id="toast" class="fixed bottom-24 left-1/2 transform -translate-x-1/2 px-5 py-2.5 rounded-xl border border-brand-teal/30 bg-slate-900/90 text-brand-teal font-semibold text-xs shadow-xl transition-all duration-300 opacity-0 pointer-events-none z-50"></div>
+
+    <script>
+        // 参数声明 (使用逻辑值 3-12 代替像素值进行公式和滑动显示)
+        let paramA = 6;
+        let paramB = 8;
+        let activeTab = 'classic'; // 'classic' | 'proof'
+
+        // 动画变量
+        let animationProgress = 0; // 0 到 1
+        let isPlaying = false;
+        let lastTime = 0;
+        const animationDuration = 2500; // 2.5s
+
+        // 经典勾股数组合
+        const triples = [
+            [3, 4], [4, 3],
+            [5, 12], [12, 5],
+            [6, 8], [8, 6],
+            [9, 12], [12, 9]
+        ];
+
+        // 初始化
+        window.addEventListener('DOMContentLoaded', () => {
+            setupSliders();
+            renderMath();
+            renderVisuals();
+        });
+
+        // 绑定滑块与选择器
+        function setupSliders() {
+            const sliderA = d3.select('#slider-a');
+            const sliderB = d3.select('#slider-b');
+            const sliderT = d3.select('#slider-t');
+            const checkboxGrid = d3.select('#checkbox-grid');
+            const checkboxSnap = d3.select('#checkbox-snap');
+
+            sliderA.property('value', paramA);
+            sliderB.property('value', paramB);
+
+            sliderA.on('input', function() {
+                const val = +this.value;
+                if (checkboxSnap.property('checked')) {
+                    snapToTriple('a', val);
+                } else {
+                    paramA = val;
+                }
+                onParamsChange();
+            });
+
+            sliderB.on('input', function() {
+                const val = +this.value;
+                if (checkboxSnap.property('checked')) {
+                    snapToTriple('b', val);
+                } else {
+                    paramB = val;
+                }
+                onParamsChange();
+            });
+
+            sliderT.on('input', function() {
+                animationProgress = +this.value;
+                isPlaying = false;
+                d3.select('#play-icon').text('▶');
+                d3.select('#play-text').text('播放证明');
+                updateProofVisuals();
+            });
+
+            checkboxGrid.on('change', () => {
+                renderVisuals();
+            });
+
+            checkboxSnap.on('change', function() {
+                if (this.checked) {
+                    snapToTriple('a', paramA);
+                    onParamsChange();
+                }
+            });
+
+            d3.select('#label-a-val').text(paramA);
+            d3.select('#label-b-val').text(paramB);
+        }
+
+        // 锁定勾股数算法
+        function snapToTriple(changedSlider, newVal) {
+            let bestTriple = triples[0];
+            let minDiff = Infinity;
+            
+            triples.forEach(t => {
+                const val = changedSlider === 'a' ? t[0] : t[1];
+                const diff = Math.abs(val - newVal);
+                if (diff < minDiff) {
+                    minDiff = diff;
+                    bestTriple = t;
+                } else if (diff === minDiff) {
+                    const otherVal = changedSlider === 'a' ? t[1] : t[0];
+                    const currentOther = changedSlider === 'a' ? paramB : paramA;
+                    if (Math.abs(otherVal - currentOther) < Math.abs((changedSlider === 'a' ? bestTriple[1] : bestTriple[0]) - currentOther)) {
+                        bestTriple = t;
+                    }
+                }
+            });
+            
+            paramA = bestTriple[0];
+            paramB = bestTriple[1];
+            
+            d3.select('#slider-a').property('value', paramA);
+            d3.select('#slider-b').property('value', paramB);
+        }
+
+        // 参数改变时触发
+        function onParamsChange() {
+            d3.select('#label-a-val').text(paramA);
+            d3.select('#label-b-val').text(paramB);
+            renderMath();
+            renderVisuals();
+        }
+
+        // KaTeX 渲染
+        function renderMath() {
+            const c = Math.sqrt(paramA * paramA + paramB * paramB);
+            const cRounded = Math.round(c * 100) / 100;
+            
+            // 更新公式框
+            const formulaEl = document.getElementById('katex-formula');
+            katex.render(`a^2 + b^2 = c^2`, formulaEl, { displayMode: true, throwOnError: false });
+
+            // 更新浮动计算框 (使用 KaTeX 格式化公式解决不可读和 raw LaTeX text 的问题)
+            const calcEl = document.getElementById('live-calculation');
+            const isIntegerC = Math.abs(c - Math.round(c)) < 1e-9;
+            const cValStr = isIntegerC ? `${Math.round(c)}` : `${cRounded}`;
+            const approxSign = isIntegerC ? "=" : "\\approx";
+            
+            const formulaStr = `${paramA}^2 + ${paramB}^2 = ${paramA * paramA} + ${paramB * paramB} = ${paramA * paramA + paramB * paramB} ${approxSign} {${cValStr}}^2`;
+            try {
+                katex.render(formulaStr, calcEl, { displayMode: false, throwOnError: false });
+            } catch(e) {
+                console.error(e);
+            }
+        }
+
+        // 切换模式
+        function switchMode(mode) {
+            activeTab = mode;
+            
+            // 按钮高亮样式切换
+            d3.select('#tab-classic').attr('class', mode === 'classic' 
+                ? 'flex-1 py-2 px-4 rounded-lg text-sm font-semibold transition-all duration-300 bg-gradient-to-r from-teal-500 to-cyan-500 text-slate-900 shadow-md' 
+                : 'flex-1 py-2 px-4 rounded-lg text-sm font-semibold text-slate-400 hover:text-white transition-all duration-300');
+            
+            d3.select('#tab-proof').attr('class', mode === 'proof' 
+                ? 'flex-1 py-2 px-4 rounded-lg text-sm font-semibold transition-all duration-300 bg-gradient-to-r from-teal-500 to-cyan-500 text-slate-900 shadow-md' 
+                : 'flex-1 py-2 px-4 rounded-lg text-sm font-semibold text-slate-400 hover:text-white transition-all duration-300');
+
+            // 拼图控制栏可见性
+            d3.select('#proof-animation-controls').style('display', mode === 'proof' ? 'flex' : 'none');
+
+            // 原理文字解释切换
+            const explanation = document.getElementById('explanation-text');
+            if (mode === 'classic') {
+                explanation.innerHTML = `在任意直角三角形中，两直角边（勾 $a$、股 $b$）的平方和，恰好等于斜边（弦 $c$）的平方。可以通过开启“显示面积网格数”，数出正方形中包含的单位格子数，直观建立几何与代数面积的恒等关联。`;
+            } else {
+                explanation.innerHTML = `<strong>拼图证明 (赵爽弦图重排)</strong>：在一个边长为 (a+b) 的大正方形中放入 4 个直角三角形：<br>• <strong>初始状态</strong>：4 个三角形围在四周，中央形成一个斜边为 c 的正方形，面积为 $c^2$。<br>• <strong>平移重组</strong>：点击播放或滑动进度条，三角形将水平与垂直平移，组合成两个 a×b 的矩形，此时空余区域转为两个正方形，面积分别为 $a^2$ 和 $b^2$。<br>• 由于总面积和三角形面积恒定，因此空余面积相等，即 $a^2 + b^2 = c^2$！`;
+            }
+            try {
+                renderMathInElement(explanation, {
+                    delimiters: [
+                        {left: '$$', right: '$$', display: true},
+                        {left: '$', right: '$', display: false}
+                    ]
+                });
+            } catch(e) {}
+
+            isPlaying = false;
+            d3.select('#play-icon').text('▶');
+            d3.select('#play-text').text('播放证明');
+            
+            renderVisuals();
+        }
+
+        // 渲染主函数
+        function renderVisuals() {
+            const svg = d3.select('#draw-group');
+            svg.selectAll('*').remove(); // 清空旧图元
+
+            if (activeTab === 'classic') {
+                renderClassicVisuals(svg);
+            } else {
+                updateProofVisuals();
+            }
+        }
+
+        // 1. 经典几何渲染
+        function renderClassicVisuals(g) {
+            // 采用动态缩放比 (Dynamic Centering Auto-zoom Scale Factor)
+            // 确保不管 sliders 拖到多大，渲染图像始终以最大安全边界显示在画幅中央，解决“默认图很小”的问题
+            const a_log = paramA;
+            const b_log = paramB;
+            
+            const w_log = a_log + 2 * b_log;
+            const h_log = 2 * a_log + b_log;
+            
+            // 预留 50px 的 padding
+            const k = Math.min((800 - 100) / w_log, (600 - 100) / h_log);
+
+            const a = a_log * k;
+            const b = b_log * k;
+
+            const X_A = 400 - a / 2;
+            const Y_A = 300 + b / 2;
+
+            const X_B = X_A + a;
+            const Y_B = Y_A;
+            const X_C = X_A;
+            const Y_C = Y_A - b;
+
+            const c = Math.sqrt(paramA*paramA + paramB*paramB);
+
+            // 绘制直角边 a 正方形 (下方)
+            g.append('polygon')
+                .attr('points', `${X_B},${Y_B} ${X_A},${Y_A} ${X_A},${Y_A + a} ${X_B},${Y_A + a}`)
+                .attr('fill', 'url(#grad-a)')
+                .attr('stroke', '#06B6D4')
+                .attr('stroke-width', 2);
+
+            // 绘制直角边 b 正方形 (左方)
+            g.append('polygon')
+                .attr('points', `${X_A},${Y_A} ${X_C},${Y_C} ${X_A - b},${Y_C} ${X_A - b},${Y_A}`)
+                .attr('fill', 'url(#grad-b)')
+                .attr('stroke', '#34D399')
+                .attr('stroke-width', 2);
+
+            // 绘制斜边 c 正方形 (外接)
+            const X_D = X_C + b;
+            const Y_D = Y_C - a;
+            const X_E = X_B + b;
+            const Y_E = Y_B - a;
+
+            g.append('polygon')
+                .attr('points', `${X_B},${Y_B} ${X_C},${Y_C} ${X_D},${Y_D} ${X_E},${Y_E}`)
+                .attr('fill', 'url(#grad-c)')
+                .attr('stroke', '#FB7185')
+                .attr('stroke-width', 2);
+
+            // 绘制面积细分网格 (如果开启)
+            const showGrid = d3.select('#checkbox-grid').property('checked');
+            if (showGrid) {
+                // Square a grid
+                const grpA = g.append('g');
+                for (let i = 0; i < a_log; i++) {
+                    for (let j = 0; j < a_log; j++) {
+                        grpA.append('rect')
+                            .attr('x', X_A + i * k)
+                            .attr('y', Y_A + j * k)
+                            .attr('width', k)
+                            .attr('height', k)
+                            .attr('fill', 'rgba(255, 255, 255, 0.02)')
+                            .attr('stroke', 'rgba(255, 255, 255, 0.12)')
+                            .attr('stroke-width', 1);
+
+                        grpA.append('text')
+                            .attr('x', X_A + i * k + k / 2)
+                            .attr('y', Y_A + j * k + k / 2 + 4)
+                            .attr('text-anchor', 'middle')
+                            .attr('fill', 'rgba(255, 255, 255, 0.22)')
+                            .attr('font-size', Math.max(8, Math.min(10, k * 0.35)) + 'px')
+                            .text(i * a_log + j + 1);
+                    }
+                }
+
+                // Square b grid
+                const grpB = g.append('g');
+                for (let i = 0; i < b_log; i++) {
+                    for (let j = 0; j < b_log; j++) {
+                        grpB.append('rect')
+                            .attr('x', X_A - b + i * k)
+                            .attr('y', Y_C + j * k)
+                            .attr('width', k)
+                            .attr('height', k)
+                            .attr('fill', 'rgba(255, 255, 255, 0.02)')
+                            .attr('stroke', 'rgba(255, 255, 255, 0.12)')
+                            .attr('stroke-width', 1);
+
+                        grpB.append('text')
+                            .attr('x', X_A - b + i * k + k / 2)
+                            .attr('y', Y_C + j * k + k / 2 + 4)
+                            .attr('text-anchor', 'middle')
+                            .attr('fill', 'rgba(255, 255, 255, 0.22)')
+                            .attr('font-size', Math.max(8, Math.min(10, k * 0.35)) + 'px')
+                            .text(i * b_log + j + 1);
+                    }
+                }
+
+                // Square c grid (使用旋转变换生成倾斜网格)
+                const theta = Math.atan2(b, a) * 180 / Math.PI;
+                
+                // 为了完美的边缘裁剪，我们在 clipPath 中绘制
+                g.append('clipPath')
+                    .attr('id', 'clip-c-grid')
+                    .append('polygon')
+                    .attr('points', `${X_B},${Y_B} ${X_C},${Y_C} ${X_D},${Y_D} ${X_E},${Y_E}`);
+
+                const grpC = g.append('g')
+                    .attr('clip-path', 'url(#clip-c-grid)')
+                    .append('g')
+                    .attr('transform', `translate(${X_C}, ${Y_C}) rotate(${theta})`);
+
+                const c_ceil = Math.ceil(c);
+                for (let i = 0; i < c_ceil; i++) {
+                    for (let j = 0; j < c_ceil; j++) {
+                        grpC.append('rect')
+                            .attr('x', i * k)
+                            .attr('y', -(j + 1) * k)
+                            .attr('width', k)
+                            .attr('height', k)
+                            .attr('fill', 'rgba(255, 255, 255, 0.02)')
+                            .attr('stroke', 'rgba(255, 255, 255, 0.12)')
+                            .attr('stroke-width', 1);
+
+                        // 如果是整数勾股数，则按格数编号，方便学生“数数”证明
+                        const isIntegerC = Math.abs(c - Math.round(c)) < 1e-9;
+                        if (isIntegerC) {
+                            grpC.append('text')
+                                .attr('x', i * k + k / 2)
+                                .attr('y', -(j + 1) * k + k / 2 + 4)
+                                .attr('text-anchor', 'middle')
+                                .attr('fill', 'rgba(255, 255, 255, 0.22)')
+                                .attr('font-size', Math.max(8, Math.min(10, k * 0.35)) + 'px')
+                                .text(i * c_ceil + j + 1);
+                        }
+                    }
+                }
+            }
+
+            // 绘制主直角三角形
+            g.append('polygon')
+                .attr('points', `${X_A},${Y_A} ${X_B},${Y_B} ${X_C},${Y_C}`)
+                .attr('fill', 'rgba(251, 191, 36, 0.25)')
+                .attr('stroke', '#FBBF24')
+                .attr('stroke-width', 3)
+                .attr('class', 'transition-all duration-300');
+
+            // 绘制直角标记
+            const markerSize = Math.max(10, k * 0.15);
+            g.append('path')
+                .attr('d', `M ${X_A + markerSize} ${Y_A} L ${X_A + markerSize} ${Y_A - markerSize} L ${X_A} ${Y_A - markerSize}`)
+                .attr('fill', 'none')
+                .attr('stroke', '#FBBF24')
+                .attr('stroke-width', 1.5);
+
+            // 绘制正方形中心文本标签 (显示可读的逻辑面积)
+            // a²
+            g.append('text')
+                .attr('x', X_A + a/2)
+                .attr('y', Y_A + a/2 + 5)
+                .attr('text-anchor', 'middle')
+                .attr('fill', '#E0F7FA')
+                .attr('font-size', '14px')
+                .attr('font-weight', 'bold')
+                .attr('class', 'math-text')
+                .text(`a² = ${paramA * paramA}`);
+
+            // b²
+            g.append('text')
+                .attr('x', X_A - b/2)
+                .attr('y', Y_A - b/2 + 5)
+                .attr('text-anchor', 'middle')
+                .attr('fill', '#ECFDF5')
+                .attr('font-size', '14px')
+                .attr('font-weight', 'bold')
+                .attr('class', 'math-text')
+                .text(`b² = ${paramB * paramB}`);
+
+            // c²
+            const X_C_center = X_A + (a + b) / 2;
+            const Y_C_center = Y_A - (a + b) / 2;
+            g.append('text')
+                .attr('x', X_C_center)
+                .attr('y', Y_C_center + 5)
+                .attr('text-anchor', 'middle')
+                .attr('fill', '#FFF1F2')
+                .attr('font-size', '15px')
+                .attr('font-weight', 'bold')
+                .attr('class', 'math-text')
+                .text(`c² = ${paramA * paramA + paramB * paramB}`);
+
+            // 绘制边长文本标签
+            // a 边 (底)
+            g.append('text')
+                .attr('x', X_A + a/2)
+                .attr('y', Y_A - 10)
+                .attr('text-anchor', 'middle')
+                .attr('fill', '#22D3EE')
+                .attr('font-size', '12px')
+                .attr('font-weight', 'bold')
+                .text(`a = ${paramA}`);
+
+            // b 边 (左)
+            g.append('text')
+                .attr('x', X_A + 15)
+                .attr('y', Y_A - b/2 + 5)
+                .attr('text-anchor', 'start')
+                .attr('fill', '#34D399')
+                .attr('font-size', '12px')
+                .attr('font-weight', 'bold')
+                .text(`b = ${paramB}`);
+
+            // c 边 (斜)
+            const mid_X = X_A + a/2;
+            const mid_Y = Y_A - b/2;
+            const angle = Math.atan2(-b, a);
+            // 沿斜边法线偏移一点放置文本
+            const offsetDist = 18;
+            const labelX = mid_X - offsetDist * Math.sin(angle);
+            const labelY = mid_Y + offsetDist * Math.cos(angle);
+
+            g.append('text')
+                .attr('x', labelX)
+                .attr('y', labelY)
+                .attr('text-anchor', 'middle')
+                .attr('fill', '#FB7185')
+                .attr('font-size', '12px')
+                .attr('font-weight', 'bold')
+                .text(`c ≈ ${Math.round(c * 100) / 100}`);
+        }
+
+        // 2. 拼图平移证明渲染与动画计算
+        function updateProofVisuals() {
+            const g = d3.select('#draw-group');
+            g.selectAll('*').remove(); // 清空
+
+            const t = animationProgress;
+            
+            // 映射 a, b 边长以填满固定的 400x400 大正方形
+            const total = paramA + paramB;
+            const a = 400 * (paramA / total);
+            const b = 400 * (paramB / total);
+            
+            // 外包正方形左上角原点
+            const ox = 200;
+            const oy = 100;
+
+            // 绘制证明模式的细分背景网格 (如果开启)
+            const showGrid = d3.select('#checkbox-grid').property('checked');
+            if (showGrid) {
+                const gridCount = paramA + paramB;
+                const k_proof = 400 / gridCount;
+                
+                const gridGrp = g.append('g').attr('class', 'proof-grid');
+                for (let i = 0; i <= gridCount; i++) {
+                    // 垂直线
+                    gridGrp.append('line')
+                        .attr('x1', ox + i * k_proof)
+                        .attr('y1', oy)
+                        .attr('x2', ox + i * k_proof)
+                        .attr('y2', oy + 400)
+                        .attr('stroke', 'rgba(255, 255, 255, 0.08)')
+                        .attr('stroke-width', 1);
+                    
+                    // 水平线
+                    gridGrp.append('line')
+                        .attr('x1', ox)
+                        .attr('y1', oy + i * k_proof)
+                        .attr('x2', ox + 400)
+                        .attr('y2', oy + i * k_proof)
+                        .attr('stroke', 'rgba(255, 255, 255, 0.08)')
+                        .attr('stroke-width', 1);
+                }
+            }
+
+            // 绘制 400x400 的大外方边界
+            g.append('rect')
+                .attr('x', ox)
+                .attr('y', oy)
+                .attr('width', 400)
+                .attr('height', 400)
+                .attr('fill', 'none')
+                .attr('stroke', 'rgba(255, 255, 255, 0.25)')
+                .attr('stroke-width', 2.5)
+                .attr('stroke-dasharray', '6 4');
+
+            // 计算在时刻 t 时 4 个三角形的顶点位置
+            // T1 (左下): 始终不动
+            const p1 = [
+                [ox, oy + 400],
+                [ox + b, oy + 400],
+                [ox, oy + b]
+            ];
+
+            // T2 (右下): 向上垂直移动 a*t
+            const p2 = [
+                [ox + 400, oy + 400 - a * t],
+                [ox + b, oy + 400 - a * t],
+                [ox + 400, oy + a - a * t]
+            ];
+
+            // T3 (右上): 斜向左下移动 (-a*t, b*t)
+            const p3 = [
+                [ox + 400 - a * t, oy + b * t],
+                [ox + 400 - a * t, oy + a + b * t],
+                [ox + a - a * t, oy + b * t]
+            ];
+
+            // T4 (左上): 向右水平移动 b*t
+            const p4 = [
+                [ox + b * t, oy],
+                [ox + a + b * t, oy],
+                [ox + b * t, oy + b]
+            ];
+
+            // 绘制 4 个直角三角形 (增加透明度使底部的网格线清晰显露，辅助“数格子”理解)
+            drawTriangle(g, p1, 'url(#grad-t1)', '#F59E0B', 'T1');
+            drawTriangle(g, p2, 'url(#grad-t2)', '#3B82F6', 'T2');
+            drawTriangle(g, p3, 'url(#grad-t3)', '#EC4899', 'T3');
+            drawTriangle(g, p4, 'url(#grad-t4)', '#8B5CF6', 'T4');
+
+            // 绘制中间的空白变化区域
+            if (t < 0.99) {
+                const emptyPoints = [
+                    p1[2], 
+                    p1[1], 
+                    p2[1], 
+                    p2[2], 
+                    p3[1], 
+                    p3[2], 
+                    p4[1], 
+                    p4[2] 
+                ];
+                
+                g.append('polygon')
+                    .attr('points', emptyPoints.map(p => p.join(',')).join(' '))
+                    .attr('fill', 'rgba(251, 113, 133, 0.06)')
+                    .attr('stroke', 'rgba(251, 113, 133, 0.35)')
+                    .attr('stroke-width', 1.5)
+                    .attr('stroke-dasharray', '4 2');
+            }
+
+            // 当 t = 0 时，在正中心渲染大大的 c²
+            if (t === 0) {
+                g.append('text')
+                    .attr('x', ox + 200)
+                    .attr('y', oy + 205)
+                    .attr('text-anchor', 'middle')
+                    .attr('fill', '#FB7185')
+                    .attr('font-size', '20px')
+                    .attr('font-weight', 'bold')
+                    .attr('class', 'math-text filter drop-shadow-[0_0_8px_rgba(251,113,133,0.6)]')
+                    .text('弦区 c²');
+            }
+
+            // 当 t = 1 时，分别在左上角和右下角渲染 b² 和 a²
+            if (t === 1) {
+                // 左上空余正方形 b' x b'
+                g.append('rect')
+                    .attr('x', ox)
+                    .attr('y', oy)
+                    .attr('width', b)
+                    .attr('height', b)
+                    .attr('fill', 'none')
+                    .attr('stroke', '#34D399')
+                    .attr('stroke-width', 2)
+                    .attr('class', 'filter drop-shadow-[0_0_6px_rgba(52,211,153,0.3)]');
+                
+                g.append('text')
+                    .attr('x', ox + b/2)
+                    .attr('y', oy + b/2 + 6)
+                    .attr('text-anchor', 'middle')
+                    .attr('fill', '#34D399')
+                    .attr('font-size', '18px')
+                    .attr('font-weight', 'bold')
+                    .attr('class', 'math-text')
+                    .text(`股区 b² (${paramB}²)`);
+
+                // 右下空余正方形 a' x a'
+                g.append('rect')
+                    .attr('x', ox + b)
+                    .attr('y', oy + b)
+                    .attr('width', a)
+                    .attr('height', a)
+                    .attr('fill', 'none')
+                    .attr('stroke', '#06B6D4')
+                    .attr('stroke-width', 2)
+                    .attr('class', 'filter drop-shadow-[0_0_6px_rgba(6,182,212,0.3)]');
+
+                g.append('text')
+                    .attr('x', ox + b + a/2)
+                    .attr('y', oy + b + a/2 + 6)
+                    .attr('text-anchor', 'middle')
+                    .attr('fill', '#22D3EE')
+                    .attr('font-size', '18px')
+                    .attr('font-weight', 'bold')
+                    .attr('class', 'math-text')
+                    .text(`勾区 a² (${paramA}²)`);
+            }
+
+            // 更新面板的文字进度条数值
+            d3.select('#slider-t').property('value', t);
+            d3.select('#t-pct').text(`${Math.round(t * 100)}%`);
+        }
+
+        // 三角形绘制函数 (支持网格穿透)
+        function drawTriangle(g, pts, fill, stroke, label) {
+            g.append('polygon')
+                .attr('points', pts.map(p => p.join(',')).join(' '))
+                .attr('fill', fill)
+                .attr('stroke', stroke)
+                .attr('stroke-width', 1.5)
+                .attr('opacity', 0.85); // 稍微透明，使下层网格透出
+
+            // 在重心绘制编号
+            const cx = (pts[0][0] + pts[1][0] + pts[2][0]) / 3;
+            const cy = (pts[0][1] + pts[1][1] + pts[2][1]) / 3;
+            g.append('text')
+                .attr('x', cx)
+                .attr('y', cy + 4)
+                .attr('text-anchor', 'middle')
+                .attr('fill', '#FFFFFF')
+                .attr('font-size', '10px')
+                .attr('font-weight', 'bold')
+                .attr('opacity', 0.6)
+                .text(label);
+        }
+
+        // 动画播放与暂停
+        function togglePlay() {
+            if (isPlaying) {
+                isPlaying = false;
+                d3.select('#play-icon').text('▶');
+                d3.select('#play-text').text('播放证明');
+            } else {
+                isPlaying = true;
+                d3.select('#play-icon').text('⏸');
+                d3.select('#play-text').text('暂停');
+                if (animationProgress >= 1) {
+                    animationProgress = 0;
+                }
+                lastTime = performance.now();
+                requestAnimationFrame(animationLoop);
+            }
+        }
+
+        // 动画主循环
+        function animationLoop(timestamp) {
+            if (!isPlaying) return;
+
+            const elapsed = timestamp - lastTime;
+            lastTime = timestamp;
+
+            animationProgress += elapsed / animationDuration;
+
+            if (animationProgress >= 1) {
+                animationProgress = 1;
+                isPlaying = false;
+                d3.select('#play-icon').text('▶');
+                d3.select('#play-text').text('播放证明');
+                showToast('平移割补证明已完成！对比 $c^2$ 与 $a^2+b^2$。');
+            }
+
+            updateProofVisuals();
+
+            if (isPlaying) {
+                requestAnimationFrame(animationLoop);
+            }
+        }
+
+        // 重置动画
+        function resetAnimation() {
+            isPlaying = false;
+            animationProgress = 0;
+            d3.select('#play-icon').text('▶');
+            d3.select('#play-text').text('播放证明');
+            updateProofVisuals();
+            showToast('动画已复位。');
+        }
+
+        // 重置所有参数
+        function resetParams() {
+            paramA = 6;
+            paramB = 8;
+            d3.select('#slider-a').property('value', paramA);
+            d3.select('#slider-b').property('value', paramB);
+            onParamsChange();
+            if (activeTab === 'proof') {
+                resetAnimation();
+            }
+            showToast('参数已重置。');
+        }
+
+        // 随机演示
+        function triggerRandom() {
+            if (d3.select('#checkbox-snap').property('checked')) {
+                // 在预设的勾股数列表中随机挑选
+                const randTriple = triples[Math.floor(Math.random() * triples.length)];
+                paramA = randTriple[0];
+                paramB = randTriple[1];
+            } else {
+                // 生成 3 到 12 的随机整数作为逻辑值
+                paramA = Math.floor(Math.random() * 10) + 3;
+                paramB = Math.floor(Math.random() * 10) + 3;
+            }
+            d3.select('#slider-a').property('value', paramA);
+            d3.select('#slider-b').property('value', paramB);
+            onParamsChange();
+            showToast(`已生成随机直角三角形：a = ${paramA}, b = ${paramB}`);
+        }
+
+        // 全屏切换
+        function toggleFullscreen() {
+            if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen().catch(() => {});
+            } else {
+                document.exitFullscreen().catch(() => {});
+            }
+        }
+
+        // Toast提示
+        function showToast(msg) {
+            const toast = d3.select('#toast');
+            toast.text(msg)
+                .style('opacity', 1)
+                .style('pointer-events', 'auto');
+            
+            setTimeout(() => {
+                toast.style('opacity', 0)
+                     .style('pointer-events', 'none');
+            }, 3000);
+        }
+    </script>
+</body>
+</html>

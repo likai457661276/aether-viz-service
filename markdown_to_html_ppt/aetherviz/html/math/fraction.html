@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>分式 - 初一数学知识点</title>
+    <link rel="stylesheet" href="https://registry.npmmirror.com/katex/0.16.9/files/dist/katex.min.css">
+    <script src="https://registry.npmmirror.com/katex/0.16.9/files/dist/katex.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif; background: linear-gradient(135deg, #0a1929 0%, #1a2a4a 50%, #0d1f3c 100%); min-height: 100vh; color: #e0e6ed; }
+        .app-container { display: flex; min-height: 100vh; }
+        .sidebar { width: 320px; background: linear-gradient(180deg, rgba(20, 40, 70, 0.95) 0%, rgba(10, 25, 50, 0.98) 100%); border-right: 1px solid rgba(255, 200, 50, 0.2); padding: 24px; overflow-y: auto; }
+        .sidebar h1 { font-size: 1.5rem; color: #ffc832; margin-bottom: 8px; }
+        .sidebar .subtitle { font-size: 0.85rem; color: #8b9cb3; margin-bottom: 24px; }
+        .section { margin-bottom: 24px; padding: 16px; background: rgba(255, 255, 255, 0.03); border-radius: 12px; border: 1px solid rgba(255, 200, 50, 0.1); }
+        .section-title { font-size: 0.9rem; color: #ffc832; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+        .section-title::before { content: ''; width: 4px; height: 16px; background: linear-gradient(180deg, #ffc832, #ff9500); border-radius: 2px; }
+        .formula-box { background: rgba(0, 0, 0, 0.3); padding: 16px; border-radius: 8px; text-align: center; margin-bottom: 12px; border: 1px solid rgba(255, 200, 50, 0.15); }
+        .principle-text { font-size: 0.85rem; line-height: 1.7; color: #b0bec5; }
+        .principle-text strong { color: #ffc832; }
+        .application-item { padding: 10px 12px; background: rgba(255, 200, 50, 0.05); border-radius: 6px; margin-bottom: 8px; font-size: 0.85rem; color: #90a4ae; border-left: 3px solid rgba(255, 200, 50, 0.3); }
+        .main-content { flex: 1; padding: 24px; }
+        .calc-container { background: rgba(255, 255, 255, 0.02); border-radius: 16px; border: 1px solid rgba(255, 200, 50, 0.15); padding: 24px; margin-bottom: 20px; }
+        .calc-display { background: rgba(0,0,0,0.4); border-radius: 12px; padding: 24px; text-align: center; }
+        .calc-expression { font-size: 2rem; color: #fff; margin-bottom: 16px; font-family: 'Consolas', monospace; }
+        .calc-steps { text-align: left; padding: 16px; background: rgba(255,200,50,0.05); border-radius: 8px; margin-top: 16px; }
+        .step { padding: 8px 0; color: #b0bec5; border-bottom: 1px solid rgba(255,255,255,0.05); font-family: 'Consolas', monospace; }
+        .step:last-child { border-bottom: none; color: #4fc3f7; font-weight: bold; }
+        .result-big { font-size: 2.5rem; color: #ffc832; font-weight: bold; margin-top: 16px; font-family: 'Consolas', monospace; }
+        .condition-box { background: rgba(255, 82, 82, 0.1); padding: 12px; border-radius: 8px; margin-top: 12px; border: 1px solid rgba(255, 82, 82, 0.3); }
+        .condition-box h4 { color: #ff5252; margin-bottom: 8px; font-size: 0.9rem; }
+        .condition-box p { color: #b0bec5; font-size: 0.85rem; font-family: 'Consolas', monospace; }
+        .control-panel { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 20px; }
+        .control-group { background: rgba(255, 255, 255, 0.03); padding: 16px; border-radius: 12px; border: 1px solid rgba(255, 200, 50, 0.1); }
+        .control-label { font-size: 0.85rem; color: #ffc832; margin-bottom: 10px; display: block; }
+        select { width: 100%; padding: 10px; border-radius: 8px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,200,50,0.3); font-size: 1rem; }
+        select option { background: #1a2a4a; }
+        .btn-group { display: flex; gap: 12px; flex-wrap: wrap; }
+        .btn { padding: 10px 20px; border: none; border-radius: 8px; cursor: pointer; font-size: 0.9rem; transition: all 0.3s ease; font-family: inherit; }
+        .btn-primary { background: linear-gradient(135deg, #ffc832, #ff9500); color: #0a1929; font-weight: bold; }
+        .btn-secondary { background: rgba(255, 200, 50, 0.15); color: #ffc832; border: 1px solid rgba(255, 200, 50, 0.3); }
+        .btn:hover { transform: translateY(-2px); box-shadow: 0 4px 15px rgba(255, 200, 50, 0.3); }
+        .toast { position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%) translateY(100px); background: linear-gradient(135deg, #ffc832, #ff9500); color: #0a1929; padding: 12px 24px; border-radius: 8px; font-weight: bold; opacity: 0; transition: all 0.3s ease; z-index: 1000; }
+        .toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }
+        @media (max-width: 768px) { .app-container { flex-direction: column; } .sidebar { width: 100%; max-height: 40vh; } }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <aside class="sidebar">
+            <h1>分式</h1>
+            <p class="subtitle">初一数学 · 下学期第四章</p>
+            <div class="section">
+                <div class="section-title">分式性质</div>
+                <div class="formula-box" id="f1"></div>
+                <div class="formula-box" id="f2"></div>
+            </div>
+            <div class="section">
+                <div class="section-title">运算规则</div>
+                <p class="principle-text">
+                    <strong>乘法：</strong>分子乘分子，分母乘分母<br><br>
+                    <strong>除法：</strong>乘以除数的倒数<br><br>
+                    <strong>加减：</strong>先通分，再加减<br><br>
+                    <strong>乘方：</strong>分子分母分别乘方
+                </p>
+            </div>
+            <div class="section">
+                <div class="section-title">真实应用</div>
+                <div class="application-item">📊 比例问题</div>
+                <div class="application-item">📐 速度计算：v = s/t</div>
+                <div class="application-item">💰 效率问题：工作效率 = 工作量/时间</div>
+            </div>
+        </aside>
+
+        <main class="main-content">
+            <div class="calc-container">
+                <div class="calc-display">
+                    <div class="calc-expression" id="calcExpr">x² − 4 / (x + 2)</div>
+                    <div class="condition-box">
+                        <h4>⚠️ 分式成立条件</h4>
+                        <p>分母 ≠ 0：x + 2 ≠ 0，即 x ≠ −2</p>
+                    </div>
+                    <div class="calc-steps" id="calcSteps">
+                        <div class="step">分子因式分解：(x² − 4) = (x+2)(x−2)</div>
+                        <div class="step">分子分母约去公因式 (x+2)</div>
+                        <div class="step">化简结果：x − 2</div>
+                    </div>
+                    <div class="result-big" id="resultBig">x − 2（x ≠ −2）</div>
+                </div>
+            </div>
+
+            <div class="control-panel">
+                <div class="control-group">
+                    <label class="control-label">选择例题</label>
+                    <select id="exampleSelect" onchange="loadExample()">
+                        <option value="0">(x² − 4) / (x + 2)</option>
+                        <option value="1">(x² − 1) / (x − 1)</option>
+                        <option value="2">(x² + 3x + 2) / (x + 1)</option>
+                        <option value="3">2x / (x − 3) + 1 / (x − 3)</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="btn-group">
+                <button class="btn btn-primary" onclick="simplify()">化简</button>
+                <button class="btn btn-secondary" onclick="randomExample()">随机练习</button>
+                <button class="btn btn-secondary" onclick="showConditions()">分式条件</button>
+            </div>
+        </main>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <script>
+        const examples = [
+            { expr: '(x² − 4) / (x + 2)', cond: 'x + 2 ≠ 0，即 x ≠ −2', steps: ['分子因式分解：(x² − 4) = (x+2)(x−2)', '分子分母约去公因式 (x+2)', '化简结果：x − 2'], result: 'x − 2（x ≠ −2）' },
+            { expr: '(x² − 1) / (x − 1)', cond: 'x − 1 ≠ 0，即 x ≠ 1', steps: ['分子因式分解：(x² − 1) = (x+1)(x−1)', '分子分母约去公因式 (x−1)', '化简结果：x + 1'], result: 'x + 1（x ≠ 1）' },
+            { expr: '(x² + 3x + 2) / (x + 1)', cond: 'x + 1 ≠ 0，即 x ≠ −1', steps: ['分子因式分解：(x² + 3x + 2) = (x+1)(x+2)', '分子分母约去公因式 (x+1)', '化简结果：x + 2'], result: 'x + 2（x ≠ −1）' },
+            { expr: '2x / (x − 3) + 1 / (x − 3)', cond: 'x − 3 ≠ 0，即 x ≠ 3', steps: ['同分母相加：分子相加，分母不变', '= (2x + 1) / (x − 3)', '已是最简形式'], result: '(2x + 1) / (x − 3)（x ≠ 3）' }
+        ];
+
+        let current = 0;
+
+        function initFormulas() {
+            katex.render("\\frac{a}{b} = \\frac{a \\cdot c}{b \\cdot c}", document.getElementById('f1'));
+            katex.render("\\frac{a}{b} = \\frac{a \\div c}{b \\div c}", document.getElementById('f2'));
+        }
+
+        function loadExample() {
+            current = parseInt(document.getElementById('exampleSelect').value);
+            simplify();
+        }
+
+        function simplify() {
+            const ex = examples[current];
+            document.getElementById('calcExpr').textContent = ex.expr;
+            document.getElementById('calcSteps').innerHTML = ex.steps.map(s => `<div class="step">${s}</div>`).join('');
+            document.getElementById('resultBig').textContent = ex.result;
+            document.querySelector('.condition-box p').textContent = ex.cond;
+        }
+
+        function randomExample() {
+            current = Math.floor(Math.random() * examples.length);
+            document.getElementById('exampleSelect').value = current;
+            simplify();
+            showToast('随机练习题');
+        }
+
+        function showConditions() {
+            const conditions = [
+                '分母不能为零',
+                '分子可以为零',
+                '约分时公因式不为零',
+                '最简分式的分子分母无公因式'
+            ];
+            document.getElementById('calcSteps').innerHTML = conditions.map(c => `<div class="step">${c}</div>`).join('');
+            showToast('分式条件');
+        }
+
+        function showToast(msg) {
+            const t = document.getElementById('toast');
+            t.textContent = msg;
+            t.classList.add('show');
+            setTimeout(() => t.classList.remove('show'), 2000);
+        }
+
+        initFormulas();
+        simplify();
+    </script>
+</body>
+</html>

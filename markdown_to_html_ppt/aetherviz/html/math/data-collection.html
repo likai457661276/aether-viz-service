@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>数据的收集与整理 - 初一数学知识点</title>
+    <link rel="stylesheet" href="https://registry.npmmirror.com/katex/0.16.9/files/dist/katex.min.css">
+    <script src="https://registry.npmmirror.com/katex/0.16.9/files/dist/katex.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif; background: linear-gradient(135deg, #0a1929 0%, #1a2a4a 50%, #0d1f3c 100%); min-height: 100vh; color: #e0e6ed; }
+        .app-container { display: flex; min-height: 100vh; }
+        .sidebar { width: 320px; background: linear-gradient(180deg, rgba(20, 40, 70, 0.95) 0%, rgba(10, 25, 50, 0.98) 100%); border-right: 1px solid rgba(255, 200, 50, 0.2); padding: 24px; overflow-y: auto; }
+        .sidebar h1 { font-size: 1.5rem; color: #ffc832; margin-bottom: 8px; }
+        .sidebar .subtitle { font-size: 0.85rem; color: #8b9cb3; margin-bottom: 24px; }
+        .section { margin-bottom: 24px; padding: 16px; background: rgba(255, 255, 255, 0.03); border-radius: 12px; border: 1px solid rgba(255, 200, 50, 0.1); }
+        .section-title { font-size: 0.9rem; color: #ffc832; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+        .section-title::before { content: ''; width: 4px; height: 16px; background: linear-gradient(180deg, #ffc832, #ff9500); border-radius: 2px; }
+        .formula-box { background: rgba(0, 0, 0, 0.3); padding: 16px; border-radius: 8px; text-align: center; margin-bottom: 12px; border: 1px solid rgba(255, 200, 50, 0.15); }
+        .principle-text { font-size: 0.85rem; line-height: 1.7; color: #b0bec5; }
+        .principle-text strong { color: #ffc832; }
+        .application-item { padding: 10px 12px; background: rgba(255, 200, 50, 0.05); border-radius: 6px; margin-bottom: 8px; font-size: 0.85rem; color: #90a4ae; border-left: 3px solid rgba(255, 200, 50, 0.3); }
+        .main-content { flex: 1; padding: 24px; }
+        .chart-container { background: rgba(255, 255, 255, 0.02); border-radius: 16px; border: 1px solid rgba(255, 200, 50, 0.15); padding: 24px; margin-bottom: 20px; }
+        .chart-canvas { width: 100%; height: 300px; display: flex; align-items: flex-end; justify-content: space-around; padding: 20px; }
+        .bar { width: 60px; background: linear-gradient(180deg, #ffc832, #ff9500); border-radius: 4px 4px 0 0; transition: height 0.5s ease; position: relative; }
+        .bar:hover { background: linear-gradient(180deg, #4fc3f7, #29b6f6); }
+        .bar-label { position: absolute; bottom: -25px; left: 50%; transform: translateX(-50%); font-size: 0.8rem; color: #b0bec5; white-space: nowrap; }
+        .bar-value { position: absolute; top: -25px; left: 50%; transform: translateX(-50%); font-size: 0.9rem; color: #ffc832; font-weight: bold; }
+        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 16px; margin-top: 20px; }
+        .stat-card { background: rgba(255, 255, 255, 0.03); padding: 16px; border-radius: 12px; border: 1px solid rgba(255, 200, 50, 0.1); text-align: center; }
+        .stat-label { font-size: 0.8rem; color: #8b9cb3; margin-bottom: 8px; }
+        .stat-value { font-size: 1.5rem; color: #ffc832; font-weight: bold; }
+        .data-table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+        .data-table th, .data-table td { padding: 10px; text-align: center; border: 1px solid rgba(255, 200, 50, 0.2); }
+        .data-table th { background: rgba(255, 200, 50, 0.1); color: #ffc832; }
+        .data-table td { color: #b0bec5; }
+        .control-panel { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 20px; }
+        .control-group { background: rgba(255, 255, 255, 0.03); padding: 16px; border-radius: 12px; border: 1px solid rgba(255, 200, 50, 0.1); }
+        .control-label { font-size: 0.85rem; color: #ffc832; margin-bottom: 10px; display: block; }
+        select { width: 100%; padding: 10px; border-radius: 8px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,200,50,0.3); font-size: 1rem; }
+        select option { background: #1a2a4a; }
+        .btn-group { display: flex; gap: 12px; flex-wrap: wrap; }
+        .btn { padding: 10px 20px; border: none; border-radius: 8px; cursor: pointer; font-size: 0.9rem; transition: all 0.3s ease; font-family: inherit; }
+        .btn-primary { background: linear-gradient(135deg, #ffc832, #ff9500); color: #0a1929; font-weight: bold; }
+        .btn-secondary { background: rgba(255, 200, 50, 0.15); color: #ffc832; border: 1px solid rgba(255, 200, 50, 0.3); }
+        .btn:hover { transform: translateY(-2px); box-shadow: 0 4px 15px rgba(255, 200, 50, 0.3); }
+        .toast { position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%) translateY(100px); background: linear-gradient(135deg, #ffc832, #ff9500); color: #0a1929; padding: 12px 24px; border-radius: 8px; font-weight: bold; opacity: 0; transition: all 0.3s ease; z-index: 1000; }
+        .toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }
+        @media (max-width: 768px) { .app-container { flex-direction: column; } .sidebar { width: 100%; max-height: 40vh; } .bar { width: 40px; } }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <aside class="sidebar">
+            <h1>数据的收集与整理</h1>
+            <p class="subtitle">初一数学 · 第十一章</p>
+            <div class="section">
+                <div class="section-title">核心概念</div>
+                <p class="principle-text">
+                    <strong>总体：</strong>所有研究对象的全体<br><br>
+                    <strong>个体：</strong>总体中的每一个元素<br><br>
+                    <strong>样本：</strong>从总体中抽取的部分<br><br>
+                    <strong>样本容量：</strong>样本中个体的数量
+                </p>
+            </div>
+            <div class="section">
+                <div class="section-title">统计量</div>
+                <div class="formula-box" id="f1"></div>
+                <div class="formula-box" id="f2"></div>
+            </div>
+            <div class="section">
+                <div class="section-title">真实应用</div>
+                <div class="application-item">📊 考试成绩分析</div>
+                <div class="application-item">📈 市场调查</div>
+                <div class="application-item">🗳️ 民意调查</div>
+            </div>
+        </aside>
+
+        <main class="main-content">
+            <div class="chart-container">
+                <h3 style="color:#ffc832;margin-bottom:16px;">📊 数据可视化</h3>
+                <div class="chart-canvas" id="chartCanvas"></div>
+                <table class="data-table" id="dataTable">
+                    <thead><tr><th>类别</th><th>数值</th><th>占比</th></tr></thead>
+                    <tbody id="tableBody"></tbody>
+                </table>
+            </div>
+
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-label">平均值</div>
+                    <div class="stat-value" id="meanValue">-</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">中位数</div>
+                    <div class="stat-value" id="medianValue">-</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">众数</div>
+                    <div class="stat-value" id="modeValue">-</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">总计</div>
+                    <div class="stat-value" id="totalValue">-</div>
+                </div>
+            </div>
+
+            <div class="control-panel" style="margin-top:20px;">
+                <div class="control-group">
+                    <label class="control-label">选择数据集</label>
+                    <select id="dataSelect" onchange="loadData()">
+                        <option value="scores">学生考试成绩</option>
+                        <option value="heights">身高统计数据</option>
+                        <option value="sales">月销售额</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="btn-group">
+                <button class="btn btn-primary" onclick="loadData()">刷新数据</button>
+                <button class="btn btn-secondary" onclick="randomData()">随机数据</button>
+                <button class="btn btn-secondary" onclick="showStats()">计算统计量</button>
+            </div>
+        </main>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <script>
+        const datasets = {
+            scores: { labels: ['不及格', '及格', '良好', '优秀'], data: [5, 12, 18, 8], colors: ['#ff5252', '#ff9500', '#4fc3f7', '#69f0ae'] },
+            heights: { labels: ['<150', '150-160', '160-170', '170-180', '>180'], data: [3, 10, 20, 12, 2], colors: ['#ff5252', '#ff9800', '#4fc3f7', '#29b6f6', '#69f0ae'] },
+            sales: { labels: ['1月', '2月', '3月', '4月', '5月', '6月'], data: [45, 52, 38, 65, 72, 58], colors: ['#ffc832', '#ff9500', '#ff5252', '#4fc3f7', '#69f0ae', '#b388ff'] }
+        };
+
+        let currentData = datasets.scores;
+
+        function initFormulas() {
+            katex.render("\\bar{x} = \\frac{x_1 + x_2 + \\cdots + x_n}{n}", document.getElementById('f1'));
+            katex.render("\\text{中位数} = \\text{排序后中间值}", document.getElementById('f2'));
+        }
+
+        function loadData() {
+            const key = document.getElementById('dataSelect').value;
+            currentData = datasets[key];
+            drawChart();
+            updateTable();
+        }
+
+        function drawChart() {
+            const canvas = document.getElementById('chartCanvas');
+            const max = Math.max(...currentData.data);
+            const maxHeight = 250;
+
+            canvas.innerHTML = currentData.data.map((val, i) => {
+                const height = (val / max) * maxHeight;
+                return `
+                    <div class="bar" style="height:${height}px; background:${currentData.colors[i]}">
+                        <span class="bar-value">${val}</span>
+                        <span class="bar-label">${currentData.labels[i]}</span>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function updateTable() {
+            const tbody = document.getElementById('tableBody');
+            const total = currentData.data.reduce((a, b) => a + b, 0);
+            tbody.innerHTML = currentData.data.map((val, i) =>
+                `<tr><td>${currentData.labels[i]}</td><td>${val}</td><td>${((val/total)*100).toFixed(1)}%</td></tr>`
+            ).join('');
+            document.getElementById('totalValue').textContent = total;
+        }
+
+        function calculateStats() {
+            const data = currentData.data;
+            const n = data.length;
+
+            const mean = data.reduce((a, b) => a + b, 0) / n;
+            const sorted = [...data].sort((a, b) => a - b);
+            const median = n % 2 === 0 ? (sorted[n/2-1] + sorted[n/2]) / 2 : sorted[Math.floor(n/2)];
+
+            const countMap = {};
+            data.forEach(v => { countMap[v] = (countMap[v] || 0) + 1; });
+            const maxFreq = Math.max(...Object.values(countMap));
+            const modes = Object.keys(countMap).filter(k => countMap[k] === maxFreq);
+
+            document.getElementById('meanValue').textContent = mean.toFixed(1);
+            document.getElementById('medianValue').textContent = median.toFixed(1);
+            document.getElementById('modeValue').textContent = modes.join(', ');
+        }
+
+        function randomData() {
+            const keys = Object.keys(datasets);
+            document.getElementById('dataSelect').value = keys[Math.floor(Math.random() * keys.length)];
+            loadData();
+            showToast('随机数据');
+        }
+
+        function showStats() {
+            calculateStats();
+            showToast('统计量已计算');
+        }
+
+        function showToast(msg) {
+            const t = document.getElementById('toast');
+            t.textContent = msg;
+            t.classList.add('show');
+            setTimeout(() => t.classList.remove('show'), 2000);
+        }
+
+        initFormulas();
+        loadData();
+    </script>
+</body>
+</html>

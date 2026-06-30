@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>金属活动性顺序 | Metal Reactivity Series</title>
+    <script src="https://registry.npmmirror.com/@tailwindcss/browser/4.3.0/files/dist/index.global.js"></script>
+    <style>
+        @import url('https://fonts.font.im/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        
+        :root {
+            --primary-gradient: linear-gradient(135deg, #F59E0B 0%, #EF4444 100%);
+            --bg-gradient: linear-gradient(180deg, #1C1917 0%, #422006 50%, #78350F 100%);
+            --glass-bg: rgba(255, 255, 255, 0.08);
+            --glass-border: rgba(251, 191, 36, 0.3);
+            --text-primary: #F8FAFC;
+            --text-secondary: #FED7AA;
+            --accent-amber: #FBBF24;
+            --accent-gold: #EAB308;
+        }
+        
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            font-family: 'Inter', sans-serif; 
+            background: var(--bg-gradient); 
+            color: var(--text-primary); 
+            min-height: 100vh;
+        }
+        
+        .glass { 
+            background: var(--glass-bg); 
+            backdrop-filter: blur(20px); 
+            border: 1px solid var(--glass-border);
+            border-radius: 16px;
+        }
+        
+        .btn-primary {
+            background: var(--primary-gradient);
+            transition: all 0.3s ease;
+        }
+        .btn-primary:hover {
+            background: linear-gradient(135deg, #FBBF24 0%, #F97316 100%);
+            transform: translateY(-2px);
+        }
+        
+        #canvas-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+        }
+        
+        .nav-bar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 70px;
+            background: rgba(28, 25, 23, 0.9);
+            backdrop-filter: blur(20px);
+            border-bottom: 1px solid rgba(251, 191, 36, 0.2);
+            z-index: 100;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 30px;
+        }
+        
+        .nav-title {
+            font-size: 1.5rem;
+            font-weight: 700;
+            background: var(--primary-gradient);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        
+        .sidebar {
+            position: fixed;
+            top: 80px;
+            left: 20px;
+            width: 280px;
+            z-index: 10;
+        }
+        
+        .main-content {
+            position: relative;
+            z-index: 5;
+            margin-left: 320px;
+            padding: 90px 30px 30px;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        
+        .control-panel {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            width: 300px;
+            z-index: 10;
+        }
+        
+        .metal-card {
+            padding: 12px 16px;
+            border-radius: 10px;
+            background: rgba(251, 191, 36, 0.1);
+            border: 2px solid rgba(251, 191, 36, 0.3);
+            cursor: pointer;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .metal-card:hover, .metal-card.active {
+            background: rgba(251, 191, 36, 0.3);
+            transform: scale(1.05);
+        }
+        
+        .metal-card.selected {
+            border-color: var(--accent-amber);
+            box-shadow: 0 0 20px rgba(251, 191, 36, 0.5);
+        }
+        
+        .toast {
+            position: fixed;
+            bottom: 100px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.8);
+            color: var(--accent-amber);
+            padding: 12px 24px;
+            border-radius: 25px;
+            z-index: 1000;
+            animation: fadeInOut 2s ease;
+        }
+        
+        @keyframes fadeInOut {
+            0%, 100% { opacity: 0; }
+            20%, 80% { opacity: 1; }
+        }
+        
+        .reaction-indicator {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: #666;
+            transition: all 0.3s;
+        }
+        
+        .reaction-indicator.reactive {
+            background: #22C55E;
+            box-shadow: 0 0 10px #22C55E;
+        }
+        
+        .reaction-indicator.no-reactive {
+            background: #EF4444;
+            box-shadow: 0 0 10px #EF4444;
+        }
+    </style>
+</head>
+<body>
+    <nav class="nav-bar">
+        <div>
+            <h1 class="nav-title">金属活动性顺序 | Metal Reactivity Series</h1>
+            <p style="font-size: 0.75rem; color: var(--text-muted);">金属的活泼性规律</p>
+        </div>
+        <div class="flex gap-3">
+            <button onclick="resetExperiment()" class="btn-primary px-4 py-2 rounded-lg text-sm">重置</button>
+            <button onclick="randomReaction()" class="btn-primary px-4 py-2 rounded-lg text-sm">随机实验</button>
+        </div>
+    </nav>
+    
+    <div id="canvas-container"></div>
+    
+    <aside class="sidebar glass p-5">
+        <h2 style="color: var(--accent-amber); margin-bottom: 15px;">金属活动性顺序</h2>
+        <div style="font-size: 1.1rem; line-height: 2; color: var(--text-secondary);" id="seriesDisplay">
+            <div style="color: #EF4444; font-weight: bold;">K 钾</div>
+            <div style="color: #F97316;">Na 钠</div>
+            <div style="color: #FBBF24;">Ca 钙</div>
+            <div style="color: #EAB308;">Mg 镁</div>
+            <div style="color: #84CC16;">Al 铝</div>
+            <div style="color: #22C55E;">Zn 锌</div>
+            <div style="color: #14B8A6;">Fe 铁</div>
+            <div style="color: #06B6D4;">Sn 锡</div>
+            <div style="color: #0EA5E9;">Pb 铅</div>
+            <div style="color: #3B82F6;">H 氢</div>
+            <div style="color: #6366F1;">Cu 铜</div>
+            <div style="color: #8B5CF6;">Hg 汞</div>
+            <div style="color: #A855F7;">Ag 银</div>
+            <div style="color: #D946EF;">Pt 铂</div>
+            <div style="color: #EC4899;">Au 金</div>
+        </div>
+        
+        <div style="margin-top: 20px; padding: 12px; background: rgba(0,0,0,0.3); border-radius: 8px;">
+            <p style="font-size: 0.8rem; color: var(--text-muted); line-height: 1.6;">
+                <span style="color: #22C55E;">●</span> 位置越靠前，越容易失去电子，反应越剧烈<br>
+                <span style="color: #EF4444;">●</span> 前面的金属能把后面的金属从盐溶液中置换出来
+            </p>
+        </div>
+    </aside>
+    
+    <main class="main-content">
+        <div class="glass p-8 text-center" style="max-width: 800px;">
+            <h2 style="font-size: 1.8rem; color: var(--accent-amber); margin-bottom: 15px;">金属置换反应模拟</h2>
+            <p style="color: var(--text-secondary); margin-bottom: 25px;">选择两种金属，观察是否发生置换反应</p>
+            
+            <div style="display: flex; justify-content: center; gap: 30px; flex-wrap: wrap; margin-bottom: 30px;">
+                <div>
+                    <p style="color: var(--accent-amber); margin-bottom: 10px;">选择金属A</p>
+                    <div id="metalASelect" style="display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; max-width: 200px;">
+                        <button class="metal-card" onclick="selectMetal('A', 'Zn')" data-metal="Zn">Zn 锌</button>
+                        <button class="metal-card" onclick="selectMetal('A', 'Fe')" data-metal="Fe">Fe 铁</button>
+                        <button class="metal-card" onclick="selectMetal('A', 'Cu')" data-metal="Cu">Cu 铜</button>
+                        <button class="metal-card" onclick="selectMetal('A', 'Mg')" data-metal="Mg">Mg 镁</button>
+                    </div>
+                </div>
+                
+                <div style="display: flex; align-items: center; font-size: 2rem; color: var(--accent-amber);">+</div>
+                
+                <div>
+                    <p style="color: var(--accent-amber); margin-bottom: 10px;">选择盐溶液B</p>
+                    <div id="metalBSelect" style="display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; max-width: 200px;">
+                        <button class="metal-card" onclick="selectMetal('B', 'ZnSO4')" data-metal="ZnSO4">ZnSO₄</button>
+                        <button class="metal-card" onclick="selectMetal('B', 'FeSO4')" data-metal="FeSO4">FeSO₄</button>
+                        <button class="metal-card" onclick="selectMetal('B', 'CuSO4')" data-metal="CuSO4">CuSO₄</button>
+                        <button class="metal-card" onclick="selectMetal('B', 'AgNO3')" data-metal="AgNO3">AgNO₃</button>
+                    </div>
+                </div>
+            </div>
+            
+            <button onclick="performReaction()" class="btn-primary px-8 py-3 rounded-lg text-lg font-medium">进行反应</button>
+            
+            <div id="reactionResult" style="margin-top: 25px; padding: 20px; background: rgba(0,0,0,0.3); border-radius: 12px; display: none;">
+                <p id="resultText" style="font-size: 1.2rem; color: var(--text-primary);"></p>
+                <p id="equationText" style="font-size: 1.5rem; color: var(--accent-amber); margin-top: 10px;"></p>
+            </div>
+        </div>
+    </main>
+    
+    <div class="control-panel glass p-5">
+        <h3 style="color: var(--accent-amber); margin-bottom: 15px;">反应说明</h3>
+        <div id="reactionInfo" style="color: var(--text-secondary); font-size: 0.9rem; line-height: 1.8;">
+            <p>选择金属和盐溶液，观察置换反应。</p>
+            <p style="margin-top: 10px; color: var(--text-muted);">规律：活泼金属置换不活泼金属</p>
+        </div>
+        <div style="margin-top: 15px;">
+            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
+                <div class="reaction-indicator" id="reactionIndicator"></div>
+                <span id="reactionStatus" style="font-size: 0.85rem; color: var(--text-muted);">等待反应</span>
+            </div>
+        </div>
+    </div>
+    
+    <script src="https://registry.npmmirror.com/three/0.134.0/files/build/three.min.js"></script>
+    <script>
+        let scene, camera, renderer, metalMeshA, metalMeshB, solutionMesh;
+        let selectedMetalA = null;
+        let selectedSaltB = null;
+        
+        const metalData = {
+            K: { name: '钾', color: 0xEF4444, reactLevel: 1 },
+            Na: { name: '钠', color: 0xF97316, reactLevel: 2 },
+            Ca: { name: '钙', color: 0xFBBF24, reactLevel: 3 },
+            Mg: { name: '镁', color: 0xEAB308, reactLevel: 4 },
+            Al: { name: '铝', color: 0x84CC16, reactLevel: 5 },
+            Zn: { name: '锌', color: 0x22C55E, reactLevel: 6 },
+            Fe: { name: '铁', color: 0x14B8A6, reactLevel: 7 },
+            Sn: { name: '锡', color: 0x06B6D4, reactLevel: 8 },
+            Pb: { name: '铅', color: 0x0EA5E9, reactLevel: 9 },
+            Cu: { name: '铜', color: 0x3B82F6, reactLevel: 11 },
+            Hg: { name: '汞', color: 0x8B5CF6, reactLevel: 12 },
+            Ag: { name: '银', color: 0xA855F7, reactLevel: 13 },
+            Pt: { name: '铂', color: 0xD946EF, reactLevel: 14 },
+            Au: { name: '金', color: 0xEC4899, reactLevel: 15 }
+        };
+        
+        const saltData = {
+            ZnSO4: { metal: 'Zn', color: 0x22C55E },
+            FeSO4: { metal: 'Fe', color: 0x14B8A6 },
+            CuSO4: { metal: 'Cu', color: 0x3B82F6 },
+            AgNO3: { metal: 'Ag', color: 0xA855F7 }
+        };
+        
+        function init() {
+            scene = new THREE.Scene();
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(0, 3, 12);
+            camera.lookAt(0, 0, 0);
+            
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setClearColor(0x000000, 0);
+            document.getElementById('canvas-container').appendChild(renderer.domElement);
+            
+            scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 0.6));
+            const dirLight = new THREE.DirectionalLight(0xffffff, 1);
+            dirLight.position.set(5, 10, 5);
+            scene.add(dirLight);
+            
+            createScene();
+            animate();
+            
+            window.addEventListener('resize', onWindowResize);
+        }
+        
+        function createScene() {
+            // 烧杯
+            const beakerGeom = new THREE.CylinderGeometry(2.5, 2.5, 4, 32, 1, true);
+            const beakerMat = new THREE.MeshPhongMaterial({ 
+                color: 0x88CCFF, 
+                transparent: true, 
+                opacity: 0.2,
+                side: THREE.DoubleSide 
+            });
+            const beaker = new THREE.Mesh(beakerGeom, beakerMat);
+            scene.add(beaker);
+            
+            // 盐溶液
+            const solutionGeom = new THREE.CylinderGeometry(2.3, 2.3, 2.5, 32);
+            solutionMesh = new THREE.Mesh(solutionGeom, new THREE.MeshPhongMaterial({ 
+                color: 0x3B82F6, 
+                transparent: true, 
+                opacity: 0.6 
+            }));
+            solutionMesh.position.y = -0.8;
+            scene.add(solutionMesh);
+            
+            // 金属A
+            const metalGeom = new THREE.BoxGeometry(1, 1, 1);
+            metalMeshA = new THREE.Mesh(metalGeom, new THREE.MeshPhongMaterial({ color: 0x888888 }));
+            metalMeshA.position.set(-2, 0.5, 0);
+            metalMeshA.visible = false;
+            scene.add(metalMeshA);
+            
+            // 金属B（置换出的）
+            metalMeshB = new THREE.Mesh(metalGeom, new THREE.MeshPhongMaterial({ color: 0x888888 }));
+            metalMeshB.position.set(2, 2, 0);
+            metalMeshB.visible = false;
+            scene.add(metalMeshB);
+        }
+        
+        function selectMetal(type, metal) {
+            const container = type === 'A' ? 'metalASelect' : 'metalBSelect';
+            document.querySelectorAll(`#${container} .metal-card`).forEach(btn => btn.classList.remove('selected'));
+            event.target.classList.add('selected');
+            
+            if (type === 'A') {
+                selectedMetalA = metal;
+            } else {
+                selectedSaltB = metal;
+            }
+            
+            updatePreview();
+        }
+        
+        function updatePreview() {
+            if (selectedMetalA && metalData[selectedMetalA]) {
+                metalMeshA.material.color.setHex(metalData[selectedMetalA].color);
+                metalMeshA.visible = true;
+            }
+            
+            if (selectedSaltB && saltData[selectedSaltB]) {
+                solutionMesh.material.color.setHex(saltData[selectedSaltB].color);
+            }
+            
+            updateReactionInfo();
+        }
+        
+        function updateReactionInfo() {
+            const info = document.getElementById('reactionInfo');
+            if (!selectedMetalA || !selectedSaltB) {
+                info.innerHTML = '<p>请选择金属和盐溶液</p>';
+                return;
+            }
+            
+            const metalAData = metalData[selectedMetalA];
+            const saltBData = saltData[selectedSaltB];
+            const metalB = saltBData.metal;
+            const metalBData = metalData[metalB];
+            
+            info.innerHTML = `
+                <p>金属A: <span style="color: var(--accent-amber);">${metalAData.name} (${selectedMetalA})</span></p>
+                <p>盐溶液B: <span style="color: var(--accent-amber);">${selectedSaltB}</span></p>
+                <p style="margin-top: 10px; color: var(--text-muted);">${selectedMetalA}活动性: 第${metalAData.reactLevel}位</p>
+                <p style="color: var(--text-muted);">${metalB}活动性: 第${metalBData.reactLevel}位</p>
+            `;
+        }
+        
+        function performReaction() {
+            if (!selectedMetalA || !selectedSaltB) {
+                showToast('请先选择金属和盐溶液！');
+                return;
+            }
+            
+            const metalAData = metalData[selectedMetalA];
+            const saltBData = saltData[selectedSaltB];
+            const metalB = saltBData.metal;
+            const metalBData = metalData[metalB];
+            
+            const result = document.getElementById('reactionResult');
+            const resultText = document.getElementById('resultText');
+            const equationText = document.getElementById('equationText');
+            const indicator = document.getElementById('reactionIndicator');
+            const status = document.getElementById('reactionStatus');
+            
+            result.style.display = 'block';
+            
+            if (metalAData.reactLevel < metalBData.reactLevel) {
+                // 能反应
+                indicator.className = 'reaction-indicator reactive';
+                status.textContent = '反应发生';
+                status.style.color = '#22C55E';
+                
+                resultText.textContent = `✓ ${metalAData.name}能置换出${metalBData.name}！`;
+                const anion = saltBData.metal === 'Ag' ? 'NO₃' : 'SO₄';
+                const valA = (selectedMetalA === 'Fe' || selectedMetalA === 'Zn') ? 2 : (selectedMetalA === 'Al' ? 3 : 1);
+                const valB = (metalB === 'Fe' || metalB === 'Zn' || metalB === 'Cu') ? 2 : (metalB === 'Al' ? 3 : 1);
+                const valAnion = saltBData.metal === 'Ag' ? 1 : 2;
+                const saltAPart = valAnion === 1 ? `${selectedMetalA}${anion}` : (valA === valAnion ? `${selectedMetalA}${anion}` : valA === 2 ? `${selectedMetalA}(${anion})₂` : `${selectedMetalA}(${anion})₃`);
+                const saltBPart = selectedSaltB;
+                const coeffA = valAnion === 2 ? valA : 1;
+                const coeffB = valAnion === 1 && valA === 2 ? 2 : 1;
+                const coeffSaltA = valAnion === 1 && valA === 2 ? 2 : 1;
+                const coeffSaltB = 1;
+                const prefixA = coeffA > 1 ? coeffA : '';
+                const prefixB = coeffB > 1 ? coeffB : '';
+                const prefixSA = coeffSaltA > 1 ? coeffSaltA : '';
+                equationText.textContent = `${prefixA}${selectedMetalA} + ${prefixB}${saltBPart} → ${prefixSA}${saltAPart} + ${metalB}↓`;
+                
+                // 动画
+                metalMeshB.material.color.setHex(metalBData.color);
+                metalMeshB.visible = true;
+                animateMetalDisplacement();
+                
+                showToast('置换反应成功！');
+            } else {
+                // 不能反应
+                indicator.className = 'reaction-indicator no-reactive';
+                status.textContent = '无反应';
+                status.style.color = '#EF4444';
+                
+                resultText.textContent = `✗ ${metalAData.name}不能置换出${metalBData.name}（活泼性不足）`;
+                equationText.textContent = '无明显现象';
+                
+                showToast('活泼性不足，反应不发生');
+            }
+        }
+        
+        function animateMetalDisplacement() {
+            let frame = 0;
+            const animate = () => {
+                if (frame < 60) {
+                    metalMeshB.position.y = 2 - frame * 0.03;
+                    frame++;
+                    requestAnimationFrame(animate);
+                } else {
+                    metalMeshB.position.y = 0.5;
+                }
+            };
+            animate();
+        }
+        
+        function resetExperiment() {
+            selectedMetalA = null;
+            selectedSaltB = null;
+            
+            document.querySelectorAll('.metal-card').forEach(btn => btn.classList.remove('selected'));
+            
+            metalMeshA.visible = false;
+            metalMeshB.visible = false;
+            metalMeshB.position.y = 2;
+            
+            solutionMesh.material.color.setHex(0x3B82F6);
+            
+            document.getElementById('reactionResult').style.display = 'none';
+            document.getElementById('reactionIndicator').className = 'reaction-indicator';
+            document.getElementById('reactionStatus').textContent = '等待反应';
+            
+            updateReactionInfo();
+            showToast('已重置');
+        }
+        
+        function randomReaction() {
+            const metalsA = ['Zn', 'Fe', 'Cu', 'Mg'];
+            const saltsB = ['ZnSO4', 'FeSO4', 'CuSO4', 'AgNO3'];
+            
+            const mA = metalsA[Math.floor(Math.random() * metalsA.length)];
+            const sB = saltsB[Math.floor(Math.random() * saltsB.length)];
+            
+            const btnA = document.querySelector(`[onclick="selectMetal('A', '${mA}')"]`);
+            const btnB = document.querySelector(`[onclick="selectMetal('B', '${sB}')"]`);
+            
+            if (btnA) btnA.click();
+            setTimeout(() => {
+                if (btnB) btnB.click();
+                setTimeout(() => performReaction(), 300);
+            }, 300);
+        }
+        
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+        
+        function showToast(message) {
+            const toast = document.createElement('div');
+            toast.className = 'toast';
+            toast.textContent = message;
+            document.body.appendChild(toast);
+            setTimeout(() => toast.remove(), 2000);
+        }
+        
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            const time = Date.now() * 0.001;
+            
+            if (metalMeshA.visible) {
+                metalMeshA.rotation.y = time * 0.5;
+            }
+            if (metalMeshB.visible) {
+                metalMeshB.rotation.y = -time * 0.5;
+            }
+            
+            renderer.render(scene, camera);
+        }
+        
+        init();
+    </script>
+</body>
+</html>

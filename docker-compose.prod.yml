@@ -1,0 +1,14 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: uv run --frozen uvicorn markdown_to_html_ppt.main:app --host 0.0.0.0 --port 10095
+    environment:
+      UV_PROJECT_ENVIRONMENT: /opt/venv
+      UV_LINK_MODE: copy
+    ports:
+      - "10095:10095"
+    env_file:
+      - .env
+    restart: unless-stopped

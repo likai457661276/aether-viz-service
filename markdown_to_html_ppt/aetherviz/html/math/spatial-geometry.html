@@ -1,0 +1,1021 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>空间几何与空间向量 - Spatial Geometry & Vectors</title>
+<script src="https://registry.npmmirror.com/@tailwindcss/browser/4.3.0/files/dist/index.global.js"></script>
+<link rel="preconnect" href="https://fonts.font.im">
+<link rel="preconnect" href="https://fonts.gstatic.font.im" crossorigin>
+<link href="https://fonts.font.im/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://registry.npmmirror.com/katex/0.16.11/files/dist/katex.min.css">
+<script src="https://registry.npmmirror.com/katex/0.16.11/files/dist/katex.min.js"></script>
+<script src="https://registry.npmmirror.com/katex/0.16.11/files/dist/contrib/auto-render.min.js"></script>
+<style>
+:root {
+  --primary-gradient: linear-gradient(135deg, #F59E0B 0%, #D97706 50%, #B45309 100%);
+  --primary-gradient-light: linear-gradient(135deg, #FBBF24 0%, #F59E0B 50%, #EAB308 100%);
+  --primary-gradient-dark: linear-gradient(135deg, #B45309 0%, #92400E 50%, #78350F 100%);
+  --bg-gradient: linear-gradient(180deg, #090D16 0%, #0F172A 100%);
+  --bg-gradient-card: linear-gradient(145deg, rgba(245, 158, 11, 0.15) 0%, rgba(234, 179, 8, 0.1) 100%);
+  --accent-cyan: #22D3EE;
+  --accent-emerald: #34D399;
+  --accent-amber: #FBBF24;
+  --accent-rose: #FB7185;
+  --accent-orange: #FB923C;
+  --theme-math: linear-gradient(135deg, #F59E0B 0%, #EAB308 100%);
+  --glass-bg: rgba(255,255,255,0.06);
+  --glass-border: rgba(255,255,255,0.12);
+  --glass-shadow: 0 8px 32px rgba(0,0,0,0.4);
+  --text-primary: #F8FAFC;
+  --text-secondary: #CBD5E1;
+  --text-muted: #94A3B8;
+  --nav-bg: rgba(15,23,42,0.85);
+  --nav-border: rgba(245, 158, 11, 0.25);
+  --sidebar-bg: rgba(15,23,42,0.9);
+  --sidebar-item-hover: rgba(245, 158, 11, 0.15);
+  --sidebar-item-active: rgba(234, 179, 8, 0.35);
+  --panel-bg: rgba(22,28,45,0.75);
+  --panel-border: rgba(245, 158, 11, 0.2);
+  --btn-primary: linear-gradient(135deg, #F59E0B 0%, #EAB308 100%);
+  --btn-primary-hover: linear-gradient(135deg, #FBBF24 0%, #F59E0B 100%);
+  --btn-secondary: rgba(255,255,255,0.08);
+  --slider-track: rgba(255,255,255,0.15);
+  --slider-thumb: linear-gradient(135deg, #F59E0B 0%, #FBBF24 100%);
+  --vec-a-color: #EF4444;
+  --vec-b-color: #3B82F6;
+  --plane-color: #10B981;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+html, body { width:100%; height:100%; overflow:hidden; font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; background:#090D16; color:var(--text-primary); }
+#app { display:flex; flex-direction:column; width:100%; height:100vh; }
+
+#navbar { display:flex; align-items:center; justify-content:space-between; padding:0 24px; height:56px; background:var(--nav-bg); border-bottom:1px solid var(--nav-border); backdrop-filter:blur(12px); z-index:100; flex-shrink:0; }
+.nav-title { font-size:20px; font-weight:700; background:var(--theme-math); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; }
+.nav-title span { font-weight:400; font-size:13px; -webkit-text-fill-color:var(--text-muted); }
+.nav-btns { display:flex; gap:8px; }
+.nav-btn { padding:7px 16px; border-radius:8px; border:none; cursor:pointer; font-size:13px; font-weight:500; font-family:inherit; transition:all 0.2s; color:var(--text-primary); background:var(--btn-secondary); }
+.nav-btn:hover { background:rgba(255,255,255,0.18); transform:translateY(-1px); }
+.nav-btn.primary { background:var(--btn-primary); color:#fff; }
+.nav-btn.primary:hover { background:var(--btn-primary-hover); }
+
+#main { display:flex; flex:1; overflow:hidden; position:relative; }
+
+#sidebar { width:400px; min-width:400px; background:var(--sidebar-bg); backdrop-filter:blur(12px); border-right:1px solid var(--glass-border); overflow-y:auto; padding:20px 18px; flex-shrink:0; }
+#sidebar::-webkit-scrollbar { width:4px; }
+#sidebar::-webkit-scrollbar-track { background:transparent; }
+#sidebar::-webkit-scrollbar-thumb { background:rgba(255,255,255,0.15); border-radius:4px; }
+
+.sidebar-section { margin-bottom:18px; }
+.sidebar-section h3 { font-size:13px; font-weight:600; color:var(--accent-amber); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:10px; }
+
+.obj-item { display:flex; align-items:flex-start; gap:10px; padding:8px 10px; border-radius:8px; background:var(--glass-bg); margin-bottom:6px; cursor:pointer; transition:all 0.2s; }
+.obj-item:hover { background:var(--sidebar-item-hover); }
+.obj-text { font-size:13px; color:var(--text-secondary); line-height:1.4; }
+.formula-box { padding:12px 10px; background:var(--bg-gradient-card); border-radius:12px; border:1px solid var(--glass-border); text-align:center; margin-bottom:8px; overflow-x:auto; -webkit-overflow-scrolling:touch; }
+.formula-box::-webkit-scrollbar { height:3px; }
+.formula-box::-webkit-scrollbar-track { background:transparent; }
+.formula-box::-webkit-scrollbar-thumb { background:rgba(255,255,255,0.15); border-radius:3px; }
+.formula-box .katex { font-size:1.15em; }
+
+.explain-text { font-size:13px; line-height:1.6; color:var(--text-secondary); }
+.explain-text strong { color:var(--accent-amber); }
+.highlight { display:inline-block; padding:1px 6px; border-radius:4px; background:rgba(245,158,11,0.15); color:var(--accent-amber); }
+.app-tag { display:inline-block; padding:3px 10px; border-radius:20px; font-size:11px; font-weight:500; margin:3px 4px 3px 0; background:var(--glass-bg); color:var(--text-secondary); border:1px solid var(--glass-border); }
+
+#canvas-area { flex:1; position:relative; overflow:hidden; background:var(--bg-gradient); }
+#canvas-container { width:100%; height:100%; position:relative; }
+#canvas-container canvas { display:block; }
+
+#hud-overlay { position:absolute; top:16px; left:16px; pointer-events:none; z-index:10; }
+.hud-item { display:flex; align-items:center; gap:10px; margin-bottom:6px; padding:6px 12px; background:rgba(0,0,0,0.55); backdrop-filter:blur(6px); border-radius:8px; border:1px solid rgba(255,255,255,0.08); }
+.hud-dot { width:10px; height:10px; border-radius:50%; flex-shrink:0; }
+.hud-label { font-size:11px; color:var(--text-muted); }
+.hud-value { font-size:13px; font-weight:600; font-variant-numeric:tabular-nums; min-width:80px; }
+
+#control-panel { position:absolute; bottom:20px; left:50%; transform:translateX(-50%); z-index:20; display:flex; gap:16px; padding:16px 24px; background:var(--panel-bg); backdrop-filter:blur(16px); border-radius:16px; border:1px solid var(--panel-border); box-shadow:var(--glass-shadow); align-items:center; flex-wrap:wrap; justify-content:center; pointer-events:auto; }
+.ctrl-group { display:flex; flex-direction:column; align-items:center; gap:2px; }
+.ctrl-group label { font-size:10px; color:var(--text-muted); font-weight:500; text-transform:uppercase; }
+.ctrl-group input[type=range] { width:100px; height:4px; -webkit-appearance:none; appearance:none; background:var(--slider-track); border-radius:2px; outline:none; }
+.ctrl-group input[type=range]::-webkit-slider-thumb { -webkit-appearance:none; width:14px; height:14px; border-radius:50%; background:var(--slider-thumb); cursor:pointer; border:2px solid rgba(255,255,255,0.3); }
+.ctrl-group .val { font-size:13px; font-weight:700; color:var(--text-primary); font-variant-numeric:tabular-nums; }
+.ctrl-btns { display:flex; gap:6px; align-items:center; }
+.ctrl-btn { height:34px; padding: 0 12px; border-radius:8px; border:none; cursor:pointer; background:var(--btn-secondary); color:var(--text-primary); font-size:13px; font-weight:600; display:flex; align-items:center; justify-content:center; transition:all 0.2s; }
+.ctrl-btn:hover { background:rgba(255,255,255,0.18); }
+.ctrl-btn.active { background:var(--btn-primary); }
+
+#toast { position:fixed; top:70px; left:50%; transform:translateX(-50%) translateY(-20px); background:rgba(15,23,42,0.95); backdrop-filter:blur(12px); border:1px solid var(--glass-border); border-radius:12px; padding:10px 20px; color:var(--text-primary); font-size:13px; z-index:999; opacity:0; pointer-events:none; transition:all 0.4s; white-space:nowrap; }
+#toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
+
+#sidebar-toggle { display:none; position:absolute; left:10px; top:65px; z-index:50; width:40px; height:40px; border-radius:50%; background:var(--panel-bg); backdrop-filter:blur(12px); border:1px solid var(--glass-border); color:var(--text-primary); font-size:18px; cursor:pointer; align-items:center; justify-content:center; }
+#sidebar-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:35; }
+#sidebar-overlay.show { display:block; }
+
+.mode-tab { padding: 4px 10px; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; transition: all 0.2s; border: 1px solid transparent; }
+.mode-tab.active { background: rgba(245,158,11,0.2); border-color: rgba(245,158,11,0.4); color: var(--accent-amber); }
+.mode-tab:hover:not(.active) { background: rgba(255,255,255,0.06); }
+
+@media (max-width:768px) {
+  #sidebar { position:fixed; left:-360px; top:56px; bottom:0; z-index:40; transition:left 0.3s; width:300px; min-width:300px; }
+  #sidebar.open { left:0; }
+  #sidebar-toggle { display:flex; }
+  #control-panel { padding:12px 16px; gap:8px; width:calc(100% - 20px); bottom:12px; flex-wrap:wrap; }
+  .ctrl-group input[type=range] { width:70px; }
+}
+</style>
+</head>
+<body>
+<div id="app">
+  <nav id="navbar">
+    <div class="nav-title">空间几何与空间向量 <span>Spatial Geometry & Vectors</span></div>
+    <div class="nav-btns">
+      <button class="nav-btn" onclick="resetSim()">&#x1F504; 重置</button>
+      <button class="nav-btn" onclick="randomExp()">&#x1F3B2; 随机</button>
+      <button class="nav-btn" onclick="toggleFullscreen()">&#x26F6; 全屏</button>
+      <button class="nav-btn" onclick="showAbout()">&#x2139; 关于</button>
+    </div>
+  </nav>
+
+  <div id="main">
+    <button id="sidebar-toggle" onclick="toggleSidebar()">&#x2630;</button>
+    <div id="sidebar-overlay" onclick="toggleSidebar()"></div>
+
+    <aside id="sidebar">
+      <div class="sidebar-section">
+        <h3>&#x1F3AF; 学习目标</h3>
+        <div class="obj-item"><div class="obj-text">构建三维空间直角坐标系，深刻体会右手定则的建系标准</div></div>
+        <div class="obj-item"><div class="obj-text">掌握空间向量的坐标表示、长度计算以及空间距离公式</div></div>
+        <div class="obj-item"><div class="obj-text">理解空间向量内积（数量积）的几何意义与代数计算方法</div></div>
+        <div class="obj-item"><div class="obj-text">探究直线与平面的夹角、点到平面的距离等典型空间度量问题</div></div>
+      </div>
+
+      <div class="sidebar-section">
+        <h3>&#x1F4D0; 核心公式</h3>
+        <div class="formula-box">
+          \( d = \sqrt{(x_2-x_1)^2+(y_2-y_1)^2+(z_2-z_1)^2} \)
+        </div>
+        <div class="formula-box">
+          \( \cos \langle\vec{a},\vec{b}\rangle = \frac{\vec{a}\cdot\vec{b}}{|\vec{a}||\vec{b}|} \)
+        </div>
+        <div class="formula-box">
+          \( \sin \theta = \frac{|\vec{a}\cdot\vec{n}|}{|\vec{a}||\vec{n}|} \quad d = \frac{|\vec{OP}\cdot\vec{n}|}{|\vec{n}|} \)
+        </div>
+      </div>
+
+      <div class="sidebar-section">
+        <h3>&#x1F50D; 动态几何计算</h3>
+        <div id="sidebar-calc-vector" class="explain-text bg-slate-900/50 p-3 rounded-lg border border-white/5 space-y-2 mb-3">
+          <div class="text-xs text-amber-400 font-bold mb-1">向量代数关系：</div>
+          <div id="calc-vec-a" class="katex-math"></div>
+          <div id="calc-vec-b" class="katex-math"></div>
+          <div id="calc-dot" class="katex-math"></div>
+          <div id="calc-angle" class="katex-math"></div>
+        </div>
+        <div id="sidebar-calc-lineplane" class="explain-text bg-slate-900/50 p-3 rounded-lg border border-white/5 space-y-2 mb-3 hidden">
+          <div class="text-xs text-emerald-400 font-bold mb-1">线面夹角计算：</div>
+          <div class="katex-math"><span id="lbl-lp-line">直线: </span><span id="calc-lp-line"></span></div>
+          <div class="katex-math"><span id="lbl-lp-normal">法向量: </span><span id="calc-lp-normal"></span></div>
+          <div id="calc-lp-sin" class="katex-math"></div>
+          <div id="calc-lp-angle" class="katex-math"></div>
+        </div>
+        <div id="sidebar-calc-pointplane" class="explain-text bg-slate-900/50 p-3 rounded-lg border border-white/5 space-y-2 mb-3 hidden">
+          <div class="text-xs text-cyan-400 font-bold mb-1">点面距离计算：</div>
+          <div class="katex-math"><span id="lbl-pp-point">空间点: </span><span id="calc-pp-point"></span></div>
+          <div class="katex-math"><span id="lbl-pp-normal">法向量: </span><span id="calc-pp-normal"></span></div>
+          <div id="calc-pp-dot" class="katex-math"></div>
+          <div id="calc-pp-dist" class="katex-math"></div>
+        </div>
+      </div>
+
+      <div class="sidebar-section">
+        <h3>&#x1F4A1; 概念解析</h3>
+        <div class="explain-text">
+          <strong>空间直角坐标系</strong>是分析三维几何的关键桥梁。通过引入 $X, Y, Z$ 三个互相垂直的坐标轴，我们将几何图形完全量化。<br><br>
+          <span class="highlight">右手定则 (Right-hand Rule)</span>：伸出右手，大拇指指向 $X$ 轴正方向，食指指向 $Y$ 轴正方向，中指所指的方向即为 $Z$ 轴的正方向。<br><br>
+          在立体几何中，求<strong>线面角</strong>与<strong>点面距离</strong>通常有极大计算量，而利用<span class="highlight">平面法向量 $\vec{n}$</span> 可以将空间距离、角度转化为简单的向量投影计算，这就是空间向量的强大之处。
+        </div>
+      </div>
+
+      <div class="sidebar-section">
+        <h3>&#x1F30D; 三维仿真应用</h3>
+        <span class="app-tag">&#x1F3AE; 3D游戏引擎</span>
+        <span class="app-tag">&#x1F6F0;&#xFE0F; 航天轨道</span>
+        <span class="app-tag">&#x1F3D7;&#xFE0F; 结构工程</span>
+        <span class="app-tag">&#x1F4F9; 计算机视觉</span>
+      </div>
+    </aside>
+
+    <div id="canvas-area">
+      <div id="canvas-container"></div>
+      
+      <!-- Axis Labels Projector Overlay -->
+      <div id="labels-container" class="absolute inset-0 pointer-events-none overflow-hidden">
+        <div id="lbl-o" class="absolute text-xs font-bold text-white bg-slate-900/80 px-1 rounded select-none">O</div>
+        <div id="lbl-x" class="absolute text-xs font-bold text-red-400 bg-slate-900/80 px-1 rounded select-none">X</div>
+        <div id="lbl-y" class="absolute text-xs font-bold text-green-400 bg-slate-900/80 px-1 rounded select-none">Y</div>
+        <div id="lbl-z" class="absolute text-xs font-bold text-blue-400 bg-slate-900/80 px-1 rounded select-none">Z</div>
+        <div id="lbl-a" class="absolute text-xs font-bold text-red-500 bg-slate-900/80 px-1.5 py-0.5 rounded border border-red-500/30 select-none"></div>
+        <div id="lbl-b" class="absolute text-xs font-bold text-blue-400 bg-slate-900/80 px-1.5 py-0.5 rounded border border-blue-500/30 select-none"></div>
+        <div id="lbl-p" class="absolute text-xs font-bold text-yellow-400 bg-slate-900/80 px-1.5 py-0.5 rounded border border-yellow-500/30 select-none"></div>
+      </div>
+
+      <div id="hud-overlay">
+        <!-- Mode: Vector -->
+        <div id="hud-vector-group">
+          <div class="hud-item">
+            <div class="hud-dot" style="background:var(--vec-a-color)"></div>
+            <span class="hud-label" id="label-hud-va"></span>
+            <span class="hud-value" id="hud-va-val" style="color:var(--vec-a-color)"></span>
+          </div>
+          <div class="hud-item">
+            <div class="hud-dot" style="background:var(--vec-b-color)"></div>
+            <span class="hud-label" id="label-hud-vb"></span>
+            <span class="hud-value" id="hud-vb-val" style="color:var(--vec-b-color)"></span>
+          </div>
+          <div class="hud-item">
+            <div class="hud-dot" style="background:var(--accent-amber)"></div>
+            <span class="hud-label" id="label-hud-angle"></span>
+            <span class="hud-value" id="hud-angle-val" style="color:var(--accent-amber)"></span>
+          </div>
+        </div>
+        <!-- Mode: Line Plane -->
+        <div id="hud-lineplane-group" class="hidden">
+          <div class="hud-item">
+            <div class="hud-dot" style="background:var(--vec-a-color)"></div>
+            <span class="hud-label" id="label-hud-lp-line"></span>
+            <span class="hud-value" id="hud-lp-line-val" style="color:var(--vec-a-color)"></span>
+          </div>
+          <div class="hud-item">
+            <div class="hud-dot" style="background:var(--vec-b-color)"></div>
+            <span class="hud-label" id="label-hud-lp-normal"></span>
+            <span class="hud-value" id="hud-lp-normal-val" style="color:var(--vec-b-color)"></span>
+          </div>
+          <div class="hud-item">
+            <div class="hud-dot" style="background:var(--plane-color)"></div>
+            <span class="hud-label" id="label-hud-lp-angle"></span>
+            <span class="hud-value" id="hud-lp-angle-val" style="color:var(--plane-color)"></span>
+          </div>
+        </div>
+        <!-- Mode: Point Plane -->
+        <div id="hud-pointplane-group" class="hidden">
+          <div class="hud-item">
+            <div class="hud-dot" style="background:var(--accent-amber)"></div>
+            <span class="hud-label" id="label-hud-pp-point"></span>
+            <span class="hud-value" id="hud-pp-point-val" style="color:var(--accent-amber)"></span>
+          </div>
+          <div class="hud-item">
+            <div class="hud-dot" style="background:var(--vec-b-color)"></div>
+            <span class="hud-label" id="label-hud-pp-normal"></span>
+            <span class="hud-value" id="hud-pp-normal-val" style="color:var(--vec-b-color)"></span>
+          </div>
+          <div class="hud-item">
+            <div class="hud-dot" style="background:var(--accent-cyan)"></div>
+            <span class="hud-label" id="label-hud-pp-dist"></span>
+            <span class="hud-value" id="hud-pp-dist-val" style="color:var(--accent-cyan)"></span>
+          </div>
+        </div>
+      </div>
+
+      <div id="control-panel">
+        <div class="flex gap-1 bg-slate-950/60 p-1 rounded-lg border border-white/5 mr-2">
+          <div class="mode-tab active" id="tab-vector" onclick="changeMode('vector')">向量与坐标</div>
+          <div class="mode-tab" id="tab-line-plane" onclick="changeMode('line-plane')">线面夹角</div>
+          <div class="mode-tab" id="tab-point-plane" onclick="changeMode('point-plane')">点面距离</div>
+        </div>
+
+        <div class="ctrl-group">
+          <label id="lbl-slider-x1"></label>
+          <input type="range" id="slider-x1" min="-5" max="5" step="0.2" value="1" oninput="updateParams()">
+          <span class="val" id="val-x1">1.0</span>
+        </div>
+        <div class="ctrl-group">
+          <label id="lbl-slider-y1"></label>
+          <input type="range" id="slider-y1" min="-5" max="5" step="0.2" value="2" oninput="updateParams()">
+          <span class="val" id="val-y1">2.0</span>
+        </div>
+        <div class="ctrl-group">
+          <label id="lbl-slider-z1"></label>
+          <input type="range" id="slider-z1" min="-5" max="5" step="0.2" value="2" oninput="updateParams()">
+          <span class="val" id="val-z1">2.0</span>
+        </div>
+
+        <div class="w-[1px] h-8 bg-white/10 mx-1"></div>
+
+        <div class="ctrl-group">
+          <label id="lbl-slider-x2"></label>
+          <input type="range" id="slider-x2" min="-5" max="5" step="0.2" value="2" oninput="updateParams()">
+          <span class="val" id="val-x2">2.0</span>
+        </div>
+        <div class="ctrl-group">
+          <label id="lbl-slider-y2"></label>
+          <input type="range" id="slider-y2" min="-5" max="5" step="0.2" value="1" oninput="updateParams()">
+          <span class="val" id="val-y2">1.0</span>
+        </div>
+        <div class="ctrl-group">
+          <label id="lbl-slider-z2"></label>
+          <input type="range" id="slider-z2" min="-5" max="5" step="0.2" value="-2" oninput="updateParams()">
+          <span class="val" id="val-z2">-2.0</span>
+        </div>
+
+        <div class="ctrl-btns ml-2">
+          <button class="ctrl-btn" onclick="resetSim()">&#x27F3; 重置</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="toast"
+  data-reset="已重置参数至初始状态。"
+  data-random="随机生成了空间位置与方向参数。"
+  data-about="高二立体几何与空间向量：三维空间直角坐标系及向量投影交互演示。">
+</div>
+
+<!-- Non-CJK Strings resource block to read Chinese text from Javascript -->
+<div id="cjk-resources" class="hidden">
+  <span id="res-lbl-x1">向量a_x / 点P_x</span>
+  <span id="res-lbl-y1">向量a_y / 点P_y</span>
+  <span id="res-lbl-z1">向量a_z / 点P_z</span>
+  <span id="res-lbl-x2">向量b_x / 法向量n_x</span>
+  <span id="res-lbl-y2">向量b_y / 法向量n_y</span>
+  <span id="res-lbl-z2">向量b_z / 法向量n_z</span>
+  
+  <span id="res-hud-va">向量 a</span>
+  <span id="res-hud-vb">向量 b</span>
+  <span id="res-hud-angle">夹角 θ</span>
+  
+  <span id="res-hud-lp-line">直线 a</span>
+  <span id="res-hud-lp-normal">法向量 n</span>
+  <span id="res-hud-lp-angle">线面角 θ</span>
+  
+  <span id="res-hud-pp-point">空间点 P</span>
+  <span id="res-hud-pp-normal">法向量 n</span>
+  <span id="res-hud-pp-dist">距离 d</span>
+
+  <span id="res-node-a">向量 a</span>
+  <span id="res-node-b">向量 b</span>
+  <span id="res-node-p">点 P</span>
+  
+  <span id="res-warn-zero">已恢复初始值。</span>
+</div>
+
+<script src="https://registry.npmmirror.com/three/0.134.0/files/build/three.min.js"></script>
+
+<script>
+// ====== OrbitControls (simplified inline) ======
+class OrbitControls {
+  constructor(camera, domElement){
+    this.camera=camera; this.domElement=domElement;
+    this.enableDamping=true; this.dampingFactor=0.08;
+    this.rotateSpeed=0.5; this.zoomSpeed=1.0;
+    this.minDistance=4; this.maxDistance=40;
+    this.target=new THREE.Vector3(0,0,0);
+    this._spherical=new THREE.Spherical();
+    this._sphericalDelta=new THREE.Spherical();
+    this._offset=new THREE.Vector3();
+    this._rotateStart=new THREE.Vector2();
+    this._rotateEnd=new THREE.Vector2();
+    this._zoomStart=new THREE.Vector2();
+    this._zoomEnd=new THREE.Vector2();
+    this._isRotating=false;
+    this._isZooming=false;
+    this._needsUpdate=false;
+    this._onDown=this._onDown.bind(this);
+    this._onMove=this._onMove.bind(this);
+    this._onUp=this._onUp.bind(this);
+    this._onWheel=this._onWheel.bind(this);
+    domElement.addEventListener('pointerdown',this._onDown);
+    domElement.addEventListener('wheel',this._onWheel,{passive:false});
+    this._updateSpherical();
+  }
+  _updateSpherical(){
+    const pos=this.camera.position.clone().sub(this.target);
+    this._spherical.setFromVector3(pos);
+  }
+  _applySpherical(){
+    const pos=new THREE.Vector3().setFromSpherical(this._spherical).add(this.target);
+    this.camera.position.copy(pos);
+    this.camera.lookAt(this.target);
+  }
+  _onDown(e){
+    this._isRotating=true;
+    this._rotateStart.set(e.clientX,e.clientY);
+    this.domElement.setPointerCapture(e.pointerId);
+    this.domElement.addEventListener('pointermove',this._onMove);
+    this.domElement.addEventListener('pointerup',this._onUp);
+  }
+  _onMove(e){
+    if(this._isRotating){
+      this._rotateEnd.set(e.clientX,e.clientY);
+      const dx=this._rotateEnd.x-this._rotateStart.x;
+      const dy=this._rotateEnd.y-this._rotateStart.y;
+      this._sphericalDelta.theta-=2*Math.PI*dx/this.domElement.clientWidth*this.rotateSpeed;
+      this._sphericalDelta.phi-=2*Math.PI*dy/this.domElement.clientHeight*this.rotateSpeed;
+      this._sphericalDelta.phi=Math.max(0.1,Math.min(Math.PI-0.1,this._sphericalDelta.phi));
+      this._spherical.theta+=this._sphericalDelta.theta;
+      this._spherical.phi+=this._sphericalDelta.phi;
+      this._sphericalDelta.set(0,0,0);
+      this._rotateStart.copy(this._rotateEnd);
+      this._needsUpdate=true;
+    }
+  }
+  _onUp(e){
+    this._isRotating=false;
+    this.domElement.releasePointerCapture(e.pointerId);
+    this.domElement.removeEventListener('pointermove',this._onMove);
+    this.domElement.removeEventListener('pointerup',this._onUp);
+  }
+  _onWheel(e){
+    e.preventDefault();
+    const delta=e.deltaY>0?1:-1;
+    this._spherical.radius*=1+delta*0.08;
+    this._spherical.radius=Math.max(this.minDistance,Math.min(this.maxDistance,this._spherical.radius));
+    this._needsUpdate=true;
+  }
+  update(){
+    if(this.enableDamping){
+      this._spherical.theta+=this._sphericalDelta.theta*this.dampingFactor;
+      this._spherical.phi+=this._sphericalDelta.phi*this.dampingFactor;
+      this._spherical.radius+=this._sphericalDelta.radius*this.dampingFactor;
+      this._sphericalDelta.set(0,0,0);
+    }
+    this._applySpherical();
+  }
+  dispose(){
+    this.domElement.removeEventListener('pointerdown',this._onDown);
+    this.domElement.removeEventListener('wheel',this._onWheel);
+    this.domElement.removeEventListener('pointermove',this._onMove);
+    this.domElement.removeEventListener('pointerup',this._onUp);
+  }
+}
+
+// ====== KaTeX Render ======
+document.addEventListener('DOMContentLoaded',function(){
+  if(typeof renderMathInElement==='function'){
+    renderMathInElement(document.body,{delimiters:[{left:'\\(',right:'\\)',display:false},{left:'\\[',right:'\\]',display:true}]});
+  }
+  initLabels();
+  initThree();
+  updateParams();
+  animate();
+});
+
+setTimeout(function(){
+  if(typeof renderMathInElement==='function'){
+    renderMathInElement(document.body,{delimiters:[{left:'\\(',right:'\\)',display:false},{left:'\\[',right:'\\]',display:true}]});
+  }
+},200);
+
+// ====== Global Variables & State ======
+let currentMode = 'vector';
+let scene, camera, renderer, controls;
+let gridHelper;
+
+// Vectors state in Math coordinates
+let vecA = new THREE.Vector3(3, 4, 2);
+let vecB = new THREE.Vector3(-2, 3, 4);
+
+// ThreeJS Meshes
+let arrowA, arrowB, arrowProjLine, arrowProjNormal;
+let planeMesh;
+let pointP;
+let dottedBoxLines = [];
+let projectionLines = [];
+
+// DOM resources map
+const cjk = {
+  x1: document.getElementById('res-lbl-x1').textContent,
+  y1: document.getElementById('res-lbl-y1').textContent,
+  z1: document.getElementById('res-lbl-z1').textContent,
+  x2: document.getElementById('res-lbl-x2').textContent,
+  y2: document.getElementById('res-lbl-y2').textContent,
+  z2: document.getElementById('res-lbl-z2').textContent,
+  va: document.getElementById('res-hud-va').textContent,
+  vb: document.getElementById('res-hud-vb').textContent,
+  angle: document.getElementById('res-hud-angle').textContent,
+  lpline: document.getElementById('res-hud-lp-line').textContent,
+  lpnormal: document.getElementById('res-hud-lp-normal').textContent,
+  lpangle: document.getElementById('res-hud-lp-angle').textContent,
+  pppoint: document.getElementById('res-hud-pp-point').textContent,
+  ppnormal: document.getElementById('res-hud-pp-normal').textContent,
+  ppdist: document.getElementById('res-hud-pp-dist').textContent,
+  nodea: document.getElementById('res-node-a').textContent,
+  nodeb: document.getElementById('res-node-b').textContent,
+  nodep: document.getElementById('res-node-p').textContent,
+  warnzero: document.getElementById('res-warn-zero').textContent
+};
+
+// Map Math coordinate (x_m, y_m, z_m) -> ThreeJS coordinate (x_t, y_t, z_t)
+// Math X -> ThreeJS X
+// Math Y -> ThreeJS Z
+// Math Z -> ThreeJS Y
+function mathToThree(vec) {
+  return new THREE.Vector3(vec.x, vec.z, vec.y);
+}
+
+function initLabels() {
+  document.getElementById('lbl-slider-x1').textContent = cjk.x1;
+  document.getElementById('lbl-slider-y1').textContent = cjk.y1;
+  document.getElementById('lbl-slider-z1').textContent = cjk.z1;
+  document.getElementById('lbl-slider-x2').textContent = cjk.x2;
+  document.getElementById('lbl-slider-y2').textContent = cjk.y2;
+  document.getElementById('lbl-slider-z2').textContent = cjk.z2;
+
+  document.getElementById('label-hud-va').textContent = cjk.va;
+  document.getElementById('label-hud-vb').textContent = cjk.vb;
+  document.getElementById('label-hud-angle').textContent = cjk.angle;
+
+  document.getElementById('label-hud-lp-line').textContent = cjk.lpline;
+  document.getElementById('label-hud-lp-normal').textContent = cjk.lpnormal;
+  document.getElementById('label-hud-lp-angle').textContent = cjk.lpangle;
+
+  document.getElementById('label-hud-pp-point').textContent = cjk.pppoint;
+  document.getElementById('label-hud-pp-normal').textContent = cjk.ppnormal;
+  document.getElementById('label-hud-pp-dist').textContent = cjk.ppdist;
+}
+
+// ====== Init Three.js ======
+function initThree() {
+  const container = document.getElementById('canvas-container');
+  const w = container.clientWidth, h = container.clientHeight;
+
+  scene = new THREE.Scene();
+  camera = new THREE.PerspectiveCamera(45, w / h, 0.1, 100);
+  camera.position.set(12, 10, 15);
+
+  renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+  renderer.setSize(w, h);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.1;
+  container.appendChild(renderer.domElement);
+
+  controls = new OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.08;
+  controls.minDistance = 6;
+  controls.maxDistance = 35;
+  controls.target.set(0, 0, 0);
+
+  // Lighting
+  const hemiLight = new THREE.HemisphereLight(0xffffff, 0x111827, 0.7);
+  scene.add(hemiLight);
+
+  const dirLight = new THREE.DirectionalLight(0xffffff, 1.0);
+  dirLight.position.set(10, 15, 10);
+  dirLight.castShadow = true;
+  dirLight.shadow.mapSize.width = 1024;
+  dirLight.shadow.mapSize.height = 1024;
+  dirLight.shadow.camera.near = 0.5;
+  dirLight.shadow.camera.far = 30;
+  dirLight.shadow.camera.left = -8;
+  dirLight.shadow.camera.right = 8;
+  dirLight.shadow.camera.top = 8;
+  dirLight.shadow.camera.bottom = -8;
+  scene.add(dirLight);
+
+  const fillLight = new THREE.DirectionalLight(0x38bdf8, 0.5);
+  fillLight.position.set(-8, 5, -8);
+  scene.add(fillLight);
+
+  // X axis (Red)
+  const axisXGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(-6, 0, 0), new THREE.Vector3(6, 0, 0)]);
+  const axisX = new THREE.Line(axisXGeo, new THREE.LineBasicMaterial({ color: 0xef4444, linewidth: 2 }));
+  scene.add(axisX);
+  const arrowX = new THREE.ArrowHelper(new THREE.Vector3(1, 0, 0), new THREE.Vector3(6, 0, 0), 0.5, 0xef4444, 0.4, 0.2);
+  scene.add(arrowX);
+
+  // Y axis (Green)
+  const axisYGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, -6), new THREE.Vector3(0, 0, 6)]);
+  const axisY = new THREE.Line(axisYGeo, new THREE.LineBasicMaterial({ color: 0x22c55e, linewidth: 2 }));
+  scene.add(axisY);
+  const arrowY = new THREE.ArrowHelper(new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 0, 6), 0.5, 0x22c55e, 0.4, 0.2);
+  scene.add(arrowY);
+
+  // Z axis (Blue)
+  const axisZGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, -6, 0), new THREE.Vector3(0, 6, 0)]);
+  const axisZ = new THREE.Line(axisZGeo, new THREE.LineBasicMaterial({ color: 0x3b82f6, linewidth: 2 }));
+  scene.add(axisZ);
+  const arrowZ = new THREE.ArrowHelper(new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, 6, 0), 0.5, 0x3b82f6, 0.4, 0.2);
+  scene.add(arrowZ);
+
+  // Grid
+  gridHelper = new THREE.GridHelper(12, 12, 0x475569, 0x334155);
+  gridHelper.position.y = 0;
+  scene.add(gridHelper);
+
+  // Vectors
+  arrowA = new THREE.ArrowHelper(new THREE.Vector3(1,0,0), new THREE.Vector3(0,0,0), 1, 0xef4444, 0.6, 0.35);
+  scene.add(arrowA);
+
+  arrowB = new THREE.ArrowHelper(new THREE.Vector3(0,1,0), new THREE.Vector3(0,0,0), 1, 0x3b82f6, 0.6, 0.35);
+  scene.add(arrowB);
+
+  arrowProjLine = new THREE.ArrowHelper(new THREE.Vector3(1,0,0), new THREE.Vector3(0,0,0), 1, 0xa855f7, 0.5, 0.3);
+  arrowProjLine.visible = false;
+  scene.add(arrowProjLine);
+
+  arrowProjNormal = new THREE.ArrowHelper(new THREE.Vector3(0,1,0), new THREE.Vector3(0,0,0), 1, 0xec4899, 0.5, 0.3);
+  arrowProjNormal.visible = false;
+  scene.add(arrowProjNormal);
+
+  // Circular plane
+  const planeGeo = new THREE.CircleGeometry(4.5, 32);
+  const planeMat = new THREE.MeshStandardMaterial({
+    color: 0x10b981,
+    transparent: true,
+    opacity: 0.25,
+    side: THREE.DoubleSide,
+    roughness: 0.4,
+    metalness: 0.1
+  });
+  planeMesh = new THREE.Mesh(planeGeo, planeMat);
+  planeMesh.visible = false;
+  scene.add(planeMesh);
+
+  // Point sphere
+  const sphereGeo = new THREE.SphereGeometry(0.2, 16, 16);
+  const sphereMat = new THREE.MeshStandardMaterial({
+    color: 0xf59e0b,
+    emissive: 0xd97706,
+    emissiveIntensity: 0.3,
+    roughness: 0.2
+  });
+  pointP = new THREE.Mesh(sphereGeo, sphereMat);
+  pointP.visible = false;
+  scene.add(pointP);
+
+  // Resize Observer
+  const resizeObserver = new ResizeObserver(entries => {
+    for (let entry of entries) {
+      if (entry.contentRect.width > 0 && entry.contentRect.height > 0) {
+        camera.aspect = entry.contentRect.width / entry.contentRect.height;
+        camera.updateProjectionMatrix();
+        renderer.setSize(entry.contentRect.width, entry.contentRect.height);
+      }
+    }
+  });
+  resizeObserver.observe(container);
+}
+
+// ====== Update Params ======
+function updateParams() {
+  const x1 = parseFloat(document.getElementById('slider-x1').value);
+  const y1 = parseFloat(document.getElementById('slider-y1').value);
+  const z1 = parseFloat(document.getElementById('slider-z1').value);
+  
+  const x2 = parseFloat(document.getElementById('slider-x2').value);
+  const y2 = parseFloat(document.getElementById('slider-y2').value);
+  const z2 = parseFloat(document.getElementById('slider-z2').value);
+
+  const lenA = Math.sqrt(x1*x1 + y1*y1 + z1*z1);
+  const lenB = Math.sqrt(x2*x2 + y2*y2 + z2*z2);
+
+  if (lenA < 0.1) {
+    document.getElementById('slider-x1').value = 1;
+    updateParams();
+    return;
+  }
+  if (lenB < 0.1) {
+    document.getElementById('slider-x2').value = 1;
+    updateParams();
+    return;
+  }
+
+  vecA.set(x1, y1, z1);
+  vecB.set(x2, y2, z2);
+
+  document.getElementById('val-x1').textContent = x1.toFixed(1);
+  document.getElementById('val-y1').textContent = y1.toFixed(1);
+  document.getElementById('val-z1').textContent = z1.toFixed(1);
+  document.getElementById('val-x2').textContent = x2.toFixed(1);
+  document.getElementById('val-y2').textContent = y2.toFixed(1);
+  document.getElementById('val-z2').textContent = z2.toFixed(1);
+
+  dottedBoxLines.forEach(l => scene.remove(l));
+  dottedBoxLines = [];
+  projectionLines.forEach(l => scene.remove(l));
+  projectionLines = [];
+
+  const threeA = mathToThree(vecA);
+  const threeB = mathToThree(vecB);
+
+  if (currentMode === 'vector') {
+    arrowA.setDirection(threeA.clone().normalize());
+    arrowA.setLength(threeA.length(), 0.6, 0.35);
+    arrowA.visible = true;
+
+    arrowB.setDirection(threeB.clone().normalize());
+    arrowB.setLength(threeB.length(), 0.6, 0.35);
+    arrowB.visible = true;
+
+    planeMesh.visible = false;
+    pointP.visible = false;
+    arrowProjLine.visible = false;
+    arrowProjNormal.visible = false;
+
+    createDottedBox(threeA, 0xef4444);
+    createDottedBox(threeB, 0x3b82f6);
+
+    const dot = x1*x2 + y1*y2 + z1*z2;
+    const cosVal = Math.max(-1.0, Math.min(1.0, dot / (lenA * lenB)));
+    const angleRad = Math.acos(cosVal);
+    const angleDeg = angleRad * 180 / Math.PI;
+
+    document.getElementById('hud-va-val').textContent = `(${x1.toFixed(1)}, ${y1.toFixed(1)}, ${z1.toFixed(1)}) [${lenA.toFixed(2)}]`;
+    document.getElementById('hud-vb-val').textContent = `(${x2.toFixed(1)}, ${y2.toFixed(1)}, ${z2.toFixed(1)}) [${lenB.toFixed(2)}]`;
+    document.getElementById('hud-angle-val').textContent = `${angleDeg.toFixed(1)}°`;
+
+    if (window.katex) {
+      const opts = { throwOnError: false, displayMode: false };
+      katex.render(`\\vec{a} = (${x1.toFixed(1)}, ${y1.toFixed(1)}, ${z1.toFixed(1)}),\\; |\\vec{a}| = ${lenA.toFixed(2)}`, document.getElementById('calc-vec-a'), opts);
+      katex.render(`\\vec{b} = (${x2.toFixed(1)}, ${y2.toFixed(1)}, ${z2.toFixed(1)}),\\; |\\vec{b}| = ${lenB.toFixed(2)}`, document.getElementById('calc-vec-b'), opts);
+      katex.render(`\\vec{a} \\cdot \\vec{b} = (${x1.toFixed(1)})(${x2.toFixed(1)}) + (${y1.toFixed(1)})(${y2.toFixed(1)}) + (${z1.toFixed(1)})(${z2.toFixed(1)}) = ${dot.toFixed(2)}`, document.getElementById('calc-dot'), opts);
+      katex.render(`\\cos\\theta = \\dfrac{${dot.toFixed(2)}}{${(lenA*lenB).toFixed(2)}} = ${cosVal.toFixed(3)} \\implies \\theta = ${angleDeg.toFixed(1)}^\\circ`, document.getElementById('calc-angle'), opts);
+    }
+
+  } else if (currentMode === 'line-plane') {
+    planeMesh.visible = true;
+    const normThree = threeB.clone().normalize();
+    planeMesh.lookAt(normThree);
+
+    arrowA.setDirection(threeA.clone().normalize());
+    arrowA.setLength(threeA.length(), 0.6, 0.35);
+    arrowA.visible = true;
+
+    arrowB.setDirection(normThree);
+    arrowB.setLength(threeB.length(), 0.6, 0.35);
+    arrowB.visible = true;
+
+    pointP.visible = false;
+    arrowProjLine.visible = true;
+    arrowProjNormal.visible = false;
+
+    const dotAN = threeA.dot(normThree);
+    const threeProj = threeA.clone().sub(normThree.clone().multiplyScalar(dotAN));
+
+    if (threeProj.length() > 0.05) {
+      arrowProjLine.setDirection(threeProj.clone().normalize());
+      arrowProjLine.setLength(threeProj.length(), 0.4, 0.25);
+      arrowProjLine.visible = true;
+    } else {
+      arrowProjLine.visible = false;
+    }
+
+    createProjectionLine(threeA, threeProj, 0xa855f7);
+
+    const dot = x1*x2 + y1*y2 + z1*z2;
+    const sinVal = Math.max(0.0, Math.min(1.0, Math.abs(dot) / (lenA * lenB)));
+    const angleRad = Math.asin(sinVal);
+    const angleDeg = angleRad * 180 / Math.PI;
+
+    document.getElementById('hud-lp-line-val').textContent = `(${x1.toFixed(1)}, ${y1.toFixed(1)}, ${z1.toFixed(1)})`;
+    document.getElementById('hud-lp-normal-val').textContent = `(${x2.toFixed(1)}, ${y2.toFixed(1)}, ${z2.toFixed(1)})`;
+    document.getElementById('hud-lp-angle-val').textContent = `${angleDeg.toFixed(1)}°`;
+
+    if (window.katex) {
+      const opts = { throwOnError: false, displayMode: false };
+      katex.render(`\\vec{a} = (${x1.toFixed(1)}, ${y1.toFixed(1)}, ${z1.toFixed(1)})`, document.getElementById('calc-lp-line'), opts);
+      katex.render(`\\vec{n} = (${x2.toFixed(1)}, ${y2.toFixed(1)}, ${z2.toFixed(1)})`, document.getElementById('calc-lp-normal'), opts);
+      katex.render(`\\sin\\theta = \\dfrac{|\\vec{a} \\cdot \\vec{n}|}{|\\vec{a}||\\vec{n}|} = \\dfrac{|${dot.toFixed(2)}|}{${lenA.toFixed(2)} \\times ${lenB.toFixed(2)}} = ${sinVal.toFixed(3)}`, document.getElementById('calc-lp-sin'), opts);
+      katex.render(`\\theta = \\arcsin(${sinVal.toFixed(3)}) = ${angleDeg.toFixed(1)}^\\circ`, document.getElementById('calc-lp-angle'), opts);
+    }
+
+  } else if (currentMode === 'point-plane') {
+    planeMesh.visible = true;
+    const normThree = threeB.clone().normalize();
+    planeMesh.lookAt(normThree);
+
+    arrowB.setDirection(normThree);
+    arrowB.setLength(threeB.length(), 0.6, 0.35);
+    arrowB.visible = true;
+
+    pointP.position.copy(threeA);
+    pointP.visible = true;
+
+    arrowA.visible = false;
+    arrowProjLine.visible = false;
+    arrowProjNormal.visible = false;
+
+    const dotPN = threeA.dot(normThree);
+    const threeProj = threeA.clone().sub(normThree.clone().multiplyScalar(dotPN));
+
+    arrowProjNormal.position.copy(threeProj);
+    arrowProjNormal.setDirection(normThree);
+    arrowProjNormal.setLength(2.0, 0.4, 0.25);
+    arrowProjNormal.visible = true;
+
+    createProjectionLine(threeA, threeProj, 0x22d3ee);
+
+    const dot = x1*x2 + y1*y2 + z1*z2;
+    const dist = Math.abs(dot) / lenB;
+
+    document.getElementById('hud-pp-point-val').textContent = `P(${x1.toFixed(1)}, ${y1.toFixed(1)}, ${z1.toFixed(1)})`;
+    document.getElementById('hud-pp-normal-val').textContent = `n(${x2.toFixed(1)}, ${y2.toFixed(1)}, ${z2.toFixed(1)})`;
+    document.getElementById('hud-pp-dist-val').textContent = `${dist.toFixed(2)}`;
+
+    if (window.katex) {
+      const opts = { throwOnError: false, displayMode: false };
+      katex.render(`P = (${x1.toFixed(1)}, ${y1.toFixed(1)}, ${z1.toFixed(1)})`, document.getElementById('calc-pp-point'), opts);
+      katex.render(`\\vec{n} = (${x2.toFixed(1)}, ${y2.toFixed(1)}, ${z2.toFixed(1)})`, document.getElementById('calc-pp-normal'), opts);
+      katex.render(`\\vec{OP} \\cdot \\vec{n} = ${dot.toFixed(2)}`, document.getElementById('calc-pp-dot'), opts);
+      katex.render(`d = \\dfrac{|\\vec{OP} \\cdot \\vec{n}|}{|\\vec{n}|} = \\dfrac{|${dot.toFixed(2)}|}{${lenB.toFixed(2)}} = ${dist.toFixed(2)}`, document.getElementById('calc-pp-dist'), opts);
+    }
+  }
+
+  update2DLabels(threeA, threeB);
+}
+
+// ====== Dotted Box Helper ======
+function createDottedBox(target, colorVal) {
+  const points = [];
+  points.push(target.clone(), new THREE.Vector3(target.x, 0, target.z));
+  points.push(target.clone(), new THREE.Vector3(0, target.y, target.z));
+  points.push(target.clone(), new THREE.Vector3(target.x, target.y, 0));
+
+  points.push(new THREE.Vector3(target.x, 0, target.z), new THREE.Vector3(target.x, 0, 0));
+  points.push(new THREE.Vector3(target.x, 0, target.z), new THREE.Vector3(0, 0, target.z));
+  
+  points.push(new THREE.Vector3(target.x, target.y, 0), new THREE.Vector3(target.x, 0, 0));
+  points.push(new THREE.Vector3(target.x, target.y, 0), new THREE.Vector3(0, target.y, 0));
+
+  points.push(new THREE.Vector3(0, target.y, target.z), new THREE.Vector3(0, target.y, 0));
+  points.push(new THREE.Vector3(0, target.y, target.z), new THREE.Vector3(0, 0, target.z));
+
+  const geo = new THREE.BufferGeometry().setFromPoints(points);
+  const mat = new THREE.LineDashedMaterial({
+    color: colorVal,
+    dashSize: 0.15,
+    gapSize: 0.1,
+    transparent: true,
+    opacity: 0.5
+  });
+  const lineSegments = new THREE.LineSegments(geo, mat);
+  lineSegments.computeLineDistances();
+  scene.add(lineSegments);
+  dottedBoxLines.push(lineSegments);
+}
+
+// ====== Perpendicular Helper ======
+function createProjectionLine(start, end, colorVal) {
+  const geo = new THREE.BufferGeometry().setFromPoints([start, end]);
+  const mat = new THREE.LineDashedMaterial({
+    color: colorVal,
+    dashSize: 0.15,
+    gapSize: 0.08,
+    linewidth: 2
+  });
+  const line = new THREE.Line(geo, mat);
+  line.computeLineDistances();
+  scene.add(line);
+  projectionLines.push(line);
+}
+
+// ====== Coordinate Label Projector ======
+function update2DLabels(threeA, threeB) {
+  const container = document.getElementById('canvas-container');
+  const w = container.clientWidth, h = container.clientHeight;
+  const halfW = w / 2, halfH = h / 2;
+
+  function projectToScreen(pos3d, elementId, text) {
+    const temp = pos3d.clone().project(camera);
+    if (temp.z > 1) {
+      document.getElementById(elementId).style.display = 'none';
+      return;
+    }
+    const x = (temp.x * halfW) + halfW;
+    const y = -(temp.y * halfH) + halfH;
+    
+    const el = document.getElementById(elementId);
+    el.style.display = 'block';
+    el.style.left = `${x}px`;
+    el.style.top = `${y}px`;
+    if (text) {
+      el.textContent = text;
+    }
+  }
+
+  projectToScreen(new THREE.Vector3(0,0,0), 'lbl-o');
+  projectToScreen(new THREE.Vector3(6.3, 0, 0), 'lbl-x');
+  projectToScreen(new THREE.Vector3(0, 0, 6.3), 'lbl-y');
+  projectToScreen(new THREE.Vector3(0, 6.3, 0), 'lbl-z');
+
+  if (currentMode === 'vector') {
+    document.getElementById('lbl-p').style.display = 'none';
+    projectToScreen(threeA, 'lbl-a', `${cjk.nodea} A(${vecA.x.toFixed(1)}, ${vecA.y.toFixed(1)}, ${vecA.z.toFixed(1)})`);
+    projectToScreen(threeB, 'lbl-b', `${cjk.nodeb} B(${vecB.x.toFixed(1)}, ${vecB.y.toFixed(1)}, ${vecB.z.toFixed(1)})`);
+  } else if (currentMode === 'line-plane') {
+    document.getElementById('lbl-p').style.display = 'none';
+    document.getElementById('lbl-b').style.display = 'none';
+    projectToScreen(threeA, 'lbl-a', `${cjk.nodea} A(${vecA.x.toFixed(1)}, ${vecA.y.toFixed(1)}, ${vecA.z.toFixed(1)})`);
+  } else if (currentMode === 'point-plane') {
+    document.getElementById('lbl-a').style.display = 'none';
+    document.getElementById('lbl-b').style.display = 'none';
+    projectToScreen(threeA, 'lbl-p', `${cjk.nodep} P(${vecA.x.toFixed(1)}, ${vecA.y.toFixed(1)}, ${vecA.z.toFixed(1)})`);
+  }
+}
+
+// ====== Mode Change ======
+function changeMode(mode) {
+  currentMode = mode;
+
+  document.querySelectorAll('.mode-tab').forEach(el => el.classList.remove('active'));
+  document.getElementById(`tab-${mode}`).classList.add('active');
+
+  document.getElementById('sidebar-calc-vector').classList.add('hidden');
+  document.getElementById('sidebar-calc-lineplane').classList.add('hidden');
+  document.getElementById('sidebar-calc-pointplane').classList.add('hidden');
+
+  document.getElementById('hud-vector-group').classList.add('hidden');
+  document.getElementById('hud-lineplane-group').classList.add('hidden');
+  document.getElementById('hud-pointplane-group').classList.add('hidden');
+
+  if (mode === 'vector') {
+    document.getElementById('sidebar-calc-vector').classList.remove('hidden');
+    document.getElementById('hud-vector-group').classList.remove('hidden');
+  } else if (mode === 'line-plane') {
+    document.getElementById('sidebar-calc-lineplane').classList.remove('hidden');
+    document.getElementById('hud-lineplane-group').classList.remove('hidden');
+  } else if (mode === 'point-plane') {
+    document.getElementById('sidebar-calc-pointplane').classList.remove('hidden');
+    document.getElementById('hud-pointplane-group').classList.remove('hidden');
+  }
+
+  if (mode === 'vector') {
+    controls.target.set(0, 0, 0);
+  } else if (mode === 'point-plane') {
+    controls.target.set(0, 0.5, 0);
+  }
+
+  updateParams();
+}
+
+// ====== Loop ======
+function animate() {
+  requestAnimationFrame(animate);
+  if (controls) controls.update();
+  if (renderer && scene && camera) {
+    renderer.render(scene, camera);
+  }
+  if (vecA && vecB) {
+    update2DLabels(mathToThree(vecA), mathToThree(vecB));
+  }
+}
+
+// ====== UI Control Actions ======
+function resetSim() {
+  document.getElementById('slider-x1').value = 1;
+  document.getElementById('slider-y1').value = 2;
+  document.getElementById('slider-z1').value = 2;
+  document.getElementById('slider-x2').value = 2;
+  document.getElementById('slider-y2').value = 1;
+  document.getElementById('slider-z2').value = -2;
+  updateParams();
+  showToast(document.getElementById('toast').dataset.reset);
+}
+
+function randomExp() {
+  function rnd() {
+    let val = (Math.random() * 8) - 4;
+    return val > 0 ? val + 1 : val - 1;
+  }
+  document.getElementById('slider-x1').value = rnd().toFixed(1);
+  document.getElementById('slider-y1').value = rnd().toFixed(1);
+  document.getElementById('slider-z1').value = rnd().toFixed(1);
+  document.getElementById('slider-x2').value = rnd().toFixed(1);
+  document.getElementById('slider-y2').value = rnd().toFixed(1);
+  document.getElementById('slider-z2').value = rnd().toFixed(1);
+  updateParams();
+  showToast(document.getElementById('toast').dataset.random);
+}
+
+function showAbout() {
+  showToast(document.getElementById('toast').dataset.about);
+}
+
+function toggleFullscreen() {
+  if (!document.fullscreenElement) {
+    document.documentElement.requestFullscreen().catch(() => {});
+  } else {
+    document.exitFullscreen();
+  }
+}
+
+function toggleSidebar() {
+  document.getElementById('sidebar').classList.toggle('open');
+  document.getElementById('sidebar-overlay').classList.toggle('show');
+}
+
+function showToast(msg) {
+  const toast = document.getElementById('toast');
+  toast.textContent = msg;
+  toast.classList.add('show');
+  setTimeout(() => {
+    toast.classList.remove('show');
+  }, 3500);
+}
+</script>
+</body>
+</html>

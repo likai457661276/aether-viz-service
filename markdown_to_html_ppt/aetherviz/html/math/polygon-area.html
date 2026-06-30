@@ -1,0 +1,1835 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>多边形的面积 - 互动教学课件</title>
+    <!-- 引入外部 CDN 依赖 -->
+    <link rel="stylesheet" href="https://registry.npmmirror.com/katex/0.16.9/files/dist/katex.min.css">
+    <script src="https://registry.npmmirror.com/katex/0.16.9/files/dist/katex.min.js"></script>
+    <script src="https://registry.npmmirror.com/katex/0.16.9/files/dist/contrib/auto-render.min.js"></script>
+    <script src="https://registry.npmmirror.com/d3/7.9.0/files/dist/d3.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        :root {
+            /* 默认金黄数学配色，可由外部注入覆盖 */
+            --theme-math: linear-gradient(135deg, #F59E0B 0%, #EAB308 100%);
+            --primary-gradient: linear-gradient(135deg, #F59E0B 0%, #D97706 50%, #B45309 100%);
+            --bg-gradient: linear-gradient(180deg, #0F172A 0%, #1E293B 50%, #0F172A 100%);
+            --bg-gradient-card: linear-gradient(145deg, rgba(245, 158, 11, 0.15) 0%, rgba(217, 119, 6, 0.05) 100%);
+            --accent-cyan: #22D3EE;
+            --accent-emerald: #34D399;
+            --accent-amber: #FBBF24;
+            --accent-rose: #FB7185;
+            --accent-orange: #FB923C;
+
+            --glass-bg: rgba(15, 23, 42, 0.65);
+            --glass-border: rgba(255, 255, 255, 0.08);
+            --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+
+            --text-primary: #F8FAFC;
+            --text-secondary: #CBD5E1;
+            --text-muted: #94A3B8;
+
+            --nav-bg: rgba(15, 23, 42, 0.85);
+            --nav-border: rgba(245, 158, 11, 0.3);
+            
+            --slider-track: rgba(255, 255, 255, 0.1);
+            --slider-thumb: linear-gradient(135deg, #F59E0B 0%, #FBBF24 100%);
+            --header-min-height: 3.5rem;
+            --stage-padding: clamp(0.75rem, 1.6vw, 1.5rem);
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        html, body {
+            width: 100% !important;
+            height: 100% !important;
+            margin: 0 !important;
+            padding: 0 !important;
+        }
+
+        html {
+            font-size: 16px !important;
+        }
+
+        body {
+            background: var(--bg-gradient);
+            color: var(--text-primary);
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            margin: 0;
+            padding: 0;
+            min-height: 100dvh;
+            height: 100dvh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .app-header {
+            flex: 0 0 auto;
+            min-height: var(--header-min-height);
+            gap: 1rem;
+        }
+
+        .header-actions {
+            flex-wrap: wrap;
+            justify-content: flex-end;
+        }
+
+        .app-shell {
+            flex: 1 1 auto;
+            min-height: 0;
+        }
+
+        .app-sidebar {
+            flex: 0 0 clamp(18rem, 27vw, 23.5rem);
+            min-width: 18rem;
+            min-height: 0;
+        }
+
+        .stage {
+            min-width: 0;
+            min-height: 0;
+        }
+
+        .mode-switcher {
+            max-width: calc(100% - 2rem);
+            overflow-x: auto;
+            scrollbar-width: none;
+        }
+
+        .mode-switcher::-webkit-scrollbar {
+            display: none;
+        }
+
+        .mode-btn {
+            white-space: nowrap;
+        }
+
+        #canvas-container {
+            min-height: 0 !important;
+            height: 100%;
+            display: flex;
+            padding: var(--stage-padding);
+            padding-top: calc(var(--stage-padding) + 2.5rem);
+            padding-bottom: calc(var(--stage-padding) + 5.5rem);
+        }
+
+        #main-svg {
+            display: block;
+            flex: 1 1 auto;
+            width: 100%;
+            height: 100%;
+            min-height: 0;
+            min-width: 0;
+        }
+
+        .control-panel {
+            max-height: min(34dvh, 9rem);
+            overflow: auto;
+        }
+
+        .formula-card {
+            min-width: min(100%, 12.5rem);
+            max-width: 100%;
+        }
+
+        @media (max-width: 767px) {
+            body {
+                overflow: auto;
+            }
+
+            .app-header {
+                position: sticky;
+                top: 0;
+                z-index: 40;
+                padding: 0.75rem 1rem;
+                align-items: flex-start;
+            }
+
+            .header-actions {
+                width: 100%;
+                justify-content: flex-start;
+                gap: 0.5rem;
+            }
+
+            .header-actions button {
+                padding-inline: 0.75rem;
+            }
+
+            .app-shell {
+                overflow: visible;
+                min-height: calc(100dvh - var(--header-min-height));
+            }
+
+            .app-sidebar {
+                flex: 0 0 auto;
+                width: 100%;
+                min-width: 0;
+                max-height: 38dvh;
+                border-right: 0;
+                border-bottom: 1px solid rgb(30 41 59);
+            }
+
+            .stage {
+                min-height: 62dvh;
+                height: 62dvh;
+                flex: 0 0 62dvh;
+            }
+
+            .mode-switcher {
+                top: 0.75rem;
+                justify-content: flex-start;
+                left: 0.75rem;
+                right: 0.75rem;
+                transform: none;
+                max-width: none;
+            }
+
+            #canvas-container {
+                padding: 0.75rem;
+                padding-top: 4.25rem;
+                padding-bottom: 8.5rem;
+            }
+
+            .control-panel {
+                left: 0.75rem;
+                right: 0.75rem;
+                bottom: 0.75rem;
+                padding: 0.75rem;
+                gap: 0.75rem;
+                max-height: 7.75rem;
+            }
+        }
+
+        @media (max-height: 620px) and (min-width: 768px) {
+            .app-header {
+                min-height: 3rem;
+            }
+
+            .app-sidebar {
+                flex-basis: clamp(16rem, 24vw, 20rem);
+            }
+
+            .mode-switcher {
+                top: 0.6rem;
+            }
+
+            #canvas-container {
+                padding-top: 3.7rem;
+                padding-bottom: 4.5rem;
+            }
+
+            .control-panel {
+                bottom: 0.6rem;
+                padding: 0.65rem;
+                gap: 0.75rem;
+                max-height: 5.5rem;
+            }
+
+            .control-panel .text-slate-400.text-\[10px\] {
+                display: none;
+            }
+        }
+
+        /* 统一玻璃拟态面板 */
+        .glass-panel {
+            background: var(--glass-bg);
+            border: 1px solid var(--glass-border);
+            box-shadow: var(--glass-shadow);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+        }
+
+        /* 隐藏滚动条但保留滚动能力 */
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;  /* IE and Edge */
+            scrollbar-width: none;  /* Firefox */
+        }
+
+        /* 数字黑板风格 */
+        .blackboard {
+            background: linear-gradient(135deg, #064E3B 0%, #022C22 100%);
+            border: 6px solid #78350F; /* 木质边框 */
+            box-shadow: inset 0 0 20px rgba(0,0,0,0.8), var(--glass-shadow);
+            position: relative;
+        }
+        .blackboard::after {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: radial-gradient(circle, transparent 40%, rgba(0,0,0,0.3) 100%);
+            pointer-events: none;
+        }
+
+        /* 拖拽控制点样式 */
+        .drag-handle {
+            cursor: move;
+            fill: #F59E0B;
+            stroke: #FBBF24;
+            stroke-width: 2px;
+            filter: drop-shadow(0 0 6px rgba(245, 158, 11, 0.8));
+            transition: r 0.2s ease, fill 0.2s ease;
+        }
+        .drag-handle:hover {
+            r: 10;
+            fill: #22D3EE;
+            stroke: #67E8F9;
+        }
+
+        /* 自定义滑块 */
+        input[type="range"] {
+            -webkit-appearance: none;
+            width: 100%;
+            background: transparent;
+        }
+        input[type="range"]:focus {
+            outline: none;
+        }
+        input[type="range"]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 6px;
+            background: var(--slider-track);
+            border-radius: 3px;
+        }
+        input[type="range"]::-webkit-slider-thumb {
+            height: 18px;
+            width: 18px;
+            border-radius: 50%;
+            background: var(--slider-thumb);
+            cursor: pointer;
+            -webkit-appearance: none;
+            margin-top: -6px;
+            box-shadow: 0 0 8px rgba(245, 158, 11, 0.8);
+            transition: transform 0.1s ease;
+        }
+        input[type="range"]::-webkit-slider-thumb:hover {
+            transform: scale(1.2);
+        }
+
+        /* Tab 按钮样式 */
+        .tab-btn {
+            position: relative;
+            overflow: hidden;
+            transition: all 0.3s ease;
+        }
+        .tab-btn.active {
+            color: #FBBF24;
+            border-color: #FBBF24;
+            background: rgba(245, 158, 11, 0.1);
+        }
+
+        /* 错题闪烁 */
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-4px); }
+            75% { transform: translateX(4px); }
+        }
+        .shake-error {
+            animation: shake 0.3s ease-in-out;
+            border-color: #EF4444 !important;
+        }
+    </style>
+</head>
+<body class="no-scrollbar">
+
+    <!-- 顶部导航栏 -->
+    <header class="app-header flex items-center justify-between px-6 border-b bg-slate-950/80 backdrop-blur-md" style="border-color: rgba(245, 158, 11, 0.2);">
+        <div class="header-actions flex items-center gap-3">
+            <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-amber-400 to-yellow-600 flex items-center justify-center shadow-lg shadow-amber-500/20">
+                <span class="text-slate-900 font-extrabold text-sm">几何</span>
+            </div>
+            <div>
+                <h1 class="text-md font-bold tracking-wide text-slate-100 flex items-center gap-2">
+                    多边形的面积
+                    <span class="text-xs font-normal text-slate-500 hidden sm:inline">Area of Polygons</span>
+                </h1>
+            </div>
+        </div>
+        <div class="flex items-center gap-3">
+            <button onclick="resetScene()" class="px-4 py-1.5 rounded-lg text-sm font-medium border border-amber-500/30 text-amber-400 hover:bg-amber-500/10 transition-all duration-300">
+                重置
+            </button>
+            <button onclick="randomizeFigure()" class="px-4 py-1.5 rounded-lg text-sm font-medium border border-cyan-500/30 text-cyan-400 hover:bg-cyan-500/10 transition-all duration-300">
+                随机实验
+            </button>
+            <button onclick="toggleFullScreen()" class="px-4 py-1.5 rounded-lg text-sm font-medium border border-slate-700 text-slate-300 hover:bg-white/5 transition-all duration-300">
+                全屏
+            </button>
+        </div>
+    </header>
+
+    <!-- 主体区域 -->
+    <div class="app-shell flex-1 w-full flex flex-col md:flex-row overflow-hidden">
+        
+        <!-- 左侧边栏 (350px) -->
+        <aside class="app-sidebar w-full md:w-[360px] border-r border-slate-800 flex flex-col overflow-hidden" style="background: rgba(15, 23, 42, 0.9);">
+            <!-- Tab 页签头部 -->
+            <div class="flex border-b border-slate-800">
+                <button id="tab-learn-btn" onclick="switchAsideTab('learn')" class="tab-btn active flex-1 py-3 text-center text-sm font-bold border-b-2 border-transparent text-slate-400 hover:text-slate-200">
+                    📚 探究导学
+                </button>
+                <button id="tab-challenge-btn" onclick="switchAsideTab('challenge')" class="tab-btn flex-1 py-3 text-center text-sm font-bold border-b-2 border-transparent text-slate-400 hover:text-slate-200">
+                    ⚡ 随堂挑战
+                </button>
+            </div>
+
+            <!-- Tab 内容区 (带局部滚动) -->
+            <div class="flex-1 overflow-y-auto p-5 space-y-5 no-scrollbar">
+
+                <!-- PANEL 1: 探究导学 -->
+                <div id="panel-learn" class="space-y-5">
+                    <!-- 学习目标 -->
+                    <div class="glass-panel rounded-2xl p-4 space-y-2.5">
+                        <h3 class="text-sm font-bold text-amber-400 flex items-center gap-2">
+                            <span class="w-1 h-3.5 bg-amber-400 rounded-full"></span>
+                            学习目标 (三维目标)
+                        </h3>
+                        <div class="space-y-2 text-xs text-slate-300">
+                            <label class="flex items-start gap-2.5 cursor-pointer">
+                                <input type="checkbox" checked class="mt-0.5 rounded border-slate-700 text-amber-500 focus:ring-0">
+                                <span><strong>知识与技能</strong>：掌握平行四边形、三角形与梯形面积公式及推导原理。</span>
+                            </label>
+                            <label class="flex items-start gap-2.5 cursor-pointer">
+                                <input type="checkbox" class="mt-0.5 rounded border-slate-700 text-amber-500 focus:ring-0">
+                                <span><strong>过程与方法</strong>：通过拼摆、割补、三角剖分，体悟数学“转化”思想。</span>
+                            </label>
+                            <label class="flex items-start gap-2.5 cursor-pointer">
+                                <input type="checkbox" class="mt-0.5 rounded border-slate-700 text-amber-500 focus:ring-0">
+                                <span><strong>情感态度</strong>：感受几何推导的严密美感，应用于物理与工程建模。</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- 情境导入 -->
+                    <div class="glass-panel rounded-2xl p-4 space-y-2">
+                        <h3 class="text-sm font-bold text-cyan-400 flex items-center gap-2">
+                            <span class="w-1 h-3.5 bg-cyan-400 rounded-full"></span>
+                            校园花坛情境导入
+                        </h3>
+                        <p class="text-xs text-slate-300 leading-relaxed">
+                            🏫 学校绿化带计划新建 4 个不同形状的创意花坛（平行四边形、三角形、梯形、任意多边形）。
+                            为了购买合适数量的草皮，我们需要准确计算各花坛的表面积。你能利用右侧的互动板书，演示各种形状的面积推导过程吗？
+                        </p>
+                    </div>
+
+                    <!-- 数字黑板板书 -->
+                    <div class="blackboard rounded-2xl p-4 space-y-3 text-slate-100">
+                        <h3 class="text-xs font-bold text-yellow-300 tracking-widest uppercase text-center border-b border-yellow-300/20 pb-1">
+                            📐 电子黑板板书
+                        </h3>
+                        <div class="space-y-3 text-xs">
+                            <div class="space-y-1">
+                                <p class="text-yellow-400 font-semibold">1. 平行四边形 (割补转化)</p>
+                                <p class="text-slate-300 leading-relaxed">沿高剪开，平移拼成矩形：</p>
+                                <div class="font-mono text-center bg-black/30 py-1 rounded text-cyan-300">
+                                    S = 底 × 高 = a × h
+                                </div>
+                            </div>
+                            <div class="space-y-1">
+                                <p class="text-yellow-400 font-semibold">2. 三角形 (倍拼转化)</p>
+                                <p class="text-slate-300 leading-relaxed">复制一个完全相同的三角形旋转拼接：</p>
+                                <div class="font-mono text-center bg-black/30 py-1 rounded text-emerald-300">
+                                    S = 底 × 高 ÷ 2 = a × h ÷ 2
+                                </div>
+                            </div>
+                            <div class="space-y-1">
+                                <p class="text-yellow-400 font-semibold">3. 梯形 (倍拼转化)</p>
+                                <p class="text-slate-300 leading-relaxed">两个完全相同的梯形拼成平行四边形：</p>
+                                <div class="font-mono text-center bg-black/30 py-1 rounded text-amber-300">
+                                    S = (上底 + 下底) × 高 ÷ 2
+                                </div>
+                            </div>
+                            <div class="space-y-1">
+                                <p class="text-yellow-400 font-semibold">4. 任意多边形 (三角剖分)</p>
+                                <p class="text-slate-300 leading-relaxed">将多边形剖分为若干不重叠的三角形：</p>
+                                <div class="font-mono text-center bg-black/30 py-1 rounded text-rose-300">
+                                    S = S₁ + S₂ + S₃ + ...
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- PANEL 2: 随堂挑战 -->
+                <div id="panel-challenge" class="space-y-5 hidden">
+                    <!-- 面积实算检验 -->
+                    <div class="glass-panel rounded-2xl p-4 space-y-3">
+                        <h3 class="text-sm font-bold text-amber-400 flex items-center gap-2">
+                            <span class="w-1 h-3.5 bg-amber-400 rounded-full"></span>
+                            实算检验：花坛面积计算
+                        </h3>
+                        <div class="text-xs text-slate-300 space-y-2">
+                            <p class="leading-relaxed">
+                                请拖动右侧的控制点以改变花坛的尺寸，并计算当前形状的面积（保留1位小数）：
+                            </p>
+                            <!-- 动态参数显示 -->
+                            <div id="challenge-params" class="p-2.5 rounded-xl bg-slate-900/60 border border-white/5 space-y-1 text-slate-300 font-mono text-[11px]">
+                                <!-- 动态填入 -->
+                            </div>
+                            <!-- 输入答题 -->
+                            <div class="flex gap-2 mt-2">
+                                <input type="number" step="0.1" id="challenge-input" placeholder="输入面积..." 
+                                       class="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-amber-500 transition-colors">
+                                <button onclick="checkAreaChallenge()" class="px-4 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs transition-colors">
+                                    提交
+                                </button>
+                            </div>
+                            <!-- 反馈信息 -->
+                            <div id="challenge-feedback" class="text-[11px] font-semibold hidden">
+                                <!-- 动态显示 -->
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 辨析判断题 -->
+                    <div class="glass-panel rounded-2xl p-4 space-y-3">
+                        <h3 class="text-sm font-bold text-cyan-400 flex items-center gap-2">
+                            <span class="w-1 h-3.5 bg-cyan-400 rounded-full"></span>
+                            概念辨析挑战
+                        </h3>
+                        <div class="text-xs text-slate-300 space-y-3">
+                            <div class="space-y-1">
+                                <p class="font-semibold text-slate-200">Q1. 两个三角形只要等底等高，它们的面积就一定相等，且形状也必须完全相同吗？</p>
+                                <div class="flex gap-4 mt-1.5">
+                                    <label class="flex items-center gap-1.5 cursor-pointer">
+                                        <input type="radio" name="q1" value="yes" class="text-cyan-500 focus:ring-0">
+                                        <span>是的，形状一定相同</span>
+                                    </label>
+                                    <label class="flex items-center gap-1.5 cursor-pointer">
+                                        <input type="radio" name="q1" value="no" class="text-cyan-500 focus:ring-0">
+                                        <span>不对，面积等但形状可不同</span>
+                                    </label>
+                                </div>
+                            </div>
+
+                            <div class="space-y-1">
+                                <p class="font-semibold text-slate-200">Q2. 平行四边形的面积总是三角形面积的 2 倍吗？</p>
+                                <div class="flex gap-4 mt-1.5">
+                                    <label class="flex items-center gap-1.5 cursor-pointer">
+                                        <input type="radio" name="q2" value="yes" class="text-cyan-500 focus:ring-0">
+                                        <span>是的，公式就是这样</span>
+                                    </label>
+                                    <label class="flex items-center gap-1.5 cursor-pointer">
+                                        <input type="radio" name="q2" value="no" class="text-cyan-500 focus:ring-0">
+                                        <span>不对，必须在等底等高前提下</span>
+                                    </label>
+                                </div>
+                            </div>
+
+                            <button onclick="checkQuizChallenge()" class="w-full py-1.5 rounded-lg bg-cyan-500 hover:bg-cyan-600 text-slate-950 font-bold text-xs transition-colors">
+                                提交判断
+                            </button>
+                            <div id="quiz-feedback" class="text-[11px] font-semibold hidden">
+                                <!-- 反馈 -->
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 核心思考：为什么除以 2？ -->
+                    <div class="glass-panel rounded-2xl p-4 space-y-2">
+                        <h3 class="text-sm font-bold text-amber-500 flex items-center gap-2">
+                            <span class="w-1.5 h-3.5 bg-amber-500 rounded-full"></span>
+                            思考：为什么除以 2？
+                        </h3>
+                        <div class="text-[11px] text-slate-300 space-y-1.5">
+                            <p class="text-slate-400 leading-relaxed">
+                                很多同学能死记硬背公式，但不解其义。
+                            </p>
+                            <button onclick="toggleExplainDiv()" class="w-full py-1 rounded-lg border border-slate-700 hover:bg-white/5 text-slate-300 text-xs transition-all">
+                                显示/隐藏原理解释
+                            </button>
+                            <div id="explain-div" class="hidden bg-black/40 p-2.5 rounded-xl border border-white/5 leading-relaxed text-slate-300 space-y-1.5">
+                                <p>💡 <strong>推导本质差异：</strong></p>
+                                <p><strong>倍拼法：</strong> 三角形和梯形在推导时，复制了一个完全相同的图形拼接为平行四边形。所得面积是原单个图形的 <strong>2 倍</strong>，所以必须<strong>除以 2</strong>。</p>
+                                <p><strong>割补法：</strong> 平行四边形是通过剪切、平移转化为矩形（等积变形），其面积大小在整个过程中<strong>没有发生改变</strong>，因此不需要除以 2。</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- 页脚 -->
+            <footer class="p-3 border-t border-slate-800 text-[10px] text-center text-slate-500">
+                由 宾果AI 为你生成❤️
+            </footer>
+        </aside>
+
+        <!-- 中央主区域 (70%) -->
+        <main class="stage flex-1 flex flex-col overflow-hidden relative">
+            
+            <!-- 模式选择卡片 (顶部居中浮动) -->
+            <div class="mode-switcher absolute top-4 left-1/2 transform -translate-x-1/2 z-10 flex gap-2 p-1.5 rounded-2xl bg-slate-900/80 border border-white/5 backdrop-blur-md shadow-2xl">
+                <button onclick="switchMode('parallelogram')" id="btn-mode-parallelogram" class="mode-btn px-3 py-1.5 rounded-xl text-xs font-semibold text-amber-400 bg-amber-500/10 border border-amber-500/20 transition-all">
+                    ▱ 平行四边形
+                </button>
+                <button onclick="switchMode('triangle')" id="btn-mode-triangle" class="mode-btn px-3 py-1.5 rounded-xl text-xs font-semibold text-slate-400 hover:bg-white/5 transition-all">
+                    ▲ 三角形
+                </button>
+                <button onclick="switchMode('trapezoid')" id="btn-mode-trapezoid" class="mode-btn px-3 py-1.5 rounded-xl text-xs font-semibold text-slate-400 hover:bg-white/5 transition-all">
+                    ⏢ 梯形
+                </button>
+                <button onclick="switchMode('polygon')" id="btn-mode-polygon" class="mode-btn px-3 py-1.5 rounded-xl text-xs font-semibold text-slate-400 hover:bg-white/5 transition-all">
+                    ⬡ 五边形剖分
+                </button>
+            </div>
+
+            <!-- D3.js SVG 画布 -->
+            <div id="canvas-container" class="flex-1 w-full h-full relative">
+                <svg id="main-svg" class="w-full h-full"></svg>
+            </div>
+
+            <!-- 底部控制面板 (浮动在画布底部) -->
+            <div class="control-panel absolute bottom-4 left-4 right-4 z-10 glass-panel rounded-2xl p-4 flex flex-col md:flex-row items-center gap-4">
+                <!-- 播放控制 -->
+                <div class="flex items-center gap-3">
+                    <button onclick="togglePlay()" id="btn-play" class="w-10 h-10 rounded-full bg-amber-500 hover:bg-amber-600 text-slate-950 flex items-center justify-center font-bold text-sm shadow-lg shadow-amber-500/20 transition-all">
+                        ▶
+                    </button>
+                    <div class="text-xs">
+                        <div id="play-status" class="font-bold text-slate-200">暂停中</div>
+                        <div class="text-slate-400 text-[10px]">演示割补与倍拼动画</div>
+                    </div>
+                </div>
+
+                <!-- 动画进度条 -->
+                <div class="flex-1 flex items-center gap-3 w-full">
+                    <span class="text-slate-400 font-mono text-[10px]">0%</span>
+                    <input type="range" id="progress-slider" min="0" max="100" value="0" step="1" oninput="onProgressChange(this.value)" class="flex-1">
+                    <span id="progress-label" class="text-amber-400 font-mono text-[10px] w-8 text-right">0%</span>
+                </div>
+
+                <!-- 实时公式显示区域 -->
+                <div class="formula-card glass-panel px-4 py-2 rounded-xl border-amber-500/10 min-w-[200px] text-center">
+                    <div id="formula-display" class="text-xs font-bold font-mono text-amber-400">
+                        <!-- 由 JavaScript/KaTeX 渲染 -->
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- 弹窗/Toast 通知 -->
+    <div id="toast-message" class="absolute top-20 right-6 z-50 transform translate-y-[-20px] opacity-0 pointer-events-none transition-all duration-300 glass-panel border border-slate-700 px-4 py-2.5 rounded-xl flex items-center gap-2 text-xs">
+        <span id="toast-icon">💡</span>
+        <span id="toast-text" class="text-slate-200"></span>
+    </div>
+
+    <!-- JavaScript 动画与逻辑控制 -->
+    <script>
+        // 1. 全局配置与状态挂载
+        let currentMode = 'parallelogram'; // parallelogram | triangle | trapezoid | polygon
+        let animProgress = 0;              // 0 - 100
+        let isPlaying = false;
+        let playInterval = null;
+
+        // 全局挂载用于 D3 画布和随堂挑战交互的参数
+        window.currentChallenge = {
+            mode: 'parallelogram',
+            base: 0,
+            height: 0,
+            topBase: 0,
+            bottomBase: 0,
+            correctArea: 0
+        };
+
+        // 2. Tab 页签切换逻辑
+        function switchAsideTab(tabName) {
+            const learnBtn = document.getElementById('tab-learn-btn');
+            const challengeBtn = document.getElementById('tab-challenge-btn');
+            const learnPanel = document.getElementById('panel-learn');
+            const challengePanel = document.getElementById('panel-challenge');
+
+            if (tabName === 'learn') {
+                learnBtn.classList.add('active');
+                challengeBtn.classList.remove('active');
+                learnPanel.classList.remove('hidden');
+                challengePanel.classList.add('hidden');
+            } else {
+                learnBtn.classList.remove('active');
+                challengeBtn.classList.add('active');
+                learnPanel.classList.add('hidden');
+                challengePanel.classList.remove('hidden');
+                // 每次切入随堂挑战时，清空之前答题反馈，重新加载题目
+                resetChallengeInputs();
+            }
+        }
+
+        // 3. 为什么除以 2 展开折叠
+        function toggleExplainDiv() {
+            const div = document.getElementById('explain-div');
+            div.classList.toggle('hidden');
+        }
+
+        // 4. Toast 提示
+        function showToast(text, icon = '💡') {
+            const toast = document.getElementById('toast-message');
+            const toastText = document.getElementById('toast-text');
+            const toastIcon = document.getElementById('toast-icon');
+
+            toastText.textContent = text;
+            toastIcon.textContent = icon;
+            
+            toast.classList.remove('opacity-0', 'translate-y-[-20px]', 'pointer-events-none');
+            toast.classList.add('opacity-100', 'translate-y-0');
+
+            setTimeout(() => {
+                toast.classList.remove('opacity-100', 'translate-y-0');
+                toast.classList.add('opacity-0', 'translate-y-[-20px]', 'pointer-events-none');
+            }, 3000);
+        }
+
+        // 5. 随堂挑战答题校验
+        function resetChallengeInputs() {
+            document.getElementById('challenge-input').value = '';
+            const feedback = document.getElementById('challenge-feedback');
+            feedback.classList.add('hidden');
+            feedback.className = "text-[11px] font-semibold mt-2 hidden";
+            document.getElementById('challenge-input').classList.remove('shake-error');
+        }
+
+        function checkAreaChallenge() {
+            const inputVal = parseFloat(document.getElementById('challenge-input').value);
+            const feedback = document.getElementById('challenge-feedback');
+            const inputField = document.getElementById('challenge-input');
+
+            if (isNaN(inputVal)) {
+                showToast("请输入合法的面积数值", "⚠️");
+                return;
+            }
+
+            const state = window.currentChallenge;
+            const target = state.correctArea;
+            const diff = Math.abs(inputVal - target);
+
+            feedback.classList.remove('hidden');
+            inputField.classList.remove('shake-error');
+
+            if (diff <= 0.15) {
+                feedback.className = "text-[11px] font-semibold mt-2 text-emerald-400";
+                feedback.innerHTML = `🎉 恭喜你，计算正确！花坛面积为 ${target.toFixed(1)} 平方米。`;
+                showToast("回答正确！太棒了！", "🎉");
+            } else {
+                // 智能识别“忘记除以 2”的典型错误
+                let isForgotDivideByTwo = false;
+                if (state.mode === 'triangle') {
+                    const wrongAns = state.base * state.height;
+                    if (Math.abs(inputVal - wrongAns) <= 0.15 * 2) {
+                        isForgotDivideByTwo = true;
+                    }
+                } else if (state.mode === 'trapezoid') {
+                    const wrongAns = (state.topBase + state.bottomBase) * state.height;
+                    if (Math.abs(inputVal - wrongAns) <= 0.15 * 2) {
+                        isForgotDivideByTwo = true;
+                    }
+                }
+
+                inputField.classList.add('shake-error');
+                feedback.className = "text-[11px] font-semibold mt-2 text-rose-400";
+
+                if (isForgotDivideByTwo) {
+                    feedback.innerHTML = `❌ 错误：面积不对哦。提示：你是不是忘记除以 2 了？`;
+                    showToast("面积不对哦，仔细检查一下公式", "💡");
+                } else {
+                    feedback.innerHTML = `❌ 错误：计算出的面积为 ${inputVal.toFixed(1)}，但答案不对，请重新计算！`;
+                    showToast("答案不正确，请重新算算看", "❌");
+                }
+            }
+        }
+
+        function checkQuizChallenge() {
+            const q1 = document.querySelector('input[name="q1"]:checked');
+            const q2 = document.querySelector('input[name="q2"]:checked');
+            const feedback = document.getElementById('quiz-feedback');
+
+            if (!q1 || !q2) {
+                showToast("请回答所有的判断题！", "⚠️");
+                return;
+            }
+
+            feedback.classList.remove('hidden');
+            
+            const isQ1Correct = (q1.value === 'no');
+            const isQ2Correct = (q2.value === 'no');
+
+            if (isQ1Correct && isQ2Correct) {
+                feedback.className = "text-[11px] font-semibold mt-2 text-emerald-400";
+                feedback.innerHTML = `🎉 完全正确！两个等底等高的三角形，面积必然相等，但形状可以是完全不一样的（比如直角三角形与钝角三角形）。平行四边形面积是等底等高三角形的2倍，必须包含“等底等高”的前置条件。`;
+                showToast("辨析全部正确！", "🎉");
+            } else {
+                feedback.className = "text-[11px] font-semibold mt-2 text-rose-400";
+                feedback.innerHTML = `❌ 抱歉，有题目判断错误，请仔细对比并重新回答。`;
+                showToast("答案不完全正确", "❌");
+            }
+        }
+
+        // 6. 电子板书 KaTeX 渲染
+        function renderBlackboardFormulas() {
+            try {
+                renderMathInElement(document.body, {
+                    delimiters: [
+                        {left: '$$', right: '$$', display: true},
+                        {left: '$', right: '$', display: false}
+                    ],
+                    throwOnError : false
+                });
+            } catch (e) {
+                console.error("Katex error: ", e);
+            }
+        }
+
+        // 7. D3.js 物理画布绘制核心
+        const svg = d3.select("#main-svg");
+        let width = 0;
+        let height = 0;
+
+        // 图形初始几何状态参数
+        const geom = {
+            parallelogram: {
+                base: 280,
+                height: 180,
+                skew: 80,
+                x0: 150,
+                y0: 250
+            },
+            triangle: {
+                base: 280,
+                height: 180,
+                skew: 90,
+                x0: 150,
+                y0: 250
+            },
+            trapezoid: {
+                topBase: 160,
+                bottomBase: 280,
+                height: 180,
+                skew: 60,
+                x0: 150,
+                y0: 250
+            },
+            polygon: {
+                points: [
+                    {x: 160, y: 60, id: 0}, // A
+                    {x: 380, y: 120, id: 1}, // B
+                    {x: 340, y: 330, id: 2}, // C
+                    {x: 130, y: 310, id: 3}, // D
+                    {x: 50, y: 180, id: 4}   // E
+                ]
+            }
+        };
+
+        // 动态根据窗口尺寸初始化几何大小，实现百分之百宽高自适应
+        function initializeGeomDimensions() {
+            if (width <= 0 || height <= 0) return;
+            
+            // 采用画布最小跨度作为基准比例单位
+            const S = Math.min(width, height);
+            
+            // 1. 平行四边形 (大小在画布中占比最舒适，宽约占画布 42%，高约占 28%)
+            geom.parallelogram.base = S * 0.42;
+            geom.parallelogram.height = S * 0.28;
+            geom.parallelogram.skew = S * 0.12;
+            
+            // 2. 三角形 (底约占 42%，高约占 28%)
+            geom.triangle.base = S * 0.42;
+            geom.triangle.height = S * 0.28;
+            geom.triangle.skew = S * 0.15;
+            
+            // 3. 梯形 (下底 42%，上底 24%，高 28%)
+            geom.trapezoid.topBase = S * 0.24;
+            geom.trapezoid.bottomBase = S * 0.42;
+            geom.trapezoid.height = S * 0.28;
+            geom.trapezoid.skew = S * 0.1;
+            
+            // 4. 五边形 (包围盒比例均匀，质心居中)
+            const cx = width / 2;
+            const cy = height / 2;
+            geom.polygon.points = [
+                {x: cx - S * 0.1, y: cy - S * 0.22, id: 0}, // A
+                {x: cx + S * 0.22, y: cy - S * 0.1, id: 1}, // B
+                {x: cx + S * 0.16, y: cy + S * 0.18, id: 2}, // C
+                {x: cx - S * 0.12, y: cy + S * 0.16, id: 3}, // D
+                {x: cx - S * 0.25, y: cy - S * 0.02, id: 4}  // E
+            ];
+        }
+
+        // 将几何图形居中摆放
+        function alignGeomToCenter() {
+            if (width <= 0 || height <= 0) return;
+            
+            // 1. 平行四边形
+            {
+                const { base, height: h, skew } = geom.parallelogram;
+                geom.parallelogram.x0 = (width - base - skew) / 2;
+                geom.parallelogram.y0 = (height + h) / 2;
+            }
+            
+            // 2. 三角形
+            {
+                const { base, height: h, skew } = geom.triangle;
+                const minOffset = Math.min(0, skew);
+                const maxOffset = Math.max(base, skew);
+                const shapeW = maxOffset - minOffset;
+                geom.triangle.x0 = width / 2 - minOffset - shapeW / 2;
+                geom.triangle.y0 = (height + h) / 2;
+            }
+            
+            // 3. 梯形
+            {
+                const { topBase, bottomBase, height: h, skew } = geom.trapezoid;
+                const minOffset = Math.min(0, skew);
+                const maxOffset = Math.max(bottomBase, skew + topBase);
+                const shapeW = maxOffset - minOffset;
+                geom.trapezoid.x0 = width / 2 - minOffset - shapeW / 2;
+                geom.trapezoid.y0 = (height + h) / 2;
+            }
+            
+            // 4. 五边形
+            {
+                const pts = geom.polygon.points;
+                if (pts && pts.length > 0) {
+                    const minX = d3.min(pts, d => d.x);
+                    const maxX = d3.max(pts, d => d.x);
+                    const minY = d3.min(pts, d => d.y);
+                    const maxY = d3.max(pts, d => d.y);
+                    
+                    const cx = (minX + maxX) / 2;
+                    const cy = (minY + maxY) / 2;
+                    
+                    const dx = (width / 2) - cx;
+                    const dy = (height / 2) - cy;
+                    
+                    pts.forEach(p => {
+                        p.x += dx;
+                        p.y += dy;
+                    });
+                }
+            }
+        }
+
+        // 更新画布尺寸与视口自适应
+        function getSVGViewportSize() {
+            const svgNode = document.getElementById("main-svg");
+            const rect = svgNode.getBoundingClientRect();
+            return {
+                width: Math.max(1, Math.floor(rect.width)),
+                height: Math.max(1, Math.floor(rect.height))
+            };
+        }
+
+        function updateSVGDimensions() {
+            const size = getSVGViewportSize();
+            width = size.width;
+            height = size.height;
+            svg.attr("viewBox", `0 0 ${width} ${height}`);
+            initializeGeomDimensions();
+            alignGeomToCenter();
+            // 当尺寸变化时，重新渲染 D3 场景
+            drawScene();
+        }
+
+        // 初始化拖拽行为
+        const dragBehavior = d3.drag()
+            .on("drag", function(event, d) {
+                if (currentMode === 'parallelogram') {
+                    if (d.type === 'width') {
+                        geom.parallelogram.base = Math.max(80, Math.min(width - geom.parallelogram.x0 - geom.parallelogram.skew - 20, event.x - geom.parallelogram.x0));
+                    } else if (d.type === 'height') {
+                        geom.parallelogram.height = Math.max(60, Math.min(320, geom.parallelogram.y0 - event.y));
+                        geom.parallelogram.skew = Math.max(0, Math.min(geom.parallelogram.base - 20, event.x - geom.parallelogram.x0));
+                    }
+                } else if (currentMode === 'triangle') {
+                    if (d.type === 'width') {
+                        geom.triangle.base = Math.max(80, Math.min(width - geom.triangle.x0 - 40, event.x - geom.triangle.x0));
+                    } else if (d.type === 'height') {
+                        geom.triangle.height = Math.max(60, Math.min(320, geom.triangle.y0 - event.y));
+                        geom.triangle.skew = Math.max(0, Math.min(geom.triangle.base, event.x - geom.triangle.x0));
+                    }
+                } else if (currentMode === 'trapezoid') {
+                    if (d.type === 'width') {
+                        geom.trapezoid.bottomBase = Math.max(80, Math.min(width - geom.trapezoid.x0 - 40, event.x - geom.trapezoid.x0));
+                    } else if (d.type === 'top') {
+                        geom.trapezoid.topBase = Math.max(40, Math.min(geom.trapezoid.bottomBase - 20, event.x - geom.trapezoid.x0 - geom.trapezoid.skew));
+                    } else if (d.type === 'height') {
+                        geom.trapezoid.height = Math.max(60, Math.min(320, geom.trapezoid.y0 - event.y));
+                        geom.trapezoid.skew = Math.max(0, Math.min(geom.trapezoid.bottomBase - geom.trapezoid.topBase, event.x - geom.trapezoid.x0));
+                    }
+                } else if (currentMode === 'polygon') {
+                    const point = geom.polygon.points.find(p => p.id === d.id);
+                    if (point) {
+                        point.x = Math.max(40, Math.min(width - 40, event.x));
+                        point.y = Math.max(60, Math.min(height - 60, event.y));
+                    }
+                }
+                drawScene();
+            });
+
+        // 核心渲染逻辑
+        function drawScene() {
+            // 清理原 SVG
+            svg.selectAll("*").remove();
+
+            // 为当前渲染模式注入计算公式 KaTeX
+            updateFormulaHUD();
+
+            // 实时自适应检测：获取当前容器的实际排版大小，防止在 DOM 未完全展开或不同全屏模式下缩死在初始像素
+            const currentSize = getSVGViewportSize();
+            const currentClientW = currentSize.width;
+            const currentClientH = currentSize.height;
+            
+            if (currentClientW !== width || currentClientH !== height) {
+                width = currentClientW;
+                height = currentClientH;
+                svg.attr("viewBox", `0 0 ${width} ${height}`);
+                initializeGeomDimensions();
+                alignGeomToCenter();
+            }
+
+            // 计算演示用动态自适应字号与线条粗细
+            const S = Math.min(width, height);
+            const labelFontSize = Math.max(12, Math.min(18, Math.round(S * 0.024))) + "px";
+            const helperStrokeWidth = Math.max(1.5, Math.min(3, S * 0.0035));
+            const dragPointRadius = Math.max(7, Math.min(11, S * 0.013));
+
+            // D3 场景分组
+            const g = svg.append("g");
+
+            const t = animProgress / 100;
+
+            if (currentMode === 'parallelogram') {
+                const { base, height: h, skew, x0, y0 } = geom.parallelogram;
+                
+                // 挂载挑战参数
+                window.currentChallenge.mode = 'parallelogram';
+                const roundedBase = Math.round(base / 30);
+                const roundedHeight = Math.round(h / 30);
+                window.currentChallenge.base = roundedBase; // 换算为米方便看
+                window.currentChallenge.height = roundedHeight;
+                window.currentChallenge.correctArea = roundedBase * roundedHeight;
+                updateChallengeParamsUI();
+
+                // 顶点计算
+                const A = { x: x0, y: y0 };
+                const B = { x: x0 + base, y: y0 };
+                const C = { x: x0 + base + skew, y: y0 - h };
+                const D = { x: x0 + skew, y: y0 - h };
+
+                // 垂足 P (x0 + skew, y0)
+                const P = { x: x0 + skew, y: y0 };
+
+                // 绘制背景网格
+                drawGrid();
+
+                // 1. 割下三角形 ADP (平移运动)
+                // 平移向量为 base
+                const offset = t * base;
+                const triPoints = [
+                    { x: A.x + offset, y: A.y },
+                    { x: P.x + offset, y: P.y },
+                    { x: D.x + offset, y: D.y }
+                ];
+
+                // 2. 剩余的梯形 DBCP (静止)
+                const trapPoints = [
+                    { x: P.x, y: P.y },
+                    { x: B.x, y: B.y },
+                    { x: C.x, y: C.y },
+                    { x: D.x, y: D.y }
+                ];
+
+                // 绘制原三角形的虚线虚影
+                if (t > 0) {
+                    g.append("polygon")
+                        .attr("points", `${A.x},${A.y} ${P.x},${P.y} ${D.x},${D.y}`)
+                        .attr("fill", "rgba(245, 158, 11, 0.05)")
+                        .attr("stroke", "rgba(245, 158, 11, 0.4)")
+                        .attr("stroke-dasharray", "4,4");
+                }
+
+                // 绘制平移指示箭头
+                if (t > 0 && t < 1) {
+                    g.append("line")
+                        .attr("x1", P.x)
+                        .attr("y1", P.y - 15)
+                        .attr("x2", P.x + offset)
+                        .attr("y2", P.y - 15)
+                        .attr("stroke", "var(--accent-cyan)")
+                        .attr("stroke-width", 2)
+                        .attr("marker-end", "url(#arrow)");
+
+                    g.append("text")
+                        .attr("x", P.x + offset / 2)
+                        .attr("y", P.y - 25)
+                        .attr("fill", "var(--accent-cyan)")
+                        .attr("font-size", "12px")
+                        .attr("text-anchor", "middle")
+                        .text(`平移: ${(t * 100).toFixed(0)}%`);
+                }
+
+                // 绘制静止的梯形部分
+                g.append("polygon")
+                    .attr("points", trapPoints.map(p => `${p.x},${p.y}`).join(" "))
+                    .attr("fill", "rgba(245, 158, 11, 0.25)")
+                    .attr("stroke", "#F59E0B")
+                    .attr("stroke-width", 2);
+
+                // 绘制平移中的三角形部分
+                g.append("polygon")
+                    .attr("points", triPoints.map(p => `${p.x},${p.y}`).join(" "))
+                    .attr("fill", "rgba(34, 211, 238, 0.35)")
+                    .attr("stroke", "#22D3EE")
+                    .attr("stroke-width", 2);
+
+                // 绘制高垂线 DP
+                g.append("line")
+                    .attr("x1", D.x)
+                    .attr("y1", D.y)
+                    .attr("x2", P.x)
+                    .attr("y2", P.y)
+                    .attr("stroke", "#FB7185")
+                    .attr("stroke-width", helperStrokeWidth)
+                    .attr("stroke-dasharray", "3,3");
+
+                // 高直角标记
+                g.append("path")
+                    .attr("d", `M ${P.x} ${P.y - 8} L ${P.x - 8} ${P.y - 8} L ${P.x - 8} ${P.y}`)
+                    .attr("fill", "none")
+                    .attr("stroke", "#FB7185")
+                    .attr("stroke-width", helperStrokeWidth);
+
+                // 标注文字：底和高
+                g.append("text")
+                    .attr("x", x0 + base / 2)
+                    .attr("y", y0 + 25)
+                    .attr("fill", "#CBD5E1")
+                    .attr("font-size", labelFontSize)
+                    .attr("text-anchor", "middle")
+                    .text(`底 a = ${Math.round(base / 30)}m`);
+
+                g.append("text")
+                    .attr("x", P.x - 12)
+                    .attr("y", y0 - h / 2)
+                    .attr("fill", "#FB7185")
+                    .attr("font-size", labelFontSize)
+                    .attr("text-anchor", "end")
+                    .text(`高 h = ${Math.round(h / 30)}m`);
+
+                // 拼接成功的高亮发光轮廓
+                if (t === 1) {
+                    g.append("rect")
+                        .attr("x", P.x)
+                        .attr("y", D.y)
+                        .attr("width", base)
+                        .attr("height", h)
+                        .attr("fill", "none")
+                        .attr("stroke", "#34D399")
+                        .attr("stroke-width", 3)
+                        .attr("filter", "drop-shadow(0 0 8px rgba(52, 211, 153, 0.8))");
+                }
+
+                // 绘制拖拽交互控制点
+                // 控制点 1: 底边拖拽
+                g.append("circle")
+                    .data([{ type: 'width' }])
+                    .attr("cx", B.x)
+                    .attr("cy", B.y)
+                    .attr("r", dragPointRadius)
+                    .attr("class", "drag-handle")
+                    .call(dragBehavior);
+
+                // 控制点 2: 顶部高度/倾斜拖拽
+                g.append("circle")
+                    .data([{ type: 'height' }])
+                    .attr("cx", D.x)
+                    .attr("cy", D.y)
+                    .attr("r", dragPointRadius)
+                    .attr("class", "drag-handle")
+                    .call(dragBehavior);
+
+            } else if (currentMode === 'triangle') {
+                const { base, height: h, skew, x0, y0 } = geom.triangle;
+
+                // 挂载挑战参数
+                window.currentChallenge.mode = 'triangle';
+                const roundedBase = Math.round(base / 30);
+                const roundedHeight = Math.round(h / 30);
+                window.currentChallenge.base = roundedBase;
+                window.currentChallenge.height = roundedHeight;
+                window.currentChallenge.correctArea = roundedBase * roundedHeight / 2;
+                updateChallengeParamsUI();
+
+                const A = { x: x0, y: y0 };
+                const B = { x: x0 + base, y: y0 };
+                const C = { x: x0 + skew, y: y0 - h };
+
+                // 旋转中心 M (右腰 BC 的中点)
+                const M = { x: (B.x + C.x) / 2, y: (B.y + C.y) / 2 };
+
+                drawGrid();
+
+                // 绘制原三角形
+                g.append("polygon")
+                    .attr("points", `${A.x},${A.y} ${B.x},${B.y} ${C.x},${C.y}`)
+                    .attr("fill", "rgba(245, 158, 11, 0.25)")
+                    .attr("stroke", "#F59E0B")
+                    .attr("stroke-width", 2);
+
+                // 绘制复制的三角形，用于绕 M 旋转
+                // 原顶点是 A, B, C. 旋转后拼合为平行四边形
+                // 旋转 180 度后的位置。我们使用 SVG transform 属性对这个复制三角形执行旋转
+                const rotAngle = t * 180;
+                
+                // 绘制旋转指示器（轨道和中心点）
+                if (t > 0) {
+                    // 绘制 M 点
+                    g.append("circle")
+                        .attr("cx", M.x)
+                        .attr("cy", M.y)
+                        .attr("r", 4)
+                        .attr("fill", "var(--accent-cyan)");
+
+                    g.append("text")
+                        .attr("x", M.x + 8)
+                        .attr("y", M.y + 3)
+                        .attr("fill", "var(--accent-cyan)")
+                        .attr("font-size", "10px")
+                        .text("旋转中心 M");
+
+                    // 绘制旋转轨道圆弧
+                    const radius = Math.sqrt((A.x - M.x)**2 + (A.y - M.y)**2);
+                    g.append("circle")
+                        .attr("cx", M.x)
+                        .attr("cy", M.y)
+                        .attr("r", radius)
+                        .attr("fill", "none")
+                        .attr("stroke", "rgba(34, 211, 238, 0.15)")
+                        .attr("stroke-dasharray", "3,3");
+                }
+
+                // 绘制旋转的复制体
+                g.append("polygon")
+                    .attr("points", `${A.x},${A.y} ${B.x},${B.y} ${C.x},${C.y}`)
+                    .attr("fill", "rgba(34, 211, 238, 0.25)")
+                    .attr("stroke", "#22D3EE")
+                    .attr("stroke-dasharray", t === 1 ? "none" : "3,3")
+                    .attr("stroke-width", 2)
+                    .attr("transform", `rotate(${rotAngle}, ${M.x}, ${M.y})`);
+
+                // 绘制高垂线
+                g.append("line")
+                    .attr("x1", C.x)
+                    .attr("y1", C.y)
+                    .attr("x2", C.x)
+                    .attr("y2", y0)
+                    .attr("stroke", "#FB7185")
+                    .attr("stroke-width", helperStrokeWidth)
+                    .attr("stroke-dasharray", "3,3");
+
+                // 高直角标记
+                g.append("path")
+                    .attr("d", `M ${C.x} ${y0 - 8} L ${C.x - 8} ${y0 - 8} L ${C.x - 8} ${y0}`)
+                    .attr("fill", "none")
+                    .attr("stroke", "#FB7185")
+                    .attr("stroke-width", helperStrokeWidth);
+
+                // 标注底和高
+                g.append("text")
+                    .attr("x", x0 + base / 2)
+                    .attr("y", y0 + 25)
+                    .attr("fill", "#CBD5E1")
+                    .attr("font-size", labelFontSize)
+                    .attr("text-anchor", "middle")
+                    .text(`底 a = ${Math.round(base / 30)}m`);
+
+                g.append("text")
+                    .attr("x", C.x + 8)
+                    .attr("y", y0 - h / 2)
+                    .attr("fill", "#FB7185")
+                    .attr("font-size", labelFontSize)
+                    .text(`高 h = ${Math.round(h / 30)}m`);
+
+                // 交互点
+                g.append("circle")
+                    .data([{ type: 'width' }])
+                    .attr("cx", B.x)
+                    .attr("cy", B.y)
+                    .attr("r", dragPointRadius)
+                    .attr("class", "drag-handle")
+                    .call(dragBehavior);
+
+                g.append("circle")
+                    .data([{ type: 'height' }])
+                    .attr("cx", C.x)
+                    .attr("cy", C.y)
+                    .attr("r", dragPointRadius)
+                    .attr("class", "drag-handle")
+                    .call(dragBehavior);
+
+            } else if (currentMode === 'trapezoid') {
+                const { topBase, bottomBase, height: h, skew, x0, y0 } = geom.trapezoid;
+
+                // 挂载挑战参数
+                window.currentChallenge.mode = 'trapezoid';
+                const roundedTop = Math.round(topBase / 30);
+                const roundedBottom = Math.round(bottomBase / 30);
+                const roundedHeight = Math.round(h / 30);
+                window.currentChallenge.topBase = roundedTop;
+                window.currentChallenge.bottomBase = roundedBottom;
+                window.currentChallenge.base = roundedBottom; // 这里的底是下底
+                window.currentChallenge.height = roundedHeight;
+                window.currentChallenge.correctArea = (roundedTop + roundedBottom) * roundedHeight / 2;
+                updateChallengeParamsUI();
+
+                const A = { x: x0, y: y0 };
+                const B = { x: x0 + bottomBase, y: y0 };
+                const C = { x: x0 + skew + topBase, y: y0 - h };
+                const D = { x: x0 + skew, y: y0 - h };
+
+                // 旋转中心 M (右腰 BC 中点)
+                const M = { x: (B.x + C.x) / 2, y: (B.y + C.y) / 2 };
+
+                drawGrid();
+
+                // 绘制原梯形
+                g.append("polygon")
+                    .attr("points", `${A.x},${A.y} ${B.x},${B.y} ${C.x},${C.y} ${D.x},${D.y}`)
+                    .attr("fill", "rgba(245, 158, 11, 0.25)")
+                    .attr("stroke", "#F59E0B")
+                    .attr("stroke-width", 2);
+
+                const rotAngle = t * 180;
+
+                // 绘制旋转指示
+                if (t > 0) {
+                    g.append("circle")
+                        .attr("cx", M.x)
+                        .attr("cy", M.y)
+                        .attr("r", 4)
+                        .attr("fill", "var(--accent-cyan)");
+
+                    // 绘制指示轨道
+                    const radius = Math.sqrt((A.x - M.x)**2 + (A.y - M.y)**2);
+                    g.append("circle")
+                        .attr("cx", M.x)
+                        .attr("cy", M.y)
+                        .attr("r", radius)
+                        .attr("fill", "none")
+                        .attr("stroke", "rgba(34, 211, 238, 0.12)")
+                        .attr("stroke-dasharray", "3,3");
+                }
+
+                // 绘制复制拼合的梯形
+                g.append("polygon")
+                    .attr("points", `${A.x},${A.y} ${B.x},${B.y} ${C.x},${C.y} ${D.x},${D.y}`)
+                    .attr("fill", "rgba(34, 211, 238, 0.25)")
+                    .attr("stroke", "#22D3EE")
+                    .attr("stroke-dasharray", t === 1 ? "none" : "3,3")
+                    .attr("stroke-width", 2)
+                    .attr("transform", `rotate(${rotAngle}, ${M.x}, ${M.y})`);
+
+                // 绘制高垂线
+                g.append("line")
+                    .attr("x1", D.x)
+                    .attr("y1", D.y)
+                    .attr("x2", D.x)
+                    .attr("y2", y0)
+                    .attr("stroke", "#FB7185")
+                    .attr("stroke-width", helperStrokeWidth)
+                    .attr("stroke-dasharray", "3,3");
+
+                // 标注尺寸
+                g.append("text")
+                    .attr("x", x0 + skew + topBase / 2)
+                    .attr("y", y0 - h - 10)
+                    .attr("fill", "#CBD5E1")
+                    .attr("font-size", labelFontSize)
+                    .attr("text-anchor", "middle")
+                    .text(`上底 a = ${Math.round(topBase / 30)}m`);
+
+                g.append("text")
+                    .attr("x", x0 + bottomBase / 2)
+                    .attr("y", y0 + 20)
+                    .attr("fill", "#CBD5E1")
+                    .attr("font-size", labelFontSize)
+                    .attr("text-anchor", "middle")
+                    .text(`下底 b = ${Math.round(bottomBase / 30)}m`);
+
+                g.append("text")
+                    .attr("x", D.x - 10)
+                    .attr("y", y0 - h / 2)
+                    .attr("fill", "#FB7185")
+                    .attr("font-size", labelFontSize)
+                    .attr("text-anchor", "end")
+                    .text(`高 h = ${Math.round(h / 30)}m`);
+
+                // 双侧标注拼合线
+                if (t === 1) {
+                    g.append("text")
+                        .attr("x", B.x + topBase / 2)
+                        .attr("y", y0 + 20)
+                        .attr("fill", "var(--accent-cyan)")
+                        .attr("font-size", labelFontSize)
+                        .attr("text-anchor", "middle")
+                        .text(`上底 a = ${Math.round(topBase / 30)}m`);
+                }
+
+                // 交互控制点
+                g.append("circle")
+                    .data([{ type: 'width' }])
+                    .attr("cx", B.x)
+                    .attr("cy", B.y)
+                    .attr("r", dragPointRadius)
+                    .attr("class", "drag-handle")
+                    .call(dragBehavior);
+
+                g.append("circle")
+                    .data([{ type: 'top' }])
+                    .attr("cx", C.x)
+                    .attr("cy", C.y)
+                    .attr("r", dragPointRadius)
+                    .attr("class", "drag-handle")
+                    .call(dragBehavior);
+
+                g.append("circle")
+                    .data([{ type: 'height' }])
+                    .attr("cx", D.x)
+                    .attr("cy", D.y)
+                    .attr("r", dragPointRadius)
+                    .attr("class", "drag-handle")
+                    .call(dragBehavior);
+
+            } else if (currentMode === 'polygon') {
+                const pts = geom.polygon.points;
+
+                // 1. 计算任意凸五边形的面积 (通过三角剖分累计)
+                // A = pts[0], B = pts[1], C = pts[2], D = pts[3], E = pts[4]
+                // 剖分为三个三角形: ABC, ACD, ADE
+                function triArea(p1, p2, p3) {
+                    return Math.abs((p1.x * (p2.y - p3.y) + p2.x * (p3.y - p1.y) + p3.x * (p1.y - p2.y)) / 2) / 900; // 缩放转换
+                }
+                const S1 = triArea(pts[0], pts[1], pts[2]);
+                const S2 = triArea(pts[0], pts[2], pts[3]);
+                const S3 = triArea(pts[0], pts[3], pts[4]);
+                const totalS = S1 + S2 + S3;
+
+                // 挂载挑战参数
+                window.currentChallenge.mode = 'polygon';
+                const roundedS1 = Math.round(S1 * 10);
+                const roundedS2 = Math.round(S2 * 10);
+                const roundedS3 = Math.round(S3 * 10);
+                window.currentChallenge.correctArea = roundedS1 + roundedS2 + roundedS3;
+                updateChallengeParamsUI(roundedS1, roundedS2, roundedS3);
+
+                drawGrid();
+
+                // 剖分虚线的展现时序
+                // t 在 [0, 0.2] 显示第一条剖分线 pts[0]->pts[2]
+                // t 在 [0.2, 0.4] 显示第二条剖分线 pts[0]->pts[3]
+                // t 在 [0.4, 1.0] 触发三个三角形向外缓缓爆炸平移
+                let showLine1 = t > 0.05;
+                let showLine2 = t > 0.25;
+
+                // 爆炸平移动画向量
+                let k = 0; // 爆炸位移比例
+                if (t > 0.4) {
+                    k = (t - 0.4) / 0.6; // 0 到 1 渐变
+                }
+
+                // 三个三角形的重心
+                const getCentroid = (p1, p2, p3) => ({
+                    x: (p1.x + p2.x + p3.x) / 3,
+                    y: (p1.y + p2.y + p3.y) / 3
+                });
+
+                const C1 = getCentroid(pts[0], pts[1], pts[2]);
+                const C2 = getCentroid(pts[0], pts[2], pts[3]);
+                const C3 = getCentroid(pts[0], pts[3], pts[4]);
+
+                // 五边形的粗略几何重心作为爆炸发散中心
+                const center = {
+                    x: (C1.x + C2.x + C3.x) / 3,
+                    y: (C1.y + C2.y + C3.y) / 3
+                };
+
+                // 位移量 (往重心发散方向偏移 35px)
+                const getShift = (centroid) => {
+                    const dx = centroid.x - center.x;
+                    const dy = centroid.y - center.y;
+                    const len = Math.sqrt(dx*dx + dy*dy) || 1;
+                    return {
+                        x: (dx / len) * 35 * k,
+                        y: (dy / len) * 35 * k
+                    };
+                };
+
+                const shift1 = getShift(C1);
+                const shift2 = getShift(C2);
+                const shift3 = getShift(C3);
+
+                // 绘制原轮廓虚线虚影
+                if (k > 0) {
+                    g.append("polygon")
+                        .attr("points", pts.map(p => `${p.x},${p.y}`).join(" "))
+                        .attr("fill", "rgba(255, 255, 255, 0.02)")
+                        .attr("stroke", "rgba(255,255,255,0.2)")
+                        .attr("stroke-dasharray", "4,4");
+                }
+
+                // 绘制牵引虚线
+                if (k > 0) {
+                    const drawTether = (p, shift) => {
+                        g.append("line")
+                            .attr("x1", p.x)
+                            .attr("y1", p.y)
+                            .attr("x2", p.x + shift.x)
+                            .attr("y2", p.y + shift.y)
+                            .attr("stroke", "rgba(255,255,255,0.3)")
+                            .attr("stroke-dasharray", "2,2")
+                            .attr("stroke-width", 1);
+                    };
+                    pts.forEach((p, idx) => {
+                        if (idx === 0) {
+                            // 顶点 0 复制分裂为三个
+                            drawTether(pts[0], shift1);
+                            drawTether(pts[0], shift2);
+                            drawTether(pts[0], shift3);
+                        } else if (idx === 1) {
+                            drawTether(pts[1], shift1);
+                        } else if (idx === 2) {
+                            drawTether(pts[2], shift1);
+                            drawTether(pts[2], shift2);
+                        } else if (idx === 3) {
+                            drawTether(pts[3], shift2);
+                            drawTether(pts[3], shift3);
+                        } else if (idx === 4) {
+                            drawTether(pts[4], shift3);
+                        }
+                    });
+                }
+
+                // 1. 绘制第一个三角形 ABC (平移)
+                const poly1 = [pts[0], pts[1], pts[2]].map(p => ({ x: p.x + shift1.x, y: p.y + shift1.y }));
+                g.append("polygon")
+                    .attr("points", poly1.map(p => `${p.x},${p.y}`).join(" "))
+                    .attr("fill", "rgba(245, 158, 11, 0.25)")
+                    .attr("stroke", "#F59E0B")
+                    .attr("stroke-width", 2);
+
+                // 2. 绘制第二个三角形 ACD (平移)
+                const poly2 = [pts[0], pts[2], pts[3]].map(p => ({ x: p.x + shift2.x, y: p.y + shift2.y }));
+                g.append("polygon")
+                    .attr("points", poly2.map(p => `${p.x},${p.y}`).join(" "))
+                    .attr("fill", "rgba(34, 211, 238, 0.25)")
+                    .attr("stroke", "#22D3EE")
+                    .attr("stroke-width", 2);
+
+                // 3. 绘制第三个三角形 ADE (平移)
+                const poly3 = [pts[0], pts[3], pts[4]].map(p => ({ x: p.x + shift3.x, y: p.y + shift3.y }));
+                g.append("polygon")
+                    .attr("points", poly3.map(p => `${p.x},${p.y}`).join(" "))
+                    .attr("fill", "rgba(52, 211, 153, 0.25)")
+                    .attr("stroke", "#34D399")
+                    .attr("stroke-width", 2);
+
+                // 绘制剖分连线
+                if (showLine1 && k === 0) {
+                    g.append("line")
+                        .attr("x1", pts[0].x)
+                        .attr("y1", pts[0].y)
+                        .attr("x2", pts[2].x)
+                        .attr("y2", pts[2].y)
+                        .attr("stroke", "var(--accent-rose)")
+                        .attr("stroke-width", helperStrokeWidth)
+                        .attr("stroke-dasharray", "4,4");
+                }
+                if (showLine2 && k === 0) {
+                    g.append("line")
+                        .attr("x1", pts[0].x)
+                        .attr("y1", pts[0].y)
+                        .attr("x2", pts[3].x)
+                        .attr("y2", pts[3].y)
+                        .attr("stroke", "var(--accent-rose)")
+                        .attr("stroke-width", helperStrokeWidth)
+                        .attr("stroke-dasharray", "4,4");
+                }
+
+                // 标注三角形序号
+                g.append("text")
+                    .attr("x", C1.x + shift1.x)
+                    .attr("y", C1.y + shift1.y + 4)
+                    .attr("fill", "#FBBF24")
+                    .attr("font-size", labelFontSize)
+                    .attr("font-weight", "bold")
+                    .attr("text-anchor", "middle")
+                    .text("S₁");
+
+                g.append("text")
+                    .attr("x", C2.x + shift2.x)
+                    .attr("y", C2.y + shift2.y + 4)
+                    .attr("fill", "#67E8F9")
+                    .attr("font-size", labelFontSize)
+                    .attr("font-weight", "bold")
+                    .attr("text-anchor", "middle")
+                    .text("S₂");
+
+                g.append("text")
+                    .attr("x", C3.x + shift3.x)
+                    .attr("y", C3.y + shift3.y + 4)
+                    .attr("fill", "#34D399")
+                    .attr("font-size", labelFontSize)
+                    .attr("font-weight", "bold")
+                    .attr("text-anchor", "middle")
+                    .text("S₃");
+
+                // 顶点交互拖拽（仅限未启动爆炸时，为了便于教学定位）
+                if (k === 0) {
+                    pts.forEach((p, idx) => {
+                        const labels = ['A', 'B', 'C', 'D', 'E'];
+                        // 绘制字母标签
+                        g.append("text")
+                            .attr("x", p.x + (p.x > width/2 ? 12 : -18))
+                            .attr("y", p.y + (p.y > height/2 ? 18 : -10))
+                            .attr("fill", "#F8FAFC")
+                            .attr("font-size", labelFontSize)
+                            .attr("font-weight", "bold")
+                            .text(labels[idx]);
+
+                        g.append("circle")
+                            .data([{ id: p.id }])
+                            .attr("cx", p.x)
+                            .attr("cy", p.y)
+                            .attr("r", dragPointRadius)
+                            .attr("class", "drag-handle")
+                            .call(dragBehavior);
+                    });
+                }
+            }
+        }
+
+        // 绘制虚线科技网格背景
+        function drawGrid() {
+            const gridGroup = svg.append("g").attr("class", "grid-background").attr("opacity", 0.04);
+            const step = 25;
+            for (let x = 0; x < width; x += step) {
+                gridGroup.append("line").attr("x1", x).attr("y1", 0).attr("x2", x).attr("y2", height).attr("stroke", "#FFF");
+            }
+            for (let y = 0; y < height; y += step) {
+                gridGroup.append("line").attr("x1", 0).attr("y1", y).attr("x2", width).attr("y2", y).attr("stroke", "#FFF");
+            }
+        }
+
+        // 8. 实时更新控制台 KaTeX 公式与数值
+        function updateFormulaHUD() {
+            const display = document.getElementById("formula-display");
+            const formatVal = (v) => Number.isInteger(v) ? v.toString() : v.toFixed(1);
+            if (currentMode === 'parallelogram') {
+                const b = Math.round(geom.parallelogram.base / 30);
+                const h = Math.round(geom.parallelogram.height / 30);
+                const area = b * h;
+                display.innerHTML = `S = a \\times h = ${b} \\times ${h} = ${area}\\text{ m}^2`;
+            } else if (currentMode === 'triangle') {
+                const b = Math.round(geom.triangle.base / 30);
+                const h = Math.round(geom.triangle.height / 30);
+                const area = b * h / 2;
+                display.innerHTML = `S = a \\times h \\div 2 = ${b} \\times ${h} \\div 2 = ${formatVal(area)}\\text{ m}^2`;
+            } else if (currentMode === 'trapezoid') {
+                const a = Math.round(geom.trapezoid.topBase / 30);
+                const b = Math.round(geom.trapezoid.bottomBase / 30);
+                const h = Math.round(geom.trapezoid.height / 30);
+                const area = (a + b) * h / 2;
+                display.innerHTML = `S = (a + b) \\times h \\div 2 = (${a} + ${b}) \\times ${h} \\div 2 = ${formatVal(area)}\\text{ m}^2`;
+            } else if (currentMode === 'polygon') {
+                const state = window.currentChallenge;
+                display.innerHTML = `S = S_1 + S_2 + S_3 = ${formatVal(state.correctArea)}\\text{ m}^2`;
+            }
+            // 每次更新完公式文本后重新渲染 KaTeX
+            try {
+                katex.render(display.innerText, display, { throwOnError: false });
+            } catch(e) {}
+        }
+
+        // 9. 更新随堂挑战的参数文本
+        function updateChallengeParamsUI(s1, s2, s3) {
+            const container = document.getElementById("challenge-params");
+            if (!container) return;
+
+            const state = window.currentChallenge;
+
+            if (currentMode === 'parallelogram') {
+                container.innerHTML = `
+                    <div>📐 形状: 平行四边形花坛</div>
+                    <div>底边 (a): ${state.base} 米</div>
+                    <div>高度 (h): ${state.height} 米</div>
+                `;
+            } else if (currentMode === 'triangle') {
+                container.innerHTML = `
+                    <div>📐 形状: 三角形花坛</div>
+                    <div>底边 (a): ${state.base} 米</div>
+                    <div>高度 (h): ${state.height} 米</div>
+                `;
+            } else if (currentMode === 'trapezoid') {
+                container.innerHTML = `
+                    <div>📐 形状: 梯形花坛</div>
+                    <div>上底 (a): ${state.topBase} 米</div>
+                    <div>下底 (b): ${state.bottomBase} 米</div>
+                    <div>高度 (h): ${state.height} 米</div>
+                `;
+            } else if (currentMode === 'polygon') {
+                container.innerHTML = `
+                    <div>📐 形状: 五边形创意花坛</div>
+                    <div>子三角形 S₁: ${s1} 平方米</div>
+                    <div>子三角形 S₂: ${s2} 平方米</div>
+                    <div>子三角形 S₃: ${s3} 平方米</div>
+                `;
+            }
+        }
+
+        // 10. 播放器控制与进度条响应
+        function switchMode(mode) {
+            currentMode = mode;
+            window.currentChallenge.mode = mode;
+            
+            // 更新按钮状态样式
+            document.querySelectorAll(".mode-btn").forEach(btn => {
+                btn.className = "mode-btn px-3 py-1.5 rounded-xl text-xs font-semibold text-slate-400 hover:bg-white/5 transition-all";
+            });
+            const activeBtn = document.getElementById(`btn-mode-${mode}`);
+            if (activeBtn) {
+                activeBtn.className = "mode-btn px-3 py-1.5 rounded-xl text-xs font-semibold text-amber-400 bg-amber-500/10 border border-amber-500/20 transition-all";
+            }
+
+            // 重置动画
+            onProgressChange(0);
+            isPlaying = false;
+            if (playInterval) clearInterval(playInterval);
+            document.getElementById("btn-play").textContent = "▶";
+            document.getElementById("play-status").textContent = "暂停中";
+
+            alignGeomToCenter();
+            resetChallengeInputs();
+            drawScene();
+            
+            showToast(`已切换至: ${mode === 'parallelogram' ? '平行四边形割补法' : mode === 'triangle' ? '三角形倍拼法' : mode === 'trapezoid' ? '梯形倍拼法' : '五边形三角剖分'} 演示`, "📐");
+        }
+
+        function onProgressChange(val) {
+            animProgress = parseInt(val);
+            document.getElementById("progress-slider").value = animProgress;
+            document.getElementById("progress-label").textContent = `${animProgress}%`;
+            drawScene();
+        }
+
+        function togglePlay() {
+            const btn = document.getElementById("btn-play");
+            const status = document.getElementById("play-status");
+
+            if (isPlaying) {
+                isPlaying = false;
+                btn.textContent = "▶";
+                status.textContent = "暂停中";
+                if (playInterval) clearInterval(playInterval);
+            } else {
+                isPlaying = true;
+                btn.textContent = "⏸";
+                status.textContent = "播放中";
+                playInterval = setInterval(() => {
+                    animProgress += 1;
+                    if (animProgress > 100) {
+                        animProgress = 100;
+                        onProgressChange(animProgress);
+                        isPlaying = false;
+                        btn.textContent = "▶";
+                        status.textContent = "已完成";
+                        clearInterval(playInterval);
+                        playInterval = null;
+                        return;
+                    }
+                    onProgressChange(animProgress);
+                }, 50);
+            }
+        }
+
+        function resetScene() {
+            onProgressChange(0);
+            if (isPlaying) togglePlay();
+            initializeGeomDimensions();
+            alignGeomToCenter();
+            drawScene();
+            showToast("场景已成功重置！", "🔄");
+        }
+
+        function randomizeFigure() {
+            const S = Math.min(width, height);
+            if (currentMode === 'parallelogram') {
+                geom.parallelogram.base = S * (0.35 + Math.random() * 0.15);
+                geom.parallelogram.height = S * (0.2 + Math.random() * 0.15);
+                geom.parallelogram.skew = S * (0.08 + Math.random() * 0.1);
+            } else if (currentMode === 'triangle') {
+                geom.triangle.base = S * (0.35 + Math.random() * 0.15);
+                geom.triangle.height = S * (0.2 + Math.random() * 0.15);
+                geom.triangle.skew = S * (0.08 + Math.random() * 0.12);
+            } else if (currentMode === 'trapezoid') {
+                geom.trapezoid.bottomBase = S * (0.35 + Math.random() * 0.15);
+                geom.trapezoid.topBase = S * (0.15 + Math.random() * 0.15);
+                geom.trapezoid.height = S * (0.2 + Math.random() * 0.15);
+                geom.trapezoid.skew = S * (0.05 + Math.random() * 0.1);
+            } else if (currentMode === 'polygon') {
+                const cx = width / 2;
+                const cy = height / 2;
+                geom.polygon.points = [
+                    {x: cx - S * (0.05 + Math.random() * 0.1), y: cy - S * (0.15 + Math.random() * 0.1), id: 0},
+                    {x: cx + S * (0.15 + Math.random() * 0.1), y: cy - S * (0.05 + Math.random() * 0.1), id: 1},
+                    {x: cx + S * (0.1 + Math.random() * 0.1), y: cy + S * (0.1 + Math.random() * 0.1), id: 2},
+                    {x: cx - S * (0.05 + Math.random() * 0.1), y: cy + S * (0.1 + Math.random() * 0.1), id: 3},
+                    {x: cx - S * (0.15 + Math.random() * 0.1), y: cy - S * (0.01 + Math.random() * 0.05), id: 4}
+                ];
+            }
+            alignGeomToCenter();
+            resetScene();
+            showToast("几何图形参数已随机改变", "🎲");
+        }
+
+        // 11. 全屏切换
+        function toggleFullScreen() {
+            if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen().catch(err => {
+                    showToast(`全屏失败: ${err.message}`, "⚠️");
+                });
+            } else {
+                document.exitFullscreen();
+            }
+        }
+
+        // D3 坐标系内置箭头标记定义
+        svg.append("defs").append("marker")
+            .attr("id", "arrow")
+            .attr("viewBox", "0 0 10 10")
+            .attr("refX", "5")
+            .attr("refY", "5")
+            .attr("markerWidth", "6")
+            .attr("markerHeight", "6")
+            .attr("orient", "auto-start-reverse")
+            .append("path")
+            .attr("d", "M 0 0 L 10 5 L 0 10 z")
+            .attr("fill", "var(--accent-cyan)");
+
+        // 页面初始化加载
+        window.addEventListener("resize", updateSVGDimensions);
+        window.addEventListener("load", () => {
+            updateSVGDimensions();
+            renderBlackboardFormulas();
+            showToast("欢迎使用多边形面积探究课件！", "🏫");
+        });
+        
+        // 外部校验钩子挂载，便于单测/宿主识别 HTML 加载完成
+        window.ready = true;
+    </script>
+</body>
+</html>

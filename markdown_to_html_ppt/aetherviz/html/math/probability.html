@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>概率初步 - 初一数学知识点</title>
+    <link rel="stylesheet" href="https://registry.npmmirror.com/katex/0.16.9/files/dist/katex.min.css">
+    <script src="https://registry.npmmirror.com/katex/0.16.9/files/dist/katex.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif; background: linear-gradient(135deg, #0a1929 0%, #1a2a4a 50%, #0d1f3c 100%); min-height: 100vh; color: #e0e6ed; }
+        .app-container { display: flex; min-height: 100vh; }
+        .sidebar { width: 320px; background: linear-gradient(180deg, rgba(20, 40, 70, 0.95) 0%, rgba(10, 25, 50, 0.98) 100%); border-right: 1px solid rgba(255, 200, 50, 0.2); padding: 24px; overflow-y: auto; }
+        .sidebar h1 { font-size: 1.5rem; color: #ffc832; margin-bottom: 8px; }
+        .sidebar .subtitle { font-size: 0.85rem; color: #8b9cb3; margin-bottom: 24px; }
+        .section { margin-bottom: 24px; padding: 16px; background: rgba(255, 255, 255, 0.03); border-radius: 12px; border: 1px solid rgba(255, 200, 50, 0.1); }
+        .section-title { font-size: 0.9rem; color: #ffc832; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+        .section-title::before { content: ''; width: 4px; height: 16px; background: linear-gradient(180deg, #ffc832, #ff9500); border-radius: 2px; }
+        .formula-box { background: rgba(0, 0, 0, 0.3); padding: 16px; border-radius: 8px; text-align: center; margin-bottom: 12px; border: 1px solid rgba(255, 200, 50, 0.15); }
+        .principle-text { font-size: 0.85rem; line-height: 1.7; color: #b0bec5; }
+        .principle-text strong { color: #ffc832; }
+        .application-item { padding: 10px 12px; background: rgba(255, 200, 50, 0.05); border-radius: 6px; margin-bottom: 8px; font-size: 0.85rem; color: #90a4ae; border-left: 3px solid rgba(255, 200, 50, 0.3); }
+        .main-content { flex: 1; padding: 24px; }
+        .visual-container { background: rgba(255, 255, 255, 0.02); border-radius: 16px; border: 1px solid rgba(255, 200, 50, 0.15); padding: 24px; margin-bottom: 20px; }
+        .probability-display { background: rgba(0,0,0,0.3); border-radius: 12px; padding: 24px; text-align: center; }
+        .prob-formula { font-size: 2rem; color: #fff; margin-bottom: 16px; font-family: 'Consolas', monospace; }
+        .prob-result { font-size: 3rem; color: #ffc832; font-weight: bold; }
+        .prob-info { color: #b0bec5; margin-top: 12px; font-size: 0.9rem; }
+        .sim-container { margin-top: 20px; text-align: center; }
+        .sim-btn { width: 100px; height: 100px; border-radius: 50%; font-size: 2rem; background: linear-gradient(135deg, #ffc832, #ff9500); border: none; cursor: pointer; transition: transform 0.1s; margin: 0 auto; display: block; }
+        .sim-btn:active { transform: scale(0.95); }
+        .sim-result { margin-top: 16px; font-size: 1.2rem; color: #4fc3f7; }
+        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 12px; margin-top: 16px; }
+        .stat-item { background: rgba(255,255,255,0.03); padding: 12px; border-radius: 8px; text-align: center; border: 1px solid rgba(255,200,50,0.1); }
+        .stat-item .label { font-size: 0.75rem; color: #8b9cb3; }
+        .stat-item .value { font-size: 1.3rem; color: #ffc832; font-weight: bold; margin-top: 4px; }
+        .event-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-top: 16px; }
+        .event-card { background: rgba(0,0,0,0.2); padding: 12px; border-radius: 8px; text-align: center; }
+        .event-card h5 { color: #ffc832; font-size: 0.9rem; }
+        .event-card p { color: #b0bec5; font-size: 0.8rem; margin-top: 4px; }
+        .control-panel { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 20px; }
+        .control-group { background: rgba(255, 255, 255, 0.03); padding: 16px; border-radius: 12px; border: 1px solid rgba(255, 200, 50, 0.1); }
+        .control-label { font-size: 0.85rem; color: #ffc832; margin-bottom: 10px; display: block; }
+        select { width: 100%; padding: 10px; border-radius: 8px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,200,50,0.3); font-size: 1rem; }
+        select option { background: #1a2a4a; }
+        .btn-group { display: flex; gap: 12px; flex-wrap: wrap; }
+        .btn { padding: 10px 20px; border: none; border-radius: 8px; cursor: pointer; font-size: 0.9rem; transition: all 0.3s ease; font-family: inherit; }
+        .btn-primary { background: linear-gradient(135deg, #ffc832, #ff9500); color: #0a1929; font-weight: bold; }
+        .btn-secondary { background: rgba(255, 200, 50, 0.15); color: #ffc832; border: 1px solid rgba(255, 200, 50, 0.3); }
+        .btn:hover { transform: translateY(-2px); box-shadow: 0 4px 15px rgba(255, 200, 50, 0.3); }
+        .toast { position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%) translateY(100px); background: linear-gradient(135deg, #ffc832, #ff9500); color: #0a1929; padding: 12px 24px; border-radius: 8px; font-weight: bold; opacity: 0; transition: all 0.3s ease; z-index: 1000; }
+        .toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }
+        @media (max-width: 768px) { .app-container { flex-direction: column; } .sidebar { width: 100%; max-height: 40vh; } }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <aside class="sidebar">
+            <h1>概率初步</h1>
+            <p class="subtitle">初一数学 · 下学期第八章</p>
+            <div class="section">
+                <div class="section-title">核心公式</div>
+                <div class="formula-box" id="f1"></div>
+            </div>
+            <div class="section">
+                <div class="section-title">概率范围</div>
+                <p class="principle-text">
+                    <strong>必然事件：</strong>P = 1<br><br>
+                    <strong>不可能事件：</strong>P = 0<br><br>
+                    <strong>随机事件：</strong>0 < P < 1
+                </p>
+            </div>
+            <div class="section">
+                <div class="section-title">真实应用</div>
+                <div class="application-item">🎲 游戏公平性</div>
+                <div class="application-item">📊 天气预报</div>
+                <div class="application-item">🎰 抽奖概率</div>
+            </div>
+        </aside>
+
+        <main class="main-content">
+            <div class="visual-container">
+                <h3 style="color:#ffc832;margin-bottom:16px;">🎲 概率计算器</h3>
+                <div class="probability-display">
+                    <div class="prob-formula" id="probFormula">P(掷出6点) = ?</div>
+                    <div class="prob-result" id="probResult">1/6</div>
+                    <div class="prob-info" id="probInfo">≈ 0.1667 ≈ 16.67%</div>
+                </div>
+
+                <div class="sim-container">
+                    <button class="sim-btn" id="simBtn" onclick="simulate()">🎲</button>
+                    <div class="sim-result" id="simResult">点击按钮开始模拟</div>
+                </div>
+
+                <div class="stats-grid">
+                    <div class="stat-item"><div class="label">试验次数</div><div class="value" id="trialCount">0</div></div>
+                    <div class="stat-item"><div class="label">出现次数</div><div class="value" id="successCount">0</div></div>
+                    <div class="stat-item"><div class="label">频率</div><div class="value" id="freqDisplay">-</div></div>
+                </div>
+            </div>
+
+            <div class="event-list">
+                <div class="event-card"><h5>掷骰子</h5><p>出现6点</p></div>
+                <div class="event-card"><h5>抛硬币</h5><p>正面朝上</p></div>
+                <div class="event-card"><h5>摸球</h5><p>摸到红球</p></div>
+            </div>
+
+            <div class="control-panel" style="margin-top:20px;">
+                <div class="control-group">
+                    <label class="control-label">选择实验</label>
+                    <select id="expSelect" onchange="changeExperiment()">
+                        <option value="dice6">掷骰子：出现6点</option>
+                        <option value="coin">抛硬币：正面朝上</option>
+                        <option value="ball">摸球：摸到红球</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="btn-group">
+                <button class="btn btn-primary" onclick="resetStats()">重置统计</button>
+                <button class="btn btn-secondary" onclick="run100()">快速100次</button>
+                <button class="btn btn-secondary" onclick="showTheory()">概率理论</button>
+            </div>
+        </main>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <script>
+        let trials = 0, successes = 0;
+        const experiments = {
+            dice6: { formula: 'P(掷出6点)', favorable: 1, total: 6, label: '6点' },
+            coin: { formula: 'P(正面朝上)', favorable: 1, total: 2, label: '正面' },
+            ball: { formula: 'P(摸到红球)', favorable: 3, total: 10, label: '红球' }
+        };
+        let currentExp = 'dice6';
+
+        function initFormulas() {
+            katex.render("P(A) = \\frac{\\text{事件A发生的次数}}{\\text{所有可能结果的总数}}", document.getElementById('f1'));
+        }
+
+        function updateDisplay() {
+            const exp = experiments[currentExp];
+            document.getElementById('probFormula').textContent = exp.formula + ' = ?';
+            const prob = exp.favorable / exp.total;
+            document.getElementById('probResult').textContent = `${exp.favorable}/${exp.total}`;
+            document.getElementById('probInfo').textContent = `≈ ${prob.toFixed(4)} ≈ ${(prob * 100).toFixed(2)}%`;
+        }
+
+        function simulate() {
+            const exp = experiments[currentExp];
+            const result = Math.floor(Math.random() * exp.total) + 1;
+            trials++;
+            const isSuccess = currentExp === 'coin' ? result === 1 : result === exp.favorable;
+            if (isSuccess) successes++;
+
+            document.getElementById('simResult').textContent = currentExp === 'coin' ?
+                `结果：${result === 1 ? '正面' : '反面'}` :
+                `结果：${result} (${isSuccess ? '✓ 成功' : '✗ 失败'})`;
+            updateStats();
+        }
+
+        function updateStats() {
+            document.getElementById('trialCount').textContent = trials;
+            document.getElementById('successCount').textContent = successes;
+            document.getElementById('freqDisplay').textContent = trials > 0 ? (successes / trials).toFixed(3) : '-';
+        }
+
+        function resetStats() {
+            trials = 0; successes = 0;
+            updateStats();
+            document.getElementById('simResult').textContent = '统计已重置';
+            showToast('已重置');
+        }
+
+        function run100() {
+            const exp = experiments[currentExp];
+            for (let i = 0; i < 100; i++) {
+                const result = Math.floor(Math.random() * exp.total) + 1;
+                trials++;
+                const isSuccess = currentExp === 'coin' ? result === 1 : result === exp.favorable;
+                if (isSuccess) successes++;
+            }
+            updateStats();
+            document.getElementById('simResult').textContent = '完成100次模拟';
+            showToast('快速模拟100次');
+        }
+
+        function changeExperiment() {
+            currentExp = document.getElementById('expSelect').value;
+            updateDisplay();
+        }
+
+        function showTheory() {
+            showToast('概率范围：0 ≤ P ≤ 1');
+        }
+
+        function showToast(msg) {
+            const t = document.getElementById('toast');
+            t.textContent = msg;
+            t.classList.add('show');
+            setTimeout(() => t.classList.remove('show'), 2000);
+        }
+
+        initFormulas();
+        updateDisplay();
+    </script>
+</body>
+</html>

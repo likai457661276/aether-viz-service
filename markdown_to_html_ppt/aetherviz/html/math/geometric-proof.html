@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>几何证明 - 初一数学知识点</title>
+    <link rel="stylesheet" href="https://registry.npmmirror.com/katex/0.16.9/files/dist/katex.min.css">
+    <script src="https://registry.npmmirror.com/katex/0.16.9/files/dist/katex.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif; background: linear-gradient(135deg, #0a1929 0%, #1a2a4a 50%, #0d1f3c 100%); min-height: 100vh; color: #e0e6ed; }
+        .app-container { display: flex; min-height: 100vh; }
+        .sidebar { width: 320px; background: linear-gradient(180deg, rgba(20, 40, 70, 0.95) 0%, rgba(10, 25, 50, 0.98) 100%); border-right: 1px solid rgba(255, 200, 50, 0.2); padding: 24px; overflow-y: auto; }
+        .sidebar h1 { font-size: 1.5rem; color: #ffc832; margin-bottom: 8px; }
+        .sidebar .subtitle { font-size: 0.85rem; color: #8b9cb3; margin-bottom: 24px; }
+        .section { margin-bottom: 24px; padding: 16px; background: rgba(255, 255, 255, 0.03); border-radius: 12px; border: 1px solid rgba(255, 200, 50, 0.1); }
+        .section-title { font-size: 0.9rem; color: #ffc832; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+        .section-title::before { content: ''; width: 4px; height: 16px; background: linear-gradient(180deg, #ffc832, #ff9500); border-radius: 2px; }
+        .formula-box { background: rgba(0, 0, 0, 0.3); padding: 16px; border-radius: 8px; text-align: center; margin-bottom: 12px; border: 1px solid rgba(255, 200, 50, 0.15); }
+        .principle-text { font-size: 0.85rem; line-height: 1.7; color: #b0bec5; }
+        .principle-text strong { color: #ffc832; }
+        .application-item { padding: 10px 12px; background: rgba(255, 200, 50, 0.05); border-radius: 6px; margin-bottom: 8px; font-size: 0.85rem; color: #90a4ae; border-left: 3px solid rgba(255, 200, 50, 0.3); }
+        .main-content { flex: 1; padding: 24px; }
+        .proof-container { background: rgba(255, 255, 255, 0.02); border-radius: 16px; border: 1px solid rgba(255, 200, 50, 0.15); padding: 24px; margin-bottom: 20px; }
+        .proof-figure { background: rgba(0,0,0,0.3); border-radius: 12px; padding: 20px; text-align: center; margin-bottom: 20px; }
+        .proof-figure svg { max-width: 300px; height: 200px; }
+        .proof-box { background: rgba(0,0,0,0.2); border-radius: 8px; padding: 16px; font-family: 'Consolas', monospace; }
+        .proof-line { padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.05); color: #b0bec5; }
+        .proof-line:last-child { border-bottom: none; }
+        .proof-line .label { color: #ffc832; margin-right: 8px; }
+        .proof-line .text { color: #e0e6ed; }
+        .theorem-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-top: 16px; }
+        .theorem-card { background: rgba(0,0,0,0.2); padding: 12px; border-radius: 8px; border-left: 3px solid #ffc832; }
+        .theorem-card h5 { color: #ffc832; margin-bottom: 4px; font-size: 0.85rem; }
+        .theorem-card p { color: #b0bec5; font-size: 0.8rem; }
+        .control-panel { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 20px; }
+        .control-group { background: rgba(255, 255, 255, 0.03); padding: 16px; border-radius: 12px; border: 1px solid rgba(255, 200, 50, 0.1); }
+        .control-label { font-size: 0.85rem; color: #ffc832; margin-bottom: 10px; display: block; }
+        select { width: 100%; padding: 10px; border-radius: 8px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,200,50,0.3); font-size: 1rem; }
+        select option { background: #1a2a4a; }
+        .btn-group { display: flex; gap: 12px; flex-wrap: wrap; }
+        .btn { padding: 10px 20px; border: none; border-radius: 8px; cursor: pointer; font-size: 0.9rem; transition: all 0.3s ease; font-family: inherit; }
+        .btn-primary { background: linear-gradient(135deg, #ffc832, #ff9500); color: #0a1929; font-weight: bold; }
+        .btn-secondary { background: rgba(255, 200, 50, 0.15); color: #ffc832; border: 1px solid rgba(255, 200, 50, 0.3); }
+        .btn:hover { transform: translateY(-2px); box-shadow: 0 4px 15px rgba(255, 200, 50, 0.3); }
+        .toast { position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%) translateY(100px); background: linear-gradient(135deg, #ffc832, #ff9500); color: #0a1929; padding: 12px 24px; border-radius: 8px; font-weight: bold; opacity: 0; transition: all 0.3s ease; z-index: 1000; }
+        .toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }
+        @media (max-width: 768px) { .app-container { flex-direction: column; } .sidebar { width: 100%; max-height: 40vh; } }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <aside class="sidebar">
+            <h1>几何证明</h1>
+            <p class="subtitle">初一数学 · 下学期第五章</p>
+            <div class="section">
+                <div class="section-title">证明方法</div>
+                <p class="principle-text">
+                    <strong>直接证明：</strong><br>
+                    从已知条件出发，通过逻辑推理，逐步推导得到结论<br><br>
+                    <strong>间接证明（反证法）：</strong><br>
+                    假设结论不成立，推出矛盾，从而证明原结论成立
+                </p>
+            </div>
+            <div class="section">
+                <div class="section-title">证明步骤</div>
+                <div class="formula-box" id="f1"></div>
+            </div>
+            <div class="section">
+                <div class="section-title">真实应用</div>
+                <div class="application-item">📐 建筑工程验证</div>
+                <div class="application-item">🔧 机械设计</div>
+                <div class="application-item">📐 数学竞赛</div>
+            </div>
+        </aside>
+
+        <main class="main-content">
+            <div class="proof-container">
+                <div class="proof-figure">
+                    <svg viewBox="0 0 300 180" id="proofSvg">
+                        <polygon points="50,150 150,30 250,150" fill="none" stroke="#ffc832" stroke-width="2"/>
+                        <line x1="50" y1="150" x2="250" y2="150" stroke="#ffc832" stroke-width="2"/>
+                        <text x="40" y="155" fill="#4fc3f7" font-size="14">A</text>
+                        <text x="145" y="20" fill="#4fc3f7" font-size="14">B</text>
+                        <text x="260" y="155" fill="#4fc3f7" font-size="14">C</text>
+                        <text x="100" y="100" fill="#ff5252" font-size="12">∠B = ∠C</text>
+                        <line x1="150" y1="30" x2="150" y2="150" stroke="#69f0ae" stroke-width="1" stroke-dasharray="5,3"/>
+                        <text x="155" y="90" fill="#69f0ae" font-size="12">AD是BC的高</text>
+                    </svg>
+                </div>
+                <div class="proof-box" id="proofBox">
+                    <div class="proof-line"><span class="label">已知：</span><span class="text">△ABC中，∠B = ∠C，AD⊥BC</span></div>
+                    <div class="proof-line"><span class="label">求证：</span><span class="text">AB = AC</span></div>
+                    <div class="proof-line"><span class="label">证明：</span></div>
+                    <div class="proof-line"><span class="label">1.</span><span class="text">在△ABD和△ACD中</span></div>
+                    <div class="proof-line"><span class="label">2.</span><span class="text">∠BDA = ∠CDA = 90°（AD⊥BC）</span></div>
+                    <div class="proof-line"><span class="label">3.</span><span class="text">AD = AD（公共边）</span></div>
+                    <div class="proof-line"><span class="label">4.</span><span class="text">∠B = ∠C（已知）</span></div>
+                    <div class="proof-line"><span class="label">5.</span><span class="text">∴ △ABD ≅ △ACD（AAS）</span></div>
+                    <div class="proof-line"><span class="label">6.</span><span class="text">∴ AB = AC（对应边相等）</span></div>
+                </div>
+            </div>
+
+            <div class="theorem-grid">
+                <div class="theorem-card">
+                    <h5>SSS</h5>
+                    <p>三边分别相等</p>
+                </div>
+                <div class="theorem-card">
+                    <h5>SAS</h5>
+                    <p>两边及其夹角相等</p>
+                </div>
+                <div class="theorem-card">
+                    <h5>ASA</h5>
+                    <p>两角及其夹边相等</p>
+                </div>
+                <div class="theorem-card">
+                    <h5>AAS</h5>
+                    <p>两角及其中一边相等</p>
+                </div>
+            </div>
+
+            <div class="control-panel" style="margin-top:20px;">
+                <div class="control-group">
+                    <label class="control-label">选择例题</label>
+                    <select id="exampleSelect" onchange="loadExample()">
+                        <option value="0">等腰三角形性质证明</option>
+                        <option value="1">平行线性质证明</option>
+                        <option value="2">角平分线性质</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="btn-group">
+                <button class="btn btn-secondary" onclick="showTheorem('SSS')">SSS</button>
+                <button class="btn btn-secondary" onclick="showTheorem('SAS')">SAS</button>
+                <button class="btn btn-secondary" onclick="showTheorem('ASA')">ASA</button>
+                <button class="btn btn-secondary" onclick="showTheorem('AAS')">AAS</button>
+            </div>
+        </main>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <script>
+        function initFormulas() {
+            katex.render("\\text{已知} \\rightarrow \\text{推理} \\rightarrow \\text{结论}", document.getElementById('f1'));
+        }
+
+        const proofExamples = [
+            {
+                title: '等腰三角形性质证明',
+                svg: '<polygon points="50,150 150,30 250,150" fill="none" stroke="#ffc832" stroke-width="2"/><line x1="50" y1="150" x2="250" y2="150" stroke="#ffc832" stroke-width="2"/><text x="40" y="155" fill="#4fc3f7" font-size="14">A</text><text x="145" y="20" fill="#4fc3f7" font-size="14">B</text><text x="260" y="155" fill="#4fc3f7" font-size="14">C</text><text x="100" y="100" fill="#ff5252" font-size="12">∠B = ∠C</text><line x1="150" y1="30" x2="150" y2="150" stroke="#69f0ae" stroke-width="1" stroke-dasharray="5,3"/><text x="155" y="90" fill="#69f0ae" font-size="12">AD⊥BC</text>',
+                proof: [
+                    { label: '已知：', text: '△ABC中，∠B = ∠C，AD⊥BC' },
+                    { label: '求证：', text: 'AB = AC' },
+                    { label: '证明：', text: '' },
+                    { label: '1.', text: '在△ABD和△ACD中' },
+                    { label: '2.', text: '∠BDA = ∠CDA = 90°（AD⊥BC）' },
+                    { label: '3.', text: 'AD = AD（公共边）' },
+                    { label: '4.', text: '∠B = ∠C（已知）' },
+                    { label: '5.', text: '∴ △ABD ≅ △ACD（AAS）' },
+                    { label: '6.', text: '∴ AB = AC（对应边相等）' }
+                ]
+            },
+            {
+                title: '平行线性质证明',
+                svg: '<line x1="30" y1="40" x2="270" y2="40" stroke="#ffc832" stroke-width="2"/><line x1="30" y1="140" x2="270" y2="140" stroke="#ffc832" stroke-width="2"/><line x1="120" y1="10" x2="80" y2="170" stroke="#4fc3f7" stroke-width="2"/><text x="150" y="30" fill="#ffc832" font-size="12">l₁</text><text x="150" y="155" fill="#ffc832" font-size="12">l₂</text><text x="90" y="90" fill="#ff5252" font-size="11">∠1</text><text x="115" y="125" fill="#69f0ae" font-size="11">∠2</text>',
+                proof: [
+                    { label: '已知：', text: 'l₁ ∥ l₂，截线a与l₁、l₂分别交于A、B' },
+                    { label: '求证：', text: '同位角相等' },
+                    { label: '证明：', text: '' },
+                    { label: '1.', text: '设∠1 ≠ ∠2' },
+                    { label: '2.', text: '过点B作直线l₃，使l₃与截线的同位角等于∠1' },
+                    { label: '3.', text: '由同位角相等→两直线平行，得l₃ ∥ l₁' },
+                    { label: '4.', text: '又l₂ ∥ l₁（已知），且l₃和l₂都过点B' },
+                    { label: '5.', text: '由平行公理：过直线外一点有且只有一条直线与之平行' },
+                    { label: '6.', text: '∴ l₃与l₂重合，∠1 = ∠2' }
+                ]
+            },
+            {
+                title: '角平分线性质',
+                svg: '<line x1="50" y1="150" x2="250" y2="150" stroke="#ffc832" stroke-width="2"/><line x1="150" y1="150" x2="50" y2="30" stroke="#4fc3f7" stroke-width="2"/><line x1="150" y1="150" x2="250" y2="30" stroke="#69f0ae" stroke-width="2"/><line x1="150" y1="150" x2="150" y2="20" stroke="#ff5252" stroke-width="1" stroke-dasharray="5,3"/><text x="140" y="15" fill="#ff5252" font-size="11">OC平分∠AOB</text><text x="155" y="80" fill="#ff5252" font-size="11">PD⊥OA</text><text x="60" y="80" fill="#ff5252" font-size="11">PE⊥OB</text>',
+                proof: [
+                    { label: '已知：', text: 'OC是∠AOB的平分线，P是OC上一点，PD⊥OA，PE⊥OB' },
+                    { label: '求证：', text: 'PD = PE' },
+                    { label: '证明：', text: '' },
+                    { label: '1.', text: 'OC平分∠AOB（已知）' },
+                    { label: '2.', text: '∴ ∠POD = ∠POE' },
+                    { label: '3.', text: 'PD⊥OA，PE⊥OB（已知）' },
+                    { label: '4.', text: '∴ ∠PDO = ∠PEO = 90°' },
+                    { label: '5.', text: '又OP = OP（公共边）' },
+                    { label: '6.', text: '∴ △OPD ≅ △OPE（AAS）' },
+                    { label: '7.', text: '∴ PD = PE（对应边相等）' }
+                ]
+            }
+        ];
+
+        function loadExample() {
+            const idx = parseInt(document.getElementById('exampleSelect').value);
+            const example = proofExamples[idx];
+            document.getElementById('proofSvg').innerHTML = example.svg;
+            document.getElementById('proofBox').innerHTML = example.proof.map(line =>
+                `<div class="proof-line"><span class="label">${line.label}</span><span class="text">${line.text}</span></div>`
+            ).join('');
+            showToast(`例题${idx + 1}: ${example.title}`);
+        }
+
+        function showTheorem(type) {
+            const theorems = {
+                'SSS': '三边分别相等的两个三角形全等',
+                'SAS': '两边及其夹角分别相等的两个三角形全等',
+                'ASA': '两角及其夹边分别相等的两个三角形全等',
+                'AAS': '两角及其中一边分别相等的两个三角形全等'
+            };
+            showToast(`${type}: ${theorems[type]}`);
+        }
+
+        function showToast(msg) {
+            const t = document.getElementById('toast');
+            t.textContent = msg;
+            t.classList.add('show');
+            setTimeout(() => t.classList.remove('show'), 2000);
+        }
+
+        initFormulas();
+    </script>
+</body>
+</html>

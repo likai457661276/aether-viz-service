@@ -1,0 +1,1453 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>氧化还原反应 | Redox Reaction</title>
+    <!-- 引入官方 Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 引入 D3.js v7 CDN 用于交互图表与配合 SVG 桥连线 -->
+    <script src="https://cdn.staticfile.net/d3/7.9.0/d3.min.js"></script>
+    <!-- 引入 KaTeX 公式渲染库 -->
+    <link rel="stylesheet" href="https://cdn.staticfile.net/KaTeX/0.16.9/katex.min.css">
+    <script src="https://cdn.staticfile.net/KaTeX/0.16.9/katex.min.js"></script>
+    <script src="https://cdn.staticfile.net/KaTeX/0.16.9/contrib/auto-render.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap');
+        
+        :root {
+            --bg-gradient: linear-gradient(180deg, #0A0F1D 0%, #151833 50%, #0A0F1D 100%);
+            --glass-bg: rgba(13, 17, 39, 0.75);
+            --glass-border: rgba(255, 255, 255, 0.08);
+            --glass-border-glow: rgba(245, 158, 11, 0.25);
+            --text-primary: #F8FAFC;
+            --text-secondary: #CBD5E1;
+            --text-muted: #64748B;
+            
+            /* 化学氧化还原反应专有色彩 */
+            --color-ox-agent: #3B82F6; /* 氧化剂 (得电子, 化合价降低) - 蓝色 */
+            --color-red-agent: #F59E0B; /* 还原剂 (失电子, 化合价升高) - 橙色 */
+            --color-electron: #22D3EE; /* 电子 - 亮青色 */
+            --theme-chemistry: linear-gradient(135deg, #F59E0B 0%, #EF4444 100%);
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            user-select: none;
+        }
+        
+        html, body {
+            height: 100vh;
+            overflow: hidden;
+        }
+        
+        body { 
+            font-family: 'Inter', 'Outfit', sans-serif; 
+            background: var(--bg-gradient); 
+            color: var(--text-primary); 
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .glass-panel { 
+            background: var(--glass-bg); 
+            backdrop-filter: blur(16px); 
+            border: 1px solid var(--glass-border);
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.45);
+            transition: all 0.3s ease;
+        }
+
+        .glass-panel:hover {
+            border-color: var(--glass-border-glow);
+            box-shadow: 0 8px 32px 0 rgba(245, 158, 11, 0.15);
+        }
+        
+        .btn-glow {
+            background: linear-gradient(135deg, #F59E0B 0%, #EF4444 100%);
+            box-shadow: 0 0 12px rgba(245, 158, 11, 0.3);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        
+        .btn-glow:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 0 20px rgba(245, 158, 11, 0.6);
+            background: linear-gradient(135deg, #FBBF24 0%, #F87171 100%);
+        }
+
+        .btn-glow:active:not(:disabled) {
+            transform: translateY(0);
+        }
+
+        .btn-glow:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            box-shadow: none;
+        }
+
+        .tab-btn {
+            position: relative;
+            transition: all 0.3s ease;
+        }
+        .tab-btn.active::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 10%;
+            width: 80%;
+            height: 3px;
+            background: linear-gradient(90deg, #F59E0B, #EF4444);
+            border-radius: 9999px;
+        }
+
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            background: #F59E0B;
+            box-shadow: 0 0 10px rgba(245, 158, 11, 0.8);
+            border: 2px solid #FFFFFF;
+            cursor: pointer;
+            transition: transform 0.1s ease;
+        }
+        input[type="range"]::-webkit-slider-thumb:hover {
+            transform: scale(1.25);
+        }
+
+        /* 电子沿路径流动动效 */
+        @keyframes stroke-flow {
+            to {
+                stroke-dashoffset: -40;
+            }
+        }
+        .electron-flow-line {
+            stroke-dasharray: 8 4;
+            animation: stroke-flow 1.5s linear infinite;
+        }
+        
+        /* 脉冲发光效果 */
+        @keyframes pulse-glow {
+            0%, 100% { opacity: 0.6; transform: scale(1); }
+            50% { opacity: 1; transform: scale(1.05); }
+        }
+        .pulse-element {
+            animation: pulse-glow 3s infinite ease-in-out;
+        }
+
+        /* 震动动画 */
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-4px); }
+            75% { transform: translateX(4px); }
+        }
+        .animate-shake {
+            animation: shake 0.3s ease-in-out 2;
+        }
+    </style>
+</head>
+<body class="w-full h-full flex flex-col">
+    <!-- 顶部导航栏 -->
+    <nav class="h-[70px] w-full px-6 flex items-center justify-between border-b border-orange-500/10 bg-slate-950/80 backdrop-blur-md z-50">
+        <div class="flex flex-col">
+            <h1 class="text-xl font-bold bg-gradient-to-r from-amber-400 via-orange-500 to-red-500 bg-clip-text text-transparent">
+                氧化还原反应 | Redox Reaction
+            </h1>
+            <p class="text-xs text-[#64748B] font-mono mt-0.5">反应微观本质：电子的得失或共用电子对的偏移</p>
+        </div>
+        <div class="flex gap-4">
+            <!-- 视图切换 -->
+            <div class="flex rounded-lg bg-slate-900/60 p-1 border border-white/5">
+                <button onclick="switchView('micro')" id="tab-micro" class="tab-btn active px-4 py-1.5 rounded-md text-xs font-semibold text-white">微观反应模拟</button>
+                <button onclick="switchView('bridge')" id="tab-bridge" class="tab-btn px-4 py-1.5 rounded-md text-xs font-semibold text-slate-400 hover:text-white">双/单线桥解析</button>
+            </div>
+            <button onclick="resetAll()" class="btn-glow px-4 py-1.5 rounded-lg text-xs font-semibold text-white">重置实验</button>
+        </div>
+    </nav>
+    
+    <!-- 主体区域：左中右布局 -->
+    <div class="flex-1 flex overflow-hidden relative">
+        <!-- 左侧面板 (学习目标与知识梳理) -->
+        <aside class="w-[320px] h-full overflow-y-auto border-r border-orange-500/10 bg-slate-900/40 backdrop-blur-md p-5 z-10 flex flex-col gap-5 no-scrollbar flex-shrink-0">
+            <!-- 学习目标 -->
+            <section class="glass-panel rounded-2xl p-4">
+                <h2 class="text-amber-400 font-bold text-xs mb-3 tracking-wide flex items-center gap-2">
+                    <span class="inline-block w-1.5 h-3 bg-amber-500 rounded-full"></span>学习目标
+                </h2>
+                <div class="flex flex-col gap-2.5 text-xs leading-relaxed text-slate-300">
+                    <label class="flex items-start gap-2.5 cursor-pointer">
+                        <input type="checkbox" checked class="mt-0.5 accent-amber-500 rounded" disabled>
+                        <span>理解氧化还原反应与化合价升降的关系</span>
+                    </label>
+                    <label class="flex items-start gap-2.5 cursor-pointer">
+                        <input type="checkbox" id="goal-2" class="mt-0.5 accent-amber-500 rounded">
+                        <span>掌握氧化还原反应的本质：电子的转移</span>
+                    </label>
+                    <label class="flex items-start gap-2.5 cursor-pointer">
+                        <input type="checkbox" id="goal-3" class="mt-0.5 accent-amber-500 rounded">
+                        <span>学会用双线桥和单线桥表示电子转移</span>
+                    </label>
+                </div>
+            </section>
+            
+            <!-- 口诀记忆与概念关系 -->
+            <section class="glass-panel rounded-2xl p-4">
+                <h2 class="text-amber-400 font-bold text-xs mb-3 tracking-wide flex items-center gap-2">
+                    <span class="inline-block w-1.5 h-3 bg-amber-500 rounded-full"></span>核心概念与经典口诀
+                </h2>
+                <div class="flex flex-col gap-3 text-xs">
+                    <div class="bg-black/30 rounded-lg p-3 font-mono border border-orange-500/10 text-center">
+                        <p class="text-amber-300 font-bold text-sm">“升失氧，降得还”</p>
+                        <p class="text-slate-400 text-[10px] mt-1.5 leading-relaxed">
+                            化合价<span class="text-amber-400">升</span>高 → <span class="text-amber-400">失</span>去电子 → 被<span class="text-amber-400">氧</span>化 (还原剂)<br/>
+                            化合价<span class="text-blue-400">降</span>低 → 获<span class="text-blue-400">得</span>电子 → 被<span class="text-blue-400">还</span>原 (氧化剂)
+                        </p>
+                    </div>
+                    <div class="bg-black/30 rounded-lg p-3 font-mono border border-orange-500/10 text-center">
+                        <p class="text-red-400 font-bold text-sm">“剂性一致，变性相反”</p>
+                        <p class="text-slate-400 text-[10px] mt-1 leading-relaxed">
+                            还原剂具有还原性，发生氧化反应；<br/>
+                            氧化剂具有氧化性，发生还原反应。
+                        </p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 反应原理公式 -->
+            <section class="glass-panel rounded-2xl p-4">
+                <h2 class="text-amber-400 font-bold text-xs mb-3 tracking-wide flex items-center gap-2">
+                    <span class="inline-block w-1.5 h-3 bg-amber-500 rounded-full"></span>电子转移守恒
+                </h2>
+                <div class="bg-black/30 rounded-lg p-3 font-mono border border-orange-500/10 text-slate-300 leading-relaxed text-xs">
+                    <div id="latex-formula" class="py-1 text-center">
+                        $$\sum N(\text{e}^-_{\text{lost}}) = \sum N(\text{e}^-_{\text{gained}})$$
+                    </div>
+                    <p class="text-[10px] text-slate-400 mt-2">
+                        还原剂失去的电子总数必然等于氧化剂得到的电子总数，这是配平氧化还原反应方程式的基础。
+                    </p>
+                </div>
+            </section>
+            
+            <!-- 拟物化微观模型说明，默认在 aside 里以精致图例形式展示 -->
+            <section class="glass-panel rounded-2xl p-4" id="aside-micro-legend">
+                <h2 class="text-amber-400 font-bold text-xs mb-3 tracking-wide flex items-center gap-2">
+                    <span class="inline-block w-1.5 h-3 bg-amber-500 rounded-full"></span>微观模型图例
+                </h2>
+                <div class="flex flex-col gap-2.5 text-[11px] text-slate-300 leading-relaxed">
+                    <div class="flex items-center gap-2.5">
+                        <span class="inline-block w-3.5 h-3.5 rounded-full bg-[#64748B] border border-[#94A3B8] flex-shrink-0 shadow-[0_0_6px_#94A3B8]"></span>
+                        <span><strong>Zn 固体原子：</strong>灰色大球，最外层带有 2 个黄色轨道电子</span>
+                    </div>
+                    <div class="flex items-center gap-2.5">
+                        <span class="inline-block w-3.5 h-3.5 rounded-full bg-[#1D4ED8] border border-[#60A5FA] flex-shrink-0 shadow-[0_0_8px_#3B82F6] relative">
+                            <span class="absolute top-[3px] left-[3px] w-1.5 h-1.5 rounded-full bg-[#090D16]"></span>
+                        </span>
+                        <span><strong>Cu²⁺ 游离离子：</strong>蓝色大球，带有 2 个空的电子卡槽</span>
+                    </div>
+                    <div class="flex items-center gap-2.5">
+                        <span class="inline-block w-3.5 h-3.5 rounded-full bg-[#B91C1C] border border-[#F87171] flex-shrink-0 shadow-[0_0_6px_#EF4444] relative">
+                            <span class="absolute top-[3px] left-[3px] w-1.5 h-1.5 rounded-full bg-[#FBBF24]"></span>
+                        </span>
+                        <span><strong>Cu 还原原子：</strong>暗红大球，卡槽已被电子填满并附着</span>
+                    </div>
+                    <div class="flex items-center gap-2.5">
+                        <span class="inline-block w-3.5 h-3.5 rounded-full bg-[#065F46] border border-[#34D399] flex-shrink-0 shadow-[0_0_6px_#10B981]"></span>
+                        <span><strong>Zn²⁺ 氧化离子：</strong>淡绿大球，外圈仅剩虚线轨道圈</span>
+                    </div>
+                </div>
+            </section>
+        </aside>
+        
+        <!-- 中央主展示区域 (分为微观模拟和线桥解析) -->
+        <main class="flex-1 h-full relative flex flex-col bg-[#080B16] overflow-hidden">
+            <!-- 视图一：微观模拟 (Canvas) -->
+            <div id="view-container-micro" class="absolute inset-0 flex flex-col p-4 gap-4 z-20">
+                <div class="flex-1 relative glass-panel rounded-3xl overflow-hidden border border-white/5 bg-slate-950/20">
+                    <canvas id="micro-canvas" class="w-full h-full block"></canvas>
+
+                    <!-- 讲解引导文字 -->
+                    <div id="tutorial-bubble" class="absolute top-4 right-4 bg-slate-900/90 backdrop-blur-md rounded-2xl p-4 border border-amber-500/30 max-w-[340px] text-xs z-30 transition-all duration-300">
+                        <h4 class="font-bold text-amber-300 mb-1.5 flex items-center gap-1.5">
+                            <span class="inline-block w-2 h-2 rounded-full bg-amber-500 pulse-element"></span>
+                            <span id="tut-title">步骤 1：游离离子接近</span>
+                        </h4>
+                        <p id="tut-desc" class="text-slate-300 leading-relaxed text-[11px] mb-3">
+                            溶液中游动的蓝色铜离子 (Cu²⁺) 拥有两个待填满的“电子凹槽”，正在被锌片表面的锌原子吸引。
+                        </p>
+                        <div class="flex justify-between items-center">
+                            <span class="text-[10px] text-slate-500 font-mono" id="tut-step-indicator">步骤 1 / 3</span>
+                            <button id="tut-btn-next" onclick="nextTutorialStep()" class="bg-amber-500 hover:bg-amber-400 text-black font-bold px-3 py-1 rounded-lg text-[10px] transition-all">
+                                下一步 ➔
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- 动态口诀特写浮窗 (得失电子瞬间闪现) -->
+                    <div id="formula-slogan-overlay" class="absolute inset-x-0 top-1/3 flex justify-center items-center pointer-events-none opacity-0 transition-opacity duration-300 z-40">
+                        <div class="flex gap-8">
+                            <div class="bg-amber-500/90 text-slate-950 font-bold px-5 py-3 rounded-2xl text-center shadow-2xl">
+                                <div class="text-[10px] uppercase tracking-wider opacity-80">锌片表面 (Zn)</div>
+                                <div class="text-sm mt-0.5">失去电子 ➔ 化合价升高 ➔ 被氧化 (还原剂)</div>
+                            </div>
+                            <div class="bg-blue-600/95 text-white font-bold px-5 py-3 rounded-2xl text-center shadow-2xl">
+                                <div class="text-[10px] uppercase tracking-wider opacity-80">铜离子 (Cu²⁺)</div>
+                                <div class="text-sm mt-0.5">得到电子 ➔ 化合价降低 ➔ 被还原 (氧化剂)</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 控制条 (分步讲解指示) -->
+                <div class="h-[80px] glass-panel rounded-2xl p-3 px-6 flex items-center justify-between gap-6 border-white/5">
+                    <div class="flex items-center gap-3">
+                        <div class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-orange-500/10 border border-orange-500/20 text-orange-400 text-xs font-bold font-mono">
+                            ⚡ 微观反应解析
+                        </div>
+                        
+                        <!-- 液晶监测仪表盘 -->
+                        <div id="micro-stats-dashboard" class="flex items-center gap-4 border-l border-white/10 pl-4 py-1 font-mono text-[11px]">
+                            <div class="flex flex-col items-center">
+                                <span class="text-slate-500 text-[9px] scale-90 whitespace-nowrap">已还原 Cu</span>
+                                <span id="reduced-cu-cnt" class="text-red-400 font-bold text-xs mt-0.5">0</span>
+                            </div>
+                            <div class="flex flex-col items-center pl-2 border-l border-white/5">
+                                <span class="text-slate-500 text-[9px] scale-90 whitespace-nowrap">游离 Zn²⁺</span>
+                                <span id="oxidized-zn-cnt" class="text-emerald-400 font-bold text-xs mt-0.5">0</span>
+                            </div>
+                            <div class="flex flex-col items-center pl-2 border-l border-white/5">
+                                <span class="text-slate-500 text-[9px] scale-90 whitespace-nowrap">转移电子</span>
+                                <span id="transferred-e-cnt" class="text-cyan-400 font-bold text-xs mt-0.5">0</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 步骤指示器 -->
+                    <div class="flex items-center justify-between flex-1 max-w-xl mx-auto px-4" id="micro-stepper">
+                        <div id="step-node-1" class="flex items-center gap-2">
+                            <span class="w-6 h-6 rounded-full flex items-center justify-center font-mono font-bold text-xs bg-slate-800 text-slate-400">1</span>
+                            <span class="text-xs text-slate-400">离子接近</span>
+                        </div>
+                        <div id="step-line-1" class="h-0.5 flex-1 bg-slate-800 mx-4"></div>
+                        <div id="step-node-2" class="flex items-center gap-2">
+                            <span class="w-6 h-6 rounded-full flex items-center justify-center font-mono font-bold text-xs bg-slate-800 text-slate-400">2</span>
+                            <span class="text-xs text-slate-400">电子得失</span>
+                        </div>
+                        <div id="step-line-2" class="h-0.5 flex-1 bg-slate-800 mx-4"></div>
+                        <div id="step-node-3" class="flex items-center gap-2">
+                            <span class="w-6 h-6 rounded-full flex items-center justify-center font-mono font-bold text-xs bg-slate-800 text-slate-400">3</span>
+                            <span class="text-xs text-slate-400">置换完成</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 视图二：线桥解析 (SVG & D3) -->
+            <div id="view-container-bridge" class="absolute inset-0 flex flex-col p-4 gap-4 z-10 opacity-0 pointer-events-none transition-opacity duration-300">
+                <div class="flex-1 relative glass-panel rounded-3xl overflow-hidden border border-white/5 flex flex-col bg-slate-950/20">
+                    <!-- 上半部分：反应选择与模式切换 -->
+                    <div class="p-4 border-b border-white/5 flex items-center justify-between bg-slate-950/40">
+                        <div class="flex gap-2">
+                            <button onclick="selectReaction('redox_1')" id="rxn-redox_1" class="px-3.5 py-1.5 rounded-lg text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">H₂还原氧化铜</button>
+                            <button onclick="selectReaction('redox_2')" id="rxn-redox_2" class="px-3.5 py-1.5 rounded-lg text-xs font-bold bg-slate-900 text-slate-400 border border-white/5 hover:text-white">钠与氯气反应</button>
+                            <button onclick="selectReaction('redox_3')" id="rxn-redox_3" class="px-3.5 py-1.5 rounded-lg text-xs font-bold bg-slate-900 text-slate-400 border border-white/5 hover:text-white">锌与稀盐酸</button>
+                        </div>
+                        <div class="flex gap-1.5 bg-slate-900 p-0.5 rounded-lg border border-white/5">
+                            <button onclick="setBridgeMode('double')" id="bridge-double" class="px-3 py-1 rounded-md text-[11px] font-bold bg-amber-500 text-black">双线桥法</button>
+                            <button onclick="setBridgeMode('single')" id="bridge-single" class="px-3 py-1 rounded-md text-[11px] font-bold text-slate-400 hover:text-white">单线桥法</button>
+                        </div>
+                    </div>
+
+                    <!-- 核心绘制画布 -->
+                    <div class="flex-1 relative flex items-center justify-center" id="equation-canvas-container">
+                        <svg id="bridge-svg" class="w-full h-full absolute inset-0"></svg>
+                    </div>
+
+                    <!-- 底部原理讲解说明 -->
+                    <div class="p-4 bg-slate-900/60 border-t border-white/5 flex items-start gap-4">
+                        <div class="p-2.5 rounded-xl bg-orange-500/10 border border-orange-500/20 text-orange-400 mt-1 pulse-element flex-shrink-0">
+                            💡
+                        </div>
+                        <div class="flex-1">
+                            <h4 id="bridge-info-title" class="text-xs font-bold text-amber-300 mb-1">双线桥表示法：指向变化前后的同种元素</h4>
+                            <p id="bridge-info-desc" class="text-[11px] text-slate-400 leading-relaxed">
+                                双线桥法是从反应物中发生化合价变化的元素，指向产物中对应发生变化的同种元素。箭头上需要标明“得到/失去电子、化合价升高/降低、被氧化/被还原”。
+                            </p>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 交互拼图与测验 -->
+                <div class="h-[120px] glass-panel rounded-2xl p-4 flex gap-4 border-white/5">
+                    <div class="w-[240px] flex-shrink-0 flex flex-col justify-center border-r border-white/10 pr-4">
+                        <div class="text-xs text-slate-400">本节课堂随堂巩固</div>
+                        <div class="text-sm font-bold text-white mt-1">氧化还原判别测验</div>
+                        <div class="text-[10px] text-slate-500 mt-1.5">答题得分: <span id="quiz-score" class="text-emerald-400 font-bold font-mono">0</span> / <span id="quiz-total" class="font-mono">0</span></div>
+                    </div>
+                    <div class="flex-1 flex flex-col justify-between" id="quiz-panel">
+                        <div id="quiz-question" class="text-xs font-medium text-slate-200">
+                            加载中...
+                        </div>
+                        <div id="quiz-options" class="flex gap-2.5">
+                            <!-- 选项按钮 -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- 页脚 -->
+    <footer class="h-[40px] w-full border-t border-orange-500/10 px-6 flex items-center justify-between bg-slate-950 text-[11px] text-[#64748B] z-50">
+        <p class="italic">“探寻微观电子得失之美，领悟物质变化的守恒真谛。”</p>
+        <p>由 宾果AI 为你生成❤️</p>
+    </footer>
+
+    <!-- 交互脚本 -->
+    <script>
+        // --- 1. 全局状态初始化 ---
+        const state = {
+            mode: 'playing', // 'playing', 'paused'
+            speed: 1.0,
+            view: 'micro', // 'micro', 'bridge'
+            microMode: 'tutorial', // 仅保留 'tutorial' (step-by-step)
+            activeReaction: 'redox_1',
+            bridgeMode: 'double',
+            score: 0,
+            totalQuiz: 0,
+            // 物理统计量
+            reducedCu: 0,
+            oxidizedZn: 0,
+            transferredE: 0
+        };
+
+        // --- 2. 动画和物理引擎全局变量 ---
+        const canvas = document.getElementById('micro-canvas');
+        const ctx = canvas.getContext('2d');
+        let particles = [];
+        let electronSparks = [];
+        let animationFrameId = null;
+
+        // 统一 Animation Runtime 控制变量
+        const runtime = {
+            fixedStep: 1 / 60,
+            accumulator: 0,
+            lastTime: performance.now(),
+            maxSubSteps: 5
+        };
+
+        // 教程步骤进度 (只在 microMode = 'tutorial' 下生效)
+        let tutorialStep = 1; 
+
+        // --- 3. 反应方程式配置与 SVG 桥连线配置 ---
+        const REACTION_CONFIGS = {
+            redox_1: {
+                title: "氢气还原氧化铜",
+                equation: "CuO + H₂ ➔ Cu + H₂O",
+                elements: [
+                    { id: "Cu_in", text: "Cu", val: "+2", isOx: true, x_offset: -120, rxn_side: "left" },
+                    { id: "O_in1", text: "O", val: "-2", isOx: false, x_offset: -90, rxn_side: "left" },
+                    { id: "plus1", text: "+", val: "", isOx: false, x_offset: -40, rxn_side: "mid" },
+                    { id: "H_in", text: "H₂", val: "0", isOx: false, x_offset: 10, rxn_side: "left" },
+                    { id: "arrow", text: "➔", val: "", isOx: false, x_offset: 70, rxn_side: "mid" },
+                    { id: "Cu_out", text: "Cu", val: "0", isOx: false, x_offset: 120, rxn_side: "right" },
+                    { id: "plus2", text: "+", val: "", isOx: false, x_offset: 170, rxn_side: "mid" },
+                    { id: "H_out", text: "H₂", val: "+1", isOx: true, x_offset: 220, rxn_side: "right" },
+                    { id: "O_out", text: "O", val: "-2", isOx: false, x_offset: 250, rxn_side: "right" }
+                ],
+                double_bridges: [
+                    { from: "Cu_in", to: "Cu_out", val_change: "+2 ➔ 0", label: "化合价降低，得 2e⁻，被还原", color: "var(--color-ox-agent)", dir: "down" },
+                    { from: "H_in", to: "H_out", val_change: "0 ➔ +1", label: "化合价升高，失 2e⁻，被氧化", color: "var(--color-red-agent)", dir: "up" }
+                ],
+                single_bridges: [
+                    { from: "H_in", to: "Cu_in", label: "转移 2e⁻", color: "var(--color-electron)" }
+                ],
+                desc: {
+                    double: {
+                        title: "H₂ 还原 CuO 双线桥法",
+                        text: "氢气 (H₂) 的氢化合价由 0 升高到 +1 失去电子被氧化，是还原剂；氧化铜 (CuO) 中的铜化合价由 +2 降低到 0 得到电子被还原，是氧化剂。"
+                    },
+                    single: {
+                        title: "H₂ 还原 CuO 单线桥法",
+                        text: "单线桥法从失去电子的元素 (H) 指向得到电子的元素 (Cu)。箭头不跨越等号，只标明电子转移总数（2e⁻），表明电子由 H 转移至 Cu。"
+                    }
+                },
+                quiz: [
+                    { q: "在 H₂ 还原 CuO 反应中，化合价升高的元素是？", a: ["H 元素", "Cu 元素", "O 元素"], correct: 0, desc: "正确！H 元素化合价由 0 升高到 +1。" },
+                    { q: "在 H₂ 还原 CuO 反应中，氧化剂是哪个物质？", a: ["H₂", "CuO", "Cu"], correct: 1, desc: "正确！CuO 发生还原反应，具有氧化性，是氧化剂。" },
+                    { q: "该反应中，每生成 1 mol Cu 单质，转移的电子物质的量为？", a: ["1 mol", "2 mol", "4 mol"], correct: 1, desc: "正确！Cu 从 +2 价降到 0 价，因此每生成 1 mol Cu 转移 2 mol 电子。" }
+                ]
+            },
+            redox_2: {
+                title: "钠与氯气反应",
+                equation: "2Na + Cl₂ ➔ 2NaCl",
+                elements: [
+                    { id: "Na_in", text: "2Na", val: "0", isOx: false, x_offset: -120, rxn_side: "left" },
+                    { id: "plus1", text: "+", val: "", isOx: false, x_offset: -50, rxn_side: "mid" },
+                    { id: "Cl_in", text: "Cl₂", val: "0", isOx: true, x_offset: 10, rxn_side: "left" },
+                    { id: "arrow", text: "➔", val: "", isOx: false, x_offset: 80, rxn_side: "mid" },
+                    { id: "Na_out", text: "2Na", val: "+1", isOx: true, x_offset: 150, rxn_side: "right" },
+                    { id: "Cl_out", text: "Cl", val: "-1", isOx: false, x_offset: 190, rxn_side: "right" }
+                ],
+                double_bridges: [
+                    { from: "Na_in", to: "Na_out", val_change: "0 ➔ +1", label: "化合价升高，失 2e⁻，被氧化", color: "var(--color-red-agent)", dir: "up" },
+                    { from: "Cl_in", to: "Cl_out", val_change: "0 ➔ -1", label: "化合价降低，得 2e⁻，被还原", color: "var(--color-ox-agent)", dir: "down" }
+                ],
+                single_bridges: [
+                    { from: "Na_in", to: "Cl_in", label: "转移 2e⁻", color: "var(--color-electron)" }
+                ],
+                desc: {
+                    double: {
+                        title: "金属钠与氯气反应双线桥法",
+                        text: "钠 (Na) 化合价从 0 升到 +1，失去电子，被氧化，是还原剂；氯气 (Cl₂) 的氯元素化合价从 0 降到 -1，得到电子，被还原，是氧化剂。"
+                    },
+                    single: {
+                        title: "金属钠与氯气反应单线桥法",
+                        text: "箭头从失去电子的还原剂 (Na) 指向得到电子的氧化剂 (Cl)。箭头上方标注转移的电子总数 2e⁻。"
+                    }
+                },
+                quiz: [
+                    { q: "在反应 2Na + Cl₂ = 2NaCl 中，还原剂是哪种物质？", a: ["Na", "Cl₂", "NaCl"], correct: 0, desc: "正确！Na 失去电子，被氧化，具有还原性，是还原剂。" },
+                    { q: "反应中 1 个 Na 原子变成了 Na⁺ 离子，其微观变化是？", a: ["得到 1 个电子", "失去 1 个电子", "共用电子对偏向 Na"], correct: 1, desc: "正确！钠是活泼金属，极易失去最外层电子形成稳定的稀有气体结构。" },
+                    { q: "该反应中氯元素的化合价是如何变化的？", a: ["0 降至 -1", "-1 升至 0", "0 升至 +1"], correct: 0, desc: "正确！氯气是氧化剂，氯原子获得电子，化合价从 0 降至 -1。" }
+                ]
+            },
+            redox_3: {
+                title: "锌与稀盐酸反应",
+                equation: "Zn + 2H⁺ ➔ Zn²⁺ + H₂ ⇡",
+                elements: [
+                    { id: "Zn_in", text: "Zn", val: "0", isOx: false, x_offset: -120, rxn_side: "left" },
+                    { id: "plus1", text: "+", val: "", isOx: false, x_offset: -60, rxn_side: "mid" },
+                    { id: "H_in", text: "2H⁺", val: "+1", isOx: true, x_offset: -10, rxn_side: "left" },
+                    { id: "arrow", text: "➔", val: "", isOx: false, x_offset: 50, rxn_side: "mid" },
+                    { id: "Zn_out", text: "Zn²⁺", val: "+2", isOx: true, x_offset: 120, rxn_side: "right" },
+                    { id: "plus2", text: "+", val: "", isOx: false, x_offset: 170, rxn_side: "mid" },
+                    { id: "H_out", text: "H₂", val: "0", isOx: false, x_offset: 220, rxn_side: "right" }
+                ],
+                double_bridges: [
+                    { from: "Zn_in", to: "Zn_out", val_change: "0 ➔ +2", label: "化合价升高，失 2e⁻，被氧化", color: "var(--color-red-agent)", dir: "up" },
+                    { from: "H_in", to: "H_out", val_change: "+1 ➔ 0", label: "化合价降低，得 2e⁻，被还原", color: "var(--color-ox-agent)", dir: "down" }
+                ],
+                single_bridges: [
+                    { from: "Zn_in", to: "H_in", label: "转移 2e⁻", color: "var(--color-electron)" }
+                ],
+                desc: {
+                    double: {
+                        title: "锌与酸置换反应双线桥法",
+                        text: "锌 (Zn) 单质的化合价由 0 升高到 +2，失去电子被氧化，是还原剂；氢离子 (H⁺) 的化合价由 +1 降低到 0 得到电子被还原，是氧化剂。"
+                    },
+                    single: {
+                        title: "锌与酸置换反应单线桥法",
+                        text: "单线桥由 Zn 指向 H⁺ 离子，表明 1 mol Zn 反应失去 of 2 mol 电子全部转移交给了 2 mol H⁺ 离子。"
+                    }
+                },
+                quiz: [
+                    { q: "在 Zn + 2H⁺ = Zn²⁺ + H₂ 反应中，失去电子的物质是？", a: ["Zn", "H⁺", "H₂"], correct: 0, desc: "正确！Zn 原子化合价升高，失去了电子。" },
+                    { q: "该反应中，以下哪种微粒发生了还原反应？", a: ["Zn", "H⁺", "Zn²⁺"], correct: 1, desc: "正确！H⁺ 得到电子，发生了还原反应。" },
+                    { q: "当有 1 mol H₂ 气体分子生成时，电路中转移的电子数量是？", a: ["1.204×10²⁴ (2 mol)", "6.02×10²³ (1 mol)", "3.01×10²³ (0.5 mol)"], correct: 0, desc: "正确！生成 1 mol H₂ 气体会消耗 2 mol H⁺，故转移电子为 2 mol。" }
+                ]
+            }
+        };
+
+        let currentQuizIndex = 0;
+
+        // --- 4. 窗口自适应控制 ---
+        function initCanvasSize() {
+            const container = canvas.parentElement;
+            canvas.width = container.clientWidth;
+            canvas.height = container.clientHeight;
+        }
+
+        const resizeObserver = new ResizeObserver(() => {
+            if (canvas.clientWidth === 0 || canvas.clientHeight === 0) return;
+            initCanvasSize();
+            if (state.view === 'bridge') {
+                renderBridges();
+            }
+        });
+        resizeObserver.observe(canvas.parentElement);
+
+        // --- 5. 优化后的拟物化 Canvas 物理粒子引擎 ---
+        
+        class Particle {
+            constructor(type, x, y) {
+                this.type = type; // 'cu2+', 'so42-', 'zn2+', 'cu_atom', 'zn_atom'
+                this.x = x;
+                this.y = y;
+                this.vx = (Math.random() - 0.5) * 80;
+                this.vy = (Math.random() - 0.5) * 80;
+                this.radius = 14; // 微调大一点以便展示内部细节
+                
+                // 电子绕转轨道的角度控制
+                this.electronAngle = Math.random() * Math.PI * 2;
+                
+                this.attached = false;
+                this.isTransitioning = false; // 用于分步模式的锁定
+            }
+
+            update(dt) {
+                // 绕转轨道的自旋动效
+                this.electronAngle += dt * 3;
+
+                if (this.attached || this.type === 'cu_atom' || this.type === 'zn_atom') return;
+
+                // 物理运动
+                this.x += this.vx * dt;
+                this.y += this.vy * dt;
+
+                // 边界碰撞
+                const minX = 140 + this.radius;
+                const maxX = canvas.width - this.radius;
+                const minY = this.radius;
+                const maxY = canvas.height - this.radius;
+
+                if (this.x < minX) {
+                    this.x = minX;
+                    this.vx = -this.vx;
+                }
+                if (this.x > maxX) { this.x = maxX; this.vx = -this.vx; }
+                if (this.y < minY) { this.y = minY; this.vy = -this.vy; }
+                if (this.y > maxY) { this.y = maxY; this.vy = -this.vy; }
+
+                // 自由游动的微弱布朗运动
+                this.vx += (Math.random() - 0.5) * 15;
+                this.vy += (Math.random() - 0.5) * 15;
+                
+                const speed = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
+                if (speed > 100) {
+                    this.vx = (this.vx / speed) * 100;
+                    this.vy = (this.vy / speed) * 100;
+                }
+            }
+
+            tryElectronTransfer() {
+                // 寻找左侧还有电子的未反应锌原子 (Zn Atom)
+                const znAtom = particles.find(p => p.type === 'zn_atom' && !p.attached);
+                if (znAtom) {
+                    znAtom.attached = true;
+                    this.attached = true;
+                    this.vx = 0;
+                    this.vy = 0;
+                    
+                    // 触发电子转移火花动画
+                    createElectronTransferAnimation(znAtom, this);
+                }
+            }
+
+            draw() {
+                ctx.save();
+                
+                // 1. 根据不同粒子类型进行通俗具象的绘制
+                if (this.type === 'zn_atom') {
+                    // 锌原子：灰色大球
+                    ctx.shadowColor = 'rgba(148, 163, 184, 0.4)';
+                    ctx.shadowBlur = 8;
+                    
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                    ctx.fillStyle = '#64748B';
+                    ctx.fill();
+                    
+                    ctx.strokeStyle = '#94A3B8';
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+
+                    // 文字标识
+                    ctx.fillStyle = '#F8FAFC';
+                    ctx.font = 'bold 10px sans-serif';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText('Zn', this.x, this.y);
+
+                    // 如果未反应，绘制 2 个绕轨黄色电子球 (代表最外层电子)
+                    if (!this.attached) {
+                        const dist = 19;
+                        const ex1 = this.x + dist * Math.cos(this.electronAngle);
+                        const ey1 = this.y + dist * Math.sin(this.electronAngle);
+                        const ex2 = this.x + dist * Math.cos(this.electronAngle + Math.PI);
+                        const ey2 = this.y + dist * Math.sin(this.electronAngle + Math.PI);
+
+                        // 绘制虚线轨道
+                        ctx.beginPath();
+                        ctx.arc(this.x, this.y, dist, 0, Math.PI * 2);
+                        ctx.strokeStyle = 'rgba(245, 158, 11, 0.3)';
+                        ctx.lineWidth = 1;
+                        ctx.setLineDash([2, 2]);
+                        ctx.stroke();
+                        ctx.setLineDash([]);
+
+                        // 绘制电子
+                        [ {x: ex1, y: ey1}, {x: ex2, y: ey2} ].forEach(pos => {
+                            ctx.beginPath();
+                            ctx.arc(pos.x, pos.y, 4, 0, Math.PI * 2);
+                            ctx.fillStyle = 'var(--color-red-agent)'; // 亮黄色
+                            ctx.shadowColor = '#FBBF24';
+                            ctx.shadowBlur = 6;
+                            ctx.fill();
+                        });
+                    }
+
+                } else if (this.type === 'cu2+') {
+                    // 铜离子：蓝色大球，带有 2 个黑色空的“待接收凹槽”
+                    ctx.shadowColor = '#3B82F6';
+                    ctx.shadowBlur = 12;
+
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                    ctx.fillStyle = '#1D4ED8';
+                    ctx.fill();
+
+                    ctx.strokeStyle = '#60A5FA';
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+
+                    // 文字
+                    ctx.fillStyle = '#FFFFFF';
+                    ctx.font = 'bold 9px sans-serif';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText('Cu²⁺', this.x, this.y - 2);
+
+                    // 绘制 2 个黑底“缺口轨道”，暗示正在寻找电子填补
+                    const slotAngle = Math.PI; // 偏向左边面对锌片
+                    const dist = 13;
+                    const slots = [
+                        { x: this.x + dist * Math.cos(slotAngle - 0.5), y: this.y + dist * Math.sin(slotAngle - 0.5) },
+                        { x: this.x + dist * Math.cos(slotAngle + 0.5), y: this.y + dist * Math.sin(slotAngle + 0.5) }
+                    ];
+
+                    ctx.shadowBlur = 0;
+                    slots.forEach(slot => {
+                        ctx.beginPath();
+                        ctx.arc(slot.x, slot.y, 4.5, 0, Math.PI * 2);
+                        ctx.fillStyle = '#090D16'; // 黑色洞代表空凹槽
+                        ctx.fill();
+                        ctx.strokeStyle = 'rgba(96, 165, 250, 0.4)';
+                        ctx.stroke();
+                    });
+
+                } else if (this.type === 'cu_atom') {
+                    // 还原后的铜原子：暗红色，卡槽已被填满（黄色球嵌入）
+                    ctx.shadowColor = '#EF4444';
+                    ctx.shadowBlur = 8;
+
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                    ctx.fillStyle = '#B91C1C';
+                    ctx.fill();
+
+                    ctx.strokeStyle = '#F87171';
+                    ctx.lineWidth = 1.5;
+                    ctx.stroke();
+
+                    ctx.fillStyle = '#FFFFFF';
+                    ctx.font = 'bold 10px sans-serif';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText('Cu', this.x, this.y);
+
+                    // 绘制卡槽已填满黄色球
+                    const slotAngle = Math.PI;
+                    const dist = 13;
+                    const filledSlots = [
+                        { x: this.x + dist * Math.cos(slotAngle - 0.5), y: this.y + dist * Math.sin(slotAngle - 0.5) },
+                        { x: this.x + dist * Math.cos(slotAngle + 0.5), y: this.y + dist * Math.sin(slotAngle + 0.5) }
+                    ];
+
+                    ctx.shadowBlur = 4;
+                    ctx.shadowColor = '#FBBF24';
+                    filledSlots.forEach(slot => {
+                        ctx.beginPath();
+                        ctx.arc(slot.x, slot.y, 4, 0, Math.PI * 2);
+                        ctx.fillStyle = 'var(--color-red-agent)'; // 填入的黄色电子
+                        ctx.fill();
+                    });
+
+                } else if (this.type === 'zn2+') {
+                    // 氧化后的锌离子：淡绿色，无电子，只有两个留空的轨道圈圈
+                    ctx.shadowColor = '#10B981';
+                    ctx.shadowBlur = 10;
+
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                    ctx.fillStyle = '#065F46';
+                    ctx.fill();
+
+                    ctx.strokeStyle = '#34D399';
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+
+                    ctx.fillStyle = '#FFFFFF';
+                    ctx.font = 'bold 9px sans-serif';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText('Zn²⁺', this.x, this.y);
+
+                    // 绘制 2 个留下来的空虚线电子轨道 (空缺状态)
+                    const dist = 19;
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, dist, 0, Math.PI * 2);
+                    ctx.strokeStyle = 'rgba(52, 211, 153, 0.25)';
+                    ctx.setLineDash([2, 2]);
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+
+                } else if (this.type === 'so42-') {
+                    // 硫酸根：灰色衬托粒子，说明溶液组成
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, 9, 0, Math.PI * 2);
+                    ctx.fillStyle = '#334155';
+                    ctx.fill();
+                    
+                    ctx.fillStyle = '#94A3B8';
+                    ctx.font = '8px monospace';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText('-2', this.x, this.y);
+                }
+
+                ctx.restore();
+            }
+        }
+
+        // 电子轨道流动细节控制
+        class ElectronSpark {
+            constructor(startX, startY, targetX, targetY, callback) {
+                this.x = startX;
+                this.y = startY;
+                this.startX = startX;
+                this.startY = startY;
+                this.targetX = targetX;
+                this.targetY = targetY;
+                this.progress = 0;
+                this.speed = 1.0; // 教程模式让电子飞得慢一点，方便看清
+                this.callback = callback;
+                
+                this.controlX = (startX + targetX) / 2;
+                this.controlY = (startY + targetY) / 2 - 40 - Math.random() * 30;
+            }
+
+            update(dt) {
+                this.progress += this.speed * dt;
+                if (this.progress >= 1) {
+                    this.progress = 1;
+                    if (this.callback) this.callback();
+                    return false;
+                }
+                
+                const t = this.progress;
+                this.x = (1-t)*(1-t)*this.startX + 2*(1-t)*t*this.controlX + t*t*this.targetX;
+                this.y = (1-t)*(1-t)*this.startY + 2*(1-t)*t*this.controlY + t*t*this.targetY;
+                return true;
+            }
+
+            draw() {
+                ctx.save();
+                ctx.shadowColor = '#FBBF24';
+                ctx.shadowBlur = 12;
+                
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, 5, 0, Math.PI * 2);
+                ctx.fillStyle = 'var(--color-red-agent)'; // 耀眼的黄色电子
+                ctx.fill();
+                
+                ctx.restore();
+            }
+        }
+
+        function createElectronTransferAnimation(znParticle, cuParticle, callbackOnDone) {
+            // 得到目标的卡槽中心偏移坐标
+            const slotAngle = Math.PI;
+            const dist = 13;
+            const targetX1 = cuParticle.x + dist * Math.cos(slotAngle - 0.5);
+            const targetY1 = cuParticle.y + dist * Math.sin(slotAngle - 0.5);
+            const targetX2 = cuParticle.x + dist * Math.cos(slotAngle + 0.5);
+            const targetY2 = cuParticle.y + dist * Math.sin(slotAngle + 0.5);
+
+            // 发射电子
+            const spark1 = new ElectronSpark(znParticle.x, znParticle.y, targetX1, targetY1, null);
+            const spark2 = new ElectronSpark(znParticle.x, znParticle.y, targetX2, targetY2, () => {
+                // 转换原子类型
+                cuParticle.type = 'cu_atom';
+                cuParticle.x = 136; // 附着
+                
+                // 将被反应的 Zn_atom 换成 Zn2+ 离子飘走
+                const idx = particles.indexOf(znParticle);
+                if (idx !== -1) {
+                    particles[idx] = new Particle('zn2+', znParticle.x, znParticle.y);
+                    particles[idx].vx = 50 + Math.random() * 50;
+                    particles[idx].vy = (Math.random() - 0.5) * 60;
+                }
+
+                // 统计
+                state.reducedCu++;
+                state.oxidizedZn++;
+                state.transferredE += 2;
+                document.getElementById('reduced-cu-cnt').innerText = state.reducedCu;
+                document.getElementById('oxidized-zn-cnt').innerText = state.oxidizedZn;
+                document.getElementById('transferred-e-cnt').innerText = state.transferredE;
+
+                if (callbackOnDone) callbackOnDone();
+            });
+
+            electronSparks.push(spark1);
+            setTimeout(() => {
+                electronSparks.push(spark2);
+            }, 300);
+        }
+
+        // 更新物理引擎状态，包括所有粒子和电子火花
+        function updatePhysics(dt) {
+            // 更新粒子
+            particles.forEach(p => p.update(dt));
+            // 更新并过滤电子火花
+            electronSparks = electronSparks.filter(spark => spark.update(dt));
+        }
+
+        // 初始化分步讲解粒子
+        function initMicroParticles() {
+            particles = [];
+            electronSparks = [];
+            
+            // 教程分步讲解模式：只放置 1 对进行特写展示
+            const zincCenterY = canvas.height / 2;
+            const zn = new Particle('zn_atom', 100, zincCenterY);
+            const cu = new Particle('cu2+', canvas.width - 150, zincCenterY);
+            
+            // 强制静止以便受步骤控制
+            zn.vx = 0; zn.vy = 0;
+            cu.vx = 0; cu.vy = 0;
+            
+            particles.push(zn);
+            particles.push(cu);
+        }
+
+        // --- 6. 分步教程引导与步骤指示器 (Stepper) 控制 ---
+        
+        function updateStepperUI(step) {
+            for (let i = 1; i <= 3; i++) {
+                const node = document.getElementById(`step-node-${i}`);
+                if (!node) continue;
+                const numSpan = node.querySelector('span');
+                const textSpan = node.querySelector('span:nth-child(2)');
+                
+                if (i === step) {
+                    node.classList.remove('opacity-40');
+                    numSpan.className = "w-6 h-6 rounded-full flex items-center justify-center font-mono font-bold bg-amber-500 text-black shadow-[0_0_8px_rgba(245,158,11,0.5)]";
+                    textSpan.className = "font-bold text-amber-300";
+                } else if (i < step) {
+                    node.classList.remove('opacity-40');
+                    numSpan.className = "w-6 h-6 rounded-full flex items-center justify-center font-mono font-bold bg-emerald-500 text-black shadow-[0_0_8px_rgba(16,185,129,0.5)]";
+                    textSpan.className = "font-bold text-emerald-400";
+                } else {
+                    node.classList.add('opacity-40');
+                    numSpan.className = "w-6 h-6 rounded-full flex items-center justify-center font-mono font-bold bg-slate-800 text-slate-400";
+                    textSpan.className = "text-slate-400";
+                }
+            }
+            
+            const line1 = document.getElementById('step-line-1');
+            const line2 = document.getElementById('step-line-2');
+            
+            if (line1) {
+                line1.className = step >= 2 
+                    ? "h-0.5 flex-1 bg-emerald-500 shadow-[0_0_4px_rgba(16,185,129,0.3)]" 
+                    : "h-0.5 flex-1 bg-slate-800";
+            }
+            if (line2) {
+                line2.className = step >= 3 
+                    ? "h-0.5 flex-1 bg-emerald-500 shadow-[0_0_4px_rgba(16,185,129,0.3)]" 
+                    : "h-0.5 flex-1 bg-slate-800";
+            }
+        }
+
+        function setupTutorialStep() {
+            updateStepperUI(tutorialStep);
+            initMicroParticles();
+            document.getElementById('formula-slogan-overlay').classList.add('opacity-0');
+            const btnNext = document.getElementById('tut-btn-next');
+            btnNext.disabled = false;
+
+            if (tutorialStep === 1) {
+                document.getElementById('tut-title').innerText = "步骤 1：游离离子接近";
+                document.getElementById('tut-desc').innerText = "在硫酸铜溶液中，蓝色的 Cu²⁺ 离子（拥有2个黑色缺口卡槽）游动并靠近固体锌金属片，受电性或碰撞趋势趋于与表面的 Zn 原子（灰色，携带着2个黄色外层电子）相撞。";
+                btnNext.innerText = "下一步：电子转移 ➔";
+
+                // 让铜离子缓慢移动靠拢
+                const cu = particles.find(p => p.type === 'cu2+');
+                if (cu) {
+                    cu.vx = -120; // 匀速向左
+                }
+
+            } else if (tutorialStep === 2) {
+                document.getElementById('tut-title').innerText = "步骤 2：电子得失 (氧化还原核心)";
+                document.getElementById('tut-desc').innerText = "接触发生！活泼的 Zn 原子失去了最外层的 2 个黄色电子（发生氧化反应，Zn 作为还原剂）；缺电子的 Cu²⁺ 离子正好接收了这 2 个电子（发生还原反应，Cu²⁺ 作为氧化剂）。电子在这瞬间完成了物理转移！";
+                btnNext.innerText = "下一步：观察产物 ➔";
+                btnNext.disabled = true; // 在动画完成前禁用
+
+                const zn = particles.find(p => p.type === 'zn_atom');
+                const cu = particles.find(p => p.type === 'cu2+');
+                if (zn && cu) {
+                    // 定格在反应临界点
+                    zn.x = 100;
+                    cu.x = 135;
+                    cu.vx = 0;
+                    
+                    // 浮现口诀闪烁看板
+                    document.getElementById('formula-slogan-overlay').classList.remove('opacity-0');
+                    
+                    // 触发特写电子发射
+                    createElectronTransferAnimation(zn, cu, () => {
+                        // 电子全部飞过去后，解锁下一步
+                        btnNext.disabled = false;
+                    });
+                }
+
+            } else if (tutorialStep === 3) {
+                document.getElementById('tut-title').innerText = "步骤 3：价态转化与置换完成";
+                document.getElementById('tut-desc').innerText = "反应结束。Cu²⁺ 获得电子被还原成了红色的中性 Cu 原子并沉积在锌表面（化合价由 +2 降至 0）；Zn 原子失去电子被氧化成了绿色的游离 Zn²⁺ 离子（化合价由 0 升至 +2）脱离基底。反应方程式为：Zn + Cu²⁺ = Zn²⁺ + Cu。";
+                btnNext.innerText = "重新开始 ↺";
+
+                // 强制放置最终产物做展示
+                particles = [];
+                const zincCenterY = canvas.height / 2;
+                
+                // 绿色的 Zn2+ (失去了黄色电子，留空)
+                const zn2 = new Particle('zn2+', 160, zincCenterY - 40);
+                zn2.vx = 20; zn2.vy = -10; // 缓缓飘移
+                
+                // 红色附着的 Cu (两个黄色电子已卡满)
+                const cuAtom = new Particle('cu_atom', 135, zincCenterY);
+                cuAtom.vx = 0; cuAtom.vy = 0;
+                
+                // 背景保留一个氧化反应后的黑色残渣表示锌原子的牺牲
+                const znResidue = new Particle('zn_atom', 100, zincCenterY);
+                znResidue.attached = true;
+                znResidue.color = '#1E293B';
+                
+                particles.push(zn2);
+                particles.push(cuAtom);
+                particles.push(znResidue);
+            }
+        }
+
+        function nextTutorialStep() {
+            if (tutorialStep === 3) {
+                tutorialStep = 1;
+            } else {
+                tutorialStep++;
+            }
+            setupTutorialStep();
+        }
+
+        // --- 7. 主帧循环管理器 ---
+        function runLoop(now) {
+            if (state.mode === 'playing') {
+                const rawDt = (now - runtime.lastTime) / 1000;
+                runtime.lastTime = now;
+                
+                const frameDt = Math.min(Math.max(rawDt, 0), 0.033);
+                runtime.accumulator += frameDt * state.speed;
+
+                let steps = 0;
+                while (runtime.accumulator >= runtime.fixedStep && steps < runtime.maxSubSteps) {
+                    updatePhysics(runtime.fixedStep);
+                    
+                    // 教程模式下的步骤 1 动态临界点阻断
+                    if (state.microMode === 'tutorial' && tutorialStep === 1) {
+                        const zn = particles.find(p => p.type === 'zn_atom');
+                        const cu = particles.find(p => p.type === 'cu2+');
+                        if (zn && cu && cu.x <= 138) {
+                            cu.x = 138;
+                            cu.vx = 0;
+                            // 自动切入步骤 2 的特写准备
+                            tutorialStep = 2;
+                            setupTutorialStep();
+                        }
+                    }
+                    
+                    runtime.accumulator -= runtime.fixedStep;
+                    steps++;
+                }
+                if (steps >= runtime.maxSubSteps) runtime.accumulator = 0;
+            } else {
+                runtime.lastTime = now;
+            }
+
+            if (state.view === 'micro') {
+                drawMicroscene();
+            }
+
+            animationFrameId = requestAnimationFrame(runLoop);
+        }
+
+        function drawMicroscene() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // 背景格子网
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.03)';
+            ctx.lineWidth = 1;
+            for (let x = 0; x < canvas.width; x += 30) {
+                ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke();
+            }
+            for (let y = 0; y < canvas.height; y += 30) {
+                ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke();
+            }
+
+            // 绘制金属片电极边界
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.02)';
+            ctx.fillRect(0, 0, 130, canvas.height);
+            ctx.fillStyle = 'rgba(245, 158, 11, 0.06)';
+            ctx.fillRect(130, 0, 10, canvas.height);
+
+            // 绘制所有离子与原子
+            particles.forEach(p => p.draw());
+
+            // 绘制电子火花
+            electronSparks.forEach(spark => spark.draw());
+        }
+
+        // --- 8. 线桥分析图表生成器 (SVG) ---
+        function renderBridges() {
+            const svg = d3.select("#bridge-svg");
+            svg.selectAll("*").remove();
+
+            const container = document.getElementById("equation-canvas-container");
+            const w = container.clientWidth;
+            const h = container.clientHeight;
+
+            svg.attr("width", w).attr("height", h);
+
+            const rxn = REACTION_CONFIGS[state.activeReaction];
+            if (!rxn) return;
+
+            const centerY = h / 2 + 10;
+            const centerX = w / 2;
+
+            const gText = svg.append("g")
+                .attr("transform", `translate(${centerX}, ${centerY})`);
+
+            const elementsData = rxn.elements;
+            
+            elementsData.forEach(el => {
+                const txt = gText.append("text")
+                    .attr("id", el.id)
+                    .attr("x", el.x_offset)
+                    .attr("y", 0)
+                    .attr("text-anchor", "middle")
+                    .attr("fill", el.isOx ? "#FFFFFF" : "#E2E8F0")
+                    .attr("class", "text-xl font-bold font-mono tracking-wide")
+                    .text(el.text);
+                
+                if (el.val !== "") {
+                    gText.append("text")
+                        .attr("x", el.x_offset + 14)
+                        .attr("y", -14)
+                        .attr("text-anchor", "start")
+                        .attr("fill", "var(--color-electron)")
+                        .attr("class", "text-xs font-mono font-bold")
+                        .text(el.val);
+                }
+            });
+
+            const defs = svg.append("defs");
+            
+            defs.append("marker")
+                .attr("id", "arrow-orange")
+                .attr("viewBox", "0 0 10 10")
+                .attr("refX", 5)
+                .attr("refY", 5)
+                .attr("markerWidth", 6)
+                .attr("markerHeight", 6)
+                .attr("orient", "auto-start-reverse")
+                .append("path")
+                .attr("d", "M 0 2 L 10 5 L 0 8 z")
+                .attr("fill", "var(--color-red-agent)");
+
+            defs.append("marker")
+                .attr("id", "arrow-blue")
+                .attr("viewBox", "0 0 10 10")
+                .attr("refX", 5)
+                .attr("refY", 5)
+                .attr("markerWidth", 6)
+                .attr("markerHeight", 6)
+                .attr("orient", "auto-start-reverse")
+                .append("path")
+                .attr("d", "M 0 2 L 10 5 L 0 8 z")
+                .attr("fill", "var(--color-ox-agent)");
+
+            defs.append("marker")
+                .attr("id", "arrow-cyan")
+                .attr("viewBox", "0 0 10 10")
+                .attr("refX", 5)
+                .attr("refY", 5)
+                .attr("markerWidth", 6)
+                .attr("markerHeight", 6)
+                .attr("orient", "auto-start-reverse")
+                .append("path")
+                .attr("d", "M 0 2 L 10 5 L 0 8 z")
+                .attr("fill", "var(--color-electron)");
+
+            if (state.bridgeMode === 'double') {
+                rxn.double_bridges.forEach(bridge => {
+                    const elFrom = document.getElementById(bridge.from);
+                    const elTo = document.getElementById(bridge.to);
+                    if (!elFrom || !elTo) return;
+
+                    const x1 = centerX + parseFloat(elFrom.getAttribute("x"));
+                    const y1 = centerY + (bridge.dir === "up" ? -35 : 15);
+                    const x2 = centerX + parseFloat(elTo.getAttribute("x"));
+                    const y2 = centerY + (bridge.dir === "up" ? -35 : 15);
+
+                    const arcHeight = bridge.dir === "up" ? -50 : 50;
+                    const pathData = `M ${x1} ${centerY + (bridge.dir === "up" ? -15 : 10)} 
+                                      Q ${(x1+x2)/2} ${centerY + arcHeight} 
+                                      ${x2} ${centerY + (bridge.dir === "up" ? -15 : 10)}`;
+
+                    const strokeColor = bridge.dir === "up" ? "var(--color-red-agent)" : "var(--color-ox-agent)";
+                    const markerId = bridge.dir === "up" ? "arrow-orange" : "arrow-blue";
+
+                    svg.append("path")
+                        .attr("d", pathData)
+                        .attr("fill", "none")
+                        .attr("stroke", strokeColor)
+                        .attr("stroke-width", 2)
+                        .attr("marker-end", `url(#${markerId})`);
+
+                    svg.append("path")
+                        .attr("d", pathData)
+                        .attr("fill", "none")
+                        .attr("stroke", "rgba(255, 255, 255, 0.4)")
+                        .attr("stroke-width", 2)
+                        .attr("class", "electron-flow-line");
+
+                    svg.append("text")
+                        .attr("x", (x1 + x2) / 2)
+                        .attr("y", centerY + arcHeight + (bridge.dir === "up" ? -8 : 18))
+                        .attr("text-anchor", "middle")
+                        .attr("fill", strokeColor)
+                        .attr("class", "text-[11px] font-bold")
+                        .text(bridge.label);
+                });
+            } else {
+                rxn.single_bridges.forEach(bridge => {
+                    const elFrom = document.getElementById(bridge.from);
+                    const elTo = document.getElementById(bridge.to);
+                    if (!elFrom || !elTo) return;
+
+                    const x1 = centerX + parseFloat(elFrom.getAttribute("x"));
+                    const x2 = centerX + parseFloat(elTo.getAttribute("x"));
+                    
+                    const y1 = centerY - 15;
+                    const y2 = centerY - 15;
+                    const pathData = `M ${x1} ${y1} Q ${(x1+x2)/2} ${centerY - 65} ${x2} ${y2}`;
+
+                    svg.append("path")
+                        .attr("d", pathData)
+                        .attr("fill", "none")
+                        .attr("stroke", "var(--color-electron)")
+                        .attr("stroke-width", 2)
+                        .attr("marker-end", "url(#arrow-cyan)");
+
+                    svg.append("path")
+                        .attr("d", pathData)
+                        .attr("fill", "none")
+                        .attr("stroke", "rgba(255, 255, 255, 0.6)")
+                        .attr("stroke-width", 2.5)
+                        .attr("class", "electron-flow-line");
+
+                    svg.append("text")
+                        .attr("x", (x1 + x2) / 2)
+                        .attr("y", centerY - 72)
+                        .attr("text-anchor", "middle")
+                        .attr("fill", "var(--color-electron)")
+                        .attr("class", "text-[11px] font-bold font-mono")
+                        .text(bridge.label);
+                });
+            }
+        }
+
+        // --- 9. 随堂小测验逻辑 ---
+        function initQuiz() {
+            const rxn = REACTION_CONFIGS[state.activeReaction];
+            const qData = rxn.quiz[currentQuizIndex];
+            
+            document.getElementById('quiz-question').innerText = `【题${currentQuizIndex + 1}】${qData.q}`;
+            
+            const optionsContainer = document.getElementById('quiz-options');
+            optionsContainer.innerHTML = '';
+            
+            qData.a.forEach((opt, idx) => {
+                const btn = document.createElement('button');
+                btn.className = "bg-slate-900/60 hover:bg-slate-800 border border-white/10 px-4 py-2 rounded-xl text-xs font-semibold text-slate-300 hover:text-white transition-all";
+                btn.innerText = opt;
+                btn.onclick = () => submitAnswer(idx, btn);
+                optionsContainer.appendChild(btn);
+            });
+        }
+
+        function submitAnswer(idx, btnElement) {
+            const rxn = REACTION_CONFIGS[state.activeReaction];
+            const qData = rxn.quiz[currentQuizIndex];
+            
+            state.totalQuiz++;
+            document.getElementById('quiz-total').innerText = state.totalQuiz;
+
+            const allButtons = document.getElementById('quiz-options').querySelectorAll('button');
+            allButtons.forEach(btn => btn.disabled = true);
+
+            if (idx === qData.correct) {
+                state.score++;
+                document.getElementById('quiz-score').innerText = state.score;
+                btnElement.className = "bg-emerald-500/20 text-emerald-300 border border-emerald-500 px-4 py-2 rounded-xl text-xs font-bold transition-all";
+                
+                const qText = document.getElementById('quiz-question');
+                qText.innerHTML = `<span class="text-emerald-400 font-bold">✓ 正确！</span>${qData.desc}`;
+            } else {
+                btnElement.className = "bg-red-500/20 text-red-300 border border-red-500 px-4 py-2 rounded-xl text-xs font-bold transition-all animate-shake";
+                allButtons[qData.correct].className = "bg-emerald-500/20 text-emerald-300 border border-emerald-500/50 px-4 py-2 rounded-xl text-xs font-bold transition-all";
+                
+                const qText = document.getElementById('quiz-question');
+                qText.innerHTML = `<span class="text-red-400 font-bold">✗ 错误。</span>${qData.desc}`;
+            }
+
+            setTimeout(() => {
+                currentQuizIndex = (currentQuizIndex + 1) % rxn.quiz.length;
+                initQuiz();
+            }, 3000);
+        }
+
+        // --- 10. 视图与界面控制 ---
+        
+        function switchView(viewName) {
+            state.view = viewName;
+            
+            const tabMicro = document.getElementById('tab-micro');
+            const tabBridge = document.getElementById('tab-bridge');
+            const vMicro = document.getElementById('view-container-micro');
+            const vBridge = document.getElementById('view-container-bridge');
+
+            if (viewName === 'micro') {
+                tabMicro.className = "tab-btn active px-4 py-1.5 rounded-md text-xs font-semibold text-white";
+                tabBridge.className = "tab-btn px-4 py-1.5 rounded-md text-xs font-semibold text-slate-400 hover:text-white";
+                vMicro.className = "absolute inset-0 flex flex-col p-4 gap-4 z-20 opacity-100 pointer-events-auto transition-opacity duration-300";
+                vBridge.className = "absolute inset-0 flex flex-col p-4 gap-4 z-10 opacity-0 pointer-events-none transition-opacity duration-300";
+                
+                document.getElementById('aside-micro-legend')?.classList.remove('hidden');
+                initCanvasSize();
+                setupTutorialStep();
+            } else {
+                tabMicro.className = "tab-btn px-4 py-1.5 rounded-md text-xs font-semibold text-slate-400 hover:text-white";
+                tabBridge.className = "tab-btn active px-4 py-1.5 rounded-md text-xs font-semibold text-white";
+                vMicro.className = "absolute inset-0 flex flex-col p-4 gap-4 z-10 opacity-0 pointer-events-none transition-opacity duration-300";
+                vBridge.className = "absolute inset-0 flex flex-col p-4 gap-4 z-20 opacity-100 pointer-events-auto transition-opacity duration-300";
+                
+                document.getElementById('aside-micro-legend')?.classList.add('hidden');
+                renderBridges();
+                initQuiz();
+            }
+        }
+
+        function togglePlay() {
+            if (state.mode === 'playing') {
+                state.mode = 'paused';
+                document.getElementById('play-icon').innerText = '▶ 播放';
+            } else {
+                state.mode = 'playing';
+                document.getElementById('play-icon').innerText = '⏸ 暂停';
+                runtime.lastTime = performance.now();
+            }
+        }
+
+        function triggerRandomSpawn() {
+            initMicroParticles();
+        }
+
+        function resetAll() {
+            state.reducedCu = 0;
+            state.oxidizedZn = 0;
+            state.transferredE = 0;
+            state.score = 0;
+            state.totalQuiz = 0;
+            currentQuizIndex = 0;
+            
+            document.getElementById('quiz-score').innerText = "0";
+            document.getElementById('quiz-total').innerText = "0";
+
+            initQuiz();
+            if (state.view === 'bridge') {
+                renderBridges();
+            }
+            
+            tutorialStep = 1;
+            setupTutorialStep();
+        }
+
+        function selectReaction(rxnId) {
+            ['redox_1', 'redox_2', 'redox_3'].forEach(id => {
+                const btn = document.getElementById(`rxn-${id}`);
+                if (id === rxnId) {
+                    btn.className = "px-3.5 py-1.5 rounded-lg text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30";
+                } else {
+                    btn.className = "px-3.5 py-1.5 rounded-lg text-xs font-bold bg-slate-900 text-slate-400 border border-white/5 hover:text-white";
+                }
+            });
+
+            state.activeReaction = rxnId;
+            currentQuizIndex = 0;
+            
+            const rxn = REACTION_CONFIGS[rxnId];
+            const mode = state.bridgeMode;
+            document.getElementById('bridge-info-title').innerText = rxn.desc[mode].title;
+            document.getElementById('bridge-info-desc').innerText = rxn.desc[mode].text;
+
+            renderBridges();
+            initQuiz();
+        }
+
+        function setBridgeMode(mode) {
+            const btnDouble = document.getElementById('bridge-double');
+            const btnSingle = document.getElementById('bridge-single');
+
+            if (mode === 'double') {
+                btnDouble.className = "px-3 py-1 rounded-md text-[11px] font-bold bg-amber-500 text-black";
+                btnSingle.className = "px-3 py-1 rounded-md text-[11px] font-bold text-slate-400 hover:text-white";
+            } else {
+                btnDouble.className = "px-3 py-1 rounded-md text-[11px] font-bold text-slate-400 hover:text-white";
+                btnSingle.className = "px-3 py-1 rounded-md text-[11px] font-bold bg-amber-500 text-black";
+            }
+
+            state.bridgeMode = mode;
+
+            const rxn = REACTION_CONFIGS[state.activeReaction];
+            document.getElementById('bridge-info-title').innerText = rxn.desc[mode].title;
+            document.getElementById('bridge-info-desc').innerText = rxn.desc[mode].text;
+
+            renderBridges();
+        }
+
+        // --- 11. 挂载加载 ---
+        window.addEventListener('load', () => {
+            renderMathInElement(document.body, {
+                delimiters: [
+                    {left: '$$', right: '$$', display: true},
+                    {left: '$', right: '$', display: false},
+                    {left: '\\(', right: '\\)', display: false},
+                    {left: '\\[', right: '\\]', display: true}
+                ],
+                throwOnError: false
+            });
+
+            initCanvasSize();
+            tutorialStep = 1;
+            setupTutorialStep();
+            
+            requestAnimationFrame(runLoop);
+        });
+    </script>
+</body>
+</html>
