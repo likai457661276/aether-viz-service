@@ -148,7 +148,7 @@ def parse_interactive_html(raw_output: str) -> str:
     3. 如果存在 </html> 结束标签，精确截取完整 HTML
     4. 基本校验：确保包含 HTML 基础标记
     5. 智能补全：检测截断情况并自动闭合缺失的标签：
-       - 如果 <script> 未闭合，使用词法扫描状态机补全 JS 语法后再闭合
+       - 如果 <script> 未闭合，判定为截断输出并触发上层修复
        - 如果 <style> 未闭合，自动添加 </style>
        - 自动添加缺失的 </body> 和 </html>
     6. 长度校验：确保生成的 HTML 内容足够完整（至少 150 字符）
@@ -195,12 +195,9 @@ def parse_interactive_html(raw_output: str) -> str:
         last_script_open = lower_content.rfind("<script")
         last_script_close = lower_content.rfind("</script")
         if last_script_open > last_script_close:
-            # 截断在 script 中，需要闭合 </script>。
-            # 使用词法扫描状态机精确补全 JavaScript 语法闭合
-            script_chunk = stripped[last_script_open:]
-            suffix = _balance_js_brackets(script_chunk)
-            stripped += suffix + "\n</script>"
-            logger.info(f"AetherViz: 自动使用状态机闭合了 <script> 标签，追加了: {repr(suffix)}")
+            raise AetherVizInteractiveHtmlError(
+                "生成的 HTML 疑似在 <script> 内被截断，已拒绝自动补齐 JS，需重新修复生成"
+            )
             
         # 2. 检查是否在 style 块内截断了
         last_style_open = lower_content.rfind("<style")

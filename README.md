@@ -156,13 +156,50 @@ docker compose -f docker-compose.prod.yml up -d app
 
 ### POST /generate-aetherviz-spec
 
-根据教学主题生成 AI互动实验风格的完整独立互动教学 HTML。请求体只接收 `topic`。
+根据教学主题生成 AI互动实验风格的完整独立互动教学 HTML。接口采用同端双阶段 SSE；静态知识点命中时仍直接返回 HTML。
 
-请求示例：
+计划阶段请求示例：
 
 ```json
 {
-  "topic": "牛顿第二定律"
+  "topic": "熵增演示",
+  "phase": "plan"
+}
+```
+
+生成阶段请求示例：
+
+```json
+{
+  "topic": "熵增演示",
+  "phase": "generate",
+  "approved_plan": {
+    "subject": "general",
+    "experiment_type": "综合互动教学演示",
+    "render_stack": {
+      "subject": "general",
+      "mode": "hybrid-basic",
+      "main": "svg",
+      "auxiliary": ["dom-controls", "katex"]
+    },
+    "main_renderer": "svg",
+    "learning_objectives": ["理解核心现象"],
+    "core_concepts": ["熵增"],
+    "teacher_demo_flow": ["生活类比", "观察现象", "交互验证"],
+    "key_variables": [],
+    "performance_budget": {
+      "pixel_ratio_max": 2,
+      "mobile_pixel_ratio_max": 1.5,
+      "dynamic_svg_nodes_max": 300,
+      "particles_desktop_max": 3000,
+      "particles_mobile_max": 1200,
+      "trajectory_points_max": 300
+    },
+    "self_check_items": ["首屏主渲染区非空"],
+    "primary_color": "#22D3EE",
+    "interaction_type": "general",
+    "interaction_hint": "用进度滑块展示状态变化。"
+  }
 }
 ```
 
@@ -170,6 +207,9 @@ docker compose -f docker-compose.prod.yml up -d app
 
 - `start`：生成任务启动。
 - `progress`：阶段进度，例如 `static_match`、`planning` 或 `generating`。
+- `plan_delta`：计划阶段的流式思考片段，供前端实时展示。
+- `plan_ready`：计划阶段完成，包含结构化 `plan`；用户确认后再请求 `phase=generate`。
+- `generation_delta`：生成阶段的大模型输出片段，携带本次 `output_tokens` 和累计 `output_tokens_total`；不包含输入 prompt token。
 - `done`：生成完成，包含最终 `html` 和 `metadata`。
 - `error`：生成失败，包含用户可读 `message`、阶段 `stage` 和调试用 `detail`。
 
@@ -189,6 +229,7 @@ data: {"success": true, "stage": "done", "message": "已返回静态互动可视
 错误约定：
 
 - `400`：`topic` 为空。
+- `400`：`phase=generate` 时缺少 `approved_plan`。
 - SSE `error` 且 `stage=static_html_missing`：主题已命中知识点，但静态 HTML 文件不可用。
 - SSE `error` 且 `stage=llm_error`：调用模型服务失败。
 - SSE `error` 且 `stage=fallback_failed`：互动 HTML 输出解析或基础质量门未通过。
@@ -197,14 +238,15 @@ data: {"success": true, "stage": "done", "message": "已返回静态互动可视
 
 ## 生成流程
 
-`/generate-aetherviz-spec` 使用“静态优先 + 动态兜底”策略：
+`/generate-aetherviz-spec` 使用“静态优先 + 动态双阶段兜底”策略：
 
 1. 通过 `matcher.py` 对主题做服务端知识点关键词匹配。
 2. 命中后读取 `aetherviz/html/{subject}/{slug}.html`，并通过 `static_html.py` 注入运行时主题色覆盖层。
-3. 未命中时由 `fallback_planner.py` 构造轻量规划提示词并解析规划 JSON。
-4. `react.py` 调用大模型生成完整自包含互动 HTML。
-5. `fallback_validator.py` 提取 HTML、清理代码围栏，并对截断输出做轻量闭合。
-6. `validator.py` 执行文档结构、安全、依赖、交互和可视化区域校验；首次失败时最多自动修复一次。
+3. 未命中且 `phase=plan` 时由 `fallback_planner.py` 按 AetherViz Master 5.2 生成学科、实验类型、渲染路由、课堂变量和性能预算计划，并通过 `plan_delta` / `plan_ready` 流式返回。
+4. 前端确认计划后，以 `phase=generate` 携带 `approved_plan` 再次请求。
+5. `react.py` 按确认计划调用大模型生成完整自包含互动 HTML。
+6. `fallback_validator.py` 提取 HTML、清理代码围栏，并对截断输出做轻量闭合。
+7. `validator.py` 执行文档结构、安全、依赖、交互和可视化区域校验；首次失败时最多自动修复一次。
 
 主题色从 `topic` 中的 `#RRGGBB` 或中文颜色词提取，未提取到时使用默认色 `#22D3EE`。主题色适配通过后置 `:root` 覆盖层完成，不批量替换整份 HTML，也不覆盖学科语义色。
 
