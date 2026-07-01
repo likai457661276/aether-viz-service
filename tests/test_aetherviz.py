@@ -4,6 +4,7 @@ import base64
 import json
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 import aetherviz_service.aetherviz.react as react_module
@@ -124,6 +125,83 @@ console.log("{marker}");
 </html>"""
 
 
+def sample_three_html(topic: str = "物理轻量化演示主题", marker: str = "three-ready") -> str:
+    return f"""<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>{topic}</title>
+<link rel="stylesheet" href="https://cdn.staticfile.net/KaTeX/0.16.9/katex.min.css">
+</head>
+<body>
+<h1>{topic}</h1>
+<section class="learning-objectives">
+  <h2>学习目标</h2>
+  <ul>
+    <li>学习目标1</li>
+    <li>学习目标2</li>
+    <li>学习目标3</li>
+  </ul>
+</section>
+<section>
+  <h2>核心概念</h2>
+  <p>核心概念A</p>
+</section>
+<main id="aetherviz-stage"></main>
+<div class="control-panel">
+  <button id="play-animation">播放</button>
+  <button id="pause-animation">暂停</button>
+  <button id="step-animation">单步</button>
+  <button id="reset-animation">重置</button>
+  <button id="random-experiment">随机实验</button>
+  <button id="restore-recommended">恢复推荐值</button>
+</div>
+<script src="https://cdn.staticfile.net/three.js/r134/three.min.js"></script>
+<script src="https://cdn.staticfile.net/KaTeX/0.16.9/katex.min.js"></script>
+<script>
+class AetherVizOrbitControls {{
+  constructor() {{ this.enableDamping = true; this.dampingFactor = 0.08; }}
+  update() {{}}
+}}
+window.AetherVizOrbitControls = AetherVizOrbitControls;
+const state = {{ mode: 'playing', time: 0 }};
+function hasWebGL() {{
+  try {{
+    const canvas = document.createElement('canvas');
+    return !!canvas.getContext('webgl');
+  }} catch (error) {{
+    return false;
+  }}
+}}
+try {{
+  hasWebGL();
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 1000);
+  const renderer = new THREE.WebGLRenderer({{ antialias: true }});
+  const controls = new AetherVizOrbitControls(camera, renderer.domElement);
+  document.getElementById('aetherviz-stage').appendChild(renderer.domElement);
+  function animationLoop() {{
+    requestAnimationFrame(animationLoop);
+    if (state.mode === 'playing') state.time += 1 / 60;
+    controls.update();
+    renderer.render(scene, camera);
+  }}
+  window.addEventListener('resize', () => renderer.setSize(320, 180));
+  ['play-animation','pause-animation','step-animation','reset-animation','random-experiment','restore-recommended'].forEach((id) => {{
+    document.getElementById(id).addEventListener('click', () => {{ state.mode = id === 'pause-animation' ? 'paused' : 'playing'; }});
+  }});
+  window.__AETHERVIZ_RUNTIME_READY__ = true;
+  animationLoop();
+}} catch (error) {{
+  window.__AETHERVIZ_RUNTIME_ERROR__ = error.message;
+  document.body.insertAdjacentHTML('beforeend', '<div style="background:#0F172A;color:#FFFFFF;border:2px solid #EF4444">runtime error</div>');
+}}
+console.log("{marker}");
+</script>
+</body>
+</html>"""
+
+
 def test_generate_aetherviz_spec_returns_400_when_topic_empty() -> None:
     response = client.post("/generate-aetherviz-spec", json={"topic": "   "})
 
@@ -187,6 +265,27 @@ def test_get_static_aetherviz_html_by_knowledge_point_id() -> None:
     assert data["html"].startswith("<!DOCTYPE html>")
     assert "牛顿第二定律" in data["html"]
     assert "AI互动实验 runtime theme override" in data["html"]
+
+
+def test_get_static_aetherviz_html_by_relative_path_returns_raw_html() -> None:
+    response = client.get("/static-html/physics/newton-second-law.html")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/html")
+    assert response.text.startswith("<!DOCTYPE html>")
+    assert "牛顿第二定律" in response.text
+    assert "AI互动实验 runtime theme override" in response.text
+
+
+def test_get_static_aetherviz_html_by_relative_path_rejects_unsafe_path() -> None:
+    response = client.get("/static-html/../README.md")
+
+    assert response.status_code == 404
+
+
+def test_static_html_relative_path_rejects_traversal() -> None:
+    with pytest.raises(static_html_module.StaticAetherVizHtmlError):
+        static_html_module.static_html_path_for_relative_path("../README.md")
 
 
 def test_get_static_aetherviz_html_returns_404_when_unknown() -> None:
@@ -526,6 +625,77 @@ def test_generate_phase_uses_approved_plan_for_html(monkeypatch) -> None:
     assert done_data["output_tokens_total"] > 0
 
 
+def test_generate_phase_stops_stream_after_complete_html(monkeypatch) -> None:
+    yielded = []
+
+    def fake_llm_stream(prompt: str, system_prompt: str, max_tokens: int = 0, temperature: float = 0.3):
+        html = sample_svg_html(marker="ready")
+        yielded.append("html")
+        yield html
+        yielded.append("after-close")
+        yield "不应继续等待或消费的尾部内容"
+
+    monkeypatch.setattr(react_module, "call_llm_stream", fake_llm_stream)
+
+    response = client.post(
+        "/generate-aetherviz-spec",
+        json={"topic": "熵增演示", "phase": "generate", "approved_plan": sample_approved_plan()},
+    )
+
+    events = parse_sse_events(response)
+    assert events[-1][0] == "done"
+    assert yielded == ["html"]
+    assert "不应继续等待" not in events[-1][1]["html"]
+
+
+def test_generate_phase_preserves_confirmed_three_plan(monkeypatch) -> None:
+    calls = []
+    legacy_plan = sample_approved_plan("物理轻量化演示主题")
+    legacy_plan["subject"] = "physics"
+    legacy_plan["render_stack"] = {
+        "subject": "physics",
+        "mode": "three-physics-svg",
+        "main": "three",
+        "auxiliary": ["svg-hud", "katex"],
+    }
+    legacy_plan["main_renderer"] = "three"
+    legacy_plan["key_variables"] = [
+        {"name": "质量", "unit": "kg", "default": 2, "min": 1, "max": 10, "recommended": 2, "classroom_tip": "观察质量影响"},
+        {"name": "作用力", "unit": "N", "default": 10, "min": 1, "max": 50, "recommended": 10, "classroom_tip": "观察力的影响"},
+        {"name": "摩擦", "unit": "N", "default": 1, "min": 0, "max": 5, "recommended": 1, "classroom_tip": "第三个变量应被保留"},
+    ]
+
+    def fake_llm_stream(prompt: str, system_prompt: str, max_tokens: int = 0, temperature: float = 0.3):
+        calls.append((prompt, system_prompt, max_tokens, temperature))
+        yield sample_three_html(topic="物理轻量化演示主题", marker="legacy-three-preserved")
+
+    monkeypatch.setattr(react_module, "call_llm_stream", fake_llm_stream)
+
+    response = client.post(
+        "/generate-aetherviz-spec",
+        json={"topic": "物理轻量化演示主题", "phase": "generate", "approved_plan": legacy_plan},
+    )
+
+    events = parse_sse_events(response)
+    assert events[-1][0] == "done"
+    done_data = events[-1][1]
+    prompt, system_prompt, max_tokens, temperature = calls[0]
+    combined_prompt = f"{system_prompt}\n{prompt}"
+    assert max_tokens == 10000
+    assert temperature == 0.2
+    assert "主渲染器：three" in prompt
+    assert "three-physics-svg" in prompt
+    assert "AetherVizOrbitControls" in combined_prompt
+    assert "pause-animation" in combined_prompt
+    assert "step-animation" in combined_prompt
+    assert "random-experiment" in combined_prompt
+    assert "restore-recommended" in combined_prompt
+    assert done_data["metadata"]["render_mode"] == "three-physics-svg"
+    assert done_data["metadata"]["plan"]["main_renderer"] == "three"
+    assert done_data["metadata"]["plan"]["render_stack"]["main"] == "three"
+    assert len(done_data["metadata"]["plan"]["key_variables"]) == 3
+
+
 def test_render_stack_validation_rejects_three_when_svg_is_main() -> None:
     from aetherviz_service.aetherviz.validator import (
         AetherVizHtmlValidationError,
@@ -753,6 +923,43 @@ def test_build_planning_prompt_contains_subject_guide() -> None:
     assert "#22D3EE" in user_prompt
 
 
+def test_fallback_planner_selects_subject_specific_rich_routes() -> None:
+    from aetherviz_service.aetherviz.fallback_planner import select_render_stack
+
+    assert select_render_stack("牛顿第二定律")["main"] == "three"
+    assert select_render_stack("电场线分布")["main"] == "canvas"
+    assert select_render_stack("化学反应速率")["mode"] == "svg-reaction-canvas"
+    assert select_render_stack("分子结构")["main"] == "three"
+    assert select_render_stack("生物细胞结构演示")["mode"] == "bio-hybrid"
+    assert select_render_stack("天文行星轨道演示")["main"] == "three"
+
+
+def test_planning_normalization_preserves_confirmed_complex_routes_and_variables() -> None:
+    from aetherviz_service.aetherviz.fallback_planner import normalize_plan
+
+    plan = normalize_plan(
+        {
+            "subject": "physics",
+            "experiment_type": "复杂旧计划",
+            "render_stack": {"subject": "physics", "mode": "three-physics-svg", "main": "three", "auxiliary": ["svg-hud", "katex"]},
+            "main_renderer": "three",
+            "learning_objectives": ["目标一", "目标二", "目标三"],
+            "core_concepts": ["F=ma"],
+            "key_variables": [
+                {"name": "质量", "unit": "kg", "default": 2, "min": 1, "max": 10, "recommended": 2},
+                {"name": "作用力", "unit": "N", "default": 10, "min": 1, "max": 50, "recommended": 10},
+                {"name": "摩擦", "unit": "N", "default": 1, "min": 0, "max": 5, "recommended": 1},
+            ],
+        },
+        "物理轻量化力学演示",
+    )
+
+    assert plan["render_stack"]["mode"] == "three-physics-svg"
+    assert plan["render_stack"]["main"] == "three"
+    assert plan["main_renderer"] == "three"
+    assert len(plan["key_variables"]) == 3
+
+
 def test_planning_parse_valid() -> None:
     from aetherviz_service.aetherviz.fallback_planner import parse_planning_result
     raw = json.dumps({
@@ -894,6 +1101,39 @@ def test_fallback_llm_repairs_invalid_first_output_successfully(monkeypatch) -> 
     assert done_data["metadata"]["degraded"] is True
 
 
+def test_fallback_repair_prompt_compacts_long_failed_html(monkeypatch) -> None:
+    calls = []
+    long_middle = "SHOULD_NOT_BE_INCLUDED_IN_REPAIR_PROMPT" * 200
+
+    def fake_llm_stream(prompt: str, system_prompt: str, max_tokens: int = 0, temperature: float = 0.3):
+        calls.append((prompt, system_prompt, max_tokens, temperature))
+        if len(calls) == 1:
+            yield f"""<html>
+<head><title>破损HTML</title></head>
+<body>
+<h1>熵增演示</h1>
+<p>{long_middle}</p>
+</body>
+</html>"""
+            return
+        yield sample_svg_html(marker="compact-repaired")
+
+    monkeypatch.setattr(react_module, "call_llm_stream", fake_llm_stream)
+
+    response = client.post(
+        "/generate-aetherviz-spec",
+        json={"topic": "熵增演示", "phase": "generate", "approved_plan": sample_approved_plan()},
+    )
+
+    events = parse_sse_events(response)
+    assert events[-1][0] == "done"
+    assert len(calls) == 2
+    repair_prompt = calls[1][0]
+    assert "中间过长内容已省略" in repair_prompt
+    assert long_middle not in repair_prompt
+    assert "compact-repaired" in events[-1][1]["html"]
+
+
 def test_fallback_llm_repairs_inline_script_syntax_error(monkeypatch) -> None:
     calls = []
 
@@ -918,12 +1158,16 @@ def test_fallback_llm_repairs_inline_script_syntax_error(monkeypatch) -> None:
     assert events[-1][0] == "done"
     done_data = events[-1][1]
     assert len(calls) == 2
+    assert calls[0][2] == 7000
+    assert calls[1][2] == 7000
     assert calls[0][3] == 0.2
     assert calls[1][3] == 0.2
     assert done_data["metadata"]["attempts"] == 2
     assert done_data["metadata"]["repaired"] is True
     assert "syntax-repaired" in done_data["html"]
     assert "内联脚本语法错误" in calls[1][0]
+    assert "精准修复" in calls[1][0]
+    assert "不降级渲染路由" in calls[1][0]
 
 
 def test_fallback_llm_fails_after_failed_repair(monkeypatch) -> None:

@@ -154,6 +154,18 @@ docker compose -f docker-compose.prod.yml up -d app
 - `404`：`knowledge_point_id` 未注册为静态知识点。
 - `500`：知识点已注册，但对应静态 HTML 文件不存在或格式不正确。
 
+### GET /static-html/{static_html_path}
+
+根据静态 HTML 相对路径直接返回 `text/html`，用于前端或宿主已持有 `static_html_path` 时加载原始课件文件。路径必须位于 `aetherviz/html/` 下，并且必须是 `.html` 文件。
+
+请求示例：
+
+```text
+GET /static-html/physics/newton-second-law.html
+```
+
+响应为完整独立 HTML 文本。路径不存在或不合法时返回 `404`。
+
 ### POST /generate-aetherviz-spec
 
 根据教学主题生成 AI互动实验风格的完整独立互动教学 HTML。接口采用同端双阶段 SSE；静态知识点命中时仍直接返回 HTML。
@@ -178,7 +190,7 @@ docker compose -f docker-compose.prod.yml up -d app
     "experiment_type": "综合互动教学演示",
     "render_stack": {
       "subject": "general",
-      "mode": "hybrid-basic",
+      "mode": "svg-dom-lite",
       "main": "svg",
       "auxiliary": ["dom-controls", "katex"]
     },
@@ -242,10 +254,10 @@ data: {"success": true, "stage": "done", "message": "已返回静态互动可视
 
 1. 通过 `matcher.py` 对主题做服务端知识点关键词匹配。
 2. 命中后读取 `aetherviz/html/{subject}/{slug}.html`，并通过 `static_html.py` 注入运行时主题色覆盖层。
-3. 未命中且 `phase=plan` 时由 `fallback_planner.py` 按 AetherViz Master 5.2 生成学科、实验类型、渲染路由、课堂变量和性能预算计划，并通过 `plan_delta` / `plan_ready` 流式返回。
+3. 未命中且 `phase=plan` 时由 `fallback_planner.py` 按 AetherViz Master 5.2 生成学科、实验类型、轻量 SVG/DOM 渲染路由、课堂变量和性能预算计划，并通过 `plan_delta` / `plan_ready` 流式返回。
 4. 前端确认计划后，以 `phase=generate` 携带 `approved_plan` 再次请求。
-5. `react.py` 按确认计划调用大模型生成完整自包含互动 HTML。
-6. `fallback_validator.py` 提取 HTML、清理代码围栏，并对截断输出做轻量闭合。
+5. `react.py` 会先对确认计划做服务端轻量归一化，再调用大模型生成小型 SVG/DOM 单场景自包含互动 HTML；复杂 3D、粒子或多场景课件应优先沉淀为静态 HTML 模板。
+6. `fallback_validator.py` 提取 HTML、清理代码围栏；若检测到输出截断在 `<script>` 内，会拒绝自动补齐 JS 并交由一次自动修复流程处理。
 7. `validator.py` 执行文档结构、安全、依赖、交互和可视化区域校验；首次失败时最多自动修复一次。
 
 主题色从 `topic` 中的 `#RRGGBB` 或中文颜色词提取，未提取到时使用默认色 `#22D3EE`。主题色适配通过后置 `:root` 覆盖层完成，不批量替换整份 HTML，也不覆盖学科语义色。

@@ -1,7 +1,7 @@
 """AetherViz 路由。"""
 
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 
 import aetherviz_service.aetherviz.static_html as static_html_module
 from aetherviz_service.aetherviz.knowledge_points import KNOWLEDGE_POINTS, KnowledgePoint
@@ -87,6 +87,19 @@ def get_static_aetherviz_html(knowledge_point_id: str) -> StaticAetherVizHtmlRes
         primary_color=primary_color,
         html=html,
     )
+
+
+@router.get("/static-html/{static_html_path:path}", response_class=HTMLResponse)
+def get_static_aetherviz_html_by_path(static_html_path: str) -> HTMLResponse:
+    try:
+        html = static_html_module.load_static_html_for_relative_path(
+            static_html_path,
+            static_html_module.DEFAULT_PRIMARY_COLOR,
+        )
+    except StaticAetherVizHtmlError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    return HTMLResponse(content=html)
 
 
 @router.post("/generate-aetherviz-spec")

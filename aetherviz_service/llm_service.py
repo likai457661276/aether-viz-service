@@ -86,6 +86,7 @@ def call_llm_stream(
     temperature: float = 0.3,
 ) -> Iterator[str]:
     client, llm_config = _openai_client()
+    stream = None
 
     try:
         stream = client.chat.completions.create(
@@ -110,6 +111,9 @@ def call_llm_stream(
                 yield delta
     except OpenAIError as exc:
         raise LLMServiceError(f"调用大模型失败：{exc}") from exc
+    finally:
+        if stream is not None and hasattr(stream, "close"):
+            stream.close()
 
 
 def strip_code_fences(text: str) -> str:

@@ -78,6 +78,27 @@ def load_static_html_for_point(point: KnowledgePoint, primary_color: str) -> str
         StaticAetherVizHtmlError: 当 HTML 文件不存在或格式不正确时抛出
     """
     path = static_html_path_for_point(point)
+    return load_static_html_file(path, primary_color)
+
+
+def static_html_path_for_relative_path(relative_path: str, html_root: Path | None = None) -> Path:
+    normalized = Path(relative_path.strip().lstrip("/"))
+    if normalized.is_absolute() or ".." in normalized.parts or normalized.suffix.lower() != ".html":
+        raise StaticAetherVizHtmlError("静态 HTML 路径不合法")
+
+    root = (html_root or HTML_ROOT).resolve()
+    path = (root / normalized).resolve()
+    if not path.is_relative_to(root):
+        raise StaticAetherVizHtmlError("静态 HTML 路径不合法")
+    return path
+
+
+def load_static_html_for_relative_path(relative_path: str, primary_color: str) -> str:
+    path = static_html_path_for_relative_path(relative_path)
+    return load_static_html_file(path, primary_color)
+
+
+def load_static_html_file(path: Path, primary_color: str) -> str:
     if not path.is_file():
         raise StaticAetherVizHtmlError(f"静态 HTML 文件不存在：{path}")
     html = path.read_text(encoding="utf-8-sig").strip()
