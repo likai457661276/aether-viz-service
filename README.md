@@ -2,7 +2,7 @@
 
 `AI互动实验` 是一个基于 Python 3.12 和 FastAPI 的后端服务，用于根据教学主题生成完整、可直接打开的互动教学 HTML。
 
-服务包含 AI互动实验生成链路：静态知识点命中、主题色注入、未命中时的大模型互动 HTML fallback、fallback 输出校验与一次自动修复。
+服务包含 AI互动实验生成链路：静态知识点命中、主题色注入、未命中时的通用 SVG HTML 生成、数学专项 SVG + KaTeX + GSAP 生成，以及基于当前 HTML 的修订。
 
 当前不包含前端、导出、数据库或任务队列能力。
 
@@ -168,7 +168,7 @@ GET /static-html/physics/newton-second-law.html
 
 ### POST /generate-aetherviz-spec
 
-根据教学主题生成 AI互动实验风格的完整独立互动教学 HTML。接口采用同端双阶段 SSE；静态知识点命中时仍直接返回 HTML。
+根据教学主题生成 AI互动实验风格的完整独立互动教学 HTML。接口采用同端 SSE；静态知识点命中时仍直接返回 HTML，动态生成只支持 `generic_svg` 与 `math_svg_katex_gsap` 两种模式。
 
 计划阶段请求示例：
 
@@ -187,31 +187,29 @@ GET /static-html/physics/newton-second-law.html
   "phase": "generate",
   "approved_plan": {
     "subject": "general",
-    "experiment_type": "综合互动教学演示",
-    "render_stack": {
-      "subject": "general",
-      "mode": "svg-dom-lite",
-      "main": "svg",
-      "auxiliary": ["dom-controls", "katex"]
-    },
-    "main_renderer": "svg",
-    "learning_objectives": ["理解核心现象"],
-    "core_concepts": ["熵增"],
-    "teacher_demo_flow": ["生活类比", "观察现象", "交互验证"],
-    "key_variables": [],
-    "performance_budget": {
-      "pixel_ratio_max": 2,
-      "mobile_pixel_ratio_max": 1.5,
-      "dynamic_svg_nodes_max": 300,
-      "particles_desktop_max": 3000,
-      "particles_mobile_max": 1200,
-      "trajectory_points_max": 300
-    },
-    "self_check_items": ["首屏主渲染区非空"],
-    "primary_color": "#22D3EE",
-    "interaction_type": "general",
-    "interaction_hint": "用进度滑块展示状态变化。"
+    "mode": "generic_svg",
+    "title": "熵增演示互动动画",
+    "goal": "用稳定 SVG 动画解释熵增的核心过程。",
+    "visual_steps": ["生活类比", "观察状态变化", "拖动变量验证"],
+    "controls": [
+      {"id": "progress-slider", "label": "过程进度", "type": "slider"},
+      {"id": "speed-control", "label": "速度", "type": "speed"}
+    ],
+    "formulas": [],
+    "validation_points": ["使用 HTML + CSS + SVG", "按钮均绑定事件"],
+    "primary_color": "#22D3EE"
   }
+}
+```
+
+修订阶段请求示例：
+
+```json
+{
+  "topic": "熵增演示",
+  "phase": "revise",
+  "current_html": "<!doctype html>...",
+  "instruction": "把动画速度调慢，说明文字放到左侧"
 }
 ```
 
@@ -242,6 +240,7 @@ data: {"success": true, "stage": "done", "message": "已返回静态互动可视
 
 - `400`：`topic` 为空。
 - `400`：`phase=generate` 时缺少 `approved_plan`。
+- `400`：`phase=revise` 时缺少 `current_html` 或 `instruction`。
 - SSE `error` 且 `stage=static_html_missing`：主题已命中知识点，但静态 HTML 文件不可用。
 - SSE `error` 且 `stage=llm_error`：调用模型服务失败。
 - SSE `error` 且 `stage=fallback_failed`：互动 HTML 输出解析或基础质量门未通过。
@@ -254,11 +253,11 @@ data: {"success": true, "stage": "done", "message": "已返回静态互动可视
 
 1. 通过 `matcher.py` 对主题做服务端知识点关键词匹配。
 2. 命中后读取 `aetherviz/html/{subject}/{slug}.html`，并通过 `static_html.py` 注入运行时主题色覆盖层。
-3. 未命中且 `phase=plan` 时由 `fallback_planner.py` 按 AetherViz Master 5.2 生成学科、实验类型、轻量 SVG/DOM 渲染路由、课堂变量和性能预算计划，并通过 `plan_delta` / `plan_ready` 流式返回。
+3. 未命中且 `phase=plan` 时由 `fallback_planner.py` 生成简化计划，字段包括 `subject`、`mode`、`title`、`goal`、`visual_steps`、`controls`、`formulas`、`validation_points` 和 `primary_color`。
 4. 前端确认计划后，以 `phase=generate` 携带 `approved_plan` 再次请求。
-5. `react.py` 会先对确认计划做服务端轻量归一化，再调用大模型生成小型 SVG/DOM 单场景自包含互动 HTML；复杂 3D、粒子或多场景课件应优先沉淀为静态 HTML 模板。
-6. `fallback_validator.py` 提取 HTML、清理代码围栏；若检测到输出截断在 `<script>` 内，会拒绝自动补齐 JS 并交由一次自动修复流程处理。
-7. `validator.py` 执行文档结构、安全、依赖、交互和可视化区域校验；首次失败时最多自动修复一次。
+5. `react.py` 按 `mode` 调用生成 prompt：非数学使用 `HTML + CSS + SVG`，数学使用 `HTML + SVG + KaTeX + GSAP Timeline`。
+6. `phase=revise` 时，后端根据 `current_html + instruction` 修订当前页面，而不是重新走旧计划或复杂渲染路由。
+7. `fallback_validator.py` 提取 HTML、清理代码围栏；`validator.py` 执行文档结构、安全、依赖、交互和可视化区域校验。校验失败会直接返回 SSE `error`，不做旧计划兼容或自动修复。
 
 主题色从 `topic` 中的 `#RRGGBB` 或中文颜色词提取，未提取到时使用默认色 `#22D3EE`。主题色适配通过后置 `:root` 覆盖层完成，不批量替换整份 HTML，也不覆盖学科语义色。
 

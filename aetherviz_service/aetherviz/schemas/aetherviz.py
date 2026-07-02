@@ -3,53 +3,33 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 
-class AetherVizRenderStack(BaseModel):
-    subject: str
-    mode: str
-    main: str
-    auxiliary: list[str] = Field(default_factory=list)
+GenerationMode = Literal["generic_svg", "math_svg_katex_gsap"]
 
 
-class AetherVizPlanVariable(BaseModel):
-    name: str
-    unit: str = ""
-    default: str | int | float = ""
-    min: str | int | float | None = None
-    max: str | int | float | None = None
-    recommended: str | int | float = ""
-    classroom_tip: str = ""
-    meaning: str = ""
-
-
-class AetherVizPerformanceBudget(BaseModel):
-    pixel_ratio_max: float = 2
-    mobile_pixel_ratio_max: float = 1.5
-    dynamic_svg_nodes_max: int = 300
-    particles_desktop_max: int = 3000
-    particles_mobile_max: int = 1200
-    trajectory_points_max: int = 300
+class AetherVizPlanControl(BaseModel):
+    id: str
+    label: str
+    type: Literal["slider", "button", "speed"]
 
 
 class AetherVizPlan(BaseModel):
     subject: str
-    experiment_type: str
-    render_stack: AetherVizRenderStack
-    main_renderer: str
-    learning_objectives: list[str] = Field(default_factory=list)
-    core_concepts: list[str] = Field(default_factory=list)
-    teacher_demo_flow: list[str] = Field(default_factory=list)
-    key_variables: list[AetherVizPlanVariable] = Field(default_factory=list)
-    performance_budget: AetherVizPerformanceBudget = Field(default_factory=AetherVizPerformanceBudget)
-    self_check_items: list[str] = Field(default_factory=list)
-    primary_color: str
-    interaction_type: str = "general"
-    interaction_hint: str = ""
+    mode: GenerationMode
+    title: str
+    goal: str
+    visual_steps: list[str] = Field(default_factory=list)
+    controls: list[AetherVizPlanControl] = Field(default_factory=list)
+    formulas: list[str] = Field(default_factory=list)
+    validation_points: list[str] = Field(default_factory=list)
+    primary_color: str = "#22D3EE"
 
 
 class GenerateAetherVizSpecRequest(BaseModel):
     topic: str = Field(...)
-    phase: Literal["plan", "generate"] = "plan"
+    phase: Literal["plan", "generate", "revise"] = "plan"
     approved_plan: AetherVizPlan | None = None
+    current_html: str | None = None
+    instruction: str | None = None
 
 
 class GenerateAetherVizHtmlMetadata(BaseModel):

@@ -24,20 +24,13 @@ FORBIDDEN_HTML_PATTERNS: list[tuple[re.Pattern[str], str]] = [
 
 ALLOWED_EXTERNAL_URLS = {
     "https://cdn.tailwindcss.com",
-    "https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js",
-    "https://cdn.staticfile.net/three.js/r134/three.min.js",
     "https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css",
     "https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js",
     "https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js",
+    "https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js",
     "https://cdn.staticfile.net/KaTeX/0.16.9/katex.min.css",
     "https://cdn.staticfile.net/KaTeX/0.16.9/katex.min.js",
     "https://cdn.staticfile.net/KaTeX/0.16.9/contrib/auto-render.min.js",
-    "https://d3js.org/d3.v7.min.js",
-    "https://cdn.staticfile.net/d3/7.9.0/d3.min.js",
-}
-
-THREEJS_URL = "https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"
-REQUIRED_EXTERNAL_URLS = ALLOWED_EXTERNAL_URLS - {
     "https://d3js.org/d3.v7.min.js",
     "https://cdn.staticfile.net/d3/7.9.0/d3.min.js",
 }
@@ -73,16 +66,14 @@ def validate_aetherviz_html(
     html: str,
     topic: str | None = None,
     strict: bool = True,
-    render_stack: dict | None = None,
-    main_renderer: str | None = None,
 ) -> list[str]:
     """校验 AetherViz 生成的 HTML，返回警告列表。
     
     该函数执行多维度的 HTML 质量检查：
     1. 文档结构检查：DOCTYPE、html/head/body/title/style/script 标签完整性
     2. 安全检查：禁止标签（iframe/object/embed/form）、内联事件、非白名单外部资源
-    3. 依赖检查：必需的 CDN（Tailwind CSS、Three.js、KaTeX）是否完整引入
-    4. 运行时契约检查：Three.js 初始化代码、OrbitControls 实现、动画循环等
+    3. 依赖检查：必需的 CDN（KaTeX/GSAP 等白名单）是否安全
+    4. 运行时契约检查：SVG/DOM 初始化、动画循环等
     5. 内容质量检查：占位符检测、学习目标数量、控制面板组件数量
     
     参数:
@@ -109,16 +100,6 @@ def validate_aetherviz_html(
     fallback_mode = _is_fallback_svg_mode(soup)
     _collect_dependency_errors(soup, errors, fallback_mode=fallback_mode, strict=strict)
     _collect_runtime_contract_errors(stripped, soup, errors, warnings, strict=strict)
-    if render_stack:
-        _collect_render_stack_contract_errors(
-            stripped,
-            soup,
-            errors,
-            warnings,
-            render_stack=render_stack,
-            main_renderer=main_renderer,
-            strict=strict,
-        )
     _collect_html_substance_errors(stripped, soup, errors, warnings, strict=strict)
     if errors:
         raise AetherVizHtmlValidationError("；".join(errors))
@@ -366,8 +347,6 @@ def _collect_dependency_errors(soup: BeautifulSoup, errors: list[str], fallback_
     
     # 校验各项必需依赖是否在 urls 中以合适形式存在（支持任意版本的 KaTeX）
     has_tailwind = any(url.startswith("https://cdn.tailwindcss.com") for url in urls)
-    has_three = any(url in {THREEJS_URL, "https://cdn.staticfile.net/three.js/r134/three.min.js"} for url in urls)
-    
     has_katex_css = any(
         re.match(r"^https://(?:cdn\.jsdelivr\.net/npm/katex@[^/]+/dist|cdn\.staticfile\.net/KaTeX/[^/]+)/katex\.min\.css$", url)
         for url in urls
@@ -383,8 +362,6 @@ def _collect_dependency_errors(soup: BeautifulSoup, errors: list[str], fallback_
     
     if not has_tailwind:
         errors.append("HTML 缺少必需 CDN：https://cdn.tailwindcss.com")
-    if not fallback_mode and not has_three:
-        errors.append(f"HTML 缺少必需 CDN：{THREEJS_URL}")
     if not has_katex_css:
         errors.append("HTML 缺少必需 CDN：https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css (允许任意版本)")
     if not has_katex_js:
@@ -420,174 +397,21 @@ def _collect_runtime_contract_errors(
             errors.append("SVG 降级模式不应初始化 Three.js WebGLRenderer")
         return
 
-    three_ref = r"(?:window\.)?THREE"
-
-    # ── 硬性检查：核心 Three.js 对象必须存在 ──
     required_script_patterns = [
-        (rf"new\s+{three_ref}\.Scene\s*\(", "Three.js 场景初始化"),
-        (rf"new\s+{three_ref}\.PerspectiveCamera\s*\(", "PerspectiveCamera 相机初始化"),
-        (rf"new\s+{three_ref}\.WebGLRenderer\s*\(", "WebGLRenderer 渲染器初始化"),
         (r"requestAnimationFrame\s*\(", "requestAnimationFrame 动画循环"),
-        (r"addEventListener\s*\(\s*['\"]resize['\"]", "resize 响应式处理"),
+        (r"addEventListener\s*\(", "事件绑定"),
+        (r"window\.AetherVizRuntime\s*=", "window.AetherVizRuntime"),
     ]
     for pattern, label in required_script_patterns:
         if not re.search(pattern, scripts, re.IGNORECASE | re.DOTALL):
             errors.append(f"HTML 缺少{label}")
 
-    # ── 硬性检查：OrbitControls 核心 ──
-    if not re.search(r"(class|function)\s+(?:AetherViz)?OrbitControls\b", scripts):
-        errors.append("HTML 必须内联 OrbitControls 简化实现")
-    if "AetherVizOrbitControls" not in scripts:
-        errors.append("OrbitControls 必须挂载或使用 window.AetherVizOrbitControls")
-    for required_text in ("enableDamping", "dampingFactor", "update"):
-        if required_text not in scripts:
-            errors.append(f"内联 OrbitControls 缺少 {required_text}")
     for required_text in ("__AETHERVIZ_RUNTIME_READY__", "__AETHERVIZ_RUNTIME_ERROR__"):
         if required_text not in scripts:
             errors.append(f"HTML 缺少运行时自检标记 {required_text}")
 
-    # ── 软性警告：质量细节 ──
-    warn_patterns = [
-        (rf"\.shadowMap\.enabled\s*=\s*true", "renderer.shadowMap.enabled=true"),
-        (rf"new\s+{three_ref}\.HemisphereLight\s*\(", "HemisphereLight 环境光"),
-        (rf"new\s+{three_ref}\.DirectionalLight\s*\(", "DirectionalLight 主光源"),
-        (r"\.castShadow\s*=\s*true", "DirectionalLight castShadow=true"),
-        (r"renderMathInElement\s*\(", "KaTeX renderMathInElement 调用"),
-    ]
-    for pattern, label in warn_patterns:
-        if not re.search(pattern, scripts, re.IGNORECASE | re.DOTALL):
-            warnings.append(f"HTML 缺少{label}")
-
-    if not re.search(r"\b(touch|pointer)\w*", scripts, re.IGNORECASE):
-        warnings.append("内联 OrbitControls 建议支持触控或 pointer 操作")
-    if not re.search(r"\b(minDistance|maxDistance|zoom)\b", scripts, re.IGNORECASE):
-        warnings.append("内联 OrbitControls 建议包含缩放限制")
-
-
-def _collect_render_stack_contract_errors(
-    html: str,
-    soup: BeautifulSoup,
-    errors: list[str],
-    warnings: list[str],
-    render_stack: dict,
-    main_renderer: str | None = None,
-    strict: bool = True,
-) -> None:
-    scripts = "\n".join(script.get_text("\n", strip=False) for script in soup.find_all("script"))
-    renderer = _normalize_main_renderer(main_renderer or render_stack.get("main") or render_stack.get("main_renderer"))
-    route_text = _render_route_text(render_stack, renderer)
-
-    has_svg = _has_svg_surface(soup, scripts)
-    has_canvas = _has_canvas_surface(soup, scripts)
-    has_three_url = _has_three_dependency(soup)
-    has_three_renderer = _has_three_renderer(scripts)
-    has_three_scene = _has_three_scene(scripts)
-    has_three_camera = _has_three_camera(scripts)
-    has_three_points = bool(re.search(r"\b(?:window\.)?THREE\.Points\b", scripts))
-    has_d3_url = _has_d3_dependency(soup)
-    has_katex = _has_katex_dependency(soup)
-    has_raf = bool(re.search(r"requestAnimationFrame\s*\(", scripts))
-    has_resize = bool(
-        re.search(r"ResizeObserver\b|addEventListener\s*\(\s*['\"]resize['\"]", scripts, re.IGNORECASE)
-    )
-    allows_three = "three" in route_text or renderer in {"three", "hybrid"}
-
-    if renderer == "three":
-        if not has_three_url:
-            errors.append("渲染路由要求 Three.js 主渲染器，但 HTML 缺少 Three.js CDN")
-        if not has_three_scene:
-            errors.append("主渲染器为 three 时必须初始化 THREE.Scene")
-        if not has_three_camera:
-            errors.append("主渲染器为 three 时必须初始化 PerspectiveCamera")
-        if not has_three_renderer:
-            errors.append("主渲染器为 three 时必须初始化 WebGLRenderer")
-        if not re.search(r"\b(?:AetherViz)?OrbitControls\b", scripts):
-            if strict:
-                errors.append("Three.js 路由必须内联 OrbitControls 简化实现")
-            else:
-                warnings.append("Three.js 路由建议内联 OrbitControls 简化实现")
-        if not _has_webgl_guard(html, scripts):
-            if strict:
-                errors.append("Three.js 路由必须包含 WebGL 可用性检测或错误兜底")
-            else:
-                warnings.append("Three.js 路由建议包含 WebGL 可用性检测或错误兜底")
-
-    elif renderer == "svg":
-        if not has_svg:
-            errors.append("主渲染器为 svg 时必须包含主 SVG 渲染面或动态创建 SVG")
-        if (has_three_url or has_three_renderer) and not allows_three:
-            errors.append("主渲染器为 svg 的路由不应引入或初始化 Three.js")
-
-    elif renderer == "canvas":
-        if not (has_canvas or has_three_points):
-            errors.append("主渲染器为 canvas 时必须包含 Canvas 渲染面、Canvas 2D 上下文或 Three.js Points")
-        if has_canvas and not re.search(r"\.getContext\s*\(\s*['\"]2d['\"]", scripts, re.IGNORECASE):
-            errors.append("Canvas 路由必须初始化 2D 绘制上下文")
-
-    elif renderer == "dom":
-        if (has_three_url or has_three_renderer) and not allows_three:
-            errors.append("主渲染器为 dom 的路由不应默认引入或初始化 Three.js")
-        if soup.body is None or not soup.body.find(True):
-            errors.append("主渲染器为 dom 时必须包含可见 DOM 教学结构")
-
-    elif renderer == "hybrid":
-        if not (has_svg or has_canvas or has_three_renderer or has_three_points):
-            errors.append("hybrid 路由必须至少包含 SVG、Canvas 或 Three.js 中的一种主渲染面")
-
-    if renderer in {"svg", "canvas", "three", "hybrid"} and not has_raf:
-        if strict:
-            errors.append("渲染路由必须使用统一 requestAnimationFrame 主循环")
-        else:
-            warnings.append("渲染路由建议使用统一 requestAnimationFrame 主循环")
-    if renderer in {"canvas", "three", "hybrid"} and not has_resize:
-        if strict:
-            errors.append("渲染路由必须包含 resize 或 ResizeObserver 响应式管线")
-        else:
-            warnings.append("渲染路由建议包含 resize 或 ResizeObserver 响应式管线")
-    elif renderer == "svg" and not has_resize:
-        warnings.append("SVG 路由建议包含 resize 或 ResizeObserver 响应式管线")
-
-    if _route_requires_d3(route_text) and not has_d3_url:
-        if strict:
-            errors.append("渲染路由要求 D3/SVG 数据绑定，但 HTML 缺少 D3 CDN")
-        else:
-            warnings.append("渲染路由建议引入 D3 CDN")
-    if _route_requires_katex(route_text) and not has_katex:
-        if strict:
-            errors.append("渲染路由要求 KaTeX 公式渲染，但 HTML 缺少 KaTeX CSS/JS")
-        else:
-            warnings.append("渲染路由建议引入 KaTeX CDN")
-
-
-def _render_route_text(render_stack: dict, renderer: str) -> str:
-    auxiliary = render_stack.get("auxiliary", [])
-    if not isinstance(auxiliary, list):
-        auxiliary = []
-    parts = [
-        str(render_stack.get("subject", "")),
-        str(render_stack.get("mode", "")),
-        str(render_stack.get("main", "")),
-        renderer,
-        *[str(item) for item in auxiliary],
-    ]
-    return " ".join(parts).lower()
-
-
-def _normalize_main_renderer(value: object) -> str:
-    raw = str(value or "").strip().lower()
-    if not raw:
-        return "svg"
-    if "hybrid" in raw or "three-or-svg" in raw:
-        return "hybrid"
-    if "three" in raw or raw in {"3d", "webgl"}:
-        return "three"
-    if "canvas" in raw or "points" in raw:
-        return "canvas"
-    if "svg" in raw or "d3" in raw:
-        return "svg"
-    if "dom" in raw:
-        return "dom"
-    return raw
+    if soup.find("svg") is None:
+        warnings.append("HTML 建议包含内联 SVG 主视觉区域")
 
 
 def _external_urls(soup: BeautifulSoup) -> set[str]:
@@ -597,66 +421,6 @@ def _external_urls(soup: BeautifulSoup) -> set[str]:
         for attr_name in ("src", "href")
         if tag.get(attr_name) and re.search(r"https?://", str(tag.get(attr_name)))
     }
-
-
-def _has_three_dependency(soup: BeautifulSoup) -> bool:
-    urls = _external_urls(soup)
-    return any(url in {THREEJS_URL, "https://cdn.staticfile.net/three.js/r134/three.min.js"} for url in urls)
-
-
-def _has_d3_dependency(soup: BeautifulSoup) -> bool:
-    urls = _external_urls(soup)
-    return any(url in {"https://d3js.org/d3.v7.min.js", "https://cdn.staticfile.net/d3/7.9.0/d3.min.js"} for url in urls)
-
-
-def _has_katex_dependency(soup: BeautifulSoup) -> bool:
-    urls = _external_urls(soup)
-    has_css = any(re.match(r"^https://(?:cdn\.jsdelivr\.net/npm/katex@[^/]+/dist|cdn\.staticfile\.net/KaTeX/[^/]+)/katex\.min\.css$", url) for url in urls)
-    has_js = any(re.match(r"^https://(?:cdn\.jsdelivr\.net/npm/katex@[^/]+/dist|cdn\.staticfile\.net/KaTeX/[^/]+)/katex\.min\.js$", url) for url in urls)
-    return has_css and has_js
-
-
-def _has_svg_surface(soup: BeautifulSoup, scripts: str) -> bool:
-    if soup.find("svg") is not None:
-        return True
-    return bool(
-        re.search(
-            r"createElementNS\s*\([^)]*svg|\.append\s*\(\s*['\"]svg['\"]|d3\.select\([^)]*\)\.append\s*\(\s*['\"]svg['\"]",
-            scripts,
-            re.IGNORECASE | re.DOTALL,
-        )
-    )
-
-
-def _has_canvas_surface(soup: BeautifulSoup, scripts: str) -> bool:
-    if soup.find("canvas") is not None:
-        return True
-    return bool(re.search(r"createElement\s*\(\s*['\"]canvas['\"]|\.getContext\s*\(\s*['\"]2d['\"]", scripts, re.IGNORECASE))
-
-
-def _has_three_renderer(scripts: str) -> bool:
-    return bool(re.search(r"new\s+(?:window\.)?THREE\.WebGLRenderer\s*\(", scripts, re.IGNORECASE))
-
-
-def _has_three_scene(scripts: str) -> bool:
-    return bool(re.search(r"new\s+(?:window\.)?THREE\.Scene\s*\(", scripts, re.IGNORECASE))
-
-
-def _has_three_camera(scripts: str) -> bool:
-    return bool(re.search(r"new\s+(?:window\.)?THREE\.PerspectiveCamera\s*\(", scripts, re.IGNORECASE))
-
-
-def _has_webgl_guard(html: str, scripts: str) -> bool:
-    haystack = f"{html}\n{scripts}".lower()
-    return "webgl" in haystack and ("try" in haystack or "catch" in haystack or "不可用" in haystack or "fallback" in haystack)
-
-
-def _route_requires_d3(route_text: str) -> bool:
-    return "d3" in route_text or "data" in route_text
-
-
-def _route_requires_katex(route_text: str) -> bool:
-    return "katex" in route_text or any(subject in route_text for subject in ("math", "physics", "chemistry"))
 
 
 def _collect_html_substance_errors(
