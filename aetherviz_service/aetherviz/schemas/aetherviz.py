@@ -3,7 +3,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 
-GenerationMode = Literal["generic_svg", "math_svg_katex_gsap"]
+GenerationMode = Literal["generic_svg", "math_svg_katex_css", "math_svg_katex_gsap"]
 
 
 class AetherVizPlanControl(BaseModel):

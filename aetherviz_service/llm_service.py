@@ -23,6 +23,12 @@ class ActiveLLMConfig:
     base_url: str | None
 
 
+@dataclass(frozen=True)
+class LLMStreamChunk:
+    kind: str
+    delta: str
+
+
 def _primary_model_name(models: str | None) -> str | None:
     if not models:
         return None
@@ -52,6 +58,13 @@ def _openai_client() -> tuple[OpenAI, ActiveLLMConfig]:
         client_kwargs["base_url"] = llm_config.base_url
 
     return OpenAI(**client_kwargs), llm_config
+
+
+def _supports_dashscope_thinking(base_url: str | None) -> bool:
+    if not base_url:
+        return False
+    normalized = base_url.lower()
+    return "dashscope.aliyuncs.com" in normalized or "maas.aliyuncs.com" in normalized
 
 
 def call_llm(prompt: str, system_prompt: str = DEFAULT_SYSTEM_PROMPT, max_tokens: int = 16384, temperature: float = 0.3) -> str:
@@ -84,31 +97,39 @@ def call_llm_stream(
     system_prompt: str = DEFAULT_SYSTEM_PROMPT,
     max_tokens: int = 16384,
     temperature: float = 0.3,
-) -> Iterator[str]:
+) -> Iterator[LLMStreamChunk]:
     client, llm_config = _openai_client()
     stream = None
 
     try:
-        stream = client.chat.completions.create(
-            model=llm_config.model,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            stream=True,
-            messages=[
+        request_kwargs = {
+            "model": llm_config.model,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "stream": True,
+            "messages": [
                 {
                     "role": "system",
                     "content": system_prompt,
                 },
                 {"role": "user", "content": prompt},
             ],
-        )
+        }
+        if _supports_dashscope_thinking(llm_config.base_url):
+            request_kwargs["extra_body"] = {"enable_thinking": True}
+
+        stream = client.chat.completions.create(**request_kwargs)
         for chunk in stream:
-            # qwen3 等模型流式输出时会发送 choices=[] 的特殊 chunk（如结束信号、reasoning chunk）
+            # qwen3 等模型流式输出时会发送 choices=[] 的特殊 chunk（如 usage 包或结束信号）
             if not chunk.choices:
                 continue
-            delta = chunk.choices[0].delta.content or ""
-            if delta:
-                yield delta
+            delta = chunk.choices[0].delta
+            reasoning_delta = getattr(delta, "reasoning_content", None) or ""
+            content_delta = delta.content or ""
+            if reasoning_delta:
+                yield LLMStreamChunk(kind="reasoning", delta=reasoning_delta)
+            if content_delta:
+                yield LLMStreamChunk(kind="content", delta=content_delta)
     except OpenAIError as exc:
         raise LLMServiceError(f"调用大模型失败：{exc}") from exc
     finally:

@@ -2,7 +2,7 @@
 
 `AI互动实验` 是一个基于 Python 3.12 和 FastAPI 的后端服务，用于根据教学主题生成完整、可直接打开的互动教学 HTML。
 
-服务包含 AI互动实验生成链路：静态知识点命中、主题色注入、未命中时的通用 SVG HTML 生成、数学专项 SVG + KaTeX + GSAP 生成，以及基于当前 HTML 的修订。
+服务包含 AI互动实验生成链路：静态知识点命中、主题色注入、未命中时的通用 SVG HTML 生成、数学专项 SVG + KaTeX + CSS/原生 JS 动画生成，以及基于当前 HTML 的修订。
 
 当前不包含前端、导出、数据库或任务队列能力。
 
@@ -168,7 +168,7 @@ GET /static-html/physics/newton-second-law.html
 
 ### POST /generate-aetherviz-spec
 
-根据教学主题生成 AI互动实验风格的完整独立互动教学 HTML。接口采用同端 SSE；静态知识点命中时仍直接返回 HTML，动态生成只支持 `generic_svg` 与 `math_svg_katex_gsap` 两种模式。
+根据教学主题生成 AI互动实验风格的完整独立互动教学 HTML。接口采用同端 SSE；静态知识点命中时仍直接返回 HTML，动态生成默认支持 `generic_svg` 与 `math_svg_katex_css` 两种模式，并兼容旧版 `math_svg_katex_gsap` 入参。
 
 计划阶段请求示例：
 
@@ -217,7 +217,8 @@ GET /static-html/physics/newton-second-law.html
 
 - `start`：生成任务启动。
 - `progress`：阶段进度，例如 `static_match`、`planning` 或 `generating`。
-- `plan_delta`：计划阶段的流式思考片段，供前端实时展示。
+- `thinking_delta`：模型推理阶段的流式思考原文，字段 `delta` 来自兼容模型的 `reasoning_content`。
+- `plan_delta`：计划阶段的结构化计划 JSON 输出片段。
 - `plan_ready`：计划阶段完成，包含结构化 `plan`；用户确认后再请求 `phase=generate`。
 - `generation_delta`：生成阶段的大模型输出片段，携带本次 `output_tokens` 和累计 `output_tokens_total`；不包含输入 prompt token。
 - `done`：生成完成，包含最终 `html` 和 `metadata`。
@@ -243,8 +244,8 @@ data: {"success": true, "stage": "done", "message": "已返回静态互动可视
 - `400`：`phase=revise` 时缺少 `current_html` 或 `instruction`。
 - SSE `error` 且 `stage=static_html_missing`：主题已命中知识点，但静态 HTML 文件不可用。
 - SSE `error` 且 `stage=llm_error`：调用模型服务失败。
-- SSE `error` 且 `stage=fallback_failed`：互动 HTML 输出解析或基础质量门未通过。
-- SSE `error` 且 `stage=validation_failed`：fallback HTML 未通过结构、安全、依赖、交互或可视化区域检查。
+- SSE `error` 且 `stage=fallback_failed`：互动 HTML 输出解析或基础质量门未通过；系统已尝试一次自动修复但仍失败。
+- SSE `error` 且 `stage=validation_failed`：fallback HTML 未通过结构、安全、依赖、交互或可视化区域检查；系统已尝试一次自动修复但仍失败。
 - SSE `error` 且 `stage=unknown_error`：生成过程中发生未预期异常。
 
 ## 生成流程
@@ -255,9 +256,9 @@ data: {"success": true, "stage": "done", "message": "已返回静态互动可视
 2. 命中后读取 `aetherviz/html/{subject}/{slug}.html`，并通过 `static_html.py` 注入运行时主题色覆盖层。
 3. 未命中且 `phase=plan` 时由 `fallback_planner.py` 生成简化计划，字段包括 `subject`、`mode`、`title`、`goal`、`visual_steps`、`controls`、`formulas`、`validation_points` 和 `primary_color`。
 4. 前端确认计划后，以 `phase=generate` 携带 `approved_plan` 再次请求。
-5. `react.py` 按 `mode` 调用生成 prompt：非数学使用 `HTML + CSS + SVG`，数学使用 `HTML + SVG + KaTeX + GSAP Timeline`。
+5. `react.py` 按 `mode` 调用生成 prompt：非数学使用 `HTML + CSS + SVG`，数学使用 `HTML + CSS + SVG + KaTeX`，动画由 CSS transition/keyframes 或 `requestAnimationFrame` 管理，不引入 GSAP。
 6. `phase=revise` 时，后端根据 `current_html + instruction` 修订当前页面，而不是重新走旧计划或复杂渲染路由。
-7. `fallback_validator.py` 提取 HTML、清理代码围栏；`validator.py` 执行文档结构、安全、依赖、交互和可视化区域校验。校验失败会直接返回 SSE `error`，不做旧计划兼容或自动修复。
+7. `fallback_validator.py` 提取 HTML、清理代码围栏；`validator.py` 执行文档结构、安全、依赖、交互和可视化区域校验。首次解析或校验失败时会发出 `progress stage=repairing` 并自动修复一次，成功时 `metadata.repaired=true`、`attempts=2`。
 
 主题色从 `topic` 中的 `#RRGGBB` 或中文颜色词提取，未提取到时使用默认色 `#22D3EE`。主题色适配通过后置 `:root` 覆盖层完成，不批量替换整份 HTML，也不覆盖学科语义色。
 

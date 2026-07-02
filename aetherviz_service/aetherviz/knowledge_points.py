@@ -105,7 +105,6 @@ KNOWLEDGE_POINTS: dict[str, KnowledgePoint] = {
         _point("math", "geometry", "axisymmetry", "轴对称", ("轴对称", "对称轴", "镜像", "翻折"), "七年级"),
         _point("math", "geometry", "geometric_proof", "几何证明", ("几何证明", "证明", "推理", "命题"), "七年级"),
         _point("math", "geometry", "coordinate_system", "平面直角坐标系", ("平面直角坐标系", "坐标系", "横坐标", "纵坐标", "象限"), "七年级"),
-        _point("math", "geometry", "pythagorean", "勾股定理", ("勾股定理", "直角三角形", "平方和"), "八年级"),
         _point("math", "geometry", "trigonometry", "三角函数基础", ("三角函数", "正弦", "余弦", "正切"), "九年级"),
         _point("math", "geometry", "polygon_area", "多边形的面积", ("多边形的面积", "割补法", "三角剖分", "几何面积", "多边形面积"), "五年级"),
         _point(

@@ -10,10 +10,12 @@ from fastapi.testclient import TestClient
 import aetherviz_service.aetherviz.react as react_module
 import aetherviz_service.aetherviz.static_html as static_html_module
 from aetherviz_service.aetherviz.knowledge_points import KNOWLEDGE_POINTS, KnowledgePoint
+from aetherviz_service.aetherviz.matcher import match_topic_to_knowledge_point
 from aetherviz_service.aetherviz.static_html import (
     DEFAULT_PRIMARY_COLOR,
     static_html_path_for_point,
 )
+from aetherviz_service.llm_service import LLMStreamChunk
 from aetherviz_service.main import app
 
 client = TestClient(app)
@@ -336,20 +338,18 @@ def test_all_static_html_files_are_registered() -> None:
     assert sorted(html_files - registered_files) == []
 
 
+def test_pythagorean_is_not_registered_static_knowledge_point() -> None:
+    assert "math/pythagorean" not in KNOWLEDGE_POINTS
+    assert match_topic_to_knowledge_point("勾股定理") is None
+
+
 def test_static_match_supports_builtin_math_and_chemistry_without_llm(monkeypatch) -> None:
     def fail_llm(*args, **kwargs):
         raise AssertionError("registered static hit must not call LLM")
 
     monkeypatch.setattr(react_module, "call_llm_stream", fail_llm)
 
-    math_response = client.post("/generate-aetherviz-spec", json={"topic": "勾股定理"})
     chemistry_response = client.post("/generate-aetherviz-spec", json={"topic": "酸碱中和反应"})
-
-    assert math_response.status_code == 200
-    math_done = parse_sse_events(math_response)[-1][1]
-    assert math_done["metadata"]["subject"] == "math"
-    assert math_done["metadata"]["knowledge_point_id"] == "math/pythagorean"
-    assert "勾股定理" in math_done["html"]
 
     assert chemistry_response.status_code == 200
     chemistry_done = parse_sse_events(chemistry_response)[-1][1]
@@ -472,6 +472,34 @@ def test_unmatched_topic_plan_phase_streams_plan_without_html_generation(monkeyp
     assert plan["mode"] == "generic_svg"
     assert plan["controls"][0]["type"] == "slider"
     assert "html" not in events[-1][1]
+
+
+def test_plan_phase_streams_reasoning_delta_and_math_css_mode(monkeypatch) -> None:
+    def fake_llm_stream(prompt: str, system_prompt: str, max_tokens: int = 0, temperature: float = 0.3):
+        yield LLMStreamChunk(kind="reasoning", delta="先判断这是数学几何主题。")
+        raw = json.dumps({
+            "subject": "math",
+            "mode": "math_svg_katex_css",
+            "title": "勾股定理互动动画",
+            "goal": "通过拖动直角三角形边长观察面积关系。",
+            "visual_steps": ["显示直角三角形", "展示三边平方", "拖动边长验证"],
+            "controls": [{"id": "leg-slider", "label": "直角边", "type": "slider"}],
+            "formulas": ["a^2+b^2=c^2"],
+            "validation_points": ["使用 CSS 动画", "使用 KaTeX 渲染公式"],
+            "primary_color": "#22D3EE",
+        })
+        yield LLMStreamChunk(kind="content", delta=raw)
+
+    monkeypatch.setattr(react_module, "call_llm_stream", fake_llm_stream)
+
+    response = client.post("/generate-aetherviz-spec", json={"topic": "勾股定理"})
+
+    events = parse_sse_events(response)
+    assert "thinking_delta" in [event for event, _ in events]
+    assert events[-1][0] == "plan_ready"
+    assert events[-1][1]["plan"]["mode"] == "math_svg_katex_css"
+    thinking = next(data for event, data in events if event == "thinking_delta")
+    assert "数学几何主题" in thinking["delta"]
 
 
 def test_generate_phase_requires_approved_plan() -> None:
@@ -641,7 +669,7 @@ animationLoop();
 
     events = parse_sse_events(response)
     assert events[-1][0] == "error"
-    assert len(calls) == 1
+    assert len(calls) == 2
     assert events[-1][1]["stage"] == "validation_failed"
     assert "非白名单外部资源" in events[-1][1]["detail"]
     assert "three.js" in events[-1][1]["detail"]
@@ -697,7 +725,7 @@ def test_fallback_planner_selects_generation_modes() -> None:
     assert select_generation_mode("电场线分布") == "generic_svg"
     assert select_generation_mode("化学反应速率") == "generic_svg"
     assert select_generation_mode("分子结构") == "generic_svg"
-    assert select_generation_mode("平行四边形面积") == "math_svg_katex_gsap"
+    assert select_generation_mode("平行四边形面积") == "math_svg_katex_css"
 
 
 def test_planning_normalization_keeps_new_plan_shape() -> None:
@@ -852,7 +880,36 @@ def test_generate_phase_returns_error_for_invalid_svg_output(monkeypatch) -> Non
     events = parse_sse_events(response)
     assert events[-1][0] == "error"
     assert events[-1][1]["stage"] == "fallback_failed"
-    assert len(calls) == 1
+    assert len(calls) == 2
+    assert "首次失败" in events[-1][1]["detail"]
+    assert "修复失败" in events[-1][1]["detail"]
+
+
+def test_generate_phase_repairs_invalid_first_output(monkeypatch) -> None:
+    calls = []
+
+    def fake_llm_stream(prompt: str, system_prompt: str, max_tokens: int = 0, temperature: float = 0.3):
+        calls.append((prompt, system_prompt, max_tokens, temperature))
+        if len(calls) == 1:
+            yield "<html><body>破损</body></html>"
+            return
+        yield sample_svg_html(marker="repaired")
+
+    monkeypatch.setattr(react_module, "call_llm_stream", fake_llm_stream)
+
+    response = client.post(
+        "/generate-aetherviz-spec",
+        json={"topic": "熵增演示", "phase": "generate", "approved_plan": sample_approved_plan()},
+    )
+
+    events = parse_sse_events(response)
+    assert "progress" in [event for event, _ in events]
+    assert any(data.get("stage") == "repairing" for event, data in events if event == "progress")
+    assert events[-1][0] == "done"
+    assert len(calls) == 2
+    assert events[-1][1]["metadata"]["attempts"] == 2
+    assert events[-1][1]["metadata"]["repaired"] is True
+    assert "repaired" in events[-1][1]["html"]
 
 
 def test_revise_phase_updates_current_html(monkeypatch) -> None:
@@ -885,6 +942,37 @@ def test_revise_phase_updates_current_html(monkeypatch) -> None:
     assert temperature == 0.16
     assert events[-1][1]["metadata"]["source"] == "llm_svg_revision"
     assert "revised" in events[-1][1]["html"]
+
+
+def test_revise_phase_repairs_invalid_first_output(monkeypatch) -> None:
+    calls = []
+
+    def fake_llm_stream(prompt: str, system_prompt: str, max_tokens: int = 0, temperature: float = 0.3):
+        calls.append((prompt, system_prompt, max_tokens, temperature))
+        if len(calls) == 1:
+            yield "<html><body>修订破损</body></html>"
+            return
+        yield sample_svg_html(marker="revise-repaired")
+
+    monkeypatch.setattr(react_module, "call_llm_stream", fake_llm_stream)
+
+    response = client.post(
+        "/generate-aetherviz-spec",
+        json={
+            "topic": "熵增演示",
+            "phase": "revise",
+            "current_html": sample_svg_html(marker="before-revise"),
+            "instruction": "把动画速度调慢",
+        },
+    )
+
+    events = parse_sse_events(response)
+    assert any(data.get("stage") == "repairing" for event, data in events if event == "progress")
+    assert events[-1][0] == "done"
+    assert len(calls) == 2
+    assert events[-1][1]["metadata"]["attempts"] == 2
+    assert events[-1][1]["metadata"]["repaired"] is True
+    assert "revise-repaired" in events[-1][1]["html"]
 
 
 def test_revise_phase_requires_current_html_and_instruction() -> None:
@@ -925,7 +1013,7 @@ def test_generate_phase_returns_error_for_inline_script_syntax_error(monkeypatch
     error_data = events[-1][1]
     assert error_data["stage"] == "validation_failed"
     assert "内联脚本语法错误" in error_data["detail"]
-    assert len(calls) == 1
+    assert len(calls) == 2
 
 
 def test_strip_code_fences_does_not_break_internal_template_literals() -> None:

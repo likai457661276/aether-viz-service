@@ -3,7 +3,7 @@
 当前动态能力按产品计划主动收敛：
 - 静态知识点命中后直接返回静态 HTML。
 - 动态生成只走 HTML + CSS + SVG。
-- 数学主题固定走 HTML + SVG + KaTeX + GSAP Timeline。
+- 数学主题固定走 HTML + CSS + SVG + KaTeX + 原生动画。
 - revise 基于 current_html + instruction 修订当前页面。
 """
 
@@ -36,13 +36,12 @@ from aetherviz_service.aetherviz.validator import (
     sanitize_aetherviz_html,
     validate_aetherviz_html,
 )
-from aetherviz_service.llm_service import LLMServiceError, call_llm_stream
+from aetherviz_service.llm_service import LLMServiceError, LLMStreamChunk, call_llm_stream
 
 logger = logging.getLogger(__name__)
 
 _CDN_KATEX_CSS = "https://cdn.staticfile.net/KaTeX/0.16.9/katex.min.css"
 _CDN_KATEX_JS = "https://cdn.staticfile.net/KaTeX/0.16.9/katex.min.js"
-_CDN_GSAP = "https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"
 
 GENERIC_SVG_SYSTEM_PROMPT = f"""你是 AetherViz 互动教学 SVG 页面工程师。
 你只输出一个完整可运行 HTML 文件，从 <!DOCTYPE html> 开始，到 </html> 结束。
@@ -69,13 +68,12 @@ MATH_SYSTEM_PROMPT = f"""你是 AetherViz 数学互动动画工程师。
 你只输出一个完整可运行 HTML 文件，从 <!DOCTYPE html> 开始，到 </html> 结束。
 
 数学固定技术栈：
-1. HTML + SVG + KaTeX + GSAP Timeline。
+1. HTML + CSS + SVG + KaTeX + 原生 JavaScript。
 2. 只允许引入以下外部资源：
    - KaTeX CSS：{_CDN_KATEX_CSS}
    - KaTeX JS：{_CDN_KATEX_JS}
-   - GSAP：{_CDN_GSAP}
-3. 不使用 Canvas、Three.js、D3、图片或上传能力。
-4. 公式只用 KaTeX 渲染，动画只用 GSAP Timeline 管理。
+3. 不使用 Canvas、Three.js、D3、GSAP、图片或上传能力。
+4. 公式只用 KaTeX 渲染，动画只用 CSS transition/keyframes 或 requestAnimationFrame 管理。
 
 页面结构要求：
 - 包含 <main id="app">。
@@ -85,6 +83,7 @@ MATH_SYSTEM_PROMPT = f"""你是 AetherViz 数学互动动画工程师。
 - 控制按钮必须包含 play-animation、pause-animation、reset-animation，速度控制和至少一个 slider。
 - 所有按钮和滑块必须绑定真实事件。
 - 滑块变化必须同步更新 SVG 和 KaTeX 公式。
+- CSS 中应包含可读的过渡或 keyframes；JavaScript 中应实现播放进度、暂停、重置和速度控制。
 - 声明 window.AetherVizRuntime = {{ play, pause, reset, setSpeed, update, getState }}。
 - 初始化成功设置 window.__AETHERVIZ_RUNTIME_READY__ = true；失败设置 window.__AETHERVIZ_RUNTIME_ERROR__ 并显示错误。
 """
@@ -95,10 +94,24 @@ REVISE_SYSTEM_PROMPT = f"""你是 AetherViz HTML 修订工程师。
 约束：
 - 保持当前页面为独立 HTML。
 - 不新增 Three.js、Canvas、文件上传、图片上传或外部业务接口。
-- 数学页面继续使用 SVG + KaTeX + GSAP；非数学页面继续使用 SVG。
+- 数学页面继续使用 SVG + KaTeX + 原生 CSS/JavaScript 动画；非数学页面继续使用 SVG。
+- 不新增 GSAP 或其它动画库。
 - 所有事件继续使用 addEventListener。
 - 保留或补齐 window.AetherVizRuntime 的 play、pause、reset、setSpeed、update、getState。
 - 只输出 HTML，不输出 Markdown 或解释。
+"""
+
+REPAIR_SYSTEM_PROMPT = """你是 AetherViz HTML 自动修复工程师。
+你会收到一次失败的 HTML 输出、服务端校验错误和原始生成上下文。
+
+修复要求：
+- 只输出修复后的完整 <!DOCTYPE html>...</html>。
+- 不输出 Markdown、解释或代码围栏。
+- 保持独立 HTML，CSS 与业务 JavaScript 内联。
+- 不使用 Three.js、Canvas、D3、GSAP、文件上传、图片上传或外部业务接口。
+- 保留或补齐学习目标、SVG 主舞台、控制面板、播放/暂停/重置/速度控制。
+- 保留或补齐 window.AetherVizRuntime 的 play、pause、reset、setSpeed、update、getState。
+- 初始化成功设置 window.__AETHERVIZ_RUNTIME_READY__ = true；失败设置 window.__AETHERVIZ_RUNTIME_ERROR__ 并在页面显示错误。
 """
 
 
@@ -143,6 +156,23 @@ def _compact_html_for_revision(html: str) -> str:
     )
 
 
+def _coerce_llm_stream_chunk(chunk: object) -> LLMStreamChunk:
+    if isinstance(chunk, LLMStreamChunk):
+        return chunk
+    if isinstance(chunk, str):
+        return LLMStreamChunk(kind="content", delta=chunk)
+    if isinstance(chunk, dict):
+        return LLMStreamChunk(kind=str(chunk.get("kind") or "content"), delta=str(chunk.get("delta") or ""))
+    return LLMStreamChunk(
+        kind=str(getattr(chunk, "kind", "content") or "content"),
+        delta=str(getattr(chunk, "delta", "") or ""),
+    )
+
+
+def _is_math_mode(mode: str | None) -> bool:
+    return mode in {"math_svg_katex_css", "math_svg_katex_gsap"}
+
+
 def _stream_llm_output(
     prompt: str,
     *,
@@ -159,15 +189,37 @@ def _stream_llm_output(
     output_tokens_total = 0
     chunk_index = 0
 
-    for chunk in call_llm_stream(
+    for raw_chunk in call_llm_stream(
         prompt,
         system_prompt=system_prompt,
         max_tokens=max_tokens,
         temperature=temperature,
     ):
-        raw_text += chunk
+        chunk = _coerce_llm_stream_chunk(raw_chunk)
+        if not chunk.delta:
+            continue
+        if chunk.kind == "reasoning":
+            output_tokens = _estimate_output_tokens(chunk.delta)
+            yield _sse_event(
+                "thinking_delta",
+                {
+                    "success": True,
+                    "stage": stage,
+                    "message": f"{message_prefix}，正在推理",
+                    "progress": progress_start,
+                    "phase": phase,
+                    "delta": chunk.delta,
+                    "output_tokens": output_tokens,
+                    "output_tokens_total": output_tokens_total,
+                    "chunk_index": chunk_index,
+                },
+            )
+            continue
+
+        delta = chunk.delta
+        raw_text += delta
         chunk_index += 1
-        output_tokens = _estimate_output_tokens(chunk)
+        output_tokens = _estimate_output_tokens(delta)
         output_tokens_total += output_tokens
         progress = min(
             progress_end,
@@ -181,7 +233,7 @@ def _stream_llm_output(
                 "message": f"{message_prefix}，已输出约 {output_tokens_total} Token",
                 "progress": progress,
                 "phase": phase,
-                "delta": chunk,
+                "delta": delta,
                 "output_tokens": output_tokens,
                 "output_tokens_total": output_tokens_total,
                 "chunk_index": chunk_index,
@@ -333,9 +385,28 @@ def _planning_stream(topic: str, color: str) -> Iterator[str]:
     output_tokens_total = 0
     try:
         planning_sys, planning_user = build_planning_prompt(topic, color)
-        for chunk in call_llm_stream(planning_user, system_prompt=planning_sys, max_tokens=1200, temperature=0.25):
-            raw_chunks.append(chunk)
-            output_tokens = _estimate_output_tokens(chunk)
+        for raw_chunk in call_llm_stream(planning_user, system_prompt=planning_sys, max_tokens=1200, temperature=0.25):
+            chunk = _coerce_llm_stream_chunk(raw_chunk)
+            if not chunk.delta:
+                continue
+            if chunk.kind == "reasoning":
+                output_tokens = _estimate_output_tokens(chunk.delta)
+                yield _sse_event(
+                    "thinking_delta",
+                    {
+                        "success": True,
+                        "stage": "planning",
+                        "message": "正在推理教学动画方案",
+                        "progress": 42,
+                        "phase": "plan",
+                        "delta": chunk.delta,
+                        "output_tokens": output_tokens,
+                        "output_tokens_total": output_tokens_total,
+                    },
+                )
+                continue
+            raw_chunks.append(chunk.delta)
+            output_tokens = _estimate_output_tokens(chunk.delta)
             output_tokens_total += output_tokens
             yield _sse_event(
                 "plan_delta",
@@ -345,7 +416,7 @@ def _planning_stream(topic: str, color: str) -> Iterator[str]:
                     "message": f"正在思考教学动画方案，已输出约 {output_tokens_total} Token",
                     "progress": 45,
                     "phase": "plan",
-                    "delta": chunk,
+                    "delta": chunk.delta,
                     "output_tokens": output_tokens,
                     "output_tokens_total": output_tokens_total,
                 },
@@ -394,11 +465,11 @@ def _generate_from_plan_stream(topic: str, plan: dict) -> Iterator[str]:
     )
 
     prompt = _build_generation_prompt(topic, plan)
-    system_prompt = MATH_SYSTEM_PROMPT if plan["mode"] == "math_svg_katex_gsap" else GENERIC_SVG_SYSTEM_PROMPT
+    system_prompt = MATH_SYSTEM_PROMPT if _is_math_mode(plan["mode"]) else GENERIC_SVG_SYSTEM_PROMPT
     raw_html = yield from _stream_llm_output(
         prompt,
         system_prompt=system_prompt,
-        max_tokens=9000 if plan["mode"] == "math_svg_katex_gsap" else 7600,
+        max_tokens=8600 if _is_math_mode(plan["mode"]) else 7600,
         temperature=0.18,
         stage="html_generating",
         phase="generate",
@@ -407,12 +478,19 @@ def _generate_from_plan_stream(topic: str, plan: dict) -> Iterator[str]:
         progress_end=90,
     )
     output_tokens_total = _estimate_output_tokens(raw_html)
-    html_output, warnings = _parse_and_validate_html(raw_html, topic, plan)
+    html_output, warnings, attempts, repaired = yield from _parse_validate_or_repair_stream(
+        raw_html,
+        topic=topic,
+        plan=plan,
+        phase="generate",
+        original_prompt=prompt,
+        source_label="生成",
+    )
 
     metadata = GenerateAetherVizHtmlMetadata(
         topic=topic,
-        attempts=1,
-        repaired=False,
+        attempts=attempts,
+        repaired=repaired,
         source="llm_svg",
         degraded=True,
         validation_warnings=warnings,
@@ -460,11 +538,18 @@ def _revise_html_stream(topic: str, current_html: str, instruction: str) -> Iter
     )
     output_tokens_total = _estimate_output_tokens(raw_html)
     plan = normalize_plan({}, topic)
-    html_output, warnings = _parse_and_validate_html(raw_html, topic, plan)
+    html_output, warnings, attempts, repaired = yield from _parse_validate_or_repair_stream(
+        raw_html,
+        topic=topic,
+        plan=plan,
+        phase="revise",
+        original_prompt=prompt,
+        source_label="修订",
+    )
     metadata = GenerateAetherVizHtmlMetadata(
         topic=topic,
-        attempts=1,
-        repaired=False,
+        attempts=attempts,
+        repaired=repaired,
         source="llm_svg_revision",
         degraded=True,
         validation_warnings=warnings,
@@ -501,6 +586,85 @@ def _parse_and_validate_html(raw_html: str, topic: str, plan: dict) -> tuple[str
     return cleaned_html, warnings
 
 
+def _parse_validate_or_repair_stream(
+    raw_html: str,
+    *,
+    topic: str,
+    plan: dict,
+    phase: str,
+    original_prompt: str,
+    source_label: str,
+) -> Iterator[tuple[str, list[str], int, bool]]:
+    try:
+        html_output, warnings = _parse_and_validate_html(raw_html, topic, plan)
+        return html_output, warnings, 1, False
+    except (AetherVizInteractiveHtmlError, AetherVizHtmlValidationError) as first_exc:
+        first_error = str(first_exc)
+        yield _progress_event(
+            "repairing",
+            f"{source_label}结果未通过质量检查，正在自动修复一次",
+            93,
+            phase=phase,
+            mode=plan.get("mode"),
+            subject=plan.get("subject"),
+            detail=first_error,
+        )
+
+        repair_prompt = _build_repair_prompt(
+            topic=topic,
+            plan=plan,
+            original_prompt=original_prompt,
+            raw_html=raw_html,
+            error_detail=first_error,
+            source_label=source_label,
+        )
+        repaired_raw_html = yield from _stream_llm_output(
+            repair_prompt,
+            system_prompt=REPAIR_SYSTEM_PROMPT,
+            max_tokens=8200,
+            temperature=0.08,
+            stage="html_repairing",
+            phase=phase,
+            message_prefix="正在修复互动页面代码",
+            progress_start=94,
+            progress_end=98,
+        )
+        try:
+            html_output, warnings = _parse_and_validate_html(repaired_raw_html, topic, plan)
+        except (AetherVizInteractiveHtmlError, AetherVizHtmlValidationError) as second_exc:
+            combined = f"首次失败：{first_error}；修复失败：{second_exc}"
+            raise type(first_exc)(combined) from second_exc
+        return html_output, warnings, 2, True
+
+
+def _build_repair_prompt(
+    *,
+    topic: str,
+    plan: dict,
+    original_prompt: str,
+    raw_html: str,
+    error_detail: str,
+    source_label: str,
+) -> str:
+    return f"""请修复一次失败的 AetherViz {source_label} HTML 输出。
+
+教学主题：{topic}
+生成模式：{plan.get("mode")}
+计划：
+{json.dumps(plan, ensure_ascii=False, indent=2)}
+
+服务端错误：
+{error_detail}
+
+原始任务：
+{original_prompt}
+
+失败 HTML：
+{_compact_html_for_revision(raw_html)}
+
+请直接输出修复后的完整 HTML。"""
+
+
 def _build_generation_prompt(topic: str, plan: dict) -> str:
     return f"""请根据确认方案生成一个完整、独立、可直接在浏览器运行的互动教学 HTML 页面。
 
@@ -526,6 +690,7 @@ def _build_generation_prompt(topic: str, plan: dict) -> str:
 - HTML 以 <!DOCTYPE html> 开头，以 </html> 结束。
 - 主可视化为 SVG，关键元素有稳定 id。
 - 提供播放、暂停、重置、速度控制和至少一个变量交互。
+- 如果是数学模式，只能使用 KaTeX + SVG + CSS 动画或 requestAnimationFrame，不得引入或调用 GSAP。
 - 声明 window.AetherVizRuntime，并提供 play/pause/reset/setSpeed/update/getState。
 - 页面末尾保留“由 宾果AI 为你生成❤️”。
 """

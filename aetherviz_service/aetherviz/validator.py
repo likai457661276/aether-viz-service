@@ -20,6 +20,7 @@ FORBIDDEN_HTML_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"\bnew\s+Function\b", re.IGNORECASE), "new Function()构造器"),
     (re.compile(r"\bdocument\.write\s*\(", re.IGNORECASE), "document.write()调用"),
     (re.compile(r"OrbitControls\.js", re.IGNORECASE), "OrbitControls.js CDN引用"),
+    (re.compile(r"\bgsap\b", re.IGNORECASE), "GSAP 动画库引用"),
 ]
 
 ALLOWED_EXTERNAL_URLS = {
@@ -27,7 +28,6 @@ ALLOWED_EXTERNAL_URLS = {
     "https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css",
     "https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js",
     "https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js",
-    "https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js",
     "https://cdn.staticfile.net/KaTeX/0.16.9/katex.min.css",
     "https://cdn.staticfile.net/KaTeX/0.16.9/katex.min.js",
     "https://cdn.staticfile.net/KaTeX/0.16.9/contrib/auto-render.min.js",
