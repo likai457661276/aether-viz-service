@@ -196,7 +196,8 @@ GET /static-html/physics/newton-second-law.html
     "storyboard": ["镜头1：粒子从有序聚集开始", "镜头2：粒子扩散并留下轨迹", "镜头3：结论区高亮无序度增加"],
     "visual_steps": ["生活类比", "观察状态变化", "拖动变量验证"],
     "controls": [
-      {"id": "progress-slider", "label": "过程进度", "type": "slider"},
+      {"id": "particle-count-slider", "label": "粒子数量", "type": "slider"},
+      {"id": "replay-btn", "label": "演示一次", "type": "button"},
       {"id": "speed-control", "label": "速度", "type": "speed"}
     ],
     "formulas": [],
@@ -220,7 +221,7 @@ GET /static-html/physics/newton-second-law.html
 
 - `start`：生成任务启动。
 - `progress`：阶段进度，例如 `static_match`、`planning` 或 `generating`。
-- `thinking_delta`：模型推理阶段的流式思考原文，字段 `delta` 来自兼容模型的 `reasoning_content`。
+- `thinking_delta`：HTML 生成、自动修复和修订阶段的用户可读中文思考摘要；兼容模型返回英文 `reasoning_content` 时，服务端会转成中文摘要后再透出。计划阶段默认不启用思考流。
 - `plan_delta`：计划阶段的结构化计划 JSON 输出片段。
 - `plan_ready`：计划阶段完成，包含结构化 `plan`；用户确认后再请求 `phase=generate`。
 - `generation_delta`：生成阶段的大模型输出片段，携带本次 `output_tokens` 和累计 `output_tokens_total`；不包含输入 prompt token。

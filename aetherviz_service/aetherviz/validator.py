@@ -53,6 +53,11 @@ TOPIC_CONNECTOR_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+AI_ATTRIBUTION_PATTERN = re.compile(
+    r"(?:[—\-·•]\s*)?由\s*宾果AI\s*(?:为你)?生成\s*(?:❤️|❤|\ufe0f)?",
+    re.IGNORECASE,
+)
+
 
 KATEX_URL_PATTERN = re.compile(
     r"^https://(?:cdn\.jsdelivr\.net/npm/katex@[^/]+/dist|cdn\.staticfile\.net/KaTeX/[^/]+)/(katex\.min\.css|katex\.min\.js|contrib/auto-render\.min\.js)$"
@@ -107,10 +112,7 @@ def validate_aetherviz_html(
 
 
 def sanitize_aetherviz_html(html: str) -> str:
-    """对 HTML 进行边界清理，仅去除首尾空白字符。
-    
-    该函数设计为最小化干预，不删除或改写模型生成的任何 HTML 内容，
-    只做最基础的边界清理（strip）。
+    """对 HTML 进行边界清理，并移除旧版生成署名短句。
     
     参数:
         html: 原始 HTML 字符串
@@ -118,7 +120,8 @@ def sanitize_aetherviz_html(html: str) -> str:
     返回:
         清理后的 HTML 字符串
     """
-    return (html or "").strip()
+    cleaned = (html or "").strip()
+    return AI_ATTRIBUTION_PATTERN.sub("", cleaned)
 
 
 def _collect_document_structure_errors(
@@ -514,8 +517,8 @@ def _collect_gsap_timeline_errors(soup: BeautifulSoup, scripts: str, errors: lis
 
     if not re.search(r"\.timeScale\s*\(", scripts, re.IGNORECASE):
         errors.append("GSAP 页面速度控制必须调用 tl.timeScale(value)")
-    if not re.search(r"\.progress\s*\(", scripts, re.IGNORECASE):
-        errors.append("GSAP 页面进度控制必须调用 tl.progress(value)")
+    if not re.search(r"\bfunction\s+update\s*\([^)]*\)\s*\{[^}]*\.(?:progress|seek)\s*\(", scripts, re.IGNORECASE | re.DOTALL):
+        errors.append("GSAP 页面 runtime update(value) 必须能调用 tl.progress(value) 或 tl.seek(value) 跳转动画状态")
 
     raw_lower = str(soup).lower()
     if not any(marker in raw_lower for marker in ("animation-caption", "step-caption", "stage-caption", "当前步骤")):

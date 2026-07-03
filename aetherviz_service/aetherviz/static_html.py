@@ -12,6 +12,10 @@ from aetherviz_service.aetherviz.knowledge_points import KnowledgePoint
 DEFAULT_PRIMARY_COLOR = "#22D3EE"
 HTML_ROOT = Path(__file__).resolve().parent / "html"
 HEX_COLOR_PATTERN = re.compile(r"^#[0-9A-Fa-f]{6}$")
+AI_ATTRIBUTION_PATTERN = re.compile(
+    r"(?:[—\-·•]\s*)?由\s*宾果AI\s*(?:为你)?生成\s*(?:❤️|❤|\ufe0f)?",
+    re.IGNORECASE,
+)
 
 
 def extract_color_from_topic(topic: str) -> str:
@@ -104,7 +108,11 @@ def load_static_html_file(path: Path, primary_color: str) -> str:
     html = path.read_text(encoding="utf-8-sig").strip()
     if not html.lower().startswith("<!doctype html>"):
         raise StaticAetherVizHtmlError(f"静态 HTML 必须以 <!DOCTYPE html> 开始：{path}")
-    return inject_theme_override(html, primary_color)
+    return inject_theme_override(strip_ai_attribution(html), primary_color)
+
+
+def strip_ai_attribution(html: str) -> str:
+    return AI_ATTRIBUTION_PATTERN.sub("", html or "")
 
 
 def normalize_primary_color(primary_color: str) -> str:

@@ -54,12 +54,12 @@ def sample_approved_plan(topic: str = "熵增演示") -> dict:
             {"id": "scene_summary", "label": "结论总结", "duration": 1.0, "focus": "结论区同步总结", "caption": "回顾结论。"},
         ],
         "number_design": {
-            "default_values": ["进度 = 0%", "速度 = 1x"],
-            "reason": "使用标准进度和默认速度，便于学生按步骤观察。",
+            "default_values": ["速度 = 1x", "步骤 = 3"],
+            "reason": "使用默认速度和三段式步骤，便于学生按步骤观察。",
         },
         "visual_steps": ["生活类比", "观察现象", "播放过程", "交互验证"],
         "controls": [
-            {"id": "progress-slider", "label": "过程进度", "type": "slider"},
+            {"id": "step-button", "label": "下一步", "type": "button"},
             {"id": "speed-control", "label": "速度", "type": "speed"},
             {"id": "reset-button", "label": "重置", "type": "button"},
         ],
@@ -559,6 +559,19 @@ def test_static_html_missing_returns_sse_error(monkeypatch, tmp_path: Path) -> N
     assert events[-1][1]["stage"] == "static_html_missing"
 
 
+def test_static_html_load_strips_ai_attribution(tmp_path: Path) -> None:
+    html_path = tmp_path / "demo.html"
+    html_path.write_text(
+        "<!DOCTYPE html><html><head><style>body{}</style></head><body><footer>— 由 宾果AI 为你生成❤️</footer></body></html>",
+        encoding="utf-8",
+    )
+
+    html = static_html_module.load_static_html_file(html_path, "#22D3EE")
+
+    assert "由 宾果AI 为你生成" not in html
+    assert "AI互动实验 runtime theme override" in html
+
+
 def test_unmatched_topic_plan_phase_streams_plan_without_html_generation(monkeypatch) -> None:
     stream_calls = []
 
@@ -574,7 +587,7 @@ def test_unmatched_topic_plan_phase_streams_plan_without_html_generation(monkeyp
             "stage_layout": "顶部目标导航，中间大舞台，底部控制条和结论区。",
             "storyboard": ["镜头1：粒子初始聚集", "镜头2：粒子扩散并留下轨迹", "镜头3：结论区高亮熵增"],
             "visual_steps": ["生活类比", "观察现象", "播放过程"],
-            "controls": [{"id": "progress-slider", "label": "进度", "type": "slider"}],
+            "controls": [{"id": "step-button", "label": "下一步", "type": "button"}],
             "formulas": [],
             "primary_color": "#22D3EE",
         })
@@ -596,7 +609,7 @@ def test_unmatched_topic_plan_phase_streams_plan_without_html_generation(monkeyp
     assert plan["subject"] == "general"
     assert plan["mode"] == "svg_animation"
     assert plan["render_stack"] == "dom_svg"
-    assert plan["controls"][0]["type"] == "slider"
+    assert plan["controls"][0]["type"] == "button"
     assert "html" not in events[-1][1]
 
 
@@ -651,6 +664,7 @@ def test_generate_phase_uses_approved_plan_for_html(monkeypatch) -> None:
     def fake_llm_stream(prompt: str, system_prompt: str, max_tokens: int = 0, temperature: float = 0.3, enable_thinking: bool = False):
         calls.append((prompt, system_prompt, max_tokens, temperature, enable_thinking))
         html = sample_svg_html(marker="ready")
+        yield LLMStreamChunk(kind="reasoning", delta="先规划动画叙事、舞台布局和互动控件。")
         yield html[:120]
         yield html[120:]
 
@@ -663,13 +677,27 @@ def test_generate_phase_uses_approved_plan_for_html(monkeypatch) -> None:
 
     events = parse_sse_events(response)
     assert events[-1][0] == "done"
+    assert "thinking_delta" in [event for event, _ in events]
     assert "generation_delta" in [event for event, _ in events]
     done_data = events[-1][1]
     html = done_data["html"]
     assert len(calls) == 1
     assert calls[0][2] == react_module.HTML_OUTPUT_MAX_TOKENS
-    assert calls[0][4] is False
-    assert "主视觉居中契约" in calls[0][0]
+    assert calls[0][4] is True
+    prompt, system_prompt = calls[0][0], calls[0][1]
+    assert "主视觉居中契约" in prompt
+    assert "中文旁白式 caption" in prompt
+    assert "响应式舞台布局" in prompt
+    assert "避让主图" in prompt
+    assert "单屏无滚动布局" in prompt
+    assert "默认不要生成全局进度条" in prompt
+    assert "生成来源文案" in prompt
+    assert "中文旁白式 caption" in system_prompt
+    assert "双语字幕" not in prompt + system_prompt
+    assert "1920" not in prompt + system_prompt
+    assert "2K" not in prompt + system_prompt
+    assert "由 宾果AI 为你生成" not in prompt + system_prompt
+    assert "progress-slider" not in prompt + system_prompt
     assert "missing_stage_visual_centering" not in html
     assert '<title>熵增演示</title>' in html
     assert "学习目标1" in html
@@ -678,8 +706,37 @@ def test_generate_phase_uses_approved_plan_for_html(monkeypatch) -> None:
     assert done_data["metadata"]["attempts"] == 1
     assert done_data["metadata"]["degraded"] is True
     assert done_data["metadata"]["render_mode"] in ("svg_animation", "math_interactive", "process_flow")
-    assert done_data["metadata"]["plan"]["controls"][0]["id"] == "progress-slider"
+    assert done_data["metadata"]["plan"]["controls"][0]["id"] == "step-button"
     assert done_data["output_tokens_total"] > 0
+
+
+def test_generate_phase_converts_english_reasoning_to_chinese_summary(monkeypatch) -> None:
+    def fake_llm_stream(prompt: str, system_prompt: str, max_tokens: int = 0, temperature: float = 0.3, enable_thinking: bool = False):
+        yield LLMStreamChunk(
+            kind="reasoning",
+            delta=(
+                "I'll structure the timeline: scene_intro, scene_area_compare, "
+                "then enable sliders and write the HTML/CSS code carefully."
+            ),
+        )
+        yield sample_svg_html(marker="ready")
+
+    monkeypatch.setattr(react_module, "call_llm_stream", fake_llm_stream)
+
+    response = client.post(
+        "/generate-aetherviz-spec",
+        json={"topic": "熵增演示", "phase": "generate", "approved_plan": sample_approved_plan()},
+    )
+
+    events = parse_sse_events(response)
+    thinking_events = [data for event, data in events if event == "thinking_delta"]
+    assert thinking_events
+    thinking_delta = thinking_events[0]["delta"]
+    assert "梳理分镜时间线" in thinking_delta
+    assert "规划播放、暂停、重置、速度和教学参数控件" in thinking_delta
+    assert "I'll structure" not in thinking_delta
+    assert "scene_intro" not in thinking_delta
+    assert events[-1][0] == "done"
 
 
 def test_generate_phase_stops_stream_after_complete_html(monkeypatch) -> None:
@@ -931,7 +988,7 @@ animationLoop();
     assert events[-1][0] == "error"
     assert len(calls) == 2
     assert all(call[2] == react_module.HTML_OUTPUT_MAX_TOKENS for call in calls)
-    assert all(call[4] is False for call in calls)
+    assert all(call[4] is True for call in calls)
     assert events[-1][1]["stage"] == "validation_failed"
     assert "非白名单外部资源" in events[-1][1]["detail"]
     assert "three.js" in events[-1][1]["detail"]
@@ -1127,6 +1184,15 @@ def test_parse_interactive_html_success() -> None:
     assert "test" in res
 
 
+def test_sanitize_aetherviz_html_strips_ai_attribution() -> None:
+    from aetherviz_service.aetherviz.validator import sanitize_aetherviz_html
+
+    html = sanitize_aetherviz_html("<!DOCTYPE html><html><body><p>由 宾果AI 为你生成❤️</p></body></html>")
+
+    assert "由 宾果AI 为你生成" not in html
+    assert "<p></p>" in html
+
+
 def test_parse_interactive_html_rejects_truncated_script() -> None:
     from aetherviz_service.aetherviz.fallback_validator import parse_interactive_html
     # 模拟截断在 script 内的破损 HTML
@@ -1175,7 +1241,7 @@ def test_generate_phase_returns_error_for_invalid_svg_output(monkeypatch) -> Non
     assert events[-1][1]["stage"] == "fallback_failed"
     assert len(calls) == 2
     assert all(call[2] == react_module.HTML_OUTPUT_MAX_TOKENS for call in calls)
-    assert all(call[4] is False for call in calls)
+    assert all(call[4] is True for call in calls)
     assert "首次失败" in events[-1][1]["detail"]
     assert "修复失败" in events[-1][1]["detail"]
 
@@ -1203,7 +1269,7 @@ def test_generate_phase_repairs_invalid_first_output(monkeypatch) -> None:
     assert events[-1][0] == "done"
     assert len(calls) == 2
     assert all(call[2] == react_module.HTML_OUTPUT_MAX_TOKENS for call in calls)
-    assert all(call[4] is False for call in calls)
+    assert all(call[4] is True for call in calls)
     assert events[-1][1]["metadata"]["attempts"] == 2
     assert events[-1][1]["metadata"]["repaired"] is True
     assert "repaired" in events[-1][1]["html"]
@@ -1237,7 +1303,7 @@ def test_revise_phase_updates_current_html(monkeypatch) -> None:
     assert "HTML 修订工程师" in system_prompt
     assert max_tokens == react_module.HTML_OUTPUT_MAX_TOKENS
     assert temperature == 0.16
-    assert enable_thinking is False
+    assert enable_thinking is True
     assert events[-1][1]["metadata"]["source"] == "llm_svg_revision"
     assert "revised" in events[-1][1]["html"]
 
@@ -1268,6 +1334,7 @@ def test_revise_phase_repairs_invalid_first_output(monkeypatch) -> None:
     assert any(data.get("stage") == "repairing" for event, data in events if event == "progress")
     assert events[-1][0] == "done"
     assert len(calls) == 2
+    assert all(call[4] is True for call in calls)
     assert events[-1][1]["metadata"]["attempts"] == 2
     assert events[-1][1]["metadata"]["repaired"] is True
     assert "revise-repaired" in events[-1][1]["html"]
@@ -1312,6 +1379,7 @@ def test_generate_phase_returns_error_for_inline_script_syntax_error(monkeypatch
     assert error_data["stage"] == "validation_failed"
     assert "内联脚本语法错误" in error_data["detail"]
     assert len(calls) == 2
+    assert all(call[4] is True for call in calls)
 
 
 def test_strip_code_fences_does_not_break_internal_template_literals() -> None:
