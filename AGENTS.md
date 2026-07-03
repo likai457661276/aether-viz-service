@@ -10,7 +10,7 @@
 
 这是一个基于 Python 3.12 的 FastAPI 服务，提供 AI互动实验互动教学可视化生成链路。
 
-AI互动实验通过 `/generate-aetherviz-spec` 根据教学主题生成完整独立 HTML。服务优先命中静态 HTML 文件，并按主题中提取到的色值注入样式覆盖；未命中时采用同端双阶段 SSE：`phase=plan` 流式生成并返回结构化计划，前端确认后再用 `phase=generate` 携带 `approved_plan` 生成自包含互动 HTML，生成结果校验失败时最多自动修复一次。
+AI互动实验通过 `/generate-aetherviz-spec` 根据教学主题生成完整独立 HTML。服务优先命中静态 HTML 文件，并按主题中提取到的色值注入样式覆盖；未命中时采用同端双阶段 SSE：`phase=plan` 流式生成并返回包含 `mode`、`animation_strategy`、`render_stack`、`stage_layout` 和 `storyboard` 的结构化计划，前端确认后再用 `phase=generate` 携带 `approved_plan` 生成自包含互动 HTML，生成结果校验失败时最多自动修复一次。
 
 后续不要新增或恢复非 AI互动实验功能，除非用户明确要求。
 
@@ -78,7 +78,7 @@ AI互动实验是独立子模块，负责互动教学可视化生成链路。新
 - `knowledge_points.py` 负责静态知识点注册表，声明知识点 ID、标题、关键词、学科、知识域、年级和 `static_html_slug`。
 - `static_html.py` 负责静态 HTML 文件路径映射、`utf-8-sig` 读取、DOCTYPE 基础检查、主题色提取与运行时主题色 CSS 覆盖注入。
 - `html/` 存放可直接返回的完整独立 AI互动实验 HTML 文件，结构为 `html/{subject}/{point-slug}.html`。
-- `fallback_planner.py` 负责未命中知识点时的 AetherViz Master 5.2 学科识别、实验类型识别、渲染路由规划、规划提示词构建、规划 JSON 解析和默认规划兜底。
+- `fallback_planner.py` 负责未命中知识点时的内置学科识别、实验类型识别、渲染栈规划、舞台布局与教学分镜规划、规划提示词构建、规划 JSON 解析和默认规划兜底；不要依赖外部 skill。
 - `fallback_validator.py` 负责未命中知识点时的互动 HTML 输出提取、代码围栏清理、截断内容闭合和基础长度检查。
 - `validator.py` 负责 fallback HTML 的结构、安全、依赖、交互和可视化区域校验。
 - `schemas/` 负责 AI互动实验专属请求响应模型定义。

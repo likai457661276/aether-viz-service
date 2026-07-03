@@ -1,9 +1,10 @@
 """AetherViz SSE generator.
 
-当前动态能力按产品计划主动收敛：
+动态生成策略：
 - 静态知识点命中后直接返回静态 HTML。
-- 动态生成只走 HTML + CSS + SVG。
-- 数学主题固定走 HTML + CSS + SVG + KaTeX + 原生动画。
+- 动态生成走 HTML + CSS + SVG/Canvas/DOM 分层渲染。
+- 复杂分镜可按计划使用 GSAP Timeline 编排，Canvas 高频绘制仍由 RAF 负责。
+- 生成目标：让中学生通过观察动画和调节参数，自然理解教学主题的核心原理。
 - revise 基于 current_html + instruction 修订当前页面。
 """
 
@@ -42,78 +43,118 @@ logger = logging.getLogger(__name__)
 
 _CDN_KATEX_CSS = "https://cdn.staticfile.net/KaTeX/0.16.9/katex.min.css"
 _CDN_KATEX_JS = "https://cdn.staticfile.net/KaTeX/0.16.9/katex.min.js"
+_CDN_KATEX_AUTO = "https://cdn.staticfile.net/KaTeX/0.16.9/contrib/auto-render.min.js"
+_CDN_GSAP = "https://cdn.jsdelivr.net/npm/gsap@3.15.0/dist/gsap.min.js"
 PLANNING_MAX_TOKENS = 1200
 HTML_OUTPUT_MAX_TOKENS = 12000
+HTML_ENABLE_THINKING = False
 
-GENERIC_SVG_SYSTEM_PROMPT = f"""你是 AetherViz 互动教学 SVG 页面工程师。
+GENERIC_SVG_SYSTEM_PROMPT = """你是 AetherViz 互动教学动画工程师。
+你的页面是一个面向中学生的互动教学工具，学生通过观察动画和调节参数来理解教学主题的核心原理。
+
 你只输出一个完整可运行 HTML 文件，从 <!DOCTYPE html> 开始，到 </html> 结束。
 
-硬性边界：
-1. 只使用 HTML + CSS + SVG + 原生 JavaScript。
-2. 不使用 Three.js、Canvas、D3、图片生成、文件上传或外部业务接口。
-3. CSS 和业务 JavaScript 必须内联；除数学模式外不要引入外部脚本。
-4. 禁止任何内联事件属性，所有事件用 addEventListener 绑定。
-5. 页面必须包含 class="learning-objectives" 的学习目标列表、id="aetherviz-stage" 的主可视化区、class="control-panel" 的控制面板。
-6. 控制按钮至少包含 id="play-animation"、id="pause-animation"、id="reset-animation"，且全部绑定真实事件。
-7. 声明 window.AetherVizRuntime，包含 play、pause、reset、setSpeed、update、getState。
-8. 初始化成功设置 window.__AETHERVIZ_RUNTIME_READY__ = true；失败设置 window.__AETHERVIZ_RUNTIME_ERROR__ 并在页面显示错误。
-9. 页面必须在 960x540 与移动宽度下不溢出。
+技术路线（按计划中的 render_stack 执行）：
+- svg：用 SVG 表达结构、坐标、几何关系、少量运动对象和清晰标注。
+- svg_canvas：Canvas 负责连续运动、轨迹、粒子或残影；SVG 负责坐标轴、辅助线、标签和高亮；DOM 负责解释文案。
+- canvas_svg：Canvas 是主视觉，SVG/DOM 只放少量标注和控件，禁止用大量 SVG 节点模拟高频运动。
+- dom_svg：流程卡片、阶段解释、时间轴为主，SVG 负责连接线、路径和当前步骤高亮。
 
-视觉要求：
-- 页面直接展示教学动画，不做营销页。
-- 使用清晰两区布局：说明区、SVG 舞台、控制区。
-- SVG 元素必须有稳定 id，便于后续局部调整。
-- 动画和滑块默认即可观察核心变化。
-"""
+动画质量标准（最重要）：
+- 动画过渡平滑：状态变化使用统一 requestAnimationFrame 时间线或 CSS transition（200ms~800ms），避免突变。
+- 分步演示清晰：当前步骤用颜色/高亮标注，配合简洁文字说明告知学生"现在发生了什么"。
+- 数值变化有视觉反馈：滑块拖动时，图形和数值同步更新，无明显延迟。
+- 动画默认自动播放，用户可暂停、重置、调速，并能拖动进度或单步回看关键节点。
 
-MATH_SYSTEM_PROMPT = f"""你是 AetherViz 数学互动动画工程师。
-你只输出一个完整可运行 HTML 文件，从 <!DOCTYPE html> 开始，到 </html> 结束。
-
-数学固定技术栈：
-1. HTML + CSS + SVG + KaTeX + 原生 JavaScript。
-2. 只允许引入以下外部资源：
-   - KaTeX CSS：{_CDN_KATEX_CSS}
-   - KaTeX JS：{_CDN_KATEX_JS}
-3. 不使用 Canvas、Three.js、D3、GSAP、图片或上传能力。
-4. 公式只用 KaTeX 渲染，动画只用 CSS transition/keyframes 或 requestAnimationFrame 管理。
+舞台编排要求：
+- 首屏必须是居中的教学舞台，不要把主图缩成角落里的小图；#aetherviz-stage 的主视觉应占页面主体宽度。
+- #aetherviz-stage 必须具备居中布局：使用 display:grid; place-items:center; 或 display:flex; align-items:center; justify-content:center;，并让主 SVG/Canvas 设置 margin:auto、max-width:100%、max-height:100%。
+- SVG 主视觉不要把核心图形画在 viewBox 左下角；把图形主体放在 viewBox 中心区域，或用 <g id="main-visual-group"> 统一 transform 到舞台中心。
+- Canvas 主视觉必须按画布尺寸计算 centerX = width / 2、centerY = height / 2，再围绕中心绘制主体；禁止用固定左下角坐标作为默认主体位置。
+- 推荐结构：顶部 3~4 个学习目标胶囊，中间大舞台，底部控制条，公式/结论区紧贴舞台下方。
+- 所有标签和公式不能遮挡主图；标签必须有避让或留白，长文字放到舞台外的说明区。
+- 每一幕必须有可见的步骤说明元素（例如 class="animation-caption" 或 class="step-caption"），文字说明当前焦点和学生该观察什么。
+- 默认状态必须一眼能看出核心现象，不依赖用户先调参。
 
 页面结构要求：
-- 包含 <main id="app">。
-- 包含 <section id="explain-panel">、<section id="stage">、<svg id="math-svg" viewBox="0 0 960 540">、<section id="control-panel" class="control-panel">。
-- 同时兼容校验，主舞台外层或同一节点必须包含 id="aetherviz-stage"。
-- 包含 class="learning-objectives" 的 <ul>，至少 3 条。
-- 控制按钮必须包含 play-animation、pause-animation、reset-animation，速度控制和至少一个 slider。
-- 所有按钮和滑块必须绑定真实事件。
-- 滑块变化必须同步更新 SVG 和 KaTeX 公式。
-- CSS 中应包含可读的过渡或 keyframes；JavaScript 中应实现播放进度、暂停、重置和速度控制。
-- 声明 window.AetherVizRuntime = {{ play, pause, reset, setSpeed, update, getState }}。
-- 初始化成功设置 window.__AETHERVIZ_RUNTIME_READY__ = true；失败设置 window.__AETHERVIZ_RUNTIME_ERROR__ 并显示错误。
+- 三区布局：学习目标区（class="learning-objectives"，至少 3 条）、主可视化区（id="aetherviz-stage"）、控制面板（class="control-panel"）。
+- 控制按钮包含 id="play-animation"（播放/重新播放）、id="pause-animation"（暂停）、id="reset-animation"（重置），全部绑定真实事件。
+- 所有事件用 addEventListener 绑定，禁止内联事件属性（onXxx="..."）。
+- 声明 window.AetherVizRuntime = { play, pause, reset, setSpeed, update, getState }。
+- 初始化成功设置 window.__AETHERVIZ_RUNTIME_READY__ = true；异常设置 window.__AETHERVIZ_RUNTIME_ERROR__ 并在页面显示错误提示。
+- 页面在 960×540 和移动端宽度下均不溢出。
+
+技术约束：
+- 使用 HTML + CSS + SVG/Canvas + 原生 JavaScript，CSS 和 JS 内联。
+- 默认不引入 Three.js、D3、GSAP、图片生成或外部业务接口。
+- 仅当生成计划明确要求 animation_runtime=gsap_timeline 时，允许引入固定 GSAP CDN，并只把 GSAP 用作时间线编排，不作为渲染栈。
+- SVG / Canvas / DOM 关键元素有稳定 id，便于后续修订。
 """
 
-REVISE_SYSTEM_PROMPT = f"""你是 AetherViz HTML 修订工程师。
+MATH_SYSTEM_PROMPT = """你是 AetherViz 数学互动教学动画工程师。
+你的页面让中学生通过拖拽参数、观察图形变化来直观理解数学关系，而不是被动看公式。
+
+你只输出一个完整可运行 HTML 文件，从 <!DOCTYPE html> 开始，到 </html> 结束。
+
+动画质量标准（最重要）：
+- 图形变化平滑：几何图形随参数变化时，使用统一 requestAnimationFrame 时间线或 CSS transition 实现流畅过渡。
+- 公式与图形联动：参数变化时，公式中对应的数值实时更新，学生同时看到几何直观和代数表达。
+- 关键步骤高亮：分步演示时，当前变化的图形元素用对比色标注，并显示简洁文字说明。
+- 数值显示清晰：在图形旁边显示当前参数值，随滑块实时更新。
+- 每一幕必须有可见的步骤说明元素（例如 class="animation-caption" 或 class="step-caption"），说明当前焦点、变化对象和结论。
+
+舞台编排要求：
+- 主图必须居中且足够大，避免小图、标签重叠和公式挤压。
+- #aetherviz-stage 必须具备居中布局：使用 display:grid; place-items:center; 或 display:flex; align-items:center; justify-content:center;，并让主 SVG/Canvas 设置 margin:auto、max-width:100%、max-height:100%。
+- SVG 坐标系必须让核心几何图形落在 viewBox 中央，不能把三角形、坐标轴或面积块默认画在左下角；必要时用 <g id="main-visual-group"> 包住主体并平移到中心。
+- Canvas 场景必须按实际画布尺寸计算中心点并围绕中心绘制，拖动参数后也要保持主体在可视区域中心。
+- 推荐结构：顶部学习目标胶囊，中间大比例数学舞台，底部参数控制条，公式/结论区紧贴舞台下方。
+- 公式用于解释图形变化，不要先堆公式；变量高亮颜色要和图中对象一致。
+
+技术选型（根据最适合的方案自主选择）：
+- 首选 SVG：大多数平面几何、函数图像、向量场景用 SVG 最清晰。
+- 允许使用内联 Canvas（<canvas> + 2D Context）：参数方程轨迹、连续曲线、粒子动画等场景。
+- 如涉及公式展示，推荐引入 KaTeX（CDN 引入任意稳定版本）；也可用 SVG <text> 或 HTML 文本展示。
+- 默认不引入 Three.js、D3、GSAP 或其他动画库。
+- 仅当生成计划明确要求 animation_runtime=gsap_timeline 时，允许引入固定 GSAP CDN，并用 GSAP Timeline 管理分镜节奏、公式同步高亮和播放控制。
+
+页面结构要求：
+- 三区布局：学习目标区（class="learning-objectives"，至少 3 条说明学生能学到什么）、主可视化区（id="aetherviz-stage"，内含图形主体）、控制面板（class="control-panel"）。
+- 控制按钮包含 id="play-animation"（播放演示）、id="pause-animation"（暂停）、id="reset-animation"（重置），全部绑定真实事件。
+- 所有事件用 addEventListener 绑定，禁止内联事件属性（onXxx="..."）。
+- 声明 window.AetherVizRuntime = { play, pause, reset, setSpeed, update, getState }。
+- 初始化成功设置 window.__AETHERVIZ_RUNTIME_READY__ = true；异常设置 window.__AETHERVIZ_RUNTIME_ERROR__ 并在页面显示错误提示。
+- 页面在 960×540 和移动端宽度下均不溢出。
+"""
+
+REVISE_SYSTEM_PROMPT = """你是 AetherViz HTML 修订工程师。
 根据用户修改意见，直接修订给定 HTML，并输出完整 <!DOCTYPE html>...</html>。
 
-约束：
-- 保持当前页面为独立 HTML。
-- 不新增 Three.js、Canvas、文件上传、图片上传或外部业务接口。
-- 数学页面继续使用 SVG + KaTeX + 原生 CSS/JavaScript 动画；非数学页面继续使用 SVG。
-- 不新增 GSAP 或其它动画库。
+修订原则：
+- 修订后的页面动画必须能完整播放并清晰演示教学目标，这是首要判断标准。
+- 修订后的 #aetherviz-stage 内主 SVG/Canvas 必须居中显示；如果主图偏在左下角或角落，优先修复 SVG viewBox/主体 group transform 或 Canvas centerX/centerY 绘制逻辑。
+- 保持当前页面为独立 HTML，CSS 和 JS 继续内联。
 - 所有事件继续使用 addEventListener。
 - 保留或补齐 window.AetherVizRuntime 的 play、pause、reset、setSpeed、update、getState。
+- 不引入 Three.js 或外部业务接口；若当前 HTML 已使用 GSAP Timeline，可保留固定版本 GSAP CDN 并修复其播放控制，不要退回静态页面。
 - 只输出 HTML，不输出 Markdown 或解释。
 """
 
 REPAIR_SYSTEM_PROMPT = """你是 AetherViz HTML 自动修复工程师。
 你会收到一次失败的 HTML 输出、服务端校验错误和原始生成上下文。
 
-修复要求：
-- 只输出修复后的完整 <!DOCTYPE html>...</html>。
-- 不输出 Markdown、解释或代码围栏。
+修复的第一优先级：动画能完整播放并清晰演示教学目标。
+在保证动画质量的前提下，再修复具体的结构问题。
+
+具体修复要求：
+- 只输出修复后的完整 <!DOCTYPE html>...</html>，不输出 Markdown 或解释。
 - 保持独立 HTML，CSS 与业务 JavaScript 内联。
-- 不使用 Three.js、Canvas、D3、GSAP、文件上传、图片上传或外部业务接口。
-- 保留或补齐学习目标、SVG 主舞台、控制面板、播放/暂停/重置/速度控制。
-- 保留或补齐 window.AetherVizRuntime 的 play、pause、reset、setSpeed、update、getState。
-- 初始化成功设置 window.__AETHERVIZ_RUNTIME_READY__ = true；失败设置 window.__AETHERVIZ_RUNTIME_ERROR__ 并在页面显示错误。
+- 确保学习目标（class="learning-objectives"，至少 3 条）、主可视化区（id="aetherviz-stage"）、控制面板（class="control-panel"）存在。
+- 确保 #aetherviz-stage 内主 SVG/Canvas 在舞台水平和垂直居中；SVG 需要用居中的 viewBox 或 main-visual-group，Canvas 需要基于 width/height 的中心点绘制。
+- 确保播放/暂停/重置按钮（id="play-animation"、id="pause-animation"、id="reset-animation"）存在并绑定真实事件。
+- 确保 window.AetherVizRuntime = { play, pause, reset, setSpeed, update, getState } 声明完整。
+- 确保 window.__AETHERVIZ_RUNTIME_READY__ = true 在初始化成功时设置。
+- 不引入 Three.js 或外部业务接口。若原计划 animation_runtime=gsap_timeline，应保留固定 GSAP CDN、补齐 timeline label 和控制绑定，不要退回静态 SVG。
 """
 
 
@@ -172,7 +213,28 @@ def _coerce_llm_stream_chunk(chunk: object) -> LLMStreamChunk:
 
 
 def _is_math_mode(mode: str | None) -> bool:
-    return mode in {"math_svg_katex_css", "math_svg_katex_gsap"}
+    return mode == "math_interactive"
+
+
+def _is_gsap_timeline_plan(plan: dict | None) -> bool:
+    return bool(plan and plan.get("animation_runtime") == "gsap_timeline")
+
+
+def _system_prompt_for_plan(base_prompt: str, plan: dict) -> str:
+    if not _is_gsap_timeline_plan(plan):
+        return base_prompt
+    return f"""{base_prompt}
+
+GSAP Timeline 计划要求：
+- 本计划 animation_runtime=gsap_timeline，必须引入且只能引入固定 CDN：{_CDN_GSAP}
+- 使用 const tl = gsap.timeline({{ paused: true, defaults: {{ ease: "power2.inOut" }}, onUpdate: syncRuntimeState }});
+- 使用 addLabel() 为每个 timeline_scenes scene 建立可读 label，至少 3 个 label，label 名称应与 scene id 对应。
+- timeline 内至少包含 3 个真实 tween/set 调用，用于元素进出场、步骤高亮、公式同步或 caption 更新。
+- 播放按钮调用 tl.play() 或 tl.restart()；暂停按钮调用 tl.pause()；重置按钮调用 tl.pause(0) 或 tl.progress(0)。
+- 速度控制调用 tl.timeScale(value)，进度控制调用 tl.progress(value)。
+- window.AetherVizRuntime 统一代理 timeline：play、pause、reset、setSpeed、update、getState 都要真实读写 tl。
+- Canvas 高频运动仍用 requestAnimationFrame 绘制；如果页面使用 Canvas，GSAP 只驱动 state.progress 或阶段值，再调用 renderCanvas。
+"""
 
 
 def _stream_llm_output(
@@ -196,7 +258,7 @@ def _stream_llm_output(
         system_prompt=system_prompt,
         max_tokens=max_tokens,
         temperature=temperature,
-        enable_thinking=True,
+        enable_thinking=HTML_ENABLE_THINKING,
     ):
         chunk = _coerce_llm_stream_chunk(raw_chunk)
         if not chunk.delta:
@@ -371,7 +433,12 @@ def _static_match_stream(topic: str, color: str, match) -> Iterator[str]:
 
 def _planning_stream(topic: str, color: str) -> Iterator[str]:
     yield _progress_event("planning", "正在分析知识点，制定教学动画方案", 20, phase="plan")
-    for delta in ("识别学科与核心目标...\n", "选择稳定 HTML + SVG 生成模式...\n", "规划动画步骤、控件和校验点...\n"):
+    for delta in (
+        "识别学科与核心目标...\n",
+        "选择 SVG/Canvas/DOM 渲染栈与动画运行时...\n",
+        "规划学生友好默认数值...\n",
+        "规划舞台布局、教学分镜、时间线和互动控件...\n",
+    ):
         yield _sse_event(
             "plan_delta",
             {
@@ -460,7 +527,8 @@ def _generate_from_plan_stream(topic: str, plan: dict) -> Iterator[str]:
     )
 
     prompt = _build_generation_prompt(topic, plan)
-    system_prompt = MATH_SYSTEM_PROMPT if _is_math_mode(plan["mode"]) else GENERIC_SVG_SYSTEM_PROMPT
+    base_system_prompt = MATH_SYSTEM_PROMPT if _is_math_mode(plan["mode"]) else GENERIC_SVG_SYSTEM_PROMPT
+    system_prompt = _system_prompt_for_plan(base_system_prompt, plan)
     raw_html = yield from _stream_llm_output(
         prompt,
         system_prompt=system_prompt,
@@ -615,7 +683,7 @@ def _parse_validate_or_repair_stream(
         )
         repaired_raw_html = yield from _stream_llm_output(
             repair_prompt,
-            system_prompt=REPAIR_SYSTEM_PROMPT,
+            system_prompt=_system_prompt_for_plan(REPAIR_SYSTEM_PROMPT, plan),
             max_tokens=HTML_OUTPUT_MAX_TOKENS,
             temperature=0.08,
             stage="html_repairing",
@@ -644,48 +712,117 @@ def _build_repair_prompt(
     return f"""请修复一次失败的 AetherViz {source_label} HTML 输出。
 
 教学主题：{topic}
-生成模式：{plan.get("mode")}
-计划：
-{json.dumps(plan, ensure_ascii=False, indent=2)}
+教学目标：{plan.get("goal", "")}
+动画运行时：{plan.get("animation_runtime", "native")}
+分镜时间线：
+{json.dumps(plan.get("timeline_scenes", []), ensure_ascii=False, indent=2)}
+默认数值设计：
+{json.dumps(plan.get("number_design") or {}, ensure_ascii=False, indent=2)}
 
-服务端错误：
+修复第一目标：确保动画能完整播放并清晰演示上述教学目标。
+舞台居中目标：#aetherviz-stage 内主 SVG/Canvas 必须在画布中居中显示，不能偏在左下角或任意角落。若是 SVG，请修正 viewBox、preserveAspectRatio、主体 group transform 或元素坐标；若是 Canvas，请按 width/2、height/2 计算中心后绘制主体。
+
+服务端校验错误（需逐一修复）：
 {error_detail}
 
-原始任务：
+原始任务提示词（供参考）：
 {original_prompt}
 
-失败 HTML：
+失败 HTML（请在此基础上修复，不要推倒重写）：
 {_compact_html_for_revision(raw_html)}
 
-请直接输出修复后的完整 HTML。"""
+请直接输出修复后的完整 HTML，不要输出任何解释。"""
 
 
 def _build_generation_prompt(topic: str, plan: dict) -> str:
-    return f"""请根据确认方案生成一个完整、独立、可直接在浏览器运行的互动教学 HTML 页面。
+    animation_strategy = plan.get("animation_strategy", "step_by_step")
+    render_stack = plan.get("render_stack") or "svg"
+    animation_runtime = plan.get("animation_runtime") or "native"
+    strategy_hint = {
+        "step_by_step": '分步骤演示：每个步骤有清晰的过渡动画（200~600ms），当前步骤用高亮颜色标注，配合文字说明告知学生"现在发生了什么"、"应该观察什么"。',
+        "continuous": "连续动画：运动过程平滑流畅（requestAnimationFrame 驱动），轨迹清晰可见，学生可通过速度控制观察细节，关键时刻用颜色和标注突出。",
+        "interactive_param": "参数调控：学生拖动滑块时图形实时响应（无延迟感），数值在图形旁同步更新，让学生通过探索不同参数发现规律。",
+    }.get(animation_strategy, "动画流畅，演示清晰，分步骤高亮当前状态。")
+    render_stack_hint = {
+        "svg": "使用 SVG 作为主视觉：适合结构、几何、坐标轴和少量运动对象。初始化元素后通过 transform、d、x/y 等属性更新，禁止每帧重建整棵 SVG。",
+        "svg_canvas": "使用 SVG + Canvas 分层：Canvas 绘制连续运动、轨迹、粒子或残影；SVG 叠加坐标轴、辅助线、关键标签和高亮；DOM 显示步骤说明和公式。",
+        "canvas_svg": "使用 Canvas 作为主视觉：高频动画和大量对象全部在 Canvas 中绘制；SVG/DOM 只保留少量标签、交互热点、说明和公式。",
+        "dom_svg": "使用 DOM + SVG：流程节点、阶段卡片和文字解释由 DOM 承担，SVG 负责连接线、路径移动和当前步骤高亮。",
+    }.get(str(render_stack), "根据主题选择 SVG、Canvas 或 DOM/SVG 分层，确保主视觉清晰可读。")
+
+    formulas = plan.get("formulas", [])
+    formula_section = (
+        f"核心公式/关键表达（需在页面中展示，并随参数实时更新）:\n{json.dumps(formulas, ensure_ascii=False, indent=2)}\n"
+        if formulas
+        else ""
+    )
+    number_design = plan.get("number_design") or {}
+    number_design_section = (
+        f"默认数值设计（必须落实到初始状态、控件默认值和公式数值中）:\n{json.dumps(number_design, ensure_ascii=False, indent=2)}\n"
+        if number_design
+        else ""
+    )
+    timeline_scenes = plan.get("timeline_scenes", [])
+    timeline_section = (
+        f"分镜时间线（每一幕都要能在页面里播放、暂停、重置和拖动进度观察）:\n{json.dumps(timeline_scenes, ensure_ascii=False, indent=2)}\n"
+        if timeline_scenes
+        else ""
+    )
+    if animation_runtime == "gsap_timeline":
+        runtime_section = f"""动画运行时（必须落实）：
+- 使用 GSAP Timeline 编排动画，不要只引用库。
+- 引入且只能引入固定 CDN：{_CDN_GSAP}
+- 声明 const tl = gsap.timeline({{ paused: true, defaults: {{ ease: "power2.inOut" }}, onUpdate: syncRuntimeState }});
+- timeline_scenes 每个 scene 都要有 tl.addLabel(scene.id, ...)，至少 3 个 label。
+- 每个 scene 至少对应一个 .to() / .from() / .fromTo() / .set()，用来驱动画面、caption、公式或高亮。
+- id="play-animation" 绑定 tl.play() 或 tl.restart()；id="pause-animation" 绑定 tl.pause()；id="reset-animation" 绑定 tl.pause(0) 或 tl.progress(0)。
+- 速度控件绑定 tl.timeScale(value)，进度控件绑定 tl.progress(value)。
+- animation-caption 或 step-caption 必须随 tl 的当前 scene 同步更新。
+- window.AetherVizRuntime 必须代理 timeline 的 play、pause、reset、setSpeed、update、getState。
+- Canvas 高频运动仍用 requestAnimationFrame 绘制；若使用 Canvas，GSAP 只驱动 progress/state，再调用 renderCanvas。
+"""
+    else:
+        runtime_section = """动画运行时（必须落实）：
+- 使用 native 运行时：requestAnimationFrame、CSS transition、classList 或原生 DOM/SVG/Canvas 更新。
+- 不要引入 GSAP；播放、暂停、重置、速度和进度控制仍必须真实驱动画面。
+"""
+
+    return f"""请根据以下教学方案，生成一个完整、独立、可直接在浏览器运行的互动教学 HTML 页面。
 
 教学主题：{topic}
-生成模式：{plan["mode"]}
 页面标题：{plan["title"]}
 教学目标：{plan["goal"]}
 主色调：{plan.get("primary_color", "#22D3EE")}
 
-视觉步骤：
+渲染栈（务必落实，不要只画静态 SVG）：
+{render_stack_hint}
+
+{runtime_section}
+
+舞台布局（首屏应按此编排）：
+{plan.get("stage_layout", "顶部学习目标，中间大舞台，底部控制条和公式结论区。")}
+
+主视觉居中契约（必须落实，服务端会校验）：
+- #aetherviz-stage 使用居中布局，例如 display:grid; place-items:center; 或 display:flex; align-items:center; justify-content:center;。
+- 主 SVG/Canvas 设置 display:block; margin:auto; max-width:100%; max-height:100%，SVG 还要设置 preserveAspectRatio="xMidYMid meet"。
+- SVG 主体不要画在 viewBox 的左下角：核心图形的视觉中心应接近 viewBox 中心；推荐使用 <g id="main-visual-group"> 包住主体并把它平移到舞台中央。
+- Canvas 主体不要用固定左下角坐标绘制：每次 resize/render 都按 const centerX = width / 2、const centerY = height / 2 计算中心点，再围绕中心绘制。
+
+教学分镜（按镜头组织动画，不要把所有元素一次性堆出来）：
+{json.dumps(plan.get("storyboard", []), ensure_ascii=False, indent=2)}
+
+{timeline_section}
+
+{number_design_section}
+
+动画演示策略（务必实现）：
+{strategy_hint}
+
+视觉演示步骤（按顺序实现每一步的动画效果）：
 {json.dumps(plan.get("visual_steps", []), ensure_ascii=False, indent=2)}
 
-控制项：
+交互控件（每个控件必须绑定真实功能，不能是装饰性的）：
 {json.dumps(plan.get("controls", []), ensure_ascii=False, indent=2)}
 
-公式/关键表达：
-{json.dumps(plan.get("formulas", []), ensure_ascii=False, indent=2)}
-
-校验点：
-{json.dumps(plan.get("validation_points", []), ensure_ascii=False, indent=2)}
-
-请确保：
-- HTML 以 <!DOCTYPE html> 开头，以 </html> 结束。
-- 主可视化为 SVG，关键元素有稳定 id。
-- 提供播放、暂停、重置、速度控制和至少一个变量交互。
-- 如果是数学模式，只能使用 KaTeX + SVG + CSS 动画或 requestAnimationFrame，不得引入或调用 GSAP。
-- 声明 window.AetherVizRuntime，并提供 play/pause/reset/setSpeed/update/getState。
-- 页面末尾保留“由 宾果AI 为你生成❤️”。
+{formula_section}页面末尾保留"由 宾果AI 为你生成❤️"。
 """

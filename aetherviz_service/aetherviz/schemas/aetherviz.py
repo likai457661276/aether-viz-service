@@ -1,9 +1,17 @@
-from typing import Literal
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
 
-GenerationMode = Literal["generic_svg", "math_svg_katex_css", "math_svg_katex_gsap"]
+GenerationMode = Literal[
+    "svg_animation",
+    "math_interactive",
+    "process_flow",
+]
+
+AnimationStrategy = Literal["step_by_step", "continuous", "interactive_param"]
+RenderStack = Literal["svg", "svg_canvas", "canvas_svg", "dom_svg"]
+AnimationRuntime = Literal["native", "gsap_timeline"]
 
 
 class AetherVizPlanControl(BaseModel):
@@ -12,15 +20,34 @@ class AetherVizPlanControl(BaseModel):
     type: Literal["slider", "button", "speed"]
 
 
+class AetherVizTimelineScene(BaseModel):
+    id: str
+    label: str
+    duration: float | None = None
+    focus: str
+    caption: str
+
+
+class AetherVizNumberDesign(BaseModel):
+    default_values: list[str] = Field(default_factory=list)
+    reason: str | None = None
+
+
 class AetherVizPlan(BaseModel):
     subject: str
     mode: GenerationMode
+    animation_strategy: Optional[AnimationStrategy] = None
+    render_stack: Optional[RenderStack] = None
+    animation_runtime: AnimationRuntime = "native"
     title: str
     goal: str
+    stage_layout: str | None = None
+    storyboard: list[str] = Field(default_factory=list)
+    timeline_scenes: list[AetherVizTimelineScene] = Field(default_factory=list)
+    number_design: AetherVizNumberDesign | None = None
     visual_steps: list[str] = Field(default_factory=list)
     controls: list[AetherVizPlanControl] = Field(default_factory=list)
     formulas: list[str] = Field(default_factory=list)
-    validation_points: list[str] = Field(default_factory=list)
     primary_color: str = "#22D3EE"
 
 

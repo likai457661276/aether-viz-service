@@ -40,9 +40,23 @@ def parse_sse_events(response):
 def sample_approved_plan(topic: str = "熵增演示") -> dict:
     return {
         "subject": "general",
-        "mode": "generic_svg",
+        "mode": "svg_animation",
+        "animation_strategy": "step_by_step",
+        "render_stack": "dom_svg",
+        "animation_runtime": "native",
         "title": f"{topic}互动动画",
-        "goal": f"用稳定 SVG 动画解释“{topic}”的核心过程。",
+        "goal": f"用清晰分镜动画解释“{topic}”的核心过程。",
+        "stage_layout": "顶部展示学习目标，中间大舞台展示主动画，底部放置播放控制和公式结论。",
+        "storyboard": ["镜头1：初始状态居中出现", "镜头2：核心变化被高亮", "镜头3：结论区同步总结"],
+        "timeline_scenes": [
+            {"id": "scene_intro", "label": "初始观察", "duration": 1.0, "focus": "初始状态居中出现", "caption": "先观察初始状态。"},
+            {"id": "scene_change", "label": "核心变化", "duration": 1.0, "focus": "核心变化被高亮", "caption": "观察核心变化。"},
+            {"id": "scene_summary", "label": "结论总结", "duration": 1.0, "focus": "结论区同步总结", "caption": "回顾结论。"},
+        ],
+        "number_design": {
+            "default_values": ["进度 = 0%", "速度 = 1x"],
+            "reason": "使用标准进度和默认速度，便于学生按步骤观察。",
+        },
         "visual_steps": ["生活类比", "观察现象", "播放过程", "交互验证"],
         "controls": [
             {"id": "progress-slider", "label": "过程进度", "type": "slider"},
@@ -50,7 +64,6 @@ def sample_approved_plan(topic: str = "熵增演示") -> dict:
             {"id": "reset-button", "label": "重置", "type": "button"},
         ],
         "formulas": [],
-        "validation_points": ["使用 HTML + CSS + SVG", "控制按钮均绑定事件", "移动端不溢出"],
         "primary_color": "#22D3EE",
     }
 
@@ -62,6 +75,11 @@ def sample_svg_html(topic: str = "熵增演示", marker: str = "ready") -> str:
 <meta charset="utf-8">
 <title>{topic}</title>
 <link rel="stylesheet" href="https://cdn.staticfile.net/KaTeX/0.16.9/katex.min.css">
+<style>
+body {{ margin: 0; font-family: sans-serif; }}
+#aetherviz-stage {{ width: 100%; min-height: 240px; display: grid; place-items: center; }}
+#aetherviz-stage svg {{ display: block; margin: auto; max-width: 100%; max-height: 100%; }}
+</style>
 </head>
 <body>
 <h1>{topic}</h1>
@@ -78,27 +96,129 @@ def sample_svg_html(topic: str = "熵增演示", marker: str = "ready") -> str:
   <p>核心概念A</p>
 </section>
 <main id="aetherviz-stage">
-  <svg viewBox="0 0 320 180" role="img" aria-label="{topic}互动图形">
-    <path d="M20 140 C90 40 190 40 300 140" stroke="#22D3EE" fill="none"></path>
-    <circle cx="160" cy="80" r="10" fill="#FBBF24"></circle>
+  <p class="animation-caption">当前步骤：观察核心图形如何随进度变化。</p>
+  <svg viewBox="0 0 320 180" preserveAspectRatio="xMidYMid meet" role="img" aria-label="{topic}互动图形">
+    <g id="main-visual-group">
+      <path d="M20 140 C90 40 190 40 300 140" stroke="#22D3EE" fill="none"></path>
+      <circle cx="160" cy="80" r="10" fill="#FBBF24"></circle>
+    </g>
   </svg>
 </main>
 <div class="control-panel">
   <button id="play-animation">播放</button>
+  <button id="pause-animation">暂停</button>
+  <button id="reset-animation">重置</button>
   <input type="range" id="param">
 </div>
 <script src="https://cdn.staticfile.net/KaTeX/0.16.9/katex.min.js"></script>
 <script>
 const state = {{ mode: 'playing', progress: 0 }};
 function updateVisualization() {{ state.progress = (state.progress + 1) % 100; }}
+function play() {{ updateVisualization(); }}
+function pause() {{ state.mode = 'paused'; }}
+function reset() {{ state.progress = 0; updateVisualization(); }}
+function setSpeed(value) {{ state.speed = Number(value) || 1; }}
+function update(value) {{ state.progress = Number(value) || state.progress; updateVisualization(); }}
+function getState() {{ return {{ ...state }}; }}
 function animationLoop() {{
   requestAnimationFrame(animationLoop);
   updateVisualization();
 }}
 window.addEventListener('resize', () => updateVisualization());
-document.getElementById('play-animation').addEventListener('click', () => updateVisualization());
+document.getElementById('play-animation').addEventListener('click', () => play());
+document.getElementById('pause-animation').addEventListener('click', () => pause());
+document.getElementById('reset-animation').addEventListener('click', () => reset());
+window.AetherVizRuntime = {{ play, pause, reset, setSpeed, update, getState }};
+window.__AETHERVIZ_RUNTIME_READY__ = true;
+window.__AETHERVIZ_RUNTIME_ERROR__ = null;
 animationLoop();
 console.log("{marker}");
+</script>
+</body>
+</html>"""
+
+
+def sample_gsap_html(topic: str = "勾股定理") -> str:
+    return f"""<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>{topic}</title>
+<style>
+body {{ margin: 0; font-family: sans-serif; }}
+#aetherviz-stage {{ width: min(960px, 94vw); min-height: 320px; margin: 0 auto; display: grid; place-items: center; }}
+#aetherviz-stage svg {{ display: block; margin: auto; max-width: 100%; max-height: 100%; }}
+.square {{ opacity: 0; transform-origin: center; }}
+</style>
+</head>
+<body>
+<h1>{topic}</h1>
+<section class="learning-objectives">
+  <h2>学习目标</h2>
+  <ul>
+    <li>认识直角三角形三边关系</li>
+    <li>观察三个正方形面积变化</li>
+    <li>验证 a² + b² = c²</li>
+  </ul>
+</section>
+<section>
+  <h2>核心公式</h2>
+  <p>a² + b² = c²</p>
+</section>
+<main id="aetherviz-stage">
+  <p id="animation-caption" class="animation-caption">当前步骤：观察 3-4-5 直角三角形。</p>
+  <svg viewBox="0 0 360 220" preserveAspectRatio="xMidYMid meet" role="img" aria-label="{topic}互动图形">
+    <g id="main-visual-group">
+      <polygon id="main-shape" points="80,170 80,50 240,170" fill="#dbeafe" stroke="#2563eb"></polygon>
+      <rect id="square-a" class="square" x="20" y="50" width="60" height="120" fill="#22D3EE"></rect>
+      <rect id="square-b" class="square" x="80" y="170" width="160" height="30" fill="#FBBF24"></rect>
+      <rect id="square-c" class="square" x="235" y="65" width="95" height="95" fill="#A78BFA"></rect>
+      <text id="formula-a" x="130" y="30">3² + 4² = 5²</text>
+    </g>
+  </svg>
+</main>
+<div class="control-panel">
+  <button id="play-animation">播放</button>
+  <button id="pause-animation">暂停</button>
+  <button id="reset-animation">重置</button>
+  <label>速度 <input type="range" id="speed-control" min="0.5" max="2" step="0.5" value="1"></label>
+  <label>进度 <input type="range" id="progress-slider" min="0" max="1" step="0.01" value="0"></label>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.15.0/dist/gsap.min.js"></script>
+<script>
+const caption = document.getElementById('animation-caption');
+const speed = document.getElementById('speed-control');
+const progress = document.getElementById('progress-slider');
+function syncRuntimeState() {{
+  progress.value = String(tl.progress());
+  if (tl.time() < 1) caption.textContent = '当前步骤：先观察 3-4-5 直角三角形。';
+  else if (tl.time() < 2) caption.textContent = '当前步骤：两条直角边的正方形面积相加。';
+  else caption.textContent = '当前步骤：斜边正方形面积与前两者相等。';
+}}
+const tl = gsap.timeline({{ paused: true, defaults: {{ ease: 'power2.inOut' }}, onUpdate: syncRuntimeState }});
+tl.addLabel('scene_intro', 0)
+  .to('#main-shape', {{ scale: 1.04, duration: 0.6 }}, 'scene_intro')
+  .to('#square-a', {{ autoAlpha: 1, duration: 0.6 }}, 'scene_intro+=0.2')
+  .addLabel('scene_legs', '>')
+  .to('#square-b', {{ autoAlpha: 1, duration: 0.6 }}, 'scene_legs')
+  .to('#formula-a', {{ fill: '#0EA5E9', duration: 0.4 }}, 'scene_legs')
+  .addLabel('scene_hypotenuse', '>')
+  .to('#square-c', {{ autoAlpha: 1, duration: 0.6 }}, 'scene_hypotenuse');
+document.getElementById('play-animation').addEventListener('click', () => tl.restart());
+document.getElementById('pause-animation').addEventListener('click', () => tl.pause());
+document.getElementById('reset-animation').addEventListener('click', () => {{ tl.pause(0); syncRuntimeState(); }});
+speed.addEventListener('input', () => tl.timeScale(Number(speed.value) || 1));
+progress.addEventListener('input', () => tl.progress(Number(progress.value) || 0));
+function play() {{ tl.play(); }}
+function pause() {{ tl.pause(); }}
+function reset() {{ tl.pause(0); syncRuntimeState(); }}
+function setSpeed(value) {{ tl.timeScale(Number(value) || 1); }}
+function update(value) {{ tl.progress(Number(value) || 0); syncRuntimeState(); }}
+function getState() {{ return {{ progress: tl.progress(), time: tl.time(), duration: tl.duration(), speed: tl.timeScale() }}; }}
+window.AetherVizRuntime = {{ play, pause, reset, setSpeed, update, getState }};
+window.__AETHERVIZ_RUNTIME_READY__ = true;
+window.__AETHERVIZ_RUNTIME_ERROR__ = null;
+syncRuntimeState();
 </script>
 </body>
 </html>"""
@@ -446,13 +566,16 @@ def test_unmatched_topic_plan_phase_streams_plan_without_html_generation(monkeyp
         stream_calls.append((prompt, system_prompt, max_tokens, temperature, enable_thinking))
         raw = json.dumps({
             "subject": "general",
-            "mode": "generic_svg",
+            "mode": "svg_animation",
+            "animation_strategy": "step_by_step",
+            "render_stack": "dom_svg",
             "title": "熵增演示互动动画",
-            "goal": "用稳定 SVG 动画解释熵增演示。",
+            "goal": "用清晰分镜动画解释熵增演示。",
+            "stage_layout": "顶部目标导航，中间大舞台，底部控制条和结论区。",
+            "storyboard": ["镜头1：粒子初始聚集", "镜头2：粒子扩散并留下轨迹", "镜头3：结论区高亮熵增"],
             "visual_steps": ["生活类比", "观察现象", "播放过程"],
             "controls": [{"id": "progress-slider", "label": "进度", "type": "slider"}],
             "formulas": [],
-            "validation_points": ["使用 HTML + CSS + SVG"],
             "primary_color": "#22D3EE",
         })
         yield raw[:80]
@@ -471,7 +594,8 @@ def test_unmatched_topic_plan_phase_streams_plan_without_html_generation(monkeyp
     assert stream_calls[0][2] == react_module.PLANNING_MAX_TOKENS
     assert stream_calls[0][4] is False
     assert plan["subject"] == "general"
-    assert plan["mode"] == "generic_svg"
+    assert plan["mode"] == "svg_animation"
+    assert plan["render_stack"] == "dom_svg"
     assert plan["controls"][0]["type"] == "slider"
     assert "html" not in events[-1][1]
 
@@ -484,13 +608,16 @@ def test_plan_phase_disables_reasoning_delta_and_streams_math_css_mode(monkeypat
         yield LLMStreamChunk(kind="reasoning", delta="先判断这是数学几何主题。")
         raw = json.dumps({
             "subject": "math",
-            "mode": "math_svg_katex_css",
+            "mode": "math_interactive",
+            "animation_strategy": "interactive_param",
+            "render_stack": "svg",
             "title": "勾股定理互动动画",
             "goal": "通过拖动直角三角形边长观察面积关系。",
+            "stage_layout": "顶部目标导航，中间大几何舞台，底部控制条和公式结论。",
+            "storyboard": ["镜头1：直角三角形居中", "镜头2：三边平方依次展开", "镜头3：公式区同步验证"],
             "visual_steps": ["显示直角三角形", "展示三边平方", "拖动边长验证"],
             "controls": [{"id": "leg-slider", "label": "直角边", "type": "slider"}],
             "formulas": ["a^2+b^2=c^2"],
-            "validation_points": ["使用 CSS 动画", "使用 KaTeX 渲染公式"],
             "primary_color": "#22D3EE",
         })
         yield LLMStreamChunk(kind="content", delta=raw)
@@ -502,7 +629,7 @@ def test_plan_phase_disables_reasoning_delta_and_streams_math_css_mode(monkeypat
     events = parse_sse_events(response)
     assert "thinking_delta" not in [event for event, _ in events]
     assert events[-1][0] == "plan_ready"
-    assert events[-1][1]["plan"]["mode"] == "math_svg_katex_css"
+    assert events[-1][1]["plan"]["mode"] == "math_interactive"
     assert len(calls) == 1
     assert calls[0][2] == react_module.PLANNING_MAX_TOKENS
     assert calls[0][4] is False
@@ -541,14 +668,16 @@ def test_generate_phase_uses_approved_plan_for_html(monkeypatch) -> None:
     html = done_data["html"]
     assert len(calls) == 1
     assert calls[0][2] == react_module.HTML_OUTPUT_MAX_TOKENS
-    assert calls[0][4] is True
+    assert calls[0][4] is False
+    assert "主视觉居中契约" in calls[0][0]
+    assert "missing_stage_visual_centering" not in html
     assert '<title>熵增演示</title>' in html
     assert "学习目标1" in html
     assert "核心概念A" in html
     assert done_data["metadata"]["source"] == "llm_svg"
     assert done_data["metadata"]["attempts"] == 1
     assert done_data["metadata"]["degraded"] is True
-    assert done_data["metadata"]["render_mode"] == "generic_svg"
+    assert done_data["metadata"]["render_mode"] in ("svg_animation", "math_interactive", "process_flow")
     assert done_data["metadata"]["plan"]["controls"][0]["id"] == "progress-slider"
     assert done_data["output_tokens_total"] > 0
 
@@ -617,10 +746,133 @@ def test_svg_validation_accepts_minimum_contract() -> None:
     warnings = validate_aetherviz_html(
         sample_svg_html(),
         topic="熵增演示",
-        strict=False,
+        strict=True,
     )
 
     assert isinstance(warnings, list)
+
+
+def test_validation_rejects_uncentered_stage_visual() -> None:
+    from aetherviz_service.aetherviz.validator import (
+        AetherVizHtmlValidationError,
+        validate_aetherviz_html,
+    )
+
+    bad_html = sample_svg_html().replace(
+        "#aetherviz-stage { width: 100%; min-height: 240px; display: grid; place-items: center; }",
+        "#aetherviz-stage { width: 100%; min-height: 240px; }",
+    )
+    bad_html = bad_html.replace(
+        "#aetherviz-stage svg { display: block; margin: auto; max-width: 100%; max-height: 100%; }\n",
+        "",
+    )
+    bad_html = bad_html.replace(' preserveAspectRatio="xMidYMid meet"', "")
+    bad_html = bad_html.replace('<g id="main-visual-group">\n      ', "")
+    bad_html = bad_html.replace("\n    </g>", "")
+
+    with pytest.raises(AetherVizHtmlValidationError) as exc_info:
+        validate_aetherviz_html(bad_html, topic="熵增演示", strict=False)
+
+    assert "missing_stage_visual_centering" in str(exc_info.value)
+
+
+def test_validation_accepts_gsap_timeline_contract() -> None:
+    from aetherviz_service.aetherviz.validator import validate_aetherviz_html
+
+    warnings = validate_aetherviz_html(
+        sample_gsap_html(),
+        topic="勾股定理",
+        strict=True,
+    )
+
+    assert isinstance(warnings, list)
+
+
+def test_validation_rejects_gsap_without_fixed_cdn() -> None:
+    from aetherviz_service.aetherviz.validator import (
+        AetherVizHtmlValidationError,
+        validate_aetherviz_html,
+    )
+
+    bad_html = sample_gsap_html().replace(
+        "https://cdn.jsdelivr.net/npm/gsap@3.15.0/dist/gsap.min.js",
+        "https://cdn.jsdelivr.net/npm/gsap/dist/gsap.min.js",
+    )
+
+    with pytest.raises(AetherVizHtmlValidationError) as exc_info:
+        validate_aetherviz_html(bad_html, topic="勾股定理", strict=True)
+
+    assert "非白名单外部资源" in str(exc_info.value)
+
+
+def test_validation_rejects_empty_gsap_timeline() -> None:
+    from aetherviz_service.aetherviz.validator import (
+        AetherVizHtmlValidationError,
+        validate_aetherviz_html,
+    )
+
+    bad_html = sample_gsap_html().replace(".addLabel('scene_legs', '>')", ".addLabelRemoved('scene_legs', '>')")
+    bad_html = bad_html.replace(".addLabel('scene_hypotenuse', '>')", ".addLabelRemoved('scene_hypotenuse', '>')")
+    bad_html = bad_html.replace(".to('#square-b', { autoAlpha: 1, duration: 0.6 }, 'scene_legs')", ".call(() => syncRuntimeState())")
+    bad_html = bad_html.replace(".to('#formula-a', { fill: '#0EA5E9', duration: 0.4 }, 'scene_legs')", ".call(() => syncRuntimeState())")
+
+    with pytest.raises(AetherVizHtmlValidationError) as exc_info:
+        validate_aetherviz_html(bad_html, topic="勾股定理", strict=True)
+
+    message = str(exc_info.value)
+    assert "GSAP timeline 至少需要 3 个 addLabel" in message or "GSAP timeline 至少需要 3 个真实" in message
+
+
+def test_validation_rejects_missing_animation_caption() -> None:
+    from aetherviz_service.aetherviz.validator import (
+        AetherVizHtmlValidationError,
+        validate_aetherviz_html,
+    )
+
+    bad_html = sample_svg_html().replace(
+        '  <p class="animation-caption">当前步骤：观察核心图形如何随进度变化。</p>\n',
+        "",
+    )
+
+    with pytest.raises(AetherVizHtmlValidationError) as exc_info:
+        validate_aetherviz_html(bad_html, topic="熵增演示", strict=True)
+
+    assert "HTML 缺少动画步骤说明" in str(exc_info.value)
+
+
+def test_validation_rejects_katex_auto_render_without_auto_cdn() -> None:
+    from aetherviz_service.aetherviz.validator import (
+        AetherVizHtmlValidationError,
+        validate_aetherviz_html,
+    )
+
+    bad_html = sample_svg_html(topic="二次函数").replace(
+        'console.log("ready");',
+        'renderMathInElement(document.body);\nconsole.log("ready");',
+    )
+
+    with pytest.raises(AetherVizHtmlValidationError) as exc_info:
+        validate_aetherviz_html(bad_html, topic="二次函数", strict=True)
+
+    assert "renderMathInElement" in str(exc_info.value)
+    assert "auto-render" in str(exc_info.value)
+
+
+def test_validation_rejects_noop_play_button_binding() -> None:
+    from aetherviz_service.aetherviz.validator import (
+        AetherVizHtmlValidationError,
+        validate_aetherviz_html,
+    )
+
+    bad_html = sample_svg_html().replace(
+        "document.getElementById('play-animation').addEventListener('click', () => play());",
+        "document.getElementById('play-animation').addEventListener('click', () => { console.log('noop'); });",
+    )
+
+    with pytest.raises(AetherVizHtmlValidationError) as exc_info:
+        validate_aetherviz_html(bad_html, topic="熵增演示", strict=True)
+
+    assert "missing_animation_replay_binding" in str(exc_info.value)
 
 
 def test_validation_rejects_inline_script_syntax_error() -> None:
@@ -679,7 +931,7 @@ animationLoop();
     assert events[-1][0] == "error"
     assert len(calls) == 2
     assert all(call[2] == react_module.HTML_OUTPUT_MAX_TOKENS for call in calls)
-    assert all(call[4] is True for call in calls)
+    assert all(call[4] is False for call in calls)
     assert events[-1][1]["stage"] == "validation_failed"
     assert "非白名单外部资源" in events[-1][1]["detail"]
     assert "three.js" in events[-1][1]["detail"]
@@ -723,19 +975,28 @@ def test_detect_subject_general_fallback() -> None:
 def test_build_planning_prompt_contains_subject_guide() -> None:
     from aetherviz_service.aetherviz.fallback_planner import build_planning_prompt
     sys_prompt, user_prompt = build_planning_prompt("二次函数", "#22D3EE")
-    assert "数学主题固定使用" in sys_prompt
+    assert "AetherViz" in sys_prompt
     assert "二次函数" in user_prompt
+    assert "服务端学科识别：math" in user_prompt
+    assert "推荐生成模式：math_interactive" in user_prompt
+    assert "推荐动画策略：interactive_param" in user_prompt
+    assert "推荐渲染栈：svg" in user_prompt
+    assert "推荐动画运行时：gsap_timeline" in user_prompt
+    assert "stage_layout" in user_prompt
+    assert "storyboard" in sys_prompt
+    assert "timeline_scenes" in sys_prompt
+    assert "number_design" in sys_prompt
     assert "#22D3EE" in user_prompt
 
 
 def test_fallback_planner_selects_generation_modes() -> None:
-    from aetherviz_service.aetherviz.fallback_planner import select_generation_mode
+    from aetherviz_service.aetherviz.fallback_planner import detect_subject, select_generation_mode
 
-    assert select_generation_mode("牛顿第二定律") == "generic_svg"
-    assert select_generation_mode("电场线分布") == "generic_svg"
-    assert select_generation_mode("化学反应速率") == "generic_svg"
-    assert select_generation_mode("分子结构") == "generic_svg"
-    assert select_generation_mode("平行四边形面积") == "math_svg_katex_css"
+    assert select_generation_mode(detect_subject("牛顿第二定律")) == "svg_animation"
+    assert select_generation_mode(detect_subject("电场线分布")) == "svg_animation"
+    assert select_generation_mode(detect_subject("化学反应速率")) == "process_flow"
+    assert select_generation_mode(detect_subject("分子结构")) == "process_flow"
+    assert select_generation_mode(detect_subject("平行四边形面积")) == "math_interactive"
 
 
 def test_planning_normalization_keeps_new_plan_shape() -> None:
@@ -744,20 +1005,29 @@ def test_planning_normalization_keeps_new_plan_shape() -> None:
     plan = normalize_plan(
         {
             "subject": "physics",
-            "mode": "generic_svg",
+            "mode": "svg_animation",
+            "animation_strategy": "continuous",
+            "render_stack": "svg_canvas",
             "title": "力学过程互动动画",
             "goal": "观察力学过程的关键变化。",
+            "stage_layout": "顶部目标导航，中间大舞台展示运动轨迹，底部控制速度和作用力。",
+            "storyboard": ["镜头1：物体与受力箭头出现", "镜头2：运动轨迹连续绘制", "镜头3：对比不同力的结果"],
             "visual_steps": ["展示结构", "播放过程", "拖动变量"],
             "controls": [{"id": "force-slider", "label": "作用力", "type": "slider"}],
             "formulas": ["F=ma"],
-            "validation_points": ["使用 SVG"],
         },
         "物理轻量化力学演示",
     )
 
-    assert plan["mode"] == "generic_svg"
+    assert plan["mode"] == "svg_animation"
     assert plan["subject"] == "physics"
+    assert plan["render_stack"] == "svg_canvas"
+    assert plan["animation_runtime"] in ("native", "gsap_timeline")
     assert plan["title"] == "力学过程互动动画"
+    assert plan["stage_layout"].startswith("顶部目标导航")
+    assert plan["storyboard"][0].startswith("镜头1")
+    assert len(plan["timeline_scenes"]) >= 3
+    assert plan["number_design"]["default_values"]
     assert plan["controls"][0]["id"] == "force-slider"
     assert plan["formulas"] == ["F=ma"]
 
@@ -767,6 +1037,9 @@ def test_planning_parse_valid() -> None:
     raw = json.dumps({
         "title": "测试动画",
         "goal": "通过按钮点击切换步骤",
+        "render_stack": "dom_svg",
+        "stage_layout": "顶部目标导航，中间流程舞台，底部按钮控制。",
+        "storyboard": ["镜头1：初始状态", "镜头2：按钮切换", "镜头3：结论高亮"],
         "visual_steps": ["目标一"],
         "controls": [{"id": "step-button", "label": "步骤", "type": "button"}],
         "formulas": ["公式1"],
@@ -774,6 +1047,11 @@ def test_planning_parse_valid() -> None:
     res = parse_planning_result(raw, "测试")
     assert res["title"] == "测试动画"
     assert res["goal"] == "通过按钮点击切换步骤"
+    assert res["render_stack"] == "dom_svg"
+    assert res["stage_layout"].startswith("顶部目标导航")
+    assert res["storyboard"][1] == "镜头2：按钮切换"
+    assert len(res["timeline_scenes"]) >= 3
+    assert res["number_design"]["reason"]
     assert res["visual_steps"] == ["目标一"]
     assert res["controls"][0]["id"] == "step-button"
     assert res["formulas"] == ["公式1"]
@@ -802,8 +1080,13 @@ def test_planning_parse_invalid_returns_default() -> None:
     from aetherviz_service.aetherviz.fallback_planner import parse_planning_result
     res = parse_planning_result("bad json data", "测试主题")
     assert len(res["visual_steps"]) >= 3
+    assert len(res["storyboard"]) >= 3
+    assert len(res["timeline_scenes"]) >= 3
+    assert res["number_design"]["default_values"]
+    assert res["render_stack"] in ("svg", "svg_canvas", "canvas_svg", "dom_svg")
+    assert res["animation_runtime"] in ("native", "gsap_timeline")
     assert "测试主题" in res["title"]
-    assert res["mode"] == "generic_svg"
+    assert res["mode"] in ("svg_animation", "math_interactive", "process_flow")
 
 
 def test_fallback_planning_failure_returns_default_plan(monkeypatch) -> None:
@@ -892,7 +1175,7 @@ def test_generate_phase_returns_error_for_invalid_svg_output(monkeypatch) -> Non
     assert events[-1][1]["stage"] == "fallback_failed"
     assert len(calls) == 2
     assert all(call[2] == react_module.HTML_OUTPUT_MAX_TOKENS for call in calls)
-    assert all(call[4] is True for call in calls)
+    assert all(call[4] is False for call in calls)
     assert "首次失败" in events[-1][1]["detail"]
     assert "修复失败" in events[-1][1]["detail"]
 
@@ -920,7 +1203,7 @@ def test_generate_phase_repairs_invalid_first_output(monkeypatch) -> None:
     assert events[-1][0] == "done"
     assert len(calls) == 2
     assert all(call[2] == react_module.HTML_OUTPUT_MAX_TOKENS for call in calls)
-    assert all(call[4] is True for call in calls)
+    assert all(call[4] is False for call in calls)
     assert events[-1][1]["metadata"]["attempts"] == 2
     assert events[-1][1]["metadata"]["repaired"] is True
     assert "repaired" in events[-1][1]["html"]
@@ -954,7 +1237,7 @@ def test_revise_phase_updates_current_html(monkeypatch) -> None:
     assert "HTML 修订工程师" in system_prompt
     assert max_tokens == react_module.HTML_OUTPUT_MAX_TOKENS
     assert temperature == 0.16
-    assert enable_thinking is True
+    assert enable_thinking is False
     assert events[-1][1]["metadata"]["source"] == "llm_svg_revision"
     assert "revised" in events[-1][1]["html"]
 

@@ -168,7 +168,7 @@ GET /static-html/physics/newton-second-law.html
 
 ### POST /generate-aetherviz-spec
 
-根据教学主题生成 AI互动实验风格的完整独立互动教学 HTML。接口采用同端 SSE；静态知识点命中时仍直接返回 HTML，动态生成默认支持 `generic_svg` 与 `math_svg_katex_css` 两种模式，并兼容旧版 `math_svg_katex_gsap` 入参。
+根据教学主题生成 AI互动实验风格的完整独立互动教学 HTML。接口采用同端 SSE；静态知识点命中时直接返回 HTML，动态生成支持 `svg_animation`、`math_interactive`、`process_flow` 三种模式，并通过 `animation_strategy` 描述分步、连续或参数调控动画策略。
 
 计划阶段请求示例：
 
@@ -187,16 +187,19 @@ GET /static-html/physics/newton-second-law.html
   "phase": "generate",
   "approved_plan": {
     "subject": "general",
-    "mode": "generic_svg",
+    "mode": "svg_animation",
+    "animation_strategy": "step_by_step",
+    "render_stack": "svg_canvas",
     "title": "熵增演示互动动画",
-    "goal": "用稳定 SVG 动画解释熵增的核心过程。",
+    "goal": "用分层动画解释熵增的核心过程。",
+    "stage_layout": "顶部展示学习目标，中间大舞台展示粒子扩散轨迹，底部放置播放控制和结论区。",
+    "storyboard": ["镜头1：粒子从有序聚集开始", "镜头2：粒子扩散并留下轨迹", "镜头3：结论区高亮无序度增加"],
     "visual_steps": ["生活类比", "观察状态变化", "拖动变量验证"],
     "controls": [
       {"id": "progress-slider", "label": "过程进度", "type": "slider"},
       {"id": "speed-control", "label": "速度", "type": "speed"}
     ],
     "formulas": [],
-    "validation_points": ["使用 HTML + CSS + SVG", "按钮均绑定事件"],
     "primary_color": "#22D3EE"
   }
 }
@@ -254,9 +257,9 @@ data: {"success": true, "stage": "done", "message": "已返回静态互动可视
 
 1. 通过 `matcher.py` 对主题做服务端知识点关键词匹配。
 2. 命中后读取 `aetherviz/html/{subject}/{slug}.html`，并通过 `static_html.py` 注入运行时主题色覆盖层。
-3. 未命中且 `phase=plan` 时由 `fallback_planner.py` 生成简化计划，字段包括 `subject`、`mode`、`title`、`goal`、`visual_steps`、`controls`、`formulas`、`validation_points` 和 `primary_color`。
+3. 未命中且 `phase=plan` 时由 `fallback_planner.py` 生成简化计划，字段包括 `subject`、`mode`、`animation_strategy`、`render_stack`、`stage_layout`、`storyboard`、`visual_steps`、`controls`、`formulas` 和 `primary_color`。
 4. 前端确认计划后，以 `phase=generate` 携带 `approved_plan` 再次请求。
-5. `react.py` 按 `mode` 调用生成 prompt：非数学使用 `HTML + CSS + SVG`，数学使用 `HTML + CSS + SVG + KaTeX`，动画由 CSS transition/keyframes 或 `requestAnimationFrame` 管理，不引入 GSAP。
+5. `react.py` 按 `mode` 与 `render_stack` 调用生成 prompt：SVG 表达结构和标注，Canvas 承担连续运动、轨迹或粒子，DOM 承担步骤说明、公式和控制区；动画由 CSS transition/keyframes 或 `requestAnimationFrame` 管理，不引入 GSAP。
 6. `phase=revise` 时，后端根据 `current_html + instruction` 修订当前页面，而不是重新走旧计划或复杂渲染路由。
 7. `fallback_validator.py` 提取 HTML、清理代码围栏；`validator.py` 执行文档结构、安全、依赖、交互和可视化区域校验。首次解析或校验失败时会发出 `progress stage=repairing` 并自动修复一次，成功时 `metadata.repaired=true`、`attempts=2`。
 

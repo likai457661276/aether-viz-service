@@ -2,6 +2,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+from collections.abc import Iterator
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -20,7 +21,6 @@ FORBIDDEN_HTML_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"\bnew\s+Function\b", re.IGNORECASE), "new Function()构造器"),
     (re.compile(r"\bdocument\.write\s*\(", re.IGNORECASE), "document.write()调用"),
     (re.compile(r"OrbitControls\.js", re.IGNORECASE), "OrbitControls.js CDN引用"),
-    (re.compile(r"\bgsap\b", re.IGNORECASE), "GSAP 动画库引用"),
 ]
 
 ALLOWED_EXTERNAL_URLS = {
@@ -31,6 +31,7 @@ ALLOWED_EXTERNAL_URLS = {
     "https://cdn.staticfile.net/KaTeX/0.16.9/katex.min.css",
     "https://cdn.staticfile.net/KaTeX/0.16.9/katex.min.js",
     "https://cdn.staticfile.net/KaTeX/0.16.9/contrib/auto-render.min.js",
+    "https://cdn.jsdelivr.net/npm/gsap@3.15.0/dist/gsap.min.js",
     "https://d3js.org/d3.v7.min.js",
     "https://cdn.staticfile.net/d3/7.9.0/d3.min.js",
 }
@@ -97,8 +98,7 @@ def validate_aetherviz_html(
     _collect_document_structure_errors(stripped, soup, topic, errors, warnings, strict=strict)
     _collect_html_security_errors(stripped, soup, errors)
     _collect_script_syntax_errors(soup, errors)
-    fallback_mode = _is_fallback_svg_mode(soup)
-    _collect_dependency_errors(soup, errors, fallback_mode=fallback_mode, strict=strict)
+    _collect_dependency_errors(soup, errors, strict=strict)
     _collect_runtime_contract_errors(stripped, soup, errors, warnings, strict=strict)
     _collect_html_substance_errors(stripped, soup, errors, warnings, strict=strict)
     if errors:
@@ -335,39 +335,44 @@ def _check_javascript_balance(script: str) -> str | None:
     return None
 
 
-def _collect_dependency_errors(soup: BeautifulSoup, errors: list[str], fallback_mode: bool = False, strict: bool = True) -> None:
+def _collect_dependency_errors(soup: BeautifulSoup, errors: list[str], strict: bool = True) -> None:
     if not strict:
         return
-    urls = {
-        _normalize_external_url(str(tag.get(attr_name)))
-        for tag in soup.find_all(True)
-        for attr_name in ("src", "href")
-        if tag.get(attr_name) and re.search(r"https?://", str(tag.get(attr_name)))
-    }
-    
-    # 校验各项必需依赖是否在 urls 中以合适形式存在（支持任意版本的 KaTeX）
-    has_tailwind = any(url.startswith("https://cdn.tailwindcss.com") for url in urls)
-    has_katex_css = any(
-        re.match(r"^https://(?:cdn\.jsdelivr\.net/npm/katex@[^/]+/dist|cdn\.staticfile\.net/KaTeX/[^/]+)/katex\.min\.css$", url)
-        for url in urls
+    urls = _external_urls(soup)
+
+    # 仅当 HTML 中出现 KaTeX 引用时，才校验 KaTeX CDN 完整性
+    # 不再强制要求 Tailwind CDN（生成物不应必须依赖 Tailwind）
+    html_text = soup.get_text(" ", strip=True).lower()
+    scripts_text = "\n".join(s.get_text("\n", strip=False) for s in soup.find_all("script"))
+    has_katex_ref = (
+        any("katex" in url.lower() for url in urls)
+        or "katex" in scripts_text.lower()
+        or "katex" in html_text
     )
-    has_katex_js = any(
-        re.match(r"^https://(?:cdn\.jsdelivr\.net/npm/katex@[^/]+/dist|cdn\.staticfile\.net/KaTeX/[^/]+)/katex\.min\.js$", url)
-        for url in urls
-    )
-    has_katex_auto = any(
-        re.match(r"^https://(?:cdn\.jsdelivr\.net/npm/katex@[^/]+/dist|cdn\.staticfile\.net/KaTeX/[^/]+)/contrib/auto-render\.min\.js$", url)
-        for url in urls
-    )
-    
-    if not has_tailwind:
-        errors.append("HTML 缺少必需 CDN：https://cdn.tailwindcss.com")
-    if not has_katex_css:
-        errors.append("HTML 缺少必需 CDN：https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css (允许任意版本)")
-    if not has_katex_js:
-        errors.append("HTML 缺少必需 CDN：https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js (允许任意版本)")
-    if not has_katex_auto:
-        errors.append("HTML 缺少必需 CDN：https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js (允许任意版本)")
+
+    if has_katex_ref:
+        has_katex_css = any(
+            re.match(r"^https://(?:cdn\.jsdelivr\.net/npm/katex@[^/]+/dist|cdn\.staticfile\.net/KaTeX/[^/]+)/katex\.min\.css$", url)
+            for url in urls
+        )
+        has_katex_js = any(
+            re.match(r"^https://(?:cdn\.jsdelivr\.net/npm/katex@[^/]+/dist|cdn\.staticfile\.net/KaTeX/[^/]+)/katex\.min\.js$", url)
+            for url in urls
+        )
+        uses_auto_render = bool(re.search(r"\brenderMathInElement\s*\(", scripts_text))
+        has_katex_auto = any(
+            re.match(r"^https://(?:cdn\.jsdelivr\.net/npm/katex@[^/]+/dist|cdn\.staticfile\.net/KaTeX/[^/]+)/contrib/auto-render\.min\.js$", url)
+            for url in urls
+        )
+        if not has_katex_css:
+            errors.append("HTML 引用了 KaTeX 但缺少 KaTeX CSS CDN（支持任意稳定版本）")
+        if not has_katex_js:
+            errors.append("HTML 引用了 KaTeX 但缺少 KaTeX JS CDN（支持任意稳定版本）")
+        if uses_auto_render and not has_katex_auto:
+            errors.append("HTML 调用了 renderMathInElement 但缺少 KaTeX auto-render CDN")
+
+    if _uses_gsap(soup) and "https://cdn.jsdelivr.net/npm/gsap@3.15.0/dist/gsap.min.js" not in urls:
+        errors.append("HTML 使用 GSAP Timeline 但缺少固定版本 GSAP CDN")
 
 
 def _collect_runtime_contract_errors(
@@ -398,7 +403,6 @@ def _collect_runtime_contract_errors(
         return
 
     required_script_patterns = [
-        (r"requestAnimationFrame\s*\(", "requestAnimationFrame 动画循环"),
         (r"addEventListener\s*\(", "事件绑定"),
         (r"window\.AetherVizRuntime\s*=", "window.AetherVizRuntime"),
     ]
@@ -406,21 +410,18 @@ def _collect_runtime_contract_errors(
         if not re.search(pattern, scripts, re.IGNORECASE | re.DOTALL):
             errors.append(f"HTML 缺少{label}")
 
+    if not _has_animation_driver(scripts):
+        errors.append("HTML 缺少动画驱动逻辑")
+
     for required_text in ("__AETHERVIZ_RUNTIME_READY__", "__AETHERVIZ_RUNTIME_ERROR__"):
         if required_text not in scripts:
             errors.append(f"HTML 缺少运行时自检标记 {required_text}")
 
+    if _uses_gsap(soup):
+        _collect_gsap_timeline_errors(soup, scripts, errors)
+
     if soup.find("svg") is None:
         warnings.append("HTML 建议包含内联 SVG 主视觉区域")
-
-
-def _external_urls(soup: BeautifulSoup) -> set[str]:
-    return {
-        _normalize_external_url(str(tag.get(attr_name)))
-        for tag in soup.find_all(True)
-        for attr_name in ("src", "href")
-        if tag.get(attr_name) and re.search(r"https?://", str(tag.get(attr_name)))
-    }
 
 
 def _collect_html_substance_errors(
@@ -441,6 +442,7 @@ def _collect_html_substance_errors(
         "学习目标": ["学习目标", "learning-objectives", "learning objectives", "目标", "objectives"],
         "核心公式或概念": ["核心公式", "核心概念", "formula", "concept", "知识点"],
         "控制面板": ["控制面板", "control-panel", "controls", "buttons", "tab", "slider", "interactive"],
+        "动画步骤说明": ["animation-caption", "step-caption", "当前步骤", "现在发生", "观察", "stage-caption"],
     }
     for label, candidates in required_groups.items():
         if not any(candidate in raw_lower or candidate in normalized for candidate in candidates):
@@ -455,6 +457,8 @@ def _collect_html_substance_errors(
             errors.append("学习目标至少需要 3 条（missing_learning_objectives）")
         else:
             warnings.append("学习目标建议至少 3 条")
+
+    _collect_stage_centering_errors(soup, errors)
 
     if strict:
         controls = _find_control_items(soup)
@@ -472,6 +476,86 @@ def _is_fallback_svg_mode(soup: BeautifulSoup) -> bool:
 def _normalize_external_url(url: str) -> str:
     parts = urlsplit(url.strip())
     return f"{parts.scheme}://{parts.netloc}{parts.path}"
+
+
+def _external_urls(soup: BeautifulSoup) -> set[str]:
+    return {
+        _normalize_external_url(str(tag.get(attr_name)))
+        for tag in soup.find_all(True)
+        for attr_name in ("src", "href")
+        if tag.get(attr_name) and re.search(r"https?://", str(tag.get(attr_name)))
+    }
+
+
+def _uses_gsap(soup: BeautifulSoup) -> bool:
+    scripts = "\n".join(script.get_text("\n", strip=False) for script in soup.find_all("script"))
+    urls = _external_urls(soup)
+    return bool(any("gsap" in url.lower() for url in urls) or re.search(r"\bgsap\s*\.", scripts, re.IGNORECASE))
+
+
+def _collect_gsap_timeline_errors(soup: BeautifulSoup, scripts: str, errors: list[str]) -> None:
+    if not re.search(r"\bgsap\s*\.\s*timeline\s*\(", scripts, re.IGNORECASE):
+        errors.append("GSAP 页面必须声明 gsap.timeline")
+
+    tween_count = len(re.findall(r"\.(?:to|from|fromTo|set)\s*\(", scripts, re.IGNORECASE))
+    if tween_count < 3:
+        errors.append("GSAP timeline 至少需要 3 个真实 tween/set 调用")
+
+    label_count = len(re.findall(r"\.addLabel\s*\(", scripts, re.IGNORECASE))
+    if label_count < 3:
+        errors.append("GSAP timeline 至少需要 3 个 addLabel 分镜标签")
+
+    if not _selector_handler_calls(scripts, "play-animation", (r"\.play\s*\(", r"\.restart\s*\(")):
+        errors.append("GSAP 页面播放按钮必须绑定 tl.play() 或 tl.restart()")
+    if not _selector_handler_calls(scripts, "pause-animation", (r"\.pause\s*\(",)):
+        errors.append("GSAP 页面暂停按钮必须绑定 tl.pause()")
+    if not _selector_handler_calls(scripts, "reset-animation", (r"\.pause\s*\(\s*0\s*\)", r"\.progress\s*\(\s*0\s*\)")):
+        errors.append("GSAP 页面重置按钮必须绑定 tl.pause(0) 或 tl.progress(0)")
+
+    if not re.search(r"\.timeScale\s*\(", scripts, re.IGNORECASE):
+        errors.append("GSAP 页面速度控制必须调用 tl.timeScale(value)")
+    if not re.search(r"\.progress\s*\(", scripts, re.IGNORECASE):
+        errors.append("GSAP 页面进度控制必须调用 tl.progress(value)")
+
+    raw_lower = str(soup).lower()
+    if not any(marker in raw_lower for marker in ("animation-caption", "step-caption", "stage-caption", "当前步骤")):
+        errors.append("GSAP 页面必须包含可同步更新的 animation-caption 或 step-caption")
+
+
+def _selector_handler_calls(scripts: str, element_id: str, required_patterns: tuple[str, ...]) -> bool:
+    escaped_id = re.escape(element_id)
+    binding_anchor = re.search(
+        rf"getElementById\s*\(\s*['\"]{escaped_id}['\"]\s*\)\s*\.addEventListener\s*\(\s*['\"]click['\"]",
+        scripts,
+        re.IGNORECASE,
+    )
+    if binding_anchor:
+        snippet = scripts[binding_anchor.start():binding_anchor.start() + 900]
+        if any(re.search(pattern, snippet, re.IGNORECASE) for pattern in required_patterns):
+            return True
+
+    direct_binding = re.search(
+        rf"getElementById\s*\(\s*['\"]{escaped_id}['\"]\s*\)\s*\.addEventListener\s*\(\s*['\"]click['\"]\s*,\s*(?P<handler>[^;]{{1,700}})\)",
+        scripts,
+        re.IGNORECASE | re.DOTALL,
+    )
+    if direct_binding and any(re.search(pattern, direct_binding.group("handler"), re.IGNORECASE) for pattern in required_patterns):
+        return True
+
+    variable_binding = re.search(
+        rf"(?:const|let|var)\s+(?P<name>[A-Za-z_$][\w$]*)\s*=\s*document\.getElementById\s*\(\s*['\"]{escaped_id}['\"]\s*\)",
+        scripts,
+        re.IGNORECASE,
+    )
+    if not variable_binding:
+        return False
+    name = re.escape(variable_binding.group("name"))
+    bound_handler = re.search(
+        rf"{name}\s*\.addEventListener\s*\(\s*['\"]click['\"]\s*,\s*(?P<handler>[^;]{{1,700}})\)",
+        scripts,
+        re.IGNORECASE | re.DOTALL,
+    )
+    return bool(bound_handler and any(re.search(pattern, bound_handler.group("handler"), re.IGNORECASE) for pattern in required_patterns))
 
 
 def _topic_is_represented(topic: str, text: str) -> bool:
@@ -505,6 +589,143 @@ def _topic_tokens(value: str) -> list[str]:
     cleaned = TOPIC_CONNECTOR_PATTERN.sub(" ", value.lower())
     tokens = re.findall(r"[a-z0-9][a-z0-9'-]{1,}|[\u4e00-\u9fff]{2,}", cleaned)
     return [token for token in tokens if len(token) >= 2]
+
+
+def _collect_stage_centering_errors(soup: BeautifulSoup, errors: list[str]) -> None:
+    stage = soup.find(id="aetherviz-stage")
+    if not isinstance(stage, Tag):
+        return
+
+    visuals = [item for item in stage.find_all(("svg", "canvas")) if isinstance(item, Tag)]
+    if not visuals:
+        return
+
+    css_text = "\n".join(style.get_text("\n", strip=False) for style in soup.find_all("style"))
+    stage_styles = _styles_for_tag(stage, css_text)
+    visual_styles = "\n".join(_styles_for_tag(visual, css_text) for visual in visuals)
+    scripts = "\n".join(script.get_text("\n", strip=False) for script in soup.find_all("script"))
+
+    has_stage_centering = _style_centers_children(stage_styles)
+    has_visual_self_centering = _style_centers_self(visual_styles)
+    has_svg_centering = _svg_visuals_are_centered(visuals)
+    has_canvas_centering = _canvas_scripts_use_center(scripts) if any(visual.name == "canvas" for visual in visuals) else False
+
+    if not (has_stage_centering or has_visual_self_centering or has_svg_centering or has_canvas_centering):
+        errors.append("主可视化区域必须让 SVG/Canvas 主视觉在 #aetherviz-stage 中居中显示（missing_stage_visual_centering）")
+
+
+def _styles_for_tag(tag: Tag, css_text: str) -> str:
+    styles: list[str] = []
+    inline_style = str(tag.get("style", "") or "")
+    if inline_style:
+        styles.append(inline_style)
+
+    selectors = _selector_terms_for_tag(tag)
+    for selector, body in _iter_css_rules(css_text):
+        normalized_selector = selector.lower()
+        if any(term in normalized_selector for term in selectors):
+            styles.append(body)
+    return "\n".join(styles)
+
+
+def _selector_terms_for_tag(tag: Tag) -> set[str]:
+    terms: set[str] = set()
+    tag_id = str(tag.get("id", "") or "").strip()
+    if tag_id:
+        terms.add(f"#{tag_id.lower()}")
+    for class_name in tag.get("class", []) or []:
+        class_text = str(class_name).strip().lower()
+        if class_text:
+            terms.add(f".{class_text}")
+    if tag.name in {"svg", "canvas"}:
+        terms.update({f"#aetherviz-stage {tag.name}", f"#aetherviz-stage > {tag.name}"})
+    return terms
+
+
+def _iter_css_rules(css_text: str) -> Iterator[tuple[str, str]]:
+    for match in re.finditer(r"(?P<selector>[^{}]+)\{(?P<body>[^{}]*)\}", css_text, re.DOTALL):
+        selector = re.sub(r"\s+", " ", match.group("selector")).strip()
+        body = match.group("body").strip()
+        if selector and body:
+            yield selector, body
+
+
+def _css_property(style_text: str, property_name: str) -> str:
+    matches = re.findall(
+        rf"(?:^|[;{{\s]){re.escape(property_name)}\s*:\s*([^;}}]+)",
+        style_text,
+        re.IGNORECASE,
+    )
+    return matches[-1].strip().lower() if matches else ""
+
+
+def _style_centers_children(style_text: str) -> bool:
+    display = _css_property(style_text, "display")
+    justify_content = _css_property(style_text, "justify-content")
+    justify_items = _css_property(style_text, "justify-items")
+    align_items = _css_property(style_text, "align-items")
+    align_content = _css_property(style_text, "align-content")
+    place_items = _css_property(style_text, "place-items")
+    place_content = _css_property(style_text, "place-content")
+    text_align = _css_property(style_text, "text-align")
+
+    has_horizontal_center = "center" in justify_content or "center" in justify_items
+    has_vertical_center = "center" in align_items or "center" in align_content
+    has_place_center = "center" in place_items or "center" in place_content
+    has_flex_or_grid = "flex" in display or "grid" in display
+
+    return bool(
+        has_place_center
+        or (has_flex_or_grid and has_horizontal_center and has_vertical_center)
+        or text_align == "center"
+    )
+
+
+def _style_centers_self(style_text: str) -> bool:
+    display = _css_property(style_text, "display")
+    margin = _css_property(style_text, "margin")
+    margin_inline = _css_property(style_text, "margin-inline")
+    margin_left = _css_property(style_text, "margin-left")
+    margin_right = _css_property(style_text, "margin-right")
+    place_self = _css_property(style_text, "place-self")
+    justify_self = _css_property(style_text, "justify-self")
+    align_self = _css_property(style_text, "align-self")
+    left = _css_property(style_text, "left")
+    top = _css_property(style_text, "top")
+    transform = _css_property(style_text, "transform")
+
+    has_auto_margin = (
+        "auto" in margin
+        or "auto" in margin_inline
+        or (margin_left == "auto" and margin_right == "auto")
+    )
+    has_self_center = (
+        "center" in place_self
+        or ("center" in justify_self and "center" in align_self)
+    )
+    has_absolute_center = left == "50%" and top == "50%" and "translate" in transform and "-50%" in transform
+    return bool((("block" in display or "flex" in display or "grid" in display) and has_auto_margin) or has_self_center or has_absolute_center)
+
+
+def _svg_visuals_are_centered(visuals: list[Tag]) -> bool:
+    for visual in visuals:
+        if visual.name != "svg":
+            continue
+        preserve = str(visual.get("preserveAspectRatio", visual.get("preserveaspectratio", "")) or "").lower()
+        if "xmidymid" in preserve:
+            return True
+        if visual.find(id="main-visual-group") is not None or visual.find(attrs={"data-role": "main-visual"}) is not None:
+            return True
+    return False
+
+
+def _canvas_scripts_use_center(scripts: str) -> bool:
+    normalized = re.sub(r"\s+", "", scripts.lower())
+    return bool(
+        re.search(r"centerx\s*=", scripts, re.IGNORECASE)
+        and re.search(r"centery\s*=", scripts, re.IGNORECASE)
+        and ("/2" in normalized or "*0.5" in normalized)
+    )
 
 
 def _find_learning_objective_items(soup: BeautifulSoup) -> list[Tag]:
@@ -591,17 +812,55 @@ def _has_animation_replay_control(soup: BeautifulSoup) -> bool:
 
 def _has_animation_replay_binding(soup: BeautifulSoup) -> bool:
     scripts = "\n".join(script.get_text("\n", strip=False) for script in soup.find_all("script"))
-    if "play-animation" not in scripts:
-        return False
-    if not re.search(r"addEventListener\s*\(\s*['\"]click['\"]", scripts, re.IGNORECASE):
-        return False
-    required_patterns = (
-        r"requestAnimationFrame\s*\(",
-        r"\bsetProgress\s*\(",
-        r"\bupdate(?:Reaction|Animation|Visualization|Scene)\s*\(",
-        r"重新播放|replay",
+    direct_binding = re.search(
+        r"getElementById\s*\(\s*['\"]play-animation['\"]\s*\)\s*\.addEventListener\s*\(\s*['\"]click['\"]\s*,\s*(?P<handler>[^;]{1,500})\)",
+        scripts,
+        re.IGNORECASE | re.DOTALL,
     )
-    return all(re.search(pattern, scripts, re.IGNORECASE) for pattern in required_patterns)
+    if direct_binding and _handler_starts_animation(direct_binding.group("handler")):
+        return True
+
+    variable_binding = re.search(
+        r"(?:const|let|var)\s+(?P<name>[A-Za-z_$][\w$]*)\s*=\s*document\.getElementById\s*\(\s*['\"]play-animation['\"]\s*\)",
+        scripts,
+        re.IGNORECASE,
+    )
+    if not variable_binding:
+        return False
+    button_name = re.escape(variable_binding.group("name"))
+    bound_handler = re.search(
+        rf"{button_name}\s*\.addEventListener\s*\(\s*['\"]click['\"]\s*,\s*(?P<handler>[^;]{{1,500}})\)",
+        scripts,
+        re.IGNORECASE | re.DOTALL,
+    )
+    return bool(bound_handler and _handler_starts_animation(bound_handler.group("handler")))
+
+
+def _has_animation_driver(scripts: str) -> bool:
+    return bool(
+        re.search(r"requestAnimationFrame\s*\(", scripts, re.IGNORECASE)
+        or re.search(r"\.style\.\s*(?:animation|transition)\s*=|classList\.\s*(?:add|remove|toggle)\s*\(", scripts, re.IGNORECASE)
+        or re.search(r"\bsetProgress\s*\(|\btick\s*\(|\banimate\s*\(", scripts, re.IGNORECASE)
+        or re.search(r"\bgsap\s*\.\s*timeline\s*\(", scripts, re.IGNORECASE)
+    )
+
+
+def _handler_starts_animation(handler: str) -> bool:
+    handler = handler.strip()
+    return bool(
+        re.fullmatch(
+            r"(?:play|start|restart|replay|animate|tick|setProgress|update(?:Visualization|Animation|Scene|Progress)?)",
+            handler,
+            re.IGNORECASE,
+        )
+        or re.search(
+            r"\b(?:play|start|restart|replay|animate|tick|setProgress|update(?:Visualization|Animation|Scene|Progress)?)\s*\(",
+            handler,
+            re.IGNORECASE,
+        )
+        or re.search(r"\.(?:play|restart)\s*\(", handler, re.IGNORECASE)
+        or re.search(r"requestAnimationFrame\s*\(|classList\.\s*(?:add|remove|toggle)\s*\(|\.style\.\s*(?:animation|transition)\s*=", handler, re.IGNORECASE)
+    )
 
 
 def _find_section_by_heading(soup: BeautifulSoup, keywords: tuple[str, ...]) -> Tag | None:
