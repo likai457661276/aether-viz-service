@@ -442,8 +442,8 @@ def test_static_html_missing_returns_sse_error(monkeypatch, tmp_path: Path) -> N
 def test_unmatched_topic_plan_phase_streams_plan_without_html_generation(monkeypatch) -> None:
     stream_calls = []
 
-    def fake_llm_stream(prompt: str, system_prompt: str, max_tokens: int = 0, temperature: float = 0.3):
-        stream_calls.append((prompt, system_prompt, max_tokens, temperature))
+    def fake_llm_stream(prompt: str, system_prompt: str, max_tokens: int = 0, temperature: float = 0.3, enable_thinking: bool = False):
+        stream_calls.append((prompt, system_prompt, max_tokens, temperature, enable_thinking))
         raw = json.dumps({
             "subject": "general",
             "mode": "generic_svg",
@@ -468,14 +468,19 @@ def test_unmatched_topic_plan_phase_streams_plan_without_html_generation(monkeyp
     assert "plan_delta" in [event for event, _ in events]
     plan = events[-1][1]["plan"]
     assert len(stream_calls) == 1
+    assert stream_calls[0][2] == react_module.PLANNING_MAX_TOKENS
+    assert stream_calls[0][4] is False
     assert plan["subject"] == "general"
     assert plan["mode"] == "generic_svg"
     assert plan["controls"][0]["type"] == "slider"
     assert "html" not in events[-1][1]
 
 
-def test_plan_phase_streams_reasoning_delta_and_math_css_mode(monkeypatch) -> None:
-    def fake_llm_stream(prompt: str, system_prompt: str, max_tokens: int = 0, temperature: float = 0.3):
+def test_plan_phase_disables_reasoning_delta_and_streams_math_css_mode(monkeypatch) -> None:
+    calls = []
+
+    def fake_llm_stream(prompt: str, system_prompt: str, max_tokens: int = 0, temperature: float = 0.3, enable_thinking: bool = False):
+        calls.append((prompt, system_prompt, max_tokens, temperature, enable_thinking))
         yield LLMStreamChunk(kind="reasoning", delta="先判断这是数学几何主题。")
         raw = json.dumps({
             "subject": "math",
@@ -495,11 +500,12 @@ def test_plan_phase_streams_reasoning_delta_and_math_css_mode(monkeypatch) -> No
     response = client.post("/generate-aetherviz-spec", json={"topic": "勾股定理"})
 
     events = parse_sse_events(response)
-    assert "thinking_delta" in [event for event, _ in events]
+    assert "thinking_delta" not in [event for event, _ in events]
     assert events[-1][0] == "plan_ready"
     assert events[-1][1]["plan"]["mode"] == "math_svg_katex_css"
-    thinking = next(data for event, data in events if event == "thinking_delta")
-    assert "数学几何主题" in thinking["delta"]
+    assert len(calls) == 1
+    assert calls[0][2] == react_module.PLANNING_MAX_TOKENS
+    assert calls[0][4] is False
 
 
 def test_generate_phase_requires_approved_plan() -> None:
@@ -515,8 +521,8 @@ def test_generate_phase_requires_approved_plan() -> None:
 def test_generate_phase_uses_approved_plan_for_html(monkeypatch) -> None:
     calls = []
 
-    def fake_llm_stream(prompt: str, system_prompt: str, max_tokens: int = 0, temperature: float = 0.3):
-        calls.append((prompt, system_prompt, max_tokens, temperature))
+    def fake_llm_stream(prompt: str, system_prompt: str, max_tokens: int = 0, temperature: float = 0.3, enable_thinking: bool = False):
+        calls.append((prompt, system_prompt, max_tokens, temperature, enable_thinking))
         html = sample_svg_html(marker="ready")
         yield html[:120]
         yield html[120:]
@@ -534,6 +540,8 @@ def test_generate_phase_uses_approved_plan_for_html(monkeypatch) -> None:
     done_data = events[-1][1]
     html = done_data["html"]
     assert len(calls) == 1
+    assert calls[0][2] == react_module.HTML_OUTPUT_MAX_TOKENS
+    assert calls[0][4] is True
     assert '<title>熵增演示</title>' in html
     assert "学习目标1" in html
     assert "核心概念A" in html
@@ -548,7 +556,7 @@ def test_generate_phase_uses_approved_plan_for_html(monkeypatch) -> None:
 def test_generate_phase_stops_stream_after_complete_html(monkeypatch) -> None:
     yielded = []
 
-    def fake_llm_stream(prompt: str, system_prompt: str, max_tokens: int = 0, temperature: float = 0.3):
+    def fake_llm_stream(prompt: str, system_prompt: str, max_tokens: int = 0, temperature: float = 0.3, enable_thinking: bool = False):
         html = sample_svg_html(marker="ready")
         yielded.append("html")
         yield html
@@ -644,8 +652,8 @@ def test_validation_rejects_inline_script_syntax_error() -> None:
 def test_generate_phase_rejects_three_output_in_svg_mode(monkeypatch) -> None:
     calls = []
 
-    def fake_llm_stream(prompt: str, system_prompt: str, max_tokens: int = 0, temperature: float = 0.3):
-        calls.append((prompt, system_prompt, max_tokens, temperature))
+    def fake_llm_stream(prompt: str, system_prompt: str, max_tokens: int = 0, temperature: float = 0.3, enable_thinking: bool = False):
+        calls.append((prompt, system_prompt, max_tokens, temperature, enable_thinking))
         yield """<!DOCTYPE html>
 <html>
 <body>
@@ -670,6 +678,8 @@ animationLoop();
     events = parse_sse_events(response)
     assert events[-1][0] == "error"
     assert len(calls) == 2
+    assert all(call[2] == react_module.HTML_OUTPUT_MAX_TOKENS for call in calls)
+    assert all(call[4] is True for call in calls)
     assert events[-1][1]["stage"] == "validation_failed"
     assert "非白名单外部资源" in events[-1][1]["detail"]
     assert "three.js" in events[-1][1]["detail"]
@@ -799,8 +809,8 @@ def test_planning_parse_invalid_returns_default() -> None:
 def test_fallback_planning_failure_returns_default_plan(monkeypatch) -> None:
     calls = []
 
-    def fake_llm_stream(prompt: str, system_prompt: str, max_tokens: int = 0, temperature: float = 0.3):
-        calls.append((prompt, system_prompt, max_tokens, temperature))
+    def fake_llm_stream(prompt: str, system_prompt: str, max_tokens: int = 0, temperature: float = 0.3, enable_thinking: bool = False):
+        calls.append((prompt, system_prompt, max_tokens, temperature, enable_thinking))
         raise RuntimeError("planning failed")
 
     monkeypatch.setattr(react_module, "call_llm_stream", fake_llm_stream)
@@ -863,8 +873,8 @@ def test_parse_interactive_html_rejects_truncated_script() -> None:
 def test_generate_phase_returns_error_for_invalid_svg_output(monkeypatch) -> None:
     calls = []
 
-    def fake_llm_stream(prompt: str, system_prompt: str, max_tokens: int = 0, temperature: float = 0.3):
-        calls.append((prompt, system_prompt, max_tokens, temperature))
+    def fake_llm_stream(prompt: str, system_prompt: str, max_tokens: int = 0, temperature: float = 0.3, enable_thinking: bool = False):
+        calls.append((prompt, system_prompt, max_tokens, temperature, enable_thinking))
         yield """<html>
 <head><title>破损HTML</title></head>
 <body>缺少DOCTYPE和主体，也不够长。</body>
@@ -881,6 +891,8 @@ def test_generate_phase_returns_error_for_invalid_svg_output(monkeypatch) -> Non
     assert events[-1][0] == "error"
     assert events[-1][1]["stage"] == "fallback_failed"
     assert len(calls) == 2
+    assert all(call[2] == react_module.HTML_OUTPUT_MAX_TOKENS for call in calls)
+    assert all(call[4] is True for call in calls)
     assert "首次失败" in events[-1][1]["detail"]
     assert "修复失败" in events[-1][1]["detail"]
 
@@ -888,8 +900,8 @@ def test_generate_phase_returns_error_for_invalid_svg_output(monkeypatch) -> Non
 def test_generate_phase_repairs_invalid_first_output(monkeypatch) -> None:
     calls = []
 
-    def fake_llm_stream(prompt: str, system_prompt: str, max_tokens: int = 0, temperature: float = 0.3):
-        calls.append((prompt, system_prompt, max_tokens, temperature))
+    def fake_llm_stream(prompt: str, system_prompt: str, max_tokens: int = 0, temperature: float = 0.3, enable_thinking: bool = False):
+        calls.append((prompt, system_prompt, max_tokens, temperature, enable_thinking))
         if len(calls) == 1:
             yield "<html><body>破损</body></html>"
             return
@@ -907,6 +919,8 @@ def test_generate_phase_repairs_invalid_first_output(monkeypatch) -> None:
     assert any(data.get("stage") == "repairing" for event, data in events if event == "progress")
     assert events[-1][0] == "done"
     assert len(calls) == 2
+    assert all(call[2] == react_module.HTML_OUTPUT_MAX_TOKENS for call in calls)
+    assert all(call[4] is True for call in calls)
     assert events[-1][1]["metadata"]["attempts"] == 2
     assert events[-1][1]["metadata"]["repaired"] is True
     assert "repaired" in events[-1][1]["html"]
@@ -915,8 +929,8 @@ def test_generate_phase_repairs_invalid_first_output(monkeypatch) -> None:
 def test_revise_phase_updates_current_html(monkeypatch) -> None:
     calls = []
 
-    def fake_llm_stream(prompt: str, system_prompt: str, max_tokens: int = 0, temperature: float = 0.3):
-        calls.append((prompt, system_prompt, max_tokens, temperature))
+    def fake_llm_stream(prompt: str, system_prompt: str, max_tokens: int = 0, temperature: float = 0.3, enable_thinking: bool = False):
+        calls.append((prompt, system_prompt, max_tokens, temperature, enable_thinking))
         yield sample_svg_html(marker="revised")
 
     monkeypatch.setattr(react_module, "call_llm_stream", fake_llm_stream)
@@ -934,12 +948,13 @@ def test_revise_phase_updates_current_html(monkeypatch) -> None:
     events = parse_sse_events(response)
     assert events[-1][0] == "done"
     assert len(calls) == 1
-    prompt, system_prompt, max_tokens, temperature = calls[0]
+    prompt, system_prompt, max_tokens, temperature, enable_thinking = calls[0]
     assert "把动画速度调慢" in prompt
     assert "before-revise" in prompt
     assert "HTML 修订工程师" in system_prompt
-    assert max_tokens == 9000
+    assert max_tokens == react_module.HTML_OUTPUT_MAX_TOKENS
     assert temperature == 0.16
+    assert enable_thinking is True
     assert events[-1][1]["metadata"]["source"] == "llm_svg_revision"
     assert "revised" in events[-1][1]["html"]
 
@@ -947,8 +962,8 @@ def test_revise_phase_updates_current_html(monkeypatch) -> None:
 def test_revise_phase_repairs_invalid_first_output(monkeypatch) -> None:
     calls = []
 
-    def fake_llm_stream(prompt: str, system_prompt: str, max_tokens: int = 0, temperature: float = 0.3):
-        calls.append((prompt, system_prompt, max_tokens, temperature))
+    def fake_llm_stream(prompt: str, system_prompt: str, max_tokens: int = 0, temperature: float = 0.3, enable_thinking: bool = False):
+        calls.append((prompt, system_prompt, max_tokens, temperature, enable_thinking))
         if len(calls) == 1:
             yield "<html><body>修订破损</body></html>"
             return
@@ -994,8 +1009,8 @@ def test_revise_phase_requires_current_html_and_instruction() -> None:
 def test_generate_phase_returns_error_for_inline_script_syntax_error(monkeypatch) -> None:
     calls = []
 
-    def fake_llm_stream(prompt: str, system_prompt: str, max_tokens: int = 0, temperature: float = 0.3):
-        calls.append((prompt, system_prompt, max_tokens, temperature))
+    def fake_llm_stream(prompt: str, system_prompt: str, max_tokens: int = 0, temperature: float = 0.3, enable_thinking: bool = False):
+        calls.append((prompt, system_prompt, max_tokens, temperature, enable_thinking))
         yield sample_svg_html(marker="broken-js").replace(
             "console.log(\"broken-js\");",
             "console.log(\"broken-js\");\n}",

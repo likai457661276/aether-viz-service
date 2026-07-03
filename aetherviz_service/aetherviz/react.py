@@ -42,6 +42,8 @@ logger = logging.getLogger(__name__)
 
 _CDN_KATEX_CSS = "https://cdn.staticfile.net/KaTeX/0.16.9/katex.min.css"
 _CDN_KATEX_JS = "https://cdn.staticfile.net/KaTeX/0.16.9/katex.min.js"
+PLANNING_MAX_TOKENS = 1200
+HTML_OUTPUT_MAX_TOKENS = 12000
 
 GENERIC_SVG_SYSTEM_PROMPT = f"""你是 AetherViz 互动教学 SVG 页面工程师。
 你只输出一个完整可运行 HTML 文件，从 <!DOCTYPE html> 开始，到 </html> 结束。
@@ -194,6 +196,7 @@ def _stream_llm_output(
         system_prompt=system_prompt,
         max_tokens=max_tokens,
         temperature=temperature,
+        enable_thinking=True,
     ):
         chunk = _coerce_llm_stream_chunk(raw_chunk)
         if not chunk.delta:
@@ -374,7 +377,7 @@ def _planning_stream(topic: str, color: str) -> Iterator[str]:
             {
                 "success": True,
                 "stage": "planning",
-                "message": "正在思考教学动画方案",
+                "message": "正在生成教学动画方案",
                 "progress": 30,
                 "phase": "plan",
                 "delta": delta,
@@ -385,25 +388,17 @@ def _planning_stream(topic: str, color: str) -> Iterator[str]:
     output_tokens_total = 0
     try:
         planning_sys, planning_user = build_planning_prompt(topic, color)
-        for raw_chunk in call_llm_stream(planning_user, system_prompt=planning_sys, max_tokens=1200, temperature=0.25):
+        for raw_chunk in call_llm_stream(
+            planning_user,
+            system_prompt=planning_sys,
+            max_tokens=PLANNING_MAX_TOKENS,
+            temperature=0.25,
+            enable_thinking=False,
+        ):
             chunk = _coerce_llm_stream_chunk(raw_chunk)
             if not chunk.delta:
                 continue
             if chunk.kind == "reasoning":
-                output_tokens = _estimate_output_tokens(chunk.delta)
-                yield _sse_event(
-                    "thinking_delta",
-                    {
-                        "success": True,
-                        "stage": "planning",
-                        "message": "正在推理教学动画方案",
-                        "progress": 42,
-                        "phase": "plan",
-                        "delta": chunk.delta,
-                        "output_tokens": output_tokens,
-                        "output_tokens_total": output_tokens_total,
-                    },
-                )
                 continue
             raw_chunks.append(chunk.delta)
             output_tokens = _estimate_output_tokens(chunk.delta)
@@ -413,7 +408,7 @@ def _planning_stream(topic: str, color: str) -> Iterator[str]:
                 {
                     "success": True,
                     "stage": "planning",
-                    "message": f"正在思考教学动画方案，已输出约 {output_tokens_total} Token",
+                    "message": f"正在生成教学动画方案，已输出约 {output_tokens_total} Token",
                     "progress": 45,
                     "phase": "plan",
                     "delta": chunk.delta,
@@ -469,7 +464,7 @@ def _generate_from_plan_stream(topic: str, plan: dict) -> Iterator[str]:
     raw_html = yield from _stream_llm_output(
         prompt,
         system_prompt=system_prompt,
-        max_tokens=8600 if _is_math_mode(plan["mode"]) else 7600,
+        max_tokens=HTML_OUTPUT_MAX_TOKENS,
         temperature=0.18,
         stage="html_generating",
         phase="generate",
@@ -528,7 +523,7 @@ def _revise_html_stream(topic: str, current_html: str, instruction: str) -> Iter
     raw_html = yield from _stream_llm_output(
         prompt,
         system_prompt=REVISE_SYSTEM_PROMPT,
-        max_tokens=9000,
+        max_tokens=HTML_OUTPUT_MAX_TOKENS,
         temperature=0.16,
         stage="html_revising",
         phase="revise",
@@ -621,7 +616,7 @@ def _parse_validate_or_repair_stream(
         repaired_raw_html = yield from _stream_llm_output(
             repair_prompt,
             system_prompt=REPAIR_SYSTEM_PROMPT,
-            max_tokens=8200,
+            max_tokens=HTML_OUTPUT_MAX_TOKENS,
             temperature=0.08,
             stage="html_repairing",
             phase=phase,

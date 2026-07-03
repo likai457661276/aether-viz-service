@@ -55,7 +55,38 @@ def test_resolve_llm_config_requires_a_key() -> None:
         _resolve_llm_config(make_config())
 
 
-def test_call_llm_stream_enables_dashscope_thinking(monkeypatch) -> None:
+def test_call_llm_stream_does_not_enable_thinking_by_default(monkeypatch) -> None:
+    calls = []
+
+    class FakeCompletions:
+        def create(self, **kwargs):
+            calls.append(kwargs)
+            return [
+                SimpleNamespace(
+                    choices=[
+                        SimpleNamespace(
+                            delta=SimpleNamespace(reasoning_content="不应转发的推理", content="最终回复")
+                        )
+                    ]
+                ),
+                SimpleNamespace(choices=[]),
+            ]
+
+    fake_client = SimpleNamespace(chat=SimpleNamespace(completions=FakeCompletions()))
+    fake_config = llm_module.ActiveLLMConfig(
+        api_key="compatible-key",
+        model="qwen3.7-plus",
+        base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+    )
+    monkeypatch.setattr(llm_module, "_openai_client", lambda: (fake_client, fake_config))
+
+    chunks = list(llm_module.call_llm_stream("题目", system_prompt="系统"))
+
+    assert "extra_body" not in calls[0]
+    assert chunks == [LLMStreamChunk(kind="content", delta="最终回复")]
+
+
+def test_call_llm_stream_enables_dashscope_thinking_when_requested(monkeypatch) -> None:
     calls = []
 
     class FakeCompletions:
@@ -87,7 +118,7 @@ def test_call_llm_stream_enables_dashscope_thinking(monkeypatch) -> None:
     )
     monkeypatch.setattr(llm_module, "_openai_client", lambda: (fake_client, fake_config))
 
-    chunks = list(llm_module.call_llm_stream("题目", system_prompt="系统"))
+    chunks = list(llm_module.call_llm_stream("题目", system_prompt="系统", enable_thinking=True))
 
     assert calls[0]["extra_body"] == {"enable_thinking": True}
     assert chunks == [

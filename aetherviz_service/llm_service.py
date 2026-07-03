@@ -97,6 +97,7 @@ def call_llm_stream(
     system_prompt: str = DEFAULT_SYSTEM_PROMPT,
     max_tokens: int = 16384,
     temperature: float = 0.3,
+    enable_thinking: bool = False,
 ) -> Iterator[LLMStreamChunk]:
     client, llm_config = _openai_client()
     stream = None
@@ -115,7 +116,7 @@ def call_llm_stream(
                 {"role": "user", "content": prompt},
             ],
         }
-        if _supports_dashscope_thinking(llm_config.base_url):
+        if enable_thinking and _supports_dashscope_thinking(llm_config.base_url):
             request_kwargs["extra_body"] = {"enable_thinking": True}
 
         stream = client.chat.completions.create(**request_kwargs)
@@ -126,7 +127,7 @@ def call_llm_stream(
             delta = chunk.choices[0].delta
             reasoning_delta = getattr(delta, "reasoning_content", None) or ""
             content_delta = delta.content or ""
-            if reasoning_delta:
+            if enable_thinking and reasoning_delta:
                 yield LLMStreamChunk(kind="reasoning", delta=reasoning_delta)
             if content_delta:
                 yield LLMStreamChunk(kind="content", delta=content_delta)
