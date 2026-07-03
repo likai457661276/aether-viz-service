@@ -690,6 +690,8 @@ def test_generate_phase_uses_approved_plan_for_html(monkeypatch) -> None:
     assert "响应式舞台布局" in prompt
     assert "避让主图" in prompt
     assert "单屏无滚动布局" in prompt
+    assert "稳定优先" in prompt
+    assert "底部安全间距" in prompt
     assert "默认不要生成全局进度条" in prompt
     assert "生成来源文案" in prompt
     assert "中文旁白式 caption" in system_prompt
