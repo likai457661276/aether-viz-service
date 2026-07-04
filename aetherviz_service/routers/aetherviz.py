@@ -120,6 +120,7 @@ def generate_aetherviz_spec(request: GenerateAetherVizSpecRequest) -> StreamingR
             approved_plan=request.approved_plan.model_dump() if request.approved_plan else None,
             current_html=request.current_html,
             instruction=request.instruction,
+            context=request.context,
         ),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},

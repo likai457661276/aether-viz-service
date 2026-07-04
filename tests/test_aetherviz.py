@@ -1329,7 +1329,19 @@ def test_revise_phase_updates_current_html(monkeypatch) -> None:
 
     def fake_llm_stream(prompt: str, system_prompt: str, max_tokens: int = 0, temperature: float = 0.3, enable_thinking: bool = False):
         calls.append((prompt, system_prompt, max_tokens, temperature, enable_thinking))
-        yield sample_svg_html(marker="revised")
+        yield json.dumps(
+            {
+                "patch_plan": "更新 caption 文案以体现速度放慢",
+                "patches": [
+                    {
+                        "type": "replace_region",
+                        "target": {"kind": "dom", "selector": "#animation-caption"},
+                        "content": '<p id="animation-caption" class="animation-caption">revised：动画已调慢，请观察每一步变化。</p>',
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        )
 
     monkeypatch.setattr(react_module, "call_llm_stream", fake_llm_stream)
 
@@ -1348,12 +1360,22 @@ def test_revise_phase_updates_current_html(monkeypatch) -> None:
     assert len(calls) == 1
     prompt, system_prompt, max_tokens, temperature, enable_thinking = calls[0]
     assert "把动画速度调慢" in prompt
-    assert "before-revise" in prompt
-    assert "HTML 修订工程师" in system_prompt
+    assert "revision_intent" in prompt
+    assert "targets" in prompt
+    assert "当前 HTML：" not in prompt
+    assert "HTML 局部修订工程师" in system_prompt
     assert max_tokens == react_module.HTML_OUTPUT_MAX_TOKENS
-    assert temperature == 0.16
+    assert temperature == 0.12
     assert enable_thinking is True
+    assert [event for event, _ in events if event.startswith("revise_")] == [
+        "revise_analyzing",
+        "revise_locating",
+        "revise_patching",
+        "revise_merging",
+    ]
     assert events[-1][1]["metadata"]["source"] == "llm_svg_revision"
+    assert events[-1][1]["metadata"]["attempts"] == 1
+    assert events[-1][1]["revision_index"]["version"] == "revision-index-v1"
     assert "revised" in events[-1][1]["html"]
 
 
@@ -1363,9 +1385,21 @@ def test_revise_phase_repairs_invalid_first_output(monkeypatch) -> None:
     def fake_llm_stream(prompt: str, system_prompt: str, max_tokens: int = 0, temperature: float = 0.3, enable_thinking: bool = False):
         calls.append((prompt, system_prompt, max_tokens, temperature, enable_thinking))
         if len(calls) == 1:
-            yield "<html><body>修订破损</body></html>"
+            yield "{broken-json"
             return
-        yield sample_svg_html(marker="revise-repaired")
+        yield json.dumps(
+            {
+                "patch_plan": "修复为有效 caption 替换补丁",
+                "patches": [
+                    {
+                        "type": "replace_region",
+                        "target": {"kind": "dom", "selector": "#animation-caption"},
+                        "content": '<p id="animation-caption" class="animation-caption">revise-repaired：动画速度已调慢。</p>',
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        )
 
     monkeypatch.setattr(react_module, "call_llm_stream", fake_llm_stream)
 
@@ -1386,6 +1420,7 @@ def test_revise_phase_repairs_invalid_first_output(monkeypatch) -> None:
     assert all(call[4] is True for call in calls)
     assert events[-1][1]["metadata"]["attempts"] == 2
     assert events[-1][1]["metadata"]["repaired"] is True
+    assert events[-1][1]["revision_index"]["version"] == "revision-index-v1"
     assert "revise-repaired" in events[-1][1]["html"]
 
 

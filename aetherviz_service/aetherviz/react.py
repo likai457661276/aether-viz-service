@@ -26,6 +26,18 @@ from aetherviz_service.aetherviz.fallback_validator import (
 )
 from aetherviz_service.aetherviz.knowledge_points import get_knowledge_point
 from aetherviz_service.aetherviz.matcher import match_topic_to_knowledge_point
+from aetherviz_service.aetherviz.revision import (
+    AetherVizRevisionError,
+    analyze_revision,
+    apply_revision_patch,
+    build_adjusted_plan_fallback_prompt,
+    build_revision_index,
+    build_revision_patch_prompt,
+    build_revision_patch_repair_prompt,
+    parse_revision_patch,
+    summarize_revision_index,
+    validate_revised_html,
+)
 from aetherviz_service.aetherviz.schemas.aetherviz import GenerateAetherVizHtmlMetadata
 from aetherviz_service.aetherviz.static_html import (
     StaticAetherVizHtmlError,
@@ -56,7 +68,8 @@ BASE_HTML_SYSTEM_PROMPT = """你是 AetherViz 互动教学 HTML 工程师。
 - 至少呈现 3 个可观察状态变化：对象移动/变形、颜色或高亮变化、数值/公式/caption 同步变化。
 - 每一幕使用 class="animation-caption" 或 id="animation-caption" 的中文旁白说明当前发生了什么、为什么重要、学生该观察什么；caption 必须随动画状态更新。
 - 主可视化区使用 id="aetherviz-stage"，主 SVG/Canvas 居中，主元素有稳定 id/class 或 data-role，便于修订和校验。
-- 学习目标区 class="learning-objectives" 至少 3 条；控制区 class="control-panel" 至少包含播放、暂停、重置和一个真实参数或速度控件。
+- 学习目标区 class="learning-objectives" 且 data-region="learning-goal" 至少 3 条；控制区 class="control-panel" 且 data-region="controls" 至少包含播放、暂停、重置和一个真实参数或速度控件。
+- 公式或结论区使用 data-region="formula"；步骤说明使用 data-region="caption"；页面主布局容器优先使用 data-region="app-shell"。
 - 控件、caption、公式/概念区不能遮挡主图；长文本放独立说明区或自动换行。
 - 单屏适配 960x540、常见桌面宽度和移动端；html/body 高度 100%，禁止页面级滚动条。
 - 所有事件用 addEventListener 绑定，禁止内联 onXxx。
@@ -74,25 +87,20 @@ MATH_SYSTEM_PROMPT = BASE_HTML_SYSTEM_PROMPT + """
 - 不要只画静态公式或孤立色块；必须让学生看到关系如何随状态变化。
 """
 
-REVISE_SYSTEM_PROMPT = """你是 AetherViz HTML 修订工程师。
-根据用户修改意见，直接修订给定 HTML，并输出完整 <!DOCTYPE html>...</html>。
+REVISE_SYSTEM_PROMPT = """你是 AetherViz HTML 局部修订工程师。
+根据用户修改意见和结构化索引上下文，输出局部补丁 JSON，不输出完整 HTML。
 如果模型输出 reasoning_content，必须使用简体中文，并以面向用户的简短思考摘要描述正在做的设计取舍；不要使用英文。
 
 修订原则：
 - 修订后的页面动画必须能完整播放并清晰演示教学目标，这是首要判断标准。
-- 保持或补齐中文旁白式 caption，让动画像完整教学片段一样默认自动推进。
-- 修订后的 #aetherviz-stage 内主 SVG/Canvas 必须居中显示；如果主图偏在左下角或角落，优先修复 SVG viewBox/主体 group transform 或 Canvas centerX/centerY 绘制逻辑。
-- 保持适合 iframe 预览的响应式舞台布局，重点适配 960×540、常见桌面宽度和移动端。
-- 保持单屏无滚动布局，html/body 与页面根容器要压缩在 iframe 首屏内，禁止页面级滚动条。
-- 标签、公式、步骤说明和控件不能遮挡主图，长文本需要进入说明区或自动换行。
-- 在不破坏现有动画逻辑的前提下，优先把控制面板、caption、公式结论区整理为独立布局区域，并给主舞台预留底部安全间距，避免悬浮遮挡。
-- 移除页脚署名、品牌署名和生成来源文字。
-- 默认移除全局进度条/进度滑块；除非用户明确要求，否则不要新增进度条。
-- 保持当前页面为独立 HTML，CSS 和 JS 继续内联。
-- 所有事件继续使用 addEventListener。
-- 保留或补齐 window.AetherVizRuntime 的 play、pause、reset、setSpeed、update、getState。
+- 只修改与用户意见直接相关的 DOM、CSS 或 JS 片段。
+- 优先保持原有结构、事件绑定、运行时 API 和白名单资源。
+- 对文案修改，优先 replace_region 或替换相关 caption 函数/文案对象。
+- 对布局/颜色修改，优先 upsert_css_rule。
+- 对动画节奏/交互修改，优先 replace_js_function；函数边界不明确时才 replace_script_block。
+- 保留 window.AetherVizRuntime 的 play、pause、reset、setSpeed、update、getState。
 - 不引入 Three.js 或外部业务接口；若当前 HTML 已使用 GSAP Timeline，可保留固定版本 GSAP CDN 并修复其播放控制，不要退回静态页面。
-- 只输出 HTML，不输出 Markdown 或解释。
+- 输出必须是严格 JSON：{"patch_plan":"...","patches":[...]}。
 """
 
 REPAIR_SYSTEM_PROMPT = """你是 AetherViz HTML 自动修复工程师。
@@ -318,6 +326,7 @@ def react_generate_stream(
     approved_plan: dict | None = None,
     current_html: str | None = None,
     instruction: str | None = None,
+    context: dict | None = None,
 ) -> Iterator[str]:
     color = extract_color_from_topic(topic)
     yield _sse_event(
@@ -357,7 +366,7 @@ def react_generate_stream(
             if not instruction or not instruction.strip():
                 yield _error_event("instruction_required", "修订页面需要修改意见", "phase=revise 必须携带 instruction")
                 return
-            yield from _revise_html_stream(topic, current_html, instruction)
+            yield from _revise_html_stream(topic, current_html, instruction, context=context)
             return
 
         yield _error_event("invalid_phase", "不支持的生成阶段", f"phase={phase}")
@@ -429,6 +438,7 @@ def _static_match_stream(topic: str, color: str, match) -> Iterator[str]:
             "mode": "static",
             "html": html_output,
             "metadata": metadata.model_dump(),
+            "revision_index": build_revision_index(html_output),
         },
     )
 
@@ -575,41 +585,95 @@ def _generate_from_plan_stream(topic: str, plan: dict) -> Iterator[str]:
             "html": html_output,
             "output_tokens_total": output_tokens_total,
             "metadata": metadata.model_dump(),
+            "revision_index": build_revision_index(html_output),
         },
     )
 
 
-def _revise_html_stream(topic: str, current_html: str, instruction: str) -> Iterator[str]:
-    yield _progress_event("revising", "正在根据修改意见修订当前 HTML 页面", 20, phase="revise")
-    prompt = f"""教学主题：{topic}
+def _revise_html_stream(topic: str, current_html: str, instruction: str, *, context: dict | None = None) -> Iterator[str]:
+    yield _sse_event(
+        "revise_analyzing",
+        {
+            "success": True,
+            "stage": "revise_analyzing",
+            "message": "正在分析 HTML 结构和修改意图",
+            "progress": 20,
+            "phase": "revise",
+        },
+    )
+    provided_index = _extract_revision_index_from_context(context)
+    analysis = analyze_revision(current_html, instruction, provided_index)
+    plan = _plan_from_context_or_default(context, topic)
 
-用户修改意见：
-{instruction.strip()}
+    yield _sse_event(
+        "revise_locating",
+        {
+            "success": True,
+            "stage": "revise_locating",
+            "message": f"已定位 {len(analysis.targets)} 个候选修改区域",
+            "progress": 32,
+            "phase": "revise",
+            "revision_intent": analysis.intent,
+            "index_status": analysis.index_status,
+            "targets": [
+                {
+                    "kind": target.get("kind"),
+                    "type": target.get("type"),
+                    "selector": target.get("selector"),
+                    "summary": target.get("summary"),
+                }
+                for target in analysis.targets[:6]
+            ],
+        },
+    )
 
-当前 HTML：
-{_compact_html_for_revision(current_html)}
-
-请输出修订后的完整 HTML。"""
-    raw_html = yield from _stream_llm_output(
+    prompt = build_revision_patch_prompt(
+        topic=topic,
+        instruction=instruction,
+        analysis=analysis,
+        context=context,
+    )
+    yield _sse_event(
+        "revise_patching",
+        {
+            "success": True,
+            "stage": "revise_patching",
+            "message": "正在生成局部修改补丁",
+            "progress": 46,
+            "phase": "revise",
+        },
+    )
+    raw_patch = yield from _stream_llm_output(
         prompt,
         system_prompt=REVISE_SYSTEM_PROMPT,
         max_tokens=HTML_OUTPUT_MAX_TOKENS,
-        temperature=0.16,
+        temperature=0.12,
         stage="html_revising",
         phase="revise",
-        message_prefix="正在修订互动页面代码",
-        progress_start=25,
-        progress_end=92,
+        message_prefix="正在生成局部修改补丁",
+        progress_start=48,
+        progress_end=74,
     )
-    output_tokens_total = _estimate_output_tokens(raw_html)
-    plan = normalize_plan({}, topic)
-    html_output, warnings, attempts, repaired = yield from _parse_validate_or_repair_stream(
-        raw_html,
+    output_tokens_total = _estimate_output_tokens(raw_patch)
+
+    yield _sse_event(
+        "revise_merging",
+        {
+            "success": True,
+            "stage": "revise_merging",
+            "message": "正在合并局部补丁并校验 HTML",
+            "progress": 78,
+            "phase": "revise",
+        },
+    )
+    html_output, warnings, attempts, repaired = yield from _apply_patch_validate_or_repair_stream(
+        raw_patch,
         topic=topic,
+        instruction=instruction,
+        analysis=analysis,
+        context=context,
         plan=plan,
-        phase="revise",
         original_prompt=prompt,
-        source_label="修订",
     )
     metadata = GenerateAetherVizHtmlMetadata(
         topic=topic,
@@ -634,8 +698,122 @@ def _revise_html_stream(topic: str, current_html: str, instruction: str) -> Iter
             "html": html_output,
             "output_tokens_total": output_tokens_total,
             "metadata": metadata.model_dump(),
+            "revision_index": build_revision_index(html_output),
         },
     )
+
+
+def _extract_revision_index_from_context(context: dict | None) -> dict | None:
+    if not isinstance(context, dict):
+        return None
+    revision_index = context.get("revision_index")
+    if isinstance(revision_index, dict):
+        return revision_index
+    selected_file = context.get("selected_file")
+    if isinstance(selected_file, dict) and isinstance(selected_file.get("revision_index"), dict):
+        return selected_file["revision_index"]
+    return None
+
+
+def _plan_from_context_or_default(context: dict | None, topic: str) -> dict:
+    if isinstance(context, dict) and isinstance(context.get("plan_summary"), dict):
+        return normalize_plan(context["plan_summary"], topic)
+    return normalize_plan({}, topic)
+
+
+def _apply_revision_patch_once(
+    raw_patch: str,
+    *,
+    topic: str,
+    analysis,
+) -> tuple[str, list[str]]:
+    patch_payload = parse_revision_patch(raw_patch)
+    merged_html = apply_revision_patch(analysis.normalized_html, patch_payload)
+    return validate_revised_html(merged_html, original_html=analysis.normalized_html, topic=topic)
+
+
+def _apply_patch_validate_or_repair_stream(
+    raw_patch: str,
+    *,
+    topic: str,
+    instruction: str,
+    analysis,
+    context: dict | None,
+    plan: dict,
+    original_prompt: str,
+) -> Iterator[tuple[str, list[str], int, bool]]:
+    try:
+        html_output, warnings = _apply_revision_patch_once(raw_patch, topic=topic, analysis=analysis)
+        return html_output, warnings, 1, False
+    except (AetherVizRevisionError, AetherVizHtmlValidationError) as first_exc:
+        first_error = str(first_exc)
+        yield _progress_event(
+            "repairing",
+            "局部补丁未通过合并校验，正在自动修复一次",
+            84,
+            phase="revise",
+            mode=plan.get("mode"),
+            subject=plan.get("subject"),
+            detail=first_error,
+        )
+        repair_prompt = build_revision_patch_repair_prompt(
+            topic=topic,
+            instruction=instruction,
+            analysis=analysis,
+            failed_patch=raw_patch,
+            error_detail=first_error,
+            context=context,
+        )
+        repaired_patch = yield from _stream_llm_output(
+            repair_prompt,
+            system_prompt=REVISE_SYSTEM_PROMPT,
+            max_tokens=HTML_OUTPUT_MAX_TOKENS,
+            temperature=0.08,
+            stage="html_repairing",
+            phase="revise",
+            message_prefix="正在修复局部修改补丁",
+            progress_start=85,
+            progress_end=91,
+        )
+        try:
+            html_output, warnings = _apply_revision_patch_once(repaired_patch, topic=topic, analysis=analysis)
+            return html_output, warnings, 2, True
+        except (AetherVizRevisionError, AetherVizHtmlValidationError) as second_exc:
+            fallback_error = f"首次失败：{first_error}；修复失败：{second_exc}"
+            yield _progress_event(
+                "fallback_planning",
+                "局部补丁修复失败，正在进入方案级兜底生成",
+                92,
+                phase="revise",
+                mode=plan.get("mode"),
+                subject=plan.get("subject"),
+                detail=fallback_error,
+                revision_index_summary=summarize_revision_index(analysis.revision_index),
+            )
+            fallback_prompt = build_adjusted_plan_fallback_prompt(
+                topic=topic,
+                instruction=instruction,
+                analysis=analysis,
+                error_detail=fallback_error,
+                context=context,
+            )
+            fallback_raw_html = yield from _stream_llm_output(
+                fallback_prompt,
+                system_prompt=_system_prompt_for_plan(REPAIR_SYSTEM_PROMPT, plan),
+                max_tokens=HTML_OUTPUT_MAX_TOKENS,
+                temperature=0.12,
+                stage="html_repairing",
+                phase="revise",
+                message_prefix="正在按调整后的方案重新生成页面",
+                progress_start=93,
+                progress_end=98,
+            )
+            try:
+                html_output, warnings = _parse_and_validate_html(fallback_raw_html, topic, plan)
+            except (AetherVizInteractiveHtmlError, AetherVizHtmlValidationError) as fallback_exc:
+                combined = f"{fallback_error}；方案级兜底失败：{fallback_exc}"
+                raise AetherVizRevisionError(combined) from fallback_exc
+            return html_output, warnings, 3, True
 
 
 def _parse_and_validate_html(raw_html: str, topic: str, plan: dict) -> tuple[str, list[str]]:
@@ -816,6 +994,7 @@ def _build_generation_prompt(topic: str, plan: dict) -> str:
 4. 动画验收
 - 默认自动播放，至少 3 个可观察状态变化，不能只是静态图形加文字。
 - #aetherviz-stage 内主 SVG/Canvas 居中；SVG 使用 preserveAspectRatio="xMidYMid meet" 和稳定主视觉 id/class/data-role。
+- 主舞台使用 id="aetherviz-stage" 和 data-region="stage"；控制区、公式区、caption 区使用稳定 data-region，关键教学元素使用 data-role。
 - animation-caption 或 step-caption 必须随动画状态更新。
 - 控件必须绑定真实功能；不要生成可见全局进度条或进度滑块。
 - 不输出页脚署名、品牌署名或生成来源文案。

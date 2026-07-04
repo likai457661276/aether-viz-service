@@ -1,4 +1,4 @@
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -57,6 +57,7 @@ class GenerateAetherVizSpecRequest(BaseModel):
     approved_plan: AetherVizPlan | None = None
     current_html: str | None = None
     instruction: str | None = None
+    context: dict[str, Any] | None = None
 
 
 class GenerateAetherVizHtmlMetadata(BaseModel):
