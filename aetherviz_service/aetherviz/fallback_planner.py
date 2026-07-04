@@ -24,111 +24,33 @@ VALID_RENDER_STACKS = {"svg", "svg_canvas", "canvas_svg", "dom_svg"}
 VALID_ANIMATION_RUNTIMES = {"native", "gsap_timeline"}
 
 PLANNING_SYSTEM_PROMPT_TEMPLATE = """你是 AetherViz 互动教学动画规划师。
-根据用户教学主题，为中学生（12~18岁）设计一套清晰、直观、流畅的互动教学动画方案。
+为初高中学生设计一套可生成 HTML 的互动教学动画方案。
 
-你的核心目标：让学生通过观察动画和调节参数，自然理解教学主题的核心原理。
+规划原则：
+- 只规划和主题直接相关的内容，不编造无关实验、数据或知识点。
+- 每个方案必须能形成至少 3 个可观察状态变化，避免静态海报。
+- number_design 使用小整数、常见单位或可心算数值，并说明理由；不要使用随机长小数。
+- controls 只保留真实影响理解的控件，2~4 个；不要规划全局进度条。
+- stage_layout 必须说明目标区、主舞台、caption/公式区、控制区如何在单屏内摆放。
 
----
-
-规划要求：
-
-1. **动画策略（animation_strategy）**优先于技术选型：
-   - step_by_step：分步骤演示，每一步有明确的"当前状态高亮"和"步骤说明"
-   - continuous：连续变化动画，适合展示渐变、运动轨迹等平滑过程
-   - interactive_param：参数调控型，学生拖拽滑块实时观察结果变化
-
-2. **生成模式（mode）**根据主题特点自主选择：
-   - svg_animation：通用 SVG 动画，适合大多数主题
-   - math_interactive：数学互动，需要展示几何关系或函数图像
-   - process_flow：过程流程型，适合化学反应、生物过程等
-
-3. **渲染栈（render_stack）**决定画面职责，不再把所有效果都塞进 SVG：
-   - svg：几何证明、函数图像、少量对象的结构变化
-   - svg_canvas：Canvas 负责连续运动/粒子/轨迹，SVG 负责坐标轴、标注、公式锚点
-   - canvas_svg：Canvas 为主视觉，SVG/DOM 只做少量标注和交互热点
-   - dom_svg：流程卡片、时间轴、步骤解释为主，SVG 做连接线和高亮
-
-4. **动画运行时（animation_runtime）**决定动画编排职责：
-   - native：简单参数联动、CSS/RAF 过渡、Canvas 高频绘制
-   - gsap_timeline：分步讲解、几何剪拼、公式同步高亮、复杂进出场和播放控制
-   - Canvas 粒子、波动、碰撞等高频场景优先 native；如选 gsap_timeline，GSAP 只驱动分镜状态或阶段，不逐对象驱动粒子。
-
-5. **number_design** 必须给出默认数值和设计理由。默认数值应通俗、可心算、符合教学目标，避免随机长小数。
-
-6. **stage_layout** 描述首屏舞台编排：目标导航、主舞台、公式/结论区、紧凑控制条如何摆放，必须避免小图挤在角落，也不能导致 iframe 出现页面级滚动条。
-
-7. **storyboard** 描述教学分镜：每一幕包含镜头焦点、运动对象、同步出现的解释或公式。
-
-8. **timeline_scenes** 把 storyboard 落成 3~6 个可播放 scene，每个 scene 包含 id、label、duration、focus、caption；如果 animation_runtime=gsap_timeline，每个 scene 必须对应后续 HTML 里的 timeline label。
-
-9. **visual_steps** 描述动画演示的节奏，格式示例：
-   "第1步：[初始状态描述] → [过渡描述] → [终态说明]"
-   每步要描述：什么在移动/变化、变化速度、学生应该观察什么。
-
-10. **controls** 只保留真正影响核心原理理解的控件，不超过 4 个。默认不要规划全局进度条/进度滑块；需要回看分镜时优先使用“下一步/上一步/演示一次”按钮，滑块只用于真实教学变量。
-
-11. **formulas** 如果主题涉及公式，列出核心公式；无公式主题可为空列表。
-
----
-
-字段约束：
+合法字段：
 - subject：math / physics / chemistry / biology / astronomy / programming / geography / chinese / english / general
 - mode：svg_animation / math_interactive / process_flow
 - animation_strategy：step_by_step / continuous / interactive_param
 - render_stack：svg / svg_canvas / canvas_svg / dom_svg
 - animation_runtime：native / gsap_timeline
-- title：页面标题（不超过 20 字）
-- goal：一句话教学目标，描述学生能从动画中学到什么
-- stage_layout：一句话描述页面舞台布局与信息层级
-- storyboard：3~5 条教学分镜，每条说明镜头焦点、运动对象、解释文字
+- title：不超过 20 字
+- goal：一句话教学目标
+- stage_layout：一句话布局说明
+- storyboard：3~5 条，每条包含焦点、运动对象、同步解释
 - timeline_scenes：3~6 个对象，每个包含 id、label、duration、focus、caption
 - number_design：对象，包含 default_values 数组和 reason 字符串
-- visual_steps：3~5 条，每条描述动画节奏与学生关注点
-- controls：2~4 个控件，每个包含 id、label、type（slider/button/speed），不要默认使用旧式进度滑块
+- visual_steps：3~5 条，每条说明对象如何变化、学生观察什么
+- controls：2~4 个对象，每个包含 id、label、type（slider/button/speed）
 - formulas：0~4 条核心公式或关键表达
-- primary_color：主色（十六进制）
+- primary_color：十六进制主色
 
 只输出 JSON 对象，不输出 Markdown 或解释。
-
-输出 JSON 示例：
-{
-  "subject": "math",
-  "mode": "math_interactive",
-  "animation_strategy": "interactive_param",
-  "render_stack": "svg",
-  "animation_runtime": "gsap_timeline",
-  "title": "平行四边形面积互动动画",
-  "goal": "通过拖动底和高，观察面积随两个参数实时变化，理解面积公式 S = a × h 的几何意义。",
-  "stage_layout": "顶部用目标胶囊提示学习路径，中间大舞台展示可拖拽图形，底部紧凑控制条和公式结论区，整体控制在单屏内。",
-  "storyboard": [
-    "镜头1：平行四边形居中放大，底和高依次点亮，旁边出现面积读数",
-    "镜头2：拖动底边时图形横向伸缩，公式中的 a 和面积数字同步变化",
-    "镜头3：剪拼动画把斜边三角形平移为长方形，结论区高亮 S=a×h"
-  ],
-  "timeline_scenes": [
-    {"id": "scene_intro", "label": "认识底和高", "duration": 1.0, "focus": "平行四边形居中出现，底和高依次点亮", "caption": "先找到底和高，它们决定面积。"},
-    {"id": "scene_param", "label": "参数变化", "duration": 1.2, "focus": "底边滑块变化，面积读数同步更新", "caption": "底变长时，面积按同样比例增大。"},
-    {"id": "scene_cut", "label": "剪拼验证", "duration": 1.5, "focus": "斜边三角形平移为长方形", "caption": "剪拼后面积不变，所以 S=a×h。"}
-  ],
-  "number_design": {
-    "default_values": ["底 = 6", "高 = 4", "面积 = 24"],
-    "reason": "使用一位整数和可心算面积，学生能快速验证底乘高的关系。"
-  },
-  "visual_steps": [
-    "第1步：展示标准平行四边形，底和高用彩色标注，面积数值同步显示",
-    "第2步：拖动底部滑块，底边长度平滑变化，面积数值实时更新，学生观察底与面积的比例关系",
-    "第3步：拖动高度滑块，等效长方形辅助线同步显示，说明高的作用",
-    "第4步：点击'剪拼演示'，动画展示平行四边形变形为等面积长方形的过程"
-  ],
-  "controls": [
-    {"id": "base-slider", "label": "底边长", "type": "slider"},
-    {"id": "height-slider", "label": "高", "type": "slider"},
-    {"id": "demo-btn", "label": "剪拼演示", "type": "button"},
-    {"id": "speed-control", "label": "速度", "type": "speed"}
-  ],
-  "formulas": ["S = a \\times h"],
-  "primary_color": "#22D3EE"
-}
 """
 
 
@@ -478,11 +400,6 @@ def _normalize_number_design(raw_design: object, default: dict) -> dict:
 
 def _default_number_design(topic: str, subject: str) -> dict:
     topic_lower = topic.lower()
-    if "勾股" in topic or "直角三角" in topic:
-        return {
-            "default_values": ["a = 3", "b = 4", "c = 5"],
-            "reason": "使用学生熟悉且可心算的 3-4-5 勾股数组，便于直接验证 a² + b² = c²。",
-        }
     if any(keyword in topic for keyword in ("平行四边形", "面积", "长方形", "三角形面积")):
         return {
             "default_values": ["底 = 6", "高 = 4", "面积 = 24"],
@@ -502,6 +419,11 @@ def _default_number_design(topic: str, subject: str) -> dict:
         return {
             "default_values": ["样本数 = 20", "速度 = 1x", "阶段 = 3"],
             "reason": "使用适中的样本数和标准速度，既能看到整体趋势，也不会让画面过于拥挤。",
+        }
+    if subject == "math":
+        return {
+            "default_values": ["变量1 = 3", "变量2 = 4", "结果 = 12"],
+            "reason": "使用小整数和可心算结果，便于学生把图形变化与代数关系对应起来。",
         }
     return {
         "default_values": ["速度 = 1x", "步骤 = 3", "重点变量 = 默认值"],

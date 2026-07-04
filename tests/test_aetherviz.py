@@ -10,7 +10,6 @@ from fastapi.testclient import TestClient
 import aetherviz_service.aetherviz.react as react_module
 import aetherviz_service.aetherviz.static_html as static_html_module
 from aetherviz_service.aetherviz.knowledge_points import KNOWLEDGE_POINTS, KnowledgePoint
-from aetherviz_service.aetherviz.matcher import match_topic_to_knowledge_point
 from aetherviz_service.aetherviz.static_html import (
     DEFAULT_PRIMARY_COLOR,
     static_html_path_for_point,
@@ -96,11 +95,11 @@ body {{ margin: 0; font-family: sans-serif; }}
   <p>核心概念A</p>
 </section>
 <main id="aetherviz-stage">
-  <p class="animation-caption">当前步骤：观察核心图形如何随进度变化。</p>
+  <p id="animation-caption" class="animation-caption">当前步骤：观察核心图形如何随进度变化。</p>
   <svg viewBox="0 0 320 180" preserveAspectRatio="xMidYMid meet" role="img" aria-label="{topic}互动图形">
     <g id="main-visual-group">
-      <path d="M20 140 C90 40 190 40 300 140" stroke="#22D3EE" fill="none"></path>
-      <circle cx="160" cy="80" r="10" fill="#FBBF24"></circle>
+      <path id="main-curve" d="M20 140 C90 40 190 40 300 140" stroke="#22D3EE" fill="none" stroke-width="4"></path>
+      <circle id="moving-dot" cx="160" cy="80" r="10" fill="#FBBF24"></circle>
     </g>
   </svg>
 </main>
@@ -113,7 +112,20 @@ body {{ margin: 0; font-family: sans-serif; }}
 <script src="https://cdn.staticfile.net/KaTeX/0.16.9/katex.min.js"></script>
 <script>
 const state = {{ mode: 'playing', progress: 0 }};
-function updateVisualization() {{ state.progress = (state.progress + 1) % 100; }}
+const caption = document.getElementById('animation-caption');
+const movingDot = document.getElementById('moving-dot');
+const mainCurve = document.getElementById('main-curve');
+function updateVisualization() {{
+  state.progress = (state.progress + 1) % 100;
+  const x = 80 + state.progress * 1.6;
+  movingDot.setAttribute('cx', String(x));
+  mainCurve.style.strokeDashoffset = String(100 - state.progress);
+  caption.textContent = state.progress < 34
+    ? '当前步骤：先观察初始状态。'
+    : state.progress < 67
+      ? '当前步骤：核心对象正在移动并留下变化线索。'
+      : '当前步骤：结论区同步回顾核心规律。';
+}}
 function play() {{ updateVisualization(); }}
 function pause() {{ state.mode = 'paused'; }}
 function reset() {{ state.progress = 0; updateVisualization(); }}
@@ -458,11 +470,6 @@ def test_all_static_html_files_are_registered() -> None:
     assert sorted(html_files - registered_files) == []
 
 
-def test_pythagorean_is_not_registered_static_knowledge_point() -> None:
-    assert "math/pythagorean" not in KNOWLEDGE_POINTS
-    assert match_topic_to_knowledge_point("勾股定理") is None
-
-
 def test_static_match_supports_builtin_math_and_chemistry_without_llm(monkeypatch) -> None:
     def fail_llm(*args, **kwargs):
         raise AssertionError("registered static hit must not call LLM")
@@ -685,14 +692,16 @@ def test_generate_phase_uses_approved_plan_for_html(monkeypatch) -> None:
     assert calls[0][2] == react_module.HTML_OUTPUT_MAX_TOKENS
     assert calls[0][4] is True
     prompt, system_prompt = calls[0][0], calls[0][1]
-    assert "主视觉居中契约" in prompt
-    assert "叙事旁白" in prompt
-    assert "避让主图" in prompt
-    assert "单屏无滚动" in prompt
-    assert "底部安全间距" in prompt
-    assert "不要全局进度条" in prompt
+    assert "#aetherviz-stage" in prompt + system_prompt
+    assert "中文旁白" in prompt + system_prompt
+    assert "不能遮挡主图" in prompt + system_prompt
+    assert "禁止页面级滚动条" in prompt + system_prompt
+    assert "至少 3 个可观察状态变化" in prompt
+    assert "不要生成可见全局进度条" in prompt
     assert "生成来源文案" in prompt
-    assert "叙事字幕" in system_prompt
+    assert "caption 必须随动画状态更新" in system_prompt
+    assert "高饱和度" not in prompt + system_prompt
+    assert "极为精美" not in prompt + system_prompt
     assert "双语字幕" not in prompt + system_prompt
     assert "1920" not in prompt + system_prompt
     assert "2K" not in prompt + system_prompt
@@ -887,14 +896,40 @@ def test_validation_rejects_missing_animation_caption() -> None:
     )
 
     bad_html = sample_svg_html().replace(
-        '  <p class="animation-caption">当前步骤：观察核心图形如何随进度变化。</p>\n',
+        '  <p id="animation-caption" class="animation-caption">当前步骤：观察核心图形如何随进度变化。</p>\n',
         "",
     )
 
     with pytest.raises(AetherVizHtmlValidationError) as exc_info:
         validate_aetherviz_html(bad_html, topic="熵增演示", strict=True)
 
-    assert "HTML 缺少动画步骤说明" in str(exc_info.value)
+    assert "missing_caption_state_update" in str(exc_info.value)
+
+
+def test_validation_rejects_static_poster_without_stateful_caption_or_visual_update() -> None:
+    from aetherviz_service.aetherviz.validator import (
+        AetherVizHtmlValidationError,
+        validate_aetherviz_html,
+    )
+
+    bad_html = sample_svg_html().replace(
+        """  const x = 80 + state.progress * 1.6;
+  movingDot.setAttribute('cx', String(x));
+  mainCurve.style.strokeDashoffset = String(100 - state.progress);
+  caption.textContent = state.progress < 34
+    ? '当前步骤：先观察初始状态。'
+    : state.progress < 67
+      ? '当前步骤：核心对象正在移动并留下变化线索。'
+      : '当前步骤：结论区同步回顾核心规律。';""",
+        "  void state.progress;",
+    )
+
+    with pytest.raises(AetherVizHtmlValidationError) as exc_info:
+        validate_aetherviz_html(bad_html, topic="熵增演示", strict=True)
+
+    message = str(exc_info.value)
+    assert "missing_caption_state_update" in message
+    assert "missing_visual_state_update" in message
 
 
 def test_validation_rejects_katex_auto_render_without_auto_cdn() -> None:
@@ -1044,6 +1079,20 @@ def test_build_planning_prompt_contains_subject_guide() -> None:
     assert "timeline_scenes" in sys_prompt
     assert "number_design" in sys_prompt
     assert "#22D3EE" in user_prompt
+    assert "输出 JSON 示例" not in sys_prompt
+    assert "平行四边形面积互动动画" not in sys_prompt
+    assert "剪拼动画" not in sys_prompt
+
+
+def test_default_math_number_design_is_not_pythagorean_hardcoded() -> None:
+    from aetherviz_service.aetherviz.fallback_planner import normalize_plan
+
+    plan = normalize_plan({}, "勾股定理")
+
+    number_design = plan["number_design"]
+    assert number_design["default_values"] != ["a = 3", "b = 4", "c = 5"]
+    assert "3-4-5" not in (number_design.get("reason") or "")
+    assert "小整数" in (number_design.get("reason") or "")
 
 
 def test_fallback_planner_selects_generation_modes() -> None:

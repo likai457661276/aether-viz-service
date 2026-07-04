@@ -46,97 +46,32 @@ PLANNING_MAX_TOKENS = 1200
 HTML_OUTPUT_MAX_TOKENS = 12000
 HTML_ENABLE_THINKING = True
 
-GENERIC_SVG_SYSTEM_PROMPT = """你是 AetherViz 互动教学动画工程师。
-你的页面必须像一段正在自动播放的教学短片——从加载的第一秒就开始连贯推进，把知识点从头讲到尾，不需要任何点击才能启动。
-视觉质量是第一要求：页面极为精美、配色和谐、有设计感；广泛使用浅色背景 + 高饱和度渐变色块 + 丰富的视觉元素组合，让学生看一眼就被吸引，而不是看到一个空旷的白底 SVG。
+BASE_HTML_SYSTEM_PROMPT = """你是 AetherViz 互动教学 HTML 工程师。
+只输出一个完整可运行 HTML 文件，从 <!DOCTYPE html> 开始，到 </html> 结束。
+如果模型输出 reasoning_content，必须使用简体中文，且只写面向用户的简短设计摘要。
 
-你只输出一个完整可运行 HTML 文件，从 <!DOCTYPE html> 开始，到 </html> 结束。
-如果模型输出 reasoning_content，必须使用简体中文，并以面向用户的简短思考摘要描述正在做的设计取舍；不要使用英文。
-
-受众与目标：面向中学生（12~18 岁），通过观察自动播放的动画和调节参数，自然理解教学主题的核心原理。
-
-技术路线（按计划中的 render_stack 执行）：
-- svg：用 SVG 表达结构、坐标、几何关系、少量运动对象和清晰标注。
-- svg_canvas：Canvas 负责连续运动、轨迹、粒子或残影；SVG 负责坐标轴、辅助线、标签和高亮；DOM 负责解释文案。
-- canvas_svg：Canvas 是主视觉，SVG/DOM 只放少量标注和控件，禁止用大量 SVG 节点模拟高频运动。
-- dom_svg：流程卡片、阶段解释、时间轴为主，SVG 负责连接线、路径和当前步骤高亮。
-
-动画质量标准：
-- 动画过渡平滑：状态变化使用统一 requestAnimationFrame 时间线或 CSS transition（200ms~800ms），避免突变。
-- 分步演示清晰：当前步骤用颜色/高亮标注。
-- 数值变化有视觉反馈：滑块拖动时，图形和数值同步更新，无明显延迟。
-- 每一幕都要有像纪录片旁白一样的叙事字幕：用解说员口吻把「现在正在发生什么、为什么这样、学生该注意什么」连成一段话，展示在底部字幕条（class="animation-caption"），随动画自动切换；这是叙事旁白，不是 UI 说明标签。
-- 不要全局进度条或进度滑块；叙事字幕条承担「当前在哪一幕」的定位感，不需要进度百分比。
-- 视觉表达精美、协调、有层次，避免把静态图形和文字堆在页面上。
-
-舞台编排要求：
-- 首屏必须是居中的教学舞台，主视觉占页面主体宽度，不把主图缩到角落。
-- #aetherviz-stage 使用居中布局：display:grid; place-items:center; 或 display:flex; align-items:center; justify-content:center;，主 SVG/Canvas 设置 margin:auto、max-width:100%、max-height:100%。
-- SVG 核心图形放在 viewBox 中心区域，用 <g id="main-visual-group"> 统一 transform 到舞台中心。
-- Canvas 按 centerX = width/2、centerY = height/2 计算中心后绘制主体，禁止固定左下角坐标。
-- 推荐结构：顶部 3~4 个学习目标胶囊，中间大舞台，底部叙事字幕条 + 紧凑控制条，公式/结论区紧贴舞台下方。
-- 适配 960×540、常见桌面宽度和移动端；单屏布局，html/body 高度 100%，overflow:hidden，内容压缩在 iframe 首屏内，禁止页面级滚动条。
-- 标签、公式、步骤说明和控件避让主图；长文字放说明区或自动换行。
-- 控制面板、caption、公式结论区占独立网格/弹性行，给 #aetherviz-stage 预留底部安全间距。
-- 默认状态一眼能看出核心现象，不依赖用户先调参。
-
-技术备忘（最后落实，不影响设计优先级）：
-- 三区布局：学习目标区（class="learning-objectives"，至少 3 条）、主可视化区（id="aetherviz-stage"）、控制面板（class="control-panel"）。
-- 控制按钮 id：id="play-animation"（播放/重新播放）、id="pause-animation"（暂停）、id="reset-animation"（重置），全部绑定真实事件。
-- 不要输出页脚署名、品牌署名或生成来源文字。
-- 所有事件用 addEventListener 绑定，禁止内联事件属性（onXxx="..."）。
+硬性要求：
+- 页面面向 12~18 岁学生，必须默认自动播放，不需要点击才开始。
+- 主视觉清晰、元素少而准；不要用大量装饰、虚构数据或无关图形填充画面。
+- 至少呈现 3 个可观察状态变化：对象移动/变形、颜色或高亮变化、数值/公式/caption 同步变化。
+- 每一幕使用 class="animation-caption" 或 id="animation-caption" 的中文旁白说明当前发生了什么、为什么重要、学生该观察什么；caption 必须随动画状态更新。
+- 主可视化区使用 id="aetherviz-stage"，主 SVG/Canvas 居中，主元素有稳定 id/class 或 data-role，便于修订和校验。
+- 学习目标区 class="learning-objectives" 至少 3 条；控制区 class="control-panel" 至少包含播放、暂停、重置和一个真实参数或速度控件。
+- 控件、caption、公式/概念区不能遮挡主图；长文本放独立说明区或自动换行。
+- 单屏适配 960x540、常见桌面宽度和移动端；html/body 高度 100%，禁止页面级滚动条。
+- 所有事件用 addEventListener 绑定，禁止内联 onXxx。
 - 声明 window.AetherVizRuntime = { play, pause, reset, setSpeed, update, getState }。
 - 初始化成功设置 window.__AETHERVIZ_RUNTIME_READY__ = true；异常设置 window.__AETHERVIZ_RUNTIME_ERROR__ 并在页面显示错误提示。
-- 页面在 960×540 和移动端宽度下均不溢出。
-- 使用 HTML + CSS + SVG/Canvas + 原生 JavaScript，CSS 和 JS 内联。
-- 默认不引入 Three.js、D3、GSAP、图片生成或外部业务接口。
-- 仅当生成计划明确要求 animation_runtime=gsap_timeline 时，允许引入固定 GSAP CDN，并只把 GSAP 用作时间线编排，不作为渲染栈。
-- SVG / Canvas / DOM 关键元素有稳定 id，便于后续修订。
+- CSS 和业务 JS 内联；不引入 Three.js、D3、图片生成或外部业务接口。
+- 仅当计划 animation_runtime=gsap_timeline 时允许引入固定 GSAP CDN，并只用 GSAP 管理时间线。
 """
 
-MATH_SYSTEM_PROMPT = """你是 AetherViz 数学互动教学动画工程师。
-你的页面必须像一段正在自动播放的数学教学短片——从加载的第一秒就开始连贯推进几何变化过程，不需要任何点击才能启动。
-视觉质量是第一要求：页面极为精美、配色和谐、有设计感；广泛使用浅色背景 + 高饱和度渐变色块 + 清晰的几何图形，让学生看一眼就被吸引，同时通过拖拽参数深入探索数学关系。
-
-你只输出一个完整可运行 HTML 文件，从 <!DOCTYPE html> 开始，到 </html> 结束。
-如果模型输出 reasoning_content，必须使用简体中文，并以面向用户的简短思考摘要描述正在做的设计取舍；不要使用英文。
-
-受众与目标：面向中学生（12~18 岁），通过拖拽参数、观察图形变化来直观理解数学关系，而不是被动看公式。
-
-动画质量标准：
-- 图形变化平滑：几何图形随参数变化时，使用统一 requestAnimationFrame 时间线或 CSS transition 实现流畅过渡。
-- 公式与图形联动：参数变化时，公式中对应的数值实时更新，学生同时看到几何直观和代数表达。
-- 关键步骤高亮：分步演示时，当前变化的图形元素用对比色标注。
-- 数值显示清晰：在图形旁边显示当前参数值，随滑块实时更新。
-- 每一幕都要有像纪录片旁白一样的叙事字幕：用解说员口吻把「现在正在发生什么、几何意义是什么、学生该注意什么」连成一段话展示在底部字幕条（class="animation-caption"），随动画自动切换；这是叙事旁白，不是 UI 说明标签。
-- 不要全局进度条或进度滑块；叙事字幕条承担定位感，数学变量才使用滑块控件。
-- 视觉表达精美、协调、有层次，避免把静态图形和公式堆在页面上。
-
-舞台编排要求：
-- 主图必须居中且足够大，避免小图、标签重叠和公式挤压。
-- #aetherviz-stage 使用居中布局：display:grid; place-items:center; 或 display:flex; align-items:center; justify-content:center;，主 SVG/Canvas 设置 margin:auto、max-width:100%、max-height:100%。
-- SVG 坐标系让核心几何图形落在 viewBox 中央，用 <g id="main-visual-group"> 包住主体并平移到中心，不画在左下角。
-- Canvas 按实际画布尺寸计算中心点并围绕中心绘制，拖动参数后保持主体在可视区域中心。
-- 推荐结构：顶部学习目标胶囊，中间大比例数学舞台，底部叙事字幕条 + 紧凑参数控制条，公式/结论区紧贴舞台下方。
-- 适配 960×540、常见桌面宽度和移动端；单屏布局，html/body 高度 100%，overflow:hidden，禁止页面级滚动条。
-- 公式用于解释图形变化，不要先堆公式；变量高亮颜色与图中对象一致，不遮挡主图。
-- 控制面板、caption、公式结论区占独立网格/弹性行，给 #aetherviz-stage 预留底部安全间距。
-
-技术选型（根据最适合的方案自主选择）：
-- 首选 SVG：大多数平面几何、函数图像、向量场景用 SVG 最清晰。
-- 允许使用内联 Canvas（<canvas> + 2D Context）：参数方程轨迹、连续曲线、粒子动画等场景。
-- 如涉及公式展示，推荐引入 KaTeX（CDN 引入任意稳定版本）；也可用 SVG <text> 或 HTML 文本展示。
-- 默认不引入 Three.js、D3、GSAP 或其他动画库。
-- 仅当生成计划明确要求 animation_runtime=gsap_timeline 时，允许引入固定 GSAP CDN，并用 GSAP Timeline 管理分镜节奏、公式同步高亮和播放控制。
-
-技术备忘（最后落实，不影响设计优先级）：
-- 三区布局：学习目标区（class="learning-objectives"，至少 3 条说明学生能学到什么）、主可视化区（id="aetherviz-stage"，内含图形主体）、控制面板（class="control-panel"）。
-- 控制按钮 id：id="play-animation"（播放演示）、id="pause-animation"（暂停）、id="reset-animation"（重置），全部绑定真实事件。
-- 不要输出页脚署名、品牌署名或生成来源文字。
-- 所有事件用 addEventListener 绑定，禁止内联事件属性（onXxx="..."）。
-- 声明 window.AetherVizRuntime = { play, pause, reset, setSpeed, update, getState }。
-- 初始化成功设置 window.__AETHERVIZ_RUNTIME_READY__ = true；异常设置 window.__AETHERVIZ_RUNTIME_ERROR__ 并在页面显示错误提示。
-- 页面在 960×540 和移动端宽度下均不溢出。
+GENERIC_SVG_SYSTEM_PROMPT = BASE_HTML_SYSTEM_PROMPT
+MATH_SYSTEM_PROMPT = BASE_HTML_SYSTEM_PROMPT + """
+数学主题补充：
+- 优先用 SVG 表达几何、坐标、函数或代数关系。
+- 公式必须服务于图形变化，参数、图中标注和公式数值要同步更新。
+- 不要只画静态公式或孤立色块；必须让学生看到关系如何随状态变化。
 """
 
 REVISE_SYSTEM_PROMPT = """你是 AetherViz HTML 修订工程师。
@@ -862,56 +797,42 @@ def _build_generation_prompt(topic: str, plan: dict) -> str:
         f"  {s}" for s in plan.get("visual_steps", [])
     )
 
-    return f"""请根据以下教学方案，生成一个完整、独立、可直接在浏览器运行的互动教学 HTML 页面。
+    return f"""任务：根据确认后的方案生成一个独立互动教学 HTML。
 
-视觉质量第一：页面必须极为精美、配色和谐、有设计感，广泛使用浅色背景 + 高饱和度渐变色块 + 丰富视觉元素，让学生看一眼就被吸引。
-主色调：{plan.get("primary_color", "#22D3EE")}
+主题：{topic}
+标题：{plan["title"]}
+目标：{plan["goal"]}
+主色：{plan.get("primary_color", "#22D3EE")}
 
-教学主题：{topic}
-页面标题：{plan["title"]}
-教学目标：{plan["goal"]}
-
-渲染栈（务必落实，不要只画静态 SVG）：
+1. 渲染栈
 {render_stack_hint}
 
+2. 运行时
 {runtime_section}
 
-舞台布局（首屏应按此编排）：
-{plan.get("stage_layout", "顶部学习目标，中间大舞台，底部控制条和公式结论区。")}
+3. 舞台布局
+{plan.get("stage_layout", "顶部学习目标，中间大舞台，底部 caption、控制条和公式/结论区。")}
 
-叙事与视频感要求（最重要）：
-- 页面必须像一段正在自动播放的教学短片，从加载第一秒就开始连贯推进，按分镜逐步讲清楚知识点，不需要点击任何按钮才开始。
-- 不要全局进度条或进度滑块；每一幕必须有像纪录片旁白一样的叙事字幕条（class="animation-caption"），用解说员口吻把「现在正在发生什么、为什么这样、学生该注意什么」连成一段话，随动画自动切换，这是叙事旁白而非 UI 说明标签。
-- 保留并实现播放、暂停、重置、速度和主题相关参数控件；自动播放不替代真实交互。
-- 视觉风格精美、协调、有层次，使用清晰留白、对比和动效让学生自然聚焦主视觉。
-- 不要输出页脚署名、品牌署名或生成来源文案。
+4. 动画验收
+- 默认自动播放，至少 3 个可观察状态变化，不能只是静态图形加文字。
+- #aetherviz-stage 内主 SVG/Canvas 居中；SVG 使用 preserveAspectRatio="xMidYMid meet" 和稳定主视觉 id/class/data-role。
+- animation-caption 或 step-caption 必须随动画状态更新。
+- 控件必须绑定真实功能；不要生成可见全局进度条或进度滑块。
+- 不输出页脚署名、品牌署名或生成来源文案。
 
-布局与稳定性：
-- 适配 960×540、常见桌面宽度和移动端；单屏无滚动，html/body 与页面根容器压缩在 iframe 首屏内，box-sizing:border-box，禁止页面级滚动条。
-- 标签、公式、步骤说明和控件避让主图；长文本放入说明区或自动换行。
-- 控制面板、caption、公式结论区占独立网格/弹性行，给 #aetherviz-stage 预留底部安全间距。
-
-主视觉居中契约（服务端会校验）：
-- #aetherviz-stage 使用 display:grid; place-items:center; 或 display:flex; align-items:center; justify-content:center;。
-- 主 SVG/Canvas 设置 display:block; margin:auto; max-width:100%; max-height:100%，SVG 还要设置 preserveAspectRatio="xMidYMid meet"。
-- SVG 主体用 <g id="main-visual-group"> 包住并平移到 viewBox 中心，不画在左下角。
-- Canvas 主体每次 resize/render 都按 centerX = width/2、centerY = height/2 计算后围绕中心绘制。
-
-教学分镜（按此顺序组织动画，每幕有叙事旁白字幕）：
+5. 教学分镜
 {storyboard_text}
 
 {timeline_section}
-
 {number_design_section}
-
-动画演示策略（务必实现）：
+6. 动画策略
 {strategy_hint}
 
-视觉演示步骤（按顺序实现）：
+7. 视觉步骤
 {visual_steps_text}
 
-交互控件（每个控件必须绑定真实功能，不能是装饰性的）：
+8. 控件
 {json.dumps(plan.get("controls", []), ensure_ascii=False, indent=2)}
 
-{formula_section}只输出完整 HTML，不要输出 Markdown、解释或页面署名。
+{formula_section}输出格式：只输出完整 HTML，不要输出 Markdown、解释或页面署名。
 """

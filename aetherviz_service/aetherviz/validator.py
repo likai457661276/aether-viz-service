@@ -413,8 +413,14 @@ def _collect_runtime_contract_errors(
         if not re.search(pattern, scripts, re.IGNORECASE | re.DOTALL):
             errors.append(f"HTML 缺少{label}")
 
-    if not _has_animation_driver(scripts):
+    if not _has_animation_driver(html, scripts):
         errors.append("HTML 缺少动画驱动逻辑")
+    if not _caption_updates_with_animation(soup, scripts):
+        errors.append("HTML 的 animation-caption/step-caption 必须随动画状态更新（missing_caption_state_update）")
+    if not _has_main_visual_semantic_anchor(soup):
+        errors.append("主可视化区域必须包含稳定的主视觉语义锚点（missing_main_visual_anchor）")
+    if not _has_visual_state_update(soup, html, scripts):
+        errors.append("主可视化区域必须包含可观察的动画状态更新（missing_visual_state_update）")
 
     for required_text in ("__AETHERVIZ_RUNTIME_READY__", "__AETHERVIZ_RUNTIME_ERROR__"):
         if required_text not in scripts:
@@ -839,13 +845,115 @@ def _has_animation_replay_binding(soup: BeautifulSoup) -> bool:
     return bool(bound_handler and _handler_starts_animation(bound_handler.group("handler")))
 
 
-def _has_animation_driver(scripts: str) -> bool:
+def _has_animation_driver(html: str, scripts: str) -> bool:
     return bool(
         re.search(r"requestAnimationFrame\s*\(", scripts, re.IGNORECASE)
         or re.search(r"\.style\.\s*(?:animation|transition)\s*=|classList\.\s*(?:add|remove|toggle)\s*\(", scripts, re.IGNORECASE)
+        or re.search(r"@keyframes|animation\s*:|transition\s*:", html, re.IGNORECASE)
         or re.search(r"\bsetProgress\s*\(|\btick\s*\(|\banimate\s*\(", scripts, re.IGNORECASE)
         or re.search(r"\bgsap\s*\.\s*timeline\s*\(", scripts, re.IGNORECASE)
     )
+
+
+def _caption_updates_with_animation(soup: BeautifulSoup, scripts: str) -> bool:
+    caption = soup.select_one(
+        ".animation-caption, #animation-caption, .step-caption, #step-caption, .stage-caption, #stage-caption"
+    )
+    if not isinstance(caption, Tag):
+        return False
+    caption_markers = _selector_terms_for_tag(caption) | {"caption", "animation-caption", "step-caption", "stage-caption"}
+    if not any(marker.strip(".#") in scripts or marker in scripts for marker in caption_markers):
+        return False
+    return bool(
+        re.search(
+            r"(?:caption|animationCaption|stepCaption|stageCaption|animation-caption|step-caption|stage-caption)"
+            r"[^;\n]{0,160}\.(?:textContent|innerText|innerHTML)\s*=",
+            scripts,
+            re.IGNORECASE | re.DOTALL,
+        )
+        or re.search(
+            r"(?:getElementById|querySelector)\s*\([^)]*(?:animation-caption|step-caption|stage-caption)[^)]*\)"
+            r"[^;\n]{0,240}\.(?:textContent|innerText|innerHTML)\s*=",
+            scripts,
+            re.IGNORECASE | re.DOTALL,
+        )
+    )
+
+
+def _has_main_visual_semantic_anchor(soup: BeautifulSoup) -> bool:
+    stage = soup.find(id="aetherviz-stage")
+    if not isinstance(stage, Tag):
+        return False
+    visuals = [item for item in stage.find_all(("svg", "canvas")) if isinstance(item, Tag)]
+    if not visuals:
+        return False
+    for visual in visuals:
+        if _tag_has_stable_anchor(visual):
+            return True
+        if visual.name == "svg" and (
+            visual.find(id="main-visual-group") is not None
+            or visual.find(attrs={"data-role": re.compile(r"main|visual|animated", re.IGNORECASE)}) is not None
+            or any(_tag_has_stable_anchor(child) for child in visual.find_all(True))
+        ):
+            return True
+    return False
+
+
+def _tag_has_stable_anchor(tag: Tag) -> bool:
+    return bool(
+        str(tag.get("id", "") or "").strip()
+        or tag.get("class")
+        or str(tag.get("data-role", "") or "").strip()
+        or str(tag.get("aria-label", "") or "").strip()
+    )
+
+
+def _has_visual_state_update(soup: BeautifulSoup, html: str, scripts: str) -> bool:
+    stage = soup.find(id="aetherviz-stage")
+    if not isinstance(stage, Tag):
+        return False
+    css_text = "\n".join(style.get_text("\n", strip=False) for style in soup.find_all("style"))
+    if re.search(r"@keyframes", css_text, re.IGNORECASE) and re.search(r"animation\s*:", _styles_for_tag(stage, css_text), re.IGNORECASE):
+        return True
+
+    selector_terms = _stage_selector_terms(stage)
+    if not selector_terms:
+        return False
+    has_state_mutation = bool(
+        re.search(
+            r"\.(?:setAttribute|style\.[A-Za-z-]+|textContent|innerText|innerHTML)\s*=|"
+            r"classList\.\s*(?:add|remove|toggle)\s*\(|"
+            r"\bgsap\s*\.\s*timeline\s*\(|\.(?:to|from|fromTo|set)\s*\(",
+            scripts,
+            re.IGNORECASE,
+        )
+    )
+    if not has_state_mutation:
+        return False
+    compact_html = re.sub(r"\s+", " ", html.lower())
+    for term in selector_terms:
+        normalized_term = term.lower()
+        if normalized_term in scripts.lower() or normalized_term in compact_html and normalized_term.strip(".#") in scripts.lower():
+            return True
+    return False
+
+
+def _stage_selector_terms(stage: Tag) -> set[str]:
+    terms: set[str] = set()
+    for item in stage.find_all(True):
+        tag_id = str(item.get("id", "") or "").strip()
+        if tag_id:
+            terms.add(f"#{tag_id}")
+            terms.add(tag_id)
+        for class_name in item.get("class", []) or []:
+            class_text = str(class_name).strip()
+            if class_text:
+                terms.add(f".{class_text}")
+                terms.add(class_text)
+        data_role = str(item.get("data-role", "") or "").strip()
+        if data_role:
+            terms.add(data_role)
+    return terms
 
 
 def _handler_starts_animation(handler: str) -> bool:
