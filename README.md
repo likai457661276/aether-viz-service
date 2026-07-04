@@ -213,9 +213,40 @@ GET /static-html/physics/newton-second-law.html
   "topic": "熵增演示",
   "phase": "revise",
   "current_html": "<!doctype html>...",
-  "instruction": "把动画速度调慢，说明文字放到左侧"
+  "instruction": "把动画速度调慢，说明文字放到左侧",
+  "context": {
+    "topic": "熵增演示",
+    "selected_file": {
+      "id": "html-...",
+      "title": "熵增演示",
+      "mode": "svg_animation",
+      "topic": "熵增演示",
+      "html": "<!doctype html>...",
+      "html_size": 12345,
+      "created_at": 1760000000000
+    },
+    "available_files": [],
+    "plan_summary": {
+      "title": "熵增演示互动动画",
+      "goal": "用分层动画解释熵增的核心过程。",
+      "mode": "svg_animation"
+    },
+    "memory": {
+      "topic": "熵增演示",
+      "summary": "已生成互动实验 HTML。",
+      "user_preferences": [],
+      "completed_revisions": [],
+      "open_questions": [],
+      "current_file_notes": {},
+      "updated_at": 1760000000000
+    },
+    "recent_messages": [],
+    "user_message": "把动画速度调慢，说明文字放到左侧"
+  }
 }
 ```
+
+`context` 是前端 chat 会话的可选上下文字段，用于描述当前选择的 HTML 文件、可用文件摘要、计划摘要、短期记忆和最近有效消息。当前后端修订链路的硬性输入仍是 `topic`、`current_html` 和 `instruction`；未消费 `context` 的实现应保持向后兼容。
 
 响应类型为 `text/event-stream`。事件包括：
 
@@ -261,7 +292,7 @@ data: {"success": true, "stage": "done", "message": "已返回静态互动可视
 3. 未命中且 `phase=plan` 时由 `fallback_planner.py` 生成简化计划，字段包括 `subject`、`mode`、`animation_strategy`、`render_stack`、`stage_layout`、`storyboard`、`visual_steps`、`controls`、`formulas` 和 `primary_color`。
 4. 前端确认计划后，以 `phase=generate` 携带 `approved_plan` 再次请求。
 5. `react.py` 按 `mode` 与 `render_stack` 调用生成 prompt：SVG 表达结构和标注，Canvas 承担连续运动、轨迹或粒子，DOM 承担步骤说明、公式和控制区；动画由 CSS transition/keyframes 或 `requestAnimationFrame` 管理，不引入 GSAP。
-6. `phase=revise` 时，后端根据 `current_html + instruction` 修订当前页面，而不是重新走旧计划或复杂渲染路由。
+6. `phase=revise` 时，后端根据 `current_html + instruction` 修订当前页面，而不是重新走旧计划或复杂渲染路由；前端可附带 `context` 作为上下文增强信息，缺失时不影响修订。
 7. `fallback_validator.py` 提取 HTML、清理代码围栏；`validator.py` 执行文档结构、安全、依赖、交互和可视化区域校验。首次解析或校验失败时会发出 `progress stage=repairing` 并自动修复一次，成功时 `metadata.repaired=true`、`attempts=2`。
 
 主题色从 `topic` 中的 `#RRGGBB` 或中文颜色词提取，未提取到时使用默认色 `#22D3EE`。主题色适配通过后置 `:root` 覆盖层完成，不批量替换整份 HTML，也不覆盖学科语义色。
