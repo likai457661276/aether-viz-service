@@ -686,15 +686,13 @@ def test_generate_phase_uses_approved_plan_for_html(monkeypatch) -> None:
     assert calls[0][4] is True
     prompt, system_prompt = calls[0][0], calls[0][1]
     assert "主视觉居中契约" in prompt
-    assert "中文旁白式 caption" in prompt
-    assert "响应式舞台布局" in prompt
+    assert "叙事旁白" in prompt
     assert "避让主图" in prompt
-    assert "单屏无滚动布局" in prompt
-    assert "稳定优先" in prompt
+    assert "单屏无滚动" in prompt
     assert "底部安全间距" in prompt
-    assert "默认不要生成全局进度条" in prompt
+    assert "不要全局进度条" in prompt
     assert "生成来源文案" in prompt
-    assert "中文旁白式 caption" in system_prompt
+    assert "叙事字幕" in system_prompt
     assert "双语字幕" not in prompt + system_prompt
     assert "1920" not in prompt + system_prompt
     assert "2K" not in prompt + system_prompt

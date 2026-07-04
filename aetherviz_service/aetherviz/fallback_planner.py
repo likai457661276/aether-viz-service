@@ -267,7 +267,7 @@ def normalize_plan(raw_plan: dict | None, topic: str, primary_color: str = DEFAU
         animation_runtime = "native"
 
     formulas = _string_list(raw.get("formulas"), fallback["formulas"], max_items=4, max_len=80)
-    storyboard = _string_list(raw.get("storyboard"), fallback["storyboard"], max_items=5, max_len=140)
+    storyboard = _string_list(raw.get("storyboard"), fallback["storyboard"], max_items=5, max_len=220)
     timeline_scenes = _normalize_timeline_scenes(raw.get("timeline_scenes"), storyboard, fallback["timeline_scenes"])
     number_design = _normalize_number_design(raw.get("number_design"), fallback["number_design"])
 
@@ -283,7 +283,7 @@ def normalize_plan(raw_plan: dict | None, topic: str, primary_color: str = DEFAU
         "storyboard": storyboard,
         "timeline_scenes": timeline_scenes,
         "number_design": number_design,
-        "visual_steps": _string_list(raw.get("visual_steps"), fallback["visual_steps"], max_items=5, max_len=120),
+        "visual_steps": _string_list(raw.get("visual_steps"), fallback["visual_steps"], max_items=5, max_len=180),
         "controls": _normalize_controls(raw.get("controls"), fallback["controls"]),
         "formulas": formulas,
         "primary_color": _safe_str(raw.get("primary_color")) or primary_color,
