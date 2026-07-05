@@ -248,7 +248,7 @@ def build_revision_patch_prompt(
             "保持当前选中文件的教学主题和主要结构。",
         ],
     }
-    return f"""请根据以下结构化上下文生成 AetherViz 局部修改补丁。
+    return f"""请根据以下结构化上下文生成局部修改补丁。
 
 输出必须是严格 JSON，格式：
 {{
@@ -291,7 +291,7 @@ def build_revision_patch_repair_prompt(
     error_detail: str,
     context: dict[str, Any] | None = None,
 ) -> str:
-    return f"""上一次 AetherViz 局部补丁失败，请只修复补丁 JSON。
+    return f"""上一次局部补丁失败，请只修复补丁 JSON。
 
 教学主题：{topic}
 用户修改意见：{instruction.strip()}
@@ -318,7 +318,7 @@ def build_adjusted_plan_fallback_prompt(
     summary = summarize_revision_index(analysis.revision_index)
     return f"""局部补丁两次失败，请进入方案级兜底，但不要使用完整 HTML。
 
-任务：根据用户修改意见、原方案摘要、当前页面结构摘要和失败原因，重新规划并生成完整独立 AetherViz HTML。
+任务：根据用户修改意见、原方案摘要、当前页面结构摘要和失败原因，重新规划并生成完整独立互动教学 HTML。
 
 教学主题：{topic}
 用户修改意见：{instruction.strip()}

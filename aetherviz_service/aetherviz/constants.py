@@ -1,0 +1,5 @@
+"""AetherViz generation constants."""
+
+PLANNING_MAX_TOKENS = 1200
+HTML_OUTPUT_MAX_TOKENS = 12000
+HTML_ENABLE_THINKING = True

@@ -23,7 +23,7 @@ VALID_ANIMATION_STRATEGIES = {"step_by_step", "continuous", "interactive_param"}
 VALID_RENDER_STACKS = {"svg", "svg_canvas", "canvas_svg", "dom_svg"}
 VALID_ANIMATION_RUNTIMES = {"native", "gsap_timeline"}
 
-PLANNING_SYSTEM_PROMPT_TEMPLATE = """你是 AetherViz 互动教学动画规划师。
+PLANNING_SYSTEM_PROMPT_TEMPLATE = """你是资深互动教学动画规划师。
 为初高中学生设计一套可生成 HTML 的互动教学动画方案。
 
 规划原则：
@@ -118,7 +118,7 @@ def build_planning_prompt(topic: str, primary_color: str) -> tuple[str, str]:
     animation_strategy = select_animation_strategy(subject)
     render_stack = select_render_stack(subject, topic)
     animation_runtime = select_animation_runtime(subject, topic, render_stack)
-    user_prompt = f"""请为以下教学主题设计一套 AetherViz 互动教学动画方案：
+    user_prompt = f"""请为以下教学主题设计一套互动教学动画方案：
 
 主题：{topic}
 服务端学科识别：{subject}

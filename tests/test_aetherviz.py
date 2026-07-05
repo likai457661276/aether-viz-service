@@ -1067,7 +1067,8 @@ def test_detect_subject_general_fallback() -> None:
 def test_build_planning_prompt_contains_subject_guide() -> None:
     from aetherviz_service.aetherviz.fallback_planner import build_planning_prompt
     sys_prompt, user_prompt = build_planning_prompt("二次函数", "#22D3EE")
-    assert "AetherViz" in sys_prompt
+    assert "资深互动教学动画规划师" in sys_prompt
+    assert "AetherViz" not in sys_prompt
     assert "二次函数" in user_prompt
     assert "服务端学科识别：math" in user_prompt
     assert "推荐生成模式：math_interactive" in user_prompt
@@ -1082,6 +1083,20 @@ def test_build_planning_prompt_contains_subject_guide() -> None:
     assert "输出 JSON 示例" not in sys_prompt
     assert "平行四边形面积互动动画" not in sys_prompt
     assert "剪拼动画" not in sys_prompt
+
+
+def test_generation_prompt_requires_visible_scene_list() -> None:
+    from aetherviz_service.aetherviz.prompts import BASE_HTML_SYSTEM_PROMPT, build_generation_prompt
+
+    plan = sample_approved_plan("勾股定理")
+    prompt = build_generation_prompt("勾股定理", plan)
+
+    assert "完整分镜/动画实现说明列表" in BASE_HTML_SYSTEM_PROMPT
+    assert "当前播放到哪一幕" in BASE_HTML_SYSTEM_PROMPT
+    assert "active" in BASE_HTML_SYSTEM_PROMPT
+    assert "aria-current=\"step\"" in BASE_HTML_SYSTEM_PROMPT
+    assert "覆盖所有 timeline_scenes 或 storyboard 条目" in prompt
+    assert "当前幕用 active/current 状态同步标注" in prompt
 
 
 def test_default_math_number_design_is_not_pythagorean_hardcoded() -> None:
