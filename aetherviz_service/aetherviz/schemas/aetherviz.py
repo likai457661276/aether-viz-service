@@ -1,15 +1,9 @@
-from typing import Any, Literal, Optional
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
 
-GenerationMode = Literal[
-    "svg_animation",
-    "math_interactive",
-    "process_flow",
-]
-
-AnimationStrategy = Literal["step_by_step", "continuous", "interactive_param"]
+InteractiveType = Literal["simulation", "diagram", "game"]
 RenderStack = Literal["svg", "svg_canvas", "canvas_svg", "dom_svg"]
 AnimationRuntime = Literal["native", "gsap_timeline"]
 
@@ -17,37 +11,37 @@ AnimationRuntime = Literal["native", "gsap_timeline"]
 class AetherVizPlanControl(BaseModel):
     id: str
     label: str
-    type: Literal["slider", "button", "speed"]
+    type: Literal["slider", "button", "speed", "toggle", "select"]
+    bind: str | None = None
+    action: str | None = None
 
 
-class AetherVizTimelineScene(BaseModel):
+class AetherVizTeachingFlowStep(BaseModel):
     id: str
     label: str
-    duration: float | None = None
     focus: str
     caption: str
 
 
-class AetherVizNumberDesign(BaseModel):
-    default_values: list[str] = Field(default_factory=list)
-    reason: str | None = None
+class AetherVizRuntime(BaseModel):
+    render_stack: RenderStack = "svg"
+    animation_runtime: AnimationRuntime = "native"
+    external_libraries: list[str] = Field(default_factory=list)
 
 
 class AetherVizPlan(BaseModel):
+    page_type: Literal["interactive"] = "interactive"
+    interactive_type: InteractiveType
     subject: str
-    mode: GenerationMode
-    animation_strategy: Optional[AnimationStrategy] = None
-    render_stack: Optional[RenderStack] = None
-    animation_runtime: AnimationRuntime = "native"
     title: str
     goal: str
+    learner_level: str | None = None
     stage_layout: str | None = None
-    storyboard: list[str] = Field(default_factory=list)
-    timeline_scenes: list[AetherVizTimelineScene] = Field(default_factory=list)
-    number_design: AetherVizNumberDesign | None = None
-    visual_steps: list[str] = Field(default_factory=list)
+    interactive_spec: dict[str, Any] = Field(default_factory=dict)
+    teaching_flow: list[AetherVizTeachingFlowStep] = Field(default_factory=list)
     controls: list[AetherVizPlanControl] = Field(default_factory=list)
     formulas: list[str] = Field(default_factory=list)
+    runtime: AetherVizRuntime = Field(default_factory=AetherVizRuntime)
     primary_color: str = "#22D3EE"
 
 
@@ -55,6 +49,7 @@ class GenerateAetherVizSpecRequest(BaseModel):
     topic: str = Field(...)
     phase: Literal["plan", "generate", "revise"] = "plan"
     approved_plan: AetherVizPlan | None = None
+    # Deprecated: revise no longer reads or sends HTML into the planning chain.
     current_html: str | None = None
     instruction: str | None = None
     context: dict[str, Any] | None = None

@@ -8,15 +8,12 @@ from aetherviz_service.aetherviz.constants import HTML_OUTPUT_MAX_TOKENS
 from aetherviz_service.aetherviz.fallback_validator import AetherVizInteractiveHtmlError
 from aetherviz_service.aetherviz.html_output import parse_and_validate_html
 from aetherviz_service.aetherviz.prompts import (
-    GENERIC_SVG_SYSTEM_PROMPT,
-    MATH_SYSTEM_PROMPT,
     REPAIR_SYSTEM_PROMPT,
-    build_generation_prompt,
+    build_interactive_generation_prompt,
     build_repair_prompt,
-    is_math_mode,
     system_prompt_for_plan,
+    system_prompt_for_interactive_type,
 )
-from aetherviz_service.aetherviz.revision import build_revision_index
 from aetherviz_service.aetherviz.schemas.aetherviz import GenerateAetherVizHtmlMetadata
 from aetherviz_service.aetherviz.sse import progress_event, sse_event
 from aetherviz_service.aetherviz.streaming import LLMStreamCallable, estimate_output_tokens, stream_llm_output
@@ -29,14 +26,13 @@ def generate_from_plan_stream(topic: str, plan: dict, *, llm_stream: LLMStreamCa
         "计划已确认，正在生成独立 HTML 动画页面",
         65,
         phase="generate",
-        mode=plan["mode"],
+        interactive_type=plan["interactive_type"],
         plan=plan,
         subject=plan["subject"],
     )
 
-    prompt = build_generation_prompt(topic, plan)
-    base_system_prompt = MATH_SYSTEM_PROMPT if is_math_mode(plan["mode"]) else GENERIC_SVG_SYSTEM_PROMPT
-    system_prompt = system_prompt_for_plan(base_system_prompt, plan)
+    prompt = build_interactive_generation_prompt(topic, plan)
+    system_prompt = system_prompt_for_interactive_type(plan)
     raw_html = yield from stream_llm_output(
         prompt,
         system_prompt=system_prompt,
@@ -64,10 +60,10 @@ def generate_from_plan_stream(topic: str, plan: dict, *, llm_stream: LLMStreamCa
         topic=topic,
         attempts=attempts,
         repaired=repaired,
-        source="llm_svg",
+        source="llm_interactive",
         degraded=True,
         validation_warnings=warnings,
-        render_mode=plan["mode"],
+        render_mode=plan["interactive_type"],
         subject=plan["subject"],
         plan=plan,
     )
@@ -79,11 +75,10 @@ def generate_from_plan_stream(topic: str, plan: dict, *, llm_stream: LLMStreamCa
             "message": f"已返回自包含互动教学页面，共输出约 {output_tokens_total} Token",
             "progress": 100,
             "phase": "generate",
-            "mode": plan["mode"],
+            "interactive_type": plan["interactive_type"],
             "html": html_output,
             "output_tokens_total": output_tokens_total,
             "metadata": metadata.model_dump(),
-            "revision_index": build_revision_index(html_output),
         },
     )
 
@@ -108,7 +103,7 @@ def parse_validate_or_repair_stream(
             f"{source_label}结果未通过质量检查，正在自动修复一次",
             93,
             phase=phase,
-            mode=plan.get("mode"),
+            interactive_type=plan.get("interactive_type"),
             subject=plan.get("subject"),
             detail=first_error,
         )

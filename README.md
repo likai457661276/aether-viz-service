@@ -168,7 +168,7 @@ GET /static-html/physics/newton-second-law.html
 
 ### POST /generate-aetherviz-spec
 
-根据教学主题生成 AI互动实验风格的完整独立互动教学 HTML。接口采用同端 SSE；静态知识点命中时直接返回 HTML，动态生成支持 `svg_animation`、`math_interactive`、`process_flow` 三种模式，并通过 `animation_strategy` 描述分步、连续或参数调控动画策略。
+根据教学主题生成 AI互动实验风格的完整独立互动教学 HTML。接口采用同端 SSE；静态知识点命中时直接返回 HTML，动态生成统一为单页 `interactive` 计划，并通过 `interactive_type` 分流为 `simulation`、`diagram` 或 `game`。
 
 计划阶段请求示例：
 
@@ -186,65 +186,67 @@ GET /static-html/physics/newton-second-law.html
   "topic": "熵增演示",
   "phase": "generate",
   "approved_plan": {
+    "page_type": "interactive",
+    "interactive_type": "simulation",
     "subject": "general",
-    "mode": "svg_animation",
-    "animation_strategy": "step_by_step",
-    "render_stack": "svg_canvas",
     "title": "熵增演示互动动画",
     "goal": "用分层动画解释熵增的核心过程。",
+    "learner_level": "初中/高中",
     "stage_layout": "顶部展示学习目标，中间大舞台展示粒子扩散轨迹，底部放置播放控制和结论区。",
-    "storyboard": ["镜头1：粒子从有序聚集开始", "镜头2：粒子扩散并留下轨迹", "镜头3：结论区高亮无序度增加"],
-    "visual_steps": ["生活类比", "观察状态变化", "拖动变量验证"],
+    "interactive_spec": {
+      "concept": "熵增",
+      "description": "通过调节速度观察粒子从有序到无序的变化。",
+      "variables": [
+        {"name": "speed", "label": "速度", "min": 0.5, "max": 2, "default": 1, "step": 0.1, "unit": "x"}
+      ],
+      "observations": ["观察扩散速度改变后，粒子状态和结论如何同步变化。"]
+    },
+    "teaching_flow": [
+      {"id": "observe", "label": "观察初始状态", "focus": "粒子从有序聚集开始", "caption": "先观察初始有序状态。"},
+      {"id": "interact", "label": "调节速度", "focus": "粒子扩散并留下轨迹", "caption": "拖动速度观察扩散差异。"},
+      {"id": "conclude", "label": "形成结论", "focus": "结论区高亮无序度增加", "caption": "把观察结果和熵增规律对应起来。"}
+    ],
     "controls": [
-      {"id": "particle-count-slider", "label": "粒子数量", "type": "slider"},
-      {"id": "replay-btn", "label": "演示一次", "type": "button"},
-      {"id": "speed-control", "label": "速度", "type": "speed"}
+      {"id": "speed-control", "label": "速度", "type": "slider", "bind": "speed"},
+      {"id": "replay-btn", "label": "演示一次", "type": "button", "action": "play"},
+      {"id": "reset-button", "label": "重置", "type": "button", "action": "reset"}
     ],
     "formulas": [],
+    "runtime": {"render_stack": "svg_canvas", "animation_runtime": "native", "external_libraries": []},
     "primary_color": "#22D3EE"
   }
 }
 ```
 
-修订阶段请求示例：
+重新规划阶段请求示例：
 
 ```json
 {
   "topic": "熵增演示",
   "phase": "revise",
-  "current_html": "<!doctype html>...",
   "instruction": "把动画速度调慢，说明文字放到左侧",
   "context": {
     "topic": "熵增演示",
     "selected_file": {
       "id": "html-...",
       "title": "熵增演示",
-      "mode": "svg_animation",
+      "mode": "simulation",
       "topic": "熵增演示",
       "html_size": 12345,
-      "created_at": 1760000000000,
-      "revision_index": {
-        "version": "revision-index-v1",
-        "html_hash": "sha256:...",
-        "regions": []
-      }
+      "created_at": 1760000000000
     },
     "available_files": [],
-    "revision_index": {
-      "version": "revision-index-v1",
-      "html_hash": "sha256:...",
-      "regions": []
-    },
     "plan_summary": {
       "title": "熵增演示互动动画",
       "goal": "用分层动画解释熵增的核心过程。",
-      "mode": "svg_animation"
+      "mode": "simulation",
+      "interactive_type": "simulation"
     },
     "memory": {
       "topic": "熵增演示",
       "summary": "已生成互动实验 HTML。",
       "user_preferences": [],
-      "completed_revisions": [],
+      "completed_regenerations": [],
       "open_questions": [],
       "current_file_notes": {},
       "updated_at": 1760000000000
@@ -255,21 +257,17 @@ GET /static-html/physics/newton-second-law.html
 }
 ```
 
-`context` 是前端 chat 会话的可选上下文字段，用于描述当前选择的 HTML 文件、可用文件摘要、计划摘要、短期记忆、最近有效消息和选中文件的 `revision_index`。完整 HTML 仍只通过顶层 `current_html` 提供给后端解析、合并和校验，不应重复放入 `selected_file.html`。
+`context` 是前端 chat 会话的可选上下文字段，用于描述当前选择的文件摘要、可用文件摘要、计划摘要、短期记忆和最近有效消息。`phase=revise` 不接收也不读取完整 HTML，只基于用户要求和计划摘要生成新的 `plan_ready`，用户确认后再用 `phase=generate` 生成新的 HTML 分支。
 
 响应类型为 `text/event-stream`。事件包括：
 
 - `start`：生成任务启动。
 - `progress`：阶段进度，例如 `static_match`、`planning` 或 `generating`。
 - `thinking_delta`：HTML 生成、自动修复和修订阶段的用户可读中文思考摘要；兼容模型返回英文 `reasoning_content` 时，服务端会转成中文摘要后再透出。计划阶段默认不启用思考流。
-- `plan_delta`：计划阶段的结构化计划 JSON 输出片段。
+- `plan_delta`：计划阶段或重新规划阶段的结构化计划 JSON 输出片段。
 - `plan_ready`：计划阶段完成，包含结构化 `plan`；用户确认后再请求 `phase=generate`。
 - `generation_delta`：生成阶段的大模型输出片段，携带本次 `output_tokens` 和累计 `output_tokens_total`；不包含输入 prompt token。
-- `revise_analyzing`：修订阶段正在分析 HTML 结构和用户修改意图。
-- `revise_locating`：修订阶段正在根据索引定位候选修改区域。
-- `revise_patching`：修订阶段正在生成局部修改补丁。
-- `revise_merging`：修订阶段正在合并补丁并校验 HTML。
-- `done`：生成完成，包含最终 `html`、`metadata` 和可选 `revision_index`。
+- `done`：生成完成，包含最终 `html` 和 `metadata`。
 - `error`：生成失败，包含用户可读 `message`、阶段 `stage` 和调试用 `detail`。
 
 典型静态命中流程：
@@ -289,7 +287,7 @@ data: {"success": true, "stage": "done", "message": "已返回静态互动可视
 
 - `400`：`topic` 为空。
 - `400`：`phase=generate` 时缺少 `approved_plan`。
-- `400`：`phase=revise` 时缺少 `current_html` 或 `instruction`。
+- `400`：`phase=revise` 时缺少 `instruction`。
 - SSE `error` 且 `stage=static_html_missing`：主题已命中知识点，但静态 HTML 文件不可用。
 - SSE `error` 且 `stage=llm_error`：调用模型服务失败。
 - SSE `error` 且 `stage=fallback_failed`：互动 HTML 输出解析或基础质量门未通过；系统已尝试一次自动修复但仍失败。
@@ -302,12 +300,11 @@ data: {"success": true, "stage": "done", "message": "已返回静态互动可视
 
 1. 通过 `matcher.py` 对主题做服务端知识点关键词匹配。
 2. 命中后读取 `aetherviz/html/{subject}/{slug}.html`，并通过 `static_html.py` 注入运行时主题色覆盖层。
-3. 未命中且 `phase=plan` 时由 `fallback_planner.py` 生成简化计划，字段包括 `subject`、`mode`、`animation_strategy`、`render_stack`、`stage_layout`、`storyboard`、`visual_steps`、`controls`、`formulas` 和 `primary_color`。
+3. 未命中且 `phase=plan` 时由 `fallback_planner.py` 生成单页 interactive 计划，字段包括 `page_type`、`interactive_type`、`subject`、`title`、`goal`、`stage_layout`、`interactive_spec`、`teaching_flow`、`controls`、`formulas`、`runtime` 和 `primary_color`。
 4. 前端确认计划后，以 `phase=generate` 携带 `approved_plan` 再次请求。
-5. `react.py` 按 `mode` 与 `render_stack` 调用生成 prompt：SVG 表达结构和标注，Canvas 承担连续运动、轨迹或粒子，DOM 承担步骤说明、公式和控制区；动画由 CSS transition/keyframes、`requestAnimationFrame` 或计划指定的 GSAP Timeline 管理。
-6. 生成和修订成功后，服务端从最终 HTML 派生 `revision_index`，随 `done` 事件返回。索引包含文档、区域、样式、脚本、动态写入和受保护运行时摘要，用于后续修订召回；索引不是可信事实来源，修订时仍以 `current_html` 为准。
-7. `phase=revise` 时，后端先规范化 `current_html`，校验或即时生成 `revision_index`，再做意图分类、候选区域定位、最小上下文构造、局部补丁生成、合并和校验。局部补丁失败时自动修复一次；再次失败时进入方案级兜底，仅使用方案摘要、结构索引摘要和错误原因重新生成 HTML，不把完整 HTML 交给模型重写。
-8. `fallback_validator.py` 提取 HTML、清理代码围栏；`validator.py` 执行文档结构、安全、依赖、交互和可视化区域校验。首次解析或校验失败时会发出 `progress stage=repairing` 并自动修复一次，成功时 `metadata.repaired=true`、`attempts=2`。
+5. `react.py` 按 `interactive_type` 选择 simulation、diagram 或 game 生成 prompt；SVG 表达结构和标注，Canvas 承担连续运动、轨迹或粒子，DOM 承担步骤说明、公式和控制区；动画由 CSS transition/keyframes、`requestAnimationFrame` 或计划指定的 GSAP Timeline 管理。
+6. `phase=revise` 时，后端忽略废弃的 HTML 入参，只基于 `instruction`、`context.plan_summary` 和会话摘要重新规划，返回新的 `plan_ready`，不生成补丁、不合并 HTML、不返回旧索引字段。
+7. `fallback_validator.py` 提取 HTML、清理代码围栏；`validator.py` 执行文档结构、安全、依赖、交互和可视化区域校验。首次解析或校验失败时会发出 `progress stage=repairing` 并自动修复一次，成功时 `metadata.repaired=true`、`attempts=2`。
 
 主题色从 `topic` 中的 `#RRGGBB` 或中文颜色词提取，未提取到时使用默认色 `#22D3EE`。主题色适配通过后置 `:root` 覆盖层完成，不批量替换整份 HTML，也不覆盖学科语义色。
 

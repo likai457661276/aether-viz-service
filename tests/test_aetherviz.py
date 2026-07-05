@@ -38,31 +38,34 @@ def parse_sse_events(response):
 
 def sample_approved_plan(topic: str = "熵增演示") -> dict:
     return {
+        "page_type": "interactive",
+        "interactive_type": "simulation",
         "subject": "general",
-        "mode": "svg_animation",
-        "animation_strategy": "step_by_step",
-        "render_stack": "dom_svg",
-        "animation_runtime": "native",
         "title": f"{topic}互动动画",
-        "goal": f"用清晰分镜动画解释“{topic}”的核心过程。",
+        "goal": f"用单页互动仿真解释“{topic}”的核心过程。",
+        "learner_level": "初中/高中",
         "stage_layout": "顶部展示学习目标，中间大舞台展示主动画，底部放置播放控制和公式结论。",
-        "storyboard": ["镜头1：初始状态居中出现", "镜头2：核心变化被高亮", "镜头3：结论区同步总结"],
-        "timeline_scenes": [
-            {"id": "scene_intro", "label": "初始观察", "duration": 1.0, "focus": "初始状态居中出现", "caption": "先观察初始状态。"},
-            {"id": "scene_change", "label": "核心变化", "duration": 1.0, "focus": "核心变化被高亮", "caption": "观察核心变化。"},
-            {"id": "scene_summary", "label": "结论总结", "duration": 1.0, "focus": "结论区同步总结", "caption": "回顾结论。"},
-        ],
-        "number_design": {
-            "default_values": ["速度 = 1x", "步骤 = 3"],
-            "reason": "使用默认速度和三段式步骤，便于学生按步骤观察。",
+        "interactive_spec": {
+            "concept": topic,
+            "description": "通过调节关键参数观察状态扩散和结论变化。",
+            "variables": [
+                {"name": "speed", "label": "速度", "min": 0.5, "max": 2, "default": 1, "step": 0.1, "unit": "x"}
+            ],
+            "presets": [{"id": "default", "label": "默认", "values": {"speed": 1}}],
+            "observations": ["观察速度变化后主舞台和 caption 如何同步更新。"],
         },
-        "visual_steps": ["生活类比", "观察现象", "播放过程", "交互验证"],
+        "teaching_flow": [
+            {"id": "observe", "label": "初始观察", "focus": "初始状态居中出现", "caption": "先观察初始状态。"},
+            {"id": "interact", "label": "参数互动", "focus": "核心变化被高亮", "caption": "调节参数观察核心变化。"},
+            {"id": "conclude", "label": "结论总结", "focus": "结论区同步总结", "caption": "回顾结论。"},
+        ],
         "controls": [
-            {"id": "step-button", "label": "下一步", "type": "button"},
-            {"id": "speed-control", "label": "速度", "type": "speed"},
-            {"id": "reset-button", "label": "重置", "type": "button"},
+            {"id": "speed-control", "label": "速度", "type": "slider", "bind": "speed"},
+            {"id": "play-button", "label": "播放", "type": "button", "action": "play"},
+            {"id": "reset-button", "label": "重置", "type": "button", "action": "reset"},
         ],
         "formulas": [],
+        "runtime": {"render_stack": "dom_svg", "animation_runtime": "native", "external_libraries": []},
         "primary_color": "#22D3EE",
     }
 
@@ -585,17 +588,17 @@ def test_unmatched_topic_plan_phase_streams_plan_without_html_generation(monkeyp
     def fake_llm_stream(prompt: str, system_prompt: str, max_tokens: int = 0, temperature: float = 0.3, enable_thinking: bool = False):
         stream_calls.append((prompt, system_prompt, max_tokens, temperature, enable_thinking))
         raw = json.dumps({
+            "page_type": "interactive",
+            "interactive_type": "diagram",
             "subject": "general",
-            "mode": "svg_animation",
-            "animation_strategy": "step_by_step",
-            "render_stack": "dom_svg",
             "title": "熵增演示互动动画",
             "goal": "用清晰分镜动画解释熵增演示。",
             "stage_layout": "顶部目标导航，中间大舞台，底部控制条和结论区。",
-            "storyboard": ["镜头1：粒子初始聚集", "镜头2：粒子扩散并留下轨迹", "镜头3：结论区高亮熵增"],
-            "visual_steps": ["生活类比", "观察现象", "播放过程"],
+            "interactive_spec": {"nodes": [{"id": "entropy", "label": "熵增"}], "edges": [], "reveal_order": ["entropy"]},
+            "teaching_flow": [{"id": "step", "label": "生活类比", "focus": "粒子初始聚集", "caption": "观察聚集状态。"}],
             "controls": [{"id": "step-button", "label": "下一步", "type": "button"}],
             "formulas": [],
+            "runtime": {"render_stack": "dom_svg", "animation_runtime": "native", "external_libraries": []},
             "primary_color": "#22D3EE",
         })
         yield raw[:80]
@@ -614,8 +617,9 @@ def test_unmatched_topic_plan_phase_streams_plan_without_html_generation(monkeyp
     assert stream_calls[0][2] == react_module.PLANNING_MAX_TOKENS
     assert stream_calls[0][4] is False
     assert plan["subject"] == "general"
-    assert plan["mode"] == "svg_animation"
-    assert plan["render_stack"] == "dom_svg"
+    assert plan["page_type"] == "interactive"
+    assert plan["interactive_type"] in ("simulation", "diagram", "game")
+    assert plan["runtime"]["render_stack"] == "dom_svg"
     assert plan["controls"][0]["type"] == "button"
     assert "html" not in events[-1][1]
 
@@ -627,17 +631,21 @@ def test_plan_phase_disables_reasoning_delta_and_streams_math_css_mode(monkeypat
         calls.append((prompt, system_prompt, max_tokens, temperature, enable_thinking))
         yield LLMStreamChunk(kind="reasoning", delta="先判断这是数学几何主题。")
         raw = json.dumps({
+            "page_type": "interactive",
+            "interactive_type": "simulation",
             "subject": "math",
-            "mode": "math_interactive",
-            "animation_strategy": "interactive_param",
-            "render_stack": "svg",
             "title": "勾股定理互动动画",
             "goal": "通过拖动直角三角形边长观察面积关系。",
             "stage_layout": "顶部目标导航，中间大几何舞台，底部控制条和公式结论。",
-            "storyboard": ["镜头1：直角三角形居中", "镜头2：三边平方依次展开", "镜头3：公式区同步验证"],
-            "visual_steps": ["显示直角三角形", "展示三边平方", "拖动边长验证"],
+            "interactive_spec": {
+                "concept": "勾股定理",
+                "variables": [{"name": "leg", "label": "直角边", "min": 1, "max": 10, "default": 3, "step": 1}],
+                "observations": ["观察边长变化和面积关系。"],
+            },
+            "teaching_flow": [{"id": "observe", "label": "显示直角三角形", "focus": "直角三角形居中", "caption": "观察三边。"}],
             "controls": [{"id": "leg-slider", "label": "直角边", "type": "slider"}],
             "formulas": ["a^2+b^2=c^2"],
+            "runtime": {"render_stack": "svg", "animation_runtime": "native", "external_libraries": []},
             "primary_color": "#22D3EE",
         })
         yield LLMStreamChunk(kind="content", delta=raw)
@@ -649,7 +657,7 @@ def test_plan_phase_disables_reasoning_delta_and_streams_math_css_mode(monkeypat
     events = parse_sse_events(response)
     assert "thinking_delta" not in [event for event, _ in events]
     assert events[-1][0] == "plan_ready"
-    assert events[-1][1]["plan"]["mode"] == "math_interactive"
+    assert events[-1][1]["plan"]["interactive_type"] == "simulation"
     assert len(calls) == 1
     assert calls[0][2] == react_module.PLANNING_MAX_TOKENS
     assert calls[0][4] is False
@@ -711,11 +719,11 @@ def test_generate_phase_uses_approved_plan_for_html(monkeypatch) -> None:
     assert '<title>熵增演示</title>' in html
     assert "学习目标1" in html
     assert "核心概念A" in html
-    assert done_data["metadata"]["source"] == "llm_svg"
+    assert done_data["metadata"]["source"] == "llm_interactive"
     assert done_data["metadata"]["attempts"] == 1
     assert done_data["metadata"]["degraded"] is True
-    assert done_data["metadata"]["render_mode"] in ("svg_animation", "math_interactive", "process_flow")
-    assert done_data["metadata"]["plan"]["controls"][0]["id"] == "step-button"
+    assert done_data["metadata"]["render_mode"] in ("simulation", "diagram", "game")
+    assert done_data["metadata"]["plan"]["controls"][0]["id"] == "speed-control"
     assert done_data["output_tokens_total"] > 0
 
 
@@ -724,7 +732,7 @@ def test_generate_phase_converts_english_reasoning_to_chinese_summary(monkeypatc
         yield LLMStreamChunk(
             kind="reasoning",
             delta=(
-                "I'll structure the timeline: scene_intro, scene_area_compare, "
+                "I'll structure the teaching flow: observe, compare, "
                 "then enable sliders and write the HTML/CSS code carefully."
             ),
         )
@@ -741,10 +749,10 @@ def test_generate_phase_converts_english_reasoning_to_chinese_summary(monkeypatc
     thinking_events = [data for event, data in events if event == "thinking_delta"]
     assert thinking_events
     thinking_delta = thinking_events[0]["delta"]
-    assert "梳理分镜时间线" in thinking_delta
+    assert "梳理教学流程" in thinking_delta
     assert "规划播放、暂停、重置、速度和教学参数控件" in thinking_delta
     assert "I'll structure" not in thinking_delta
-    assert "scene_intro" not in thinking_delta
+    assert "observe" not in thinking_delta
     assert events[-1][0] == "done"
 
 
@@ -1067,18 +1075,16 @@ def test_detect_subject_general_fallback() -> None:
 def test_build_planning_prompt_contains_subject_guide() -> None:
     from aetherviz_service.aetherviz.fallback_planner import build_planning_prompt
     sys_prompt, user_prompt = build_planning_prompt("二次函数", "#22D3EE")
-    assert "资深互动教学动画规划师" in sys_prompt
+    assert "资深互动教学课件规划师" in sys_prompt
     assert "AetherViz" not in sys_prompt
     assert "二次函数" in user_prompt
     assert "服务端学科识别：math" in user_prompt
-    assert "推荐生成模式：math_interactive" in user_prompt
-    assert "推荐动画策略：interactive_param" in user_prompt
+    assert "推荐互动类型：simulation" in user_prompt
     assert "推荐渲染栈：svg" in user_prompt
-    assert "推荐动画运行时：gsap_timeline" in user_prompt
+    assert "推荐动画运行时：native" in user_prompt
     assert "stage_layout" in user_prompt
-    assert "storyboard" in sys_prompt
-    assert "timeline_scenes" in sys_prompt
-    assert "number_design" in sys_prompt
+    assert "interactive_spec" in sys_prompt
+    assert "teaching_flow" in sys_prompt
     assert "#22D3EE" in user_prompt
     assert "输出 JSON 示例" not in sys_prompt
     assert "平行四边形面积互动动画" not in sys_prompt
@@ -1086,38 +1092,36 @@ def test_build_planning_prompt_contains_subject_guide() -> None:
 
 
 def test_generation_prompt_requires_visible_scene_list() -> None:
-    from aetherviz_service.aetherviz.prompts import BASE_HTML_SYSTEM_PROMPT, build_generation_prompt
+    from aetherviz_service.aetherviz.prompts import INTERACTIVE_HTML_SYSTEM_PROMPT, build_interactive_generation_prompt
 
     plan = sample_approved_plan("勾股定理")
-    prompt = build_generation_prompt("勾股定理", plan)
+    prompt = build_interactive_generation_prompt("勾股定理", plan)
 
-    assert "完整分镜/动画实现说明列表" in BASE_HTML_SYSTEM_PROMPT
-    assert "当前播放到哪一幕" in BASE_HTML_SYSTEM_PROMPT
-    assert "active" in BASE_HTML_SYSTEM_PROMPT
-    assert "aria-current=\"step\"" in BASE_HTML_SYSTEM_PROMPT
-    assert "覆盖所有 timeline_scenes 或 storyboard 条目" in prompt
-    assert "当前幕用 active/current 状态同步标注" in prompt
+    assert "single-page interactive" in INTERACTIVE_HTML_SYSTEM_PROMPT
+    assert "active" in INTERACTIVE_HTML_SYSTEM_PROMPT
+    assert "aria-current=\"step\"" in INTERACTIVE_HTML_SYSTEM_PROMPT
+    assert "覆盖 teaching_flow 条目" in prompt
+    assert "当前步骤用 active/current 状态同步标注" in prompt
 
 
-def test_default_math_number_design_is_not_pythagorean_hardcoded() -> None:
+def test_default_math_simulation_spec_is_not_pythagorean_hardcoded() -> None:
     from aetherviz_service.aetherviz.fallback_planner import normalize_plan
 
     plan = normalize_plan({}, "勾股定理")
 
-    number_design = plan["number_design"]
-    assert number_design["default_values"] != ["a = 3", "b = 4", "c = 5"]
-    assert "3-4-5" not in (number_design.get("reason") or "")
-    assert "小整数" in (number_design.get("reason") or "")
+    assert plan["interactive_type"] == "simulation"
+    spec = plan["interactive_spec"]
+    assert spec["concept"] == "勾股定理"
+    assert "3-4-5" not in json.dumps(spec, ensure_ascii=False)
 
 
-def test_fallback_planner_selects_generation_modes() -> None:
-    from aetherviz_service.aetherviz.fallback_planner import detect_subject, select_generation_mode
+def test_fallback_planner_selects_interactive_types() -> None:
+    from aetherviz_service.aetherviz.fallback_planner import detect_subject, select_interactive_type
 
-    assert select_generation_mode(detect_subject("牛顿第二定律")) == "svg_animation"
-    assert select_generation_mode(detect_subject("电场线分布")) == "svg_animation"
-    assert select_generation_mode(detect_subject("化学反应速率")) == "process_flow"
-    assert select_generation_mode(detect_subject("分子结构")) == "process_flow"
-    assert select_generation_mode(detect_subject("平行四边形面积")) == "math_interactive"
+    assert select_interactive_type("牛顿第二定律运动实验", detect_subject("牛顿第二定律运动实验")) == "simulation"
+    assert select_interactive_type("化学反应速率", detect_subject("化学反应速率")) == "simulation"
+    assert select_interactive_type("阅读结构分析", detect_subject("阅读结构分析")) == "diagram"
+    assert select_interactive_type("排序闯关练习", detect_subject("排序闯关练习")) == "game"
 
 
 def test_planning_normalization_keeps_new_plan_shape() -> None:
@@ -1126,29 +1130,37 @@ def test_planning_normalization_keeps_new_plan_shape() -> None:
     plan = normalize_plan(
         {
             "subject": "physics",
-            "mode": "svg_animation",
-            "animation_strategy": "continuous",
-            "render_stack": "svg_canvas",
+            "interactive_type": "simulation",
+            "runtime": {"render_stack": "svg_canvas", "animation_runtime": "native", "external_libraries": []},
             "title": "力学过程互动动画",
             "goal": "观察力学过程的关键变化。",
             "stage_layout": "顶部目标导航，中间大舞台展示运动轨迹，底部控制速度和作用力。",
-            "storyboard": ["镜头1：物体与受力箭头出现", "镜头2：运动轨迹连续绘制", "镜头3：对比不同力的结果"],
-            "visual_steps": ["展示结构", "播放过程", "拖动变量"],
+            "interactive_spec": {
+                "concept": "力学过程",
+                "description": "调节作用力观察运动变化。",
+                "variables": [{"name": "force", "label": "作用力", "min": 1, "max": 10, "default": 5, "step": 1}],
+                "observations": ["观察运动轨迹变化"],
+            },
+            "teaching_flow": [
+                {"id": "observe", "label": "展示结构", "focus": "物体与受力箭头出现", "caption": "先观察受力结构。"},
+                {"id": "play", "label": "播放过程", "focus": "运动轨迹连续绘制", "caption": "再观察轨迹。"},
+                {"id": "compare", "label": "拖动变量", "focus": "对比不同力的结果", "caption": "最后比较结果。"},
+            ],
             "controls": [{"id": "force-slider", "label": "作用力", "type": "slider"}],
             "formulas": ["F=ma"],
         },
         "物理轻量化力学演示",
     )
 
-    assert plan["mode"] == "svg_animation"
+    assert plan["page_type"] == "interactive"
+    assert plan["interactive_type"] == "simulation"
     assert plan["subject"] == "physics"
-    assert plan["render_stack"] == "svg_canvas"
-    assert plan["animation_runtime"] in ("native", "gsap_timeline")
+    assert plan["runtime"]["render_stack"] == "svg_canvas"
+    assert plan["runtime"]["animation_runtime"] in ("native", "gsap_timeline")
     assert plan["title"] == "力学过程互动动画"
     assert plan["stage_layout"].startswith("顶部目标导航")
-    assert plan["storyboard"][0].startswith("镜头1")
-    assert len(plan["timeline_scenes"]) >= 3
-    assert plan["number_design"]["default_values"]
+    assert plan["interactive_spec"]["variables"][0]["name"] == "force"
+    assert len(plan["teaching_flow"]) >= 3
     assert plan["controls"][0]["id"] == "force-slider"
     assert plan["formulas"] == ["F=ma"]
 
@@ -1158,22 +1170,21 @@ def test_planning_parse_valid() -> None:
     raw = json.dumps({
         "title": "测试动画",
         "goal": "通过按钮点击切换步骤",
-        "render_stack": "dom_svg",
+        "interactive_type": "diagram",
+        "runtime": {"render_stack": "dom_svg", "animation_runtime": "native"},
         "stage_layout": "顶部目标导航，中间流程舞台，底部按钮控制。",
-        "storyboard": ["镜头1：初始状态", "镜头2：按钮切换", "镜头3：结论高亮"],
-        "visual_steps": ["目标一"],
+        "interactive_spec": {"nodes": [{"id": "a", "label": "A"}], "edges": [], "reveal_order": ["a"]},
+        "teaching_flow": [{"id": "step", "label": "目标一", "focus": "按钮切换", "caption": "观察切换。"}],
         "controls": [{"id": "step-button", "label": "步骤", "type": "button"}],
         "formulas": ["公式1"],
     })
     res = parse_planning_result(raw, "测试")
     assert res["title"] == "测试动画"
     assert res["goal"] == "通过按钮点击切换步骤"
-    assert res["render_stack"] == "dom_svg"
+    assert res["runtime"]["render_stack"] == "dom_svg"
     assert res["stage_layout"].startswith("顶部目标导航")
-    assert res["storyboard"][1] == "镜头2：按钮切换"
-    assert len(res["timeline_scenes"]) >= 3
-    assert res["number_design"]["reason"]
-    assert res["visual_steps"] == ["目标一"]
+    assert res["interactive_type"] == "diagram"
+    assert res["teaching_flow"][0]["label"] == "目标一"
     assert res["controls"][0]["id"] == "step-button"
     assert res["formulas"] == ["公式1"]
 
@@ -1184,7 +1195,9 @@ def test_planning_parse_plain_code_fence() -> None:
 {
   "title": "测试动画",
   "goal": "通过选择题即时反馈",
-  "visual_steps": ["目标一"],
+  "interactive_type": "game",
+  "interactive_spec": {"challenge": "完成反馈挑战", "success_condition": "答对", "feedback_rules": ["即时反馈"]},
+  "teaching_flow": [{"id": "goal", "label": "目标一", "focus": "选择反馈", "caption": "完成选择。"}],
   "controls": [{"id": "quiz-button", "label": "反馈", "type": "button"}],
   "formulas": ["公式1"]
 }
@@ -1192,7 +1205,8 @@ def test_planning_parse_plain_code_fence() -> None:
     res = parse_planning_result(raw, "测试")
     assert res["title"] == "测试动画"
     assert res["goal"] == "通过选择题即时反馈"
-    assert res["visual_steps"] == ["目标一"]
+    assert res["interactive_type"] == "game"
+    assert res["teaching_flow"][0]["label"] == "目标一"
     assert res["controls"][0]["id"] == "quiz-button"
     assert res["formulas"] == ["公式1"]
 
@@ -1200,14 +1214,12 @@ def test_planning_parse_plain_code_fence() -> None:
 def test_planning_parse_invalid_returns_default() -> None:
     from aetherviz_service.aetherviz.fallback_planner import parse_planning_result
     res = parse_planning_result("bad json data", "测试主题")
-    assert len(res["visual_steps"]) >= 3
-    assert len(res["storyboard"]) >= 3
-    assert len(res["timeline_scenes"]) >= 3
-    assert res["number_design"]["default_values"]
-    assert res["render_stack"] in ("svg", "svg_canvas", "canvas_svg", "dom_svg")
-    assert res["animation_runtime"] in ("native", "gsap_timeline")
+    assert len(res["teaching_flow"]) >= 3
+    assert res["interactive_spec"]
+    assert res["runtime"]["render_stack"] in ("svg", "svg_canvas", "canvas_svg", "dom_svg")
+    assert res["runtime"]["animation_runtime"] in ("native", "gsap_timeline")
     assert "测试主题" in res["title"]
-    assert res["mode"] in ("svg_animation", "math_interactive", "process_flow")
+    assert res["interactive_type"] in ("simulation", "diagram", "game")
 
 
 def test_fallback_planning_failure_returns_default_plan(monkeypatch) -> None:
@@ -1339,21 +1351,30 @@ def test_generate_phase_repairs_invalid_first_output(monkeypatch) -> None:
     assert "repaired" in events[-1][1]["html"]
 
 
-def test_revise_phase_updates_current_html(monkeypatch) -> None:
+def test_revise_phase_returns_new_plan_without_current_html(monkeypatch) -> None:
     calls = []
 
     def fake_llm_stream(prompt: str, system_prompt: str, max_tokens: int = 0, temperature: float = 0.3, enable_thinking: bool = False):
         calls.append((prompt, system_prompt, max_tokens, temperature, enable_thinking))
         yield json.dumps(
             {
-                "patch_plan": "更新 caption 文案以体现速度放慢",
-                "patches": [
-                    {
-                        "type": "replace_region",
-                        "target": {"kind": "dom", "selector": "#animation-caption"},
-                        "content": '<p id="animation-caption" class="animation-caption">revised：动画已调慢，请观察每一步变化。</p>',
-                    }
+                "page_type": "interactive",
+                "interactive_type": "simulation",
+                "subject": "general",
+                "title": "慢速熵增互动课件",
+                "goal": "通过更慢的参数变化观察熵增过程。",
+                "stage_layout": "顶部目标，中间粒子舞台，底部速度滑块和结论。",
+                "interactive_spec": {
+                    "concept": "熵增",
+                    "description": "调慢速度观察粒子扩散。",
+                    "variables": [{"name": "speed", "label": "速度", "min": 0.2, "max": 1, "default": 0.5, "step": 0.1}],
+                    "observations": ["观察慢速扩散。"],
+                },
+                "teaching_flow": [
+                    {"id": "observe", "label": "慢速观察", "focus": "粒子扩散速度降低", "caption": "放慢速度观察每一步变化。"}
                 ],
+                "controls": [{"id": "speed-slider", "label": "速度", "type": "slider", "bind": "speed"}],
+                "runtime": {"render_stack": "dom_svg", "animation_runtime": "native", "external_libraries": []},
             },
             ensure_ascii=False,
         )
@@ -1371,50 +1392,27 @@ def test_revise_phase_updates_current_html(monkeypatch) -> None:
     )
 
     events = parse_sse_events(response)
-    assert events[-1][0] == "done"
+    assert events[-1][0] == "plan_ready"
     assert len(calls) == 1
     prompt, system_prompt, max_tokens, temperature, enable_thinking = calls[0]
     assert "把动画速度调慢" in prompt
-    assert "revision_intent" in prompt
-    assert "targets" in prompt
-    assert "当前 HTML：" not in prompt
-    assert "HTML 局部修订工程师" in system_prompt
-    assert max_tokens == react_module.HTML_OUTPUT_MAX_TOKENS
-    assert temperature == 0.12
-    assert enable_thinking is True
-    assert [event for event, _ in events if event.startswith("revise_")] == [
-        "revise_analyzing",
-        "revise_locating",
-        "revise_patching",
-        "revise_merging",
-    ]
-    assert events[-1][1]["metadata"]["source"] == "llm_svg_revision"
-    assert events[-1][1]["metadata"]["attempts"] == 1
-    assert events[-1][1]["revision_index"]["version"] == "revision-index-v1"
-    assert "revised" in events[-1][1]["html"]
+    assert "不修改旧 HTML" in prompt
+    assert "before-revise" not in prompt
+    assert "interactive_spec" in system_prompt
+    assert max_tokens == react_module.PLANNING_MAX_TOKENS
+    assert temperature == 0.25
+    assert enable_thinking is False
+    assert events[-1][1]["phase"] == "revise"
+    assert events[-1][1]["plan"]["title"] == "慢速熵增互动课件"
+    assert "html" not in events[-1][1]
 
 
-def test_revise_phase_repairs_invalid_first_output(monkeypatch) -> None:
+def test_revise_phase_falls_back_to_default_plan_when_planning_fails(monkeypatch) -> None:
     calls = []
 
     def fake_llm_stream(prompt: str, system_prompt: str, max_tokens: int = 0, temperature: float = 0.3, enable_thinking: bool = False):
         calls.append((prompt, system_prompt, max_tokens, temperature, enable_thinking))
-        if len(calls) == 1:
-            yield "{broken-json"
-            return
-        yield json.dumps(
-            {
-                "patch_plan": "修复为有效 caption 替换补丁",
-                "patches": [
-                    {
-                        "type": "replace_region",
-                        "target": {"kind": "dom", "selector": "#animation-caption"},
-                        "content": '<p id="animation-caption" class="animation-caption">revise-repaired：动画速度已调慢。</p>',
-                    }
-                ],
-            },
-            ensure_ascii=False,
-        )
+        raise RuntimeError("planner down")
 
     monkeypatch.setattr(react_module, "call_llm_stream", fake_llm_stream)
 
@@ -1429,27 +1427,23 @@ def test_revise_phase_repairs_invalid_first_output(monkeypatch) -> None:
     )
 
     events = parse_sse_events(response)
-    assert any(data.get("stage") == "repairing" for event, data in events if event == "progress")
-    assert events[-1][0] == "done"
-    assert len(calls) == 2
-    assert all(call[4] is True for call in calls)
-    assert events[-1][1]["metadata"]["attempts"] == 2
-    assert events[-1][1]["metadata"]["repaired"] is True
-    assert events[-1][1]["revision_index"]["version"] == "revision-index-v1"
-    assert "revise-repaired" in events[-1][1]["html"]
+    assert events[-1][0] == "plan_ready"
+    assert len(calls) == 1
+    assert any("兜底计划" in data.get("message", "") for event, data in events if event == "plan_delta")
+    assert events[-1][1]["plan"]["page_type"] == "interactive"
+    assert events[-1][1]["plan"]["interactive_type"] in ("simulation", "diagram", "game")
 
 
-def test_revise_phase_requires_current_html_and_instruction() -> None:
-    missing_html = client.post(
+def test_revise_phase_requires_instruction_only() -> None:
+    without_html = client.post(
         "/generate-aetherviz-spec",
         json={"topic": "熵增演示", "phase": "revise", "instruction": "改慢一点"},
     )
-    assert missing_html.status_code == 400
-    assert missing_html.json()["detail"] == "current_html 不能为空"
+    assert without_html.status_code == 200
 
     missing_instruction = client.post(
         "/generate-aetherviz-spec",
-        json={"topic": "熵增演示", "phase": "revise", "current_html": sample_svg_html()},
+        json={"topic": "熵增演示", "phase": "revise"},
     )
     assert missing_instruction.status_code == 400
     assert missing_instruction.json()["detail"] == "instruction 不能为空"

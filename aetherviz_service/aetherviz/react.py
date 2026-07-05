@@ -3,7 +3,7 @@
 动态生成策略：
 - 静态知识点命中后直接返回静态 HTML。
 - 未命中时先生成结构化计划，再按确认计划生成自包含互动 HTML。
-- revise 基于 current_html + instruction 修订当前页面。
+- revise 基于上次计划摘要 + instruction 重新规划，确认后再生成新 HTML。
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ from aetherviz_service.aetherviz.fallback_validator import AetherVizInteractiveH
 from aetherviz_service.aetherviz.generation_stream import generate_from_plan_stream
 from aetherviz_service.aetherviz.matcher import match_topic_to_knowledge_point
 from aetherviz_service.aetherviz.planning_stream import planning_stream
-from aetherviz_service.aetherviz.revision_stream import revise_html_stream
+from aetherviz_service.aetherviz.revision_plan_stream import revise_plan_stream
 from aetherviz_service.aetherviz.sse import error_event, sse_event
 from aetherviz_service.aetherviz.static_html import StaticAetherVizHtmlError, extract_color_from_topic
 from aetherviz_service.aetherviz.static_stream import static_match_stream
@@ -67,13 +67,10 @@ def react_generate_stream(
             return
 
         if phase == "revise":
-            if not current_html or not current_html.strip():
-                yield error_event("html_required", "修订页面需要 current_html", "phase=revise 必须携带 current_html")
-                return
             if not instruction or not instruction.strip():
-                yield error_event("instruction_required", "修订页面需要修改意见", "phase=revise 必须携带 instruction")
+                yield error_event("instruction_required", "重新规划需要修改意见", "phase=revise 必须携带 instruction")
                 return
-            yield from revise_html_stream(topic, current_html, instruction, context=context, llm_stream=call_llm_stream)
+            yield from revise_plan_stream(topic, instruction, color=color, context=context, llm_stream=call_llm_stream)
             return
 
         yield error_event("invalid_phase", "不支持的生成阶段", f"phase={phase}")

@@ -27,17 +27,6 @@ def trim_after_html_end(value: str) -> str:
     return value[: end_index + len("</html>")]
 
 
-def compact_html_for_revision(html: str) -> str:
-    compacted = trim_after_html_end(html).strip()
-    if len(compacted) <= 22000:
-        return compacted
-    return (
-        compacted[:11000]
-        + "\n\n<!-- 中间过长内容已省略，修订时请保留原有页面结构并按修改意见更新 -->\n\n"
-        + compacted[-11000:]
-    )
-
-
 def coerce_llm_stream_chunk(chunk: object) -> LLMStreamChunk:
     if isinstance(chunk, LLMStreamChunk):
         return chunk
@@ -63,7 +52,7 @@ def to_user_readable_thinking(delta: str, *, stage: str) -> str:
     normalized = text.lower()
     points: list[str] = []
     keyword_points = (
-        (("timeline", "scene", "storyboard", "label"), "梳理分镜时间线和关键镜头顺序"),
+        (("teaching", "flow", "step", "label"), "梳理教学流程和关键观察步骤"),
         (("layout", "stage", "responsive", "viewport", "screen"), "压缩单屏响应式舞台，避免 iframe 出现滚动条"),
         (("slider", "button", "control", "interactive", "speed"), "规划播放、暂停、重置、速度和教学参数控件"),
         (("caption", "narration", "explain", "description"), "整理中文旁白说明，让学生知道每一步观察重点"),

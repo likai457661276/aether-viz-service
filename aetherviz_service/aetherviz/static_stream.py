@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections.abc import Iterator
 
 from aetherviz_service.aetherviz.knowledge_points import get_knowledge_point
-from aetherviz_service.aetherviz.revision import build_revision_index
 from aetherviz_service.aetherviz.schemas.aetherviz import GenerateAetherVizHtmlMetadata
 from aetherviz_service.aetherviz.sse import progress_event, sse_event
 from aetherviz_service.aetherviz.static_html import StaticAetherVizHtmlError, load_static_html_for_point
@@ -52,6 +51,5 @@ def static_match_stream(topic: str, color: str, match) -> Iterator[str]:
             "mode": "static",
             "html": html_output,
             "metadata": metadata.model_dump(),
-            "revision_index": build_revision_index(html_output),
         },
     )
