@@ -1,19 +1,12 @@
-"""AI互动实验 static-hit and interactive HTML fallback tests."""
+"""AI互动实验 OpenMAIC interactive fallback tests."""
 
-import base64
 import json
-from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
 import aetherviz_service.aetherviz.react as react_module
-import aetherviz_service.aetherviz.static_html as static_html_module
-from aetherviz_service.aetherviz.knowledge_points import KNOWLEDGE_POINTS, KnowledgePoint
-from aetherviz_service.aetherviz.static_html import (
-    DEFAULT_PRIMARY_COLOR,
-    static_html_path_for_point,
-)
+from aetherviz_service.aetherviz.theme import DEFAULT_PRIMARY_COLOR, extract_color_from_topic
 from aetherviz_service.llm_service import LLMStreamChunk
 from aetherviz_service.main import app
 
@@ -82,6 +75,16 @@ body {{ margin: 0; font-family: sans-serif; }}
 #aetherviz-stage {{ width: 100%; min-height: 240px; display: grid; place-items: center; }}
 #aetherviz-stage svg {{ display: block; margin: auto; max-width: 100%; max-height: 100%; }}
 </style>
+<script type="application/json" id="widget-config">
+{{
+  "type": "simulation",
+  "concept": "{topic}",
+  "description": "通过调节关键参数观察状态扩散和结论变化。",
+  "variables": [{{"name": "param", "label": "关键参数", "min": 0, "max": 100, "default": 50, "unit": ""}}],
+  "presets": [{{"id": "default", "label": "默认", "variables": {{"param": 50}}}}],
+  "observations": ["观察参数改变后主舞台和 caption 如何同步更新。"]
+}}
+</script>
 </head>
 <body>
 <h1>{topic}</h1>
@@ -118,6 +121,29 @@ const state = {{ mode: 'playing', progress: 0 }};
 const caption = document.getElementById('animation-caption');
 const movingDot = document.getElementById('moving-dot');
 const mainCurve = document.getElementById('main-curve');
+function handleWidgetAction(event) {{
+  const {{ type, target, state: widgetState, content }} = event.data || {{}};
+  if (type === 'SET_WIDGET_STATE' && widgetState) {{
+    Object.entries(widgetState).forEach(([key, value]) => {{
+      const input = document.getElementById(key + '-slider') || document.querySelector('[data-var="' + key + '"]') || document.getElementById(key);
+      if (input) {{
+        input.value = value;
+        input.dispatchEvent(new Event('input', {{ bubbles: true }}));
+      }}
+    }});
+  }}
+  if (type === 'HIGHLIGHT_ELEMENT' && target) {{
+    const el = document.querySelector(target);
+    if (el) el.setAttribute('data-highlighted', 'true');
+  }}
+  if (type === 'ANNOTATE_ELEMENT' && target && content) {{
+    caption.textContent = String(content);
+  }}
+  if (type === 'REVEAL_ELEMENT' && target) {{
+    const el = document.querySelector(target);
+    if (el) el.style.opacity = '1';
+  }}
+}}
 function updateVisualization() {{
   state.progress = (state.progress + 1) % 100;
   const x = 80 + state.progress * 1.6;
@@ -143,97 +169,12 @@ window.addEventListener('resize', () => updateVisualization());
 document.getElementById('play-animation').addEventListener('click', () => play());
 document.getElementById('pause-animation').addEventListener('click', () => pause());
 document.getElementById('reset-animation').addEventListener('click', () => reset());
+window.addEventListener('message', handleWidgetAction);
 window.AetherVizRuntime = {{ play, pause, reset, setSpeed, update, getState }};
 window.__AETHERVIZ_RUNTIME_READY__ = true;
 window.__AETHERVIZ_RUNTIME_ERROR__ = null;
 animationLoop();
 console.log("{marker}");
-</script>
-</body>
-</html>"""
-
-
-def sample_gsap_html(topic: str = "勾股定理") -> str:
-    return f"""<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-<meta charset="utf-8">
-<title>{topic}</title>
-<style>
-body {{ margin: 0; font-family: sans-serif; }}
-#aetherviz-stage {{ width: min(960px, 94vw); min-height: 320px; margin: 0 auto; display: grid; place-items: center; }}
-#aetherviz-stage svg {{ display: block; margin: auto; max-width: 100%; max-height: 100%; }}
-.square {{ opacity: 0; transform-origin: center; }}
-</style>
-</head>
-<body>
-<h1>{topic}</h1>
-<section class="learning-objectives">
-  <h2>学习目标</h2>
-  <ul>
-    <li>认识直角三角形三边关系</li>
-    <li>观察三个正方形面积变化</li>
-    <li>验证 a² + b² = c²</li>
-  </ul>
-</section>
-<section>
-  <h2>核心公式</h2>
-  <p>a² + b² = c²</p>
-</section>
-<main id="aetherviz-stage">
-  <p id="animation-caption" class="animation-caption">当前步骤：观察 3-4-5 直角三角形。</p>
-  <svg viewBox="0 0 360 220" preserveAspectRatio="xMidYMid meet" role="img" aria-label="{topic}互动图形">
-    <g id="main-visual-group">
-      <polygon id="main-shape" points="80,170 80,50 240,170" fill="#dbeafe" stroke="#2563eb"></polygon>
-      <rect id="square-a" class="square" x="20" y="50" width="60" height="120" fill="#22D3EE"></rect>
-      <rect id="square-b" class="square" x="80" y="170" width="160" height="30" fill="#FBBF24"></rect>
-      <rect id="square-c" class="square" x="235" y="65" width="95" height="95" fill="#A78BFA"></rect>
-      <text id="formula-a" x="130" y="30">3² + 4² = 5²</text>
-    </g>
-  </svg>
-</main>
-<div class="control-panel">
-  <button id="play-animation">播放</button>
-  <button id="pause-animation">暂停</button>
-  <button id="reset-animation">重置</button>
-  <label>速度 <input type="range" id="speed-control" min="0.5" max="2" step="0.5" value="1"></label>
-  <label>进度 <input type="range" id="progress-slider" min="0" max="1" step="0.01" value="0"></label>
-</div>
-<script src="https://cdn.jsdelivr.net/npm/gsap@3.15.0/dist/gsap.min.js"></script>
-<script>
-const caption = document.getElementById('animation-caption');
-const speed = document.getElementById('speed-control');
-const progress = document.getElementById('progress-slider');
-function syncRuntimeState() {{
-  progress.value = String(tl.progress());
-  if (tl.time() < 1) caption.textContent = '当前步骤：先观察 3-4-5 直角三角形。';
-  else if (tl.time() < 2) caption.textContent = '当前步骤：两条直角边的正方形面积相加。';
-  else caption.textContent = '当前步骤：斜边正方形面积与前两者相等。';
-}}
-const tl = gsap.timeline({{ paused: true, defaults: {{ ease: 'power2.inOut' }}, onUpdate: syncRuntimeState }});
-tl.addLabel('scene_intro', 0)
-  .to('#main-shape', {{ scale: 1.04, duration: 0.6 }}, 'scene_intro')
-  .to('#square-a', {{ autoAlpha: 1, duration: 0.6 }}, 'scene_intro+=0.2')
-  .addLabel('scene_legs', '>')
-  .to('#square-b', {{ autoAlpha: 1, duration: 0.6 }}, 'scene_legs')
-  .to('#formula-a', {{ fill: '#0EA5E9', duration: 0.4 }}, 'scene_legs')
-  .addLabel('scene_hypotenuse', '>')
-  .to('#square-c', {{ autoAlpha: 1, duration: 0.6 }}, 'scene_hypotenuse');
-document.getElementById('play-animation').addEventListener('click', () => tl.restart());
-document.getElementById('pause-animation').addEventListener('click', () => tl.pause());
-document.getElementById('reset-animation').addEventListener('click', () => {{ tl.pause(0); syncRuntimeState(); }});
-speed.addEventListener('input', () => tl.timeScale(Number(speed.value) || 1));
-progress.addEventListener('input', () => tl.progress(Number(progress.value) || 0));
-function play() {{ tl.play(); }}
-function pause() {{ tl.pause(); }}
-function reset() {{ tl.pause(0); syncRuntimeState(); }}
-function setSpeed(value) {{ tl.timeScale(Number(value) || 1); }}
-function update(value) {{ tl.progress(Number(value) || 0); syncRuntimeState(); }}
-function getState() {{ return {{ progress: tl.progress(), time: tl.time(), duration: tl.duration(), speed: tl.timeScale() }}; }}
-window.AetherVizRuntime = {{ play, pause, reset, setSpeed, update, getState }};
-window.__AETHERVIZ_RUNTIME_READY__ = true;
-window.__AETHERVIZ_RUNTIME_ERROR__ = null;
-syncRuntimeState();
 </script>
 </body>
 </html>"""
@@ -246,340 +187,10 @@ def test_generate_aetherviz_spec_returns_400_when_topic_empty() -> None:
     assert response.json()["detail"] == "topic 不能为空"
 
 
-def test_list_static_aetherviz_knowledge_points() -> None:
-    response = client.get("/aetherviz-static-knowledge-points")
-
-    assert response.status_code == 200
-    data = response.json()
-    static_points = [
-        point
-        for point in KNOWLEDGE_POINTS.values()
-        if point.render_mode == "static-html" and point.static_html_slug
-    ]
-    assert data["success"] is True
-    assert data["total"] == len(static_points)
-    assert len(data["knowledge_points"]) == len(static_points)
-    assert data["knowledge_points"] == sorted(
-        data["knowledge_points"],
-        key=lambda item: (item["subject"], item["knowledge_point_id"]),
-    )
-
-    newton = next(
-        item
-        for item in data["knowledge_points"]
-        if item["knowledge_point_id"] == "physics/newton_second_law"
-    )
-    assert newton["title"] == "牛顿第二定律"
-    assert newton["subject"] == "physics"
-    assert newton["knowledge_domain"] == "mechanics"
-    assert newton["grade"] == "高一"
-    assert newton["render_mode"] == "static-html"
-    assert newton["static_html_slug"] == "newton-second-law"
-    assert newton["static_html_path"] == "physics/newton-second-law.html"
-    assert "F=ma" in newton["keywords"]
-    cover_bytes = base64.b64decode(newton["cover_image_base64"])
-    assert cover_bytes.startswith(b"\xff\xd8\xff")
-
-
-def test_get_static_aetherviz_html_by_knowledge_point_id() -> None:
-    response = client.get(
-        "/aetherviz-static-html",
-        params={"knowledge_point_id": "physics/newton_second_law"},
-    )
-
-    assert response.status_code == 200
-    data = response.json()
-    assert data["success"] is True
-    assert data["knowledge_point_id"] == "physics/newton_second_law"
-    assert data["title"] == "牛顿第二定律"
-    assert data["subject"] == "physics"
-    assert data["knowledge_domain"] == "mechanics"
-    assert data["grade"] == "高一"
-    assert data["render_mode"] == "static-html"
-    assert data["static_html_slug"] == "newton-second-law"
-    assert data["static_html_path"] == "physics/newton-second-law.html"
-    assert data["primary_color"] == DEFAULT_PRIMARY_COLOR
-    assert data["html"].startswith("<!DOCTYPE html>")
-    assert "牛顿第二定律" in data["html"]
-    assert "AI互动实验 runtime theme override" in data["html"]
-
-
-def test_get_static_aetherviz_html_by_relative_path_returns_raw_html() -> None:
-    response = client.get("/static-html/physics/newton-second-law.html")
-
-    assert response.status_code == 200
-    assert response.headers["content-type"].startswith("text/html")
-    assert response.text.startswith("<!DOCTYPE html>")
-    assert "牛顿第二定律" in response.text
-    assert "AI互动实验 runtime theme override" in response.text
-
-
-def test_get_static_aetherviz_html_by_relative_path_rejects_unsafe_path() -> None:
-    response = client.get("/static-html/../README.md")
-
-    assert response.status_code == 404
-
-
-def test_static_html_relative_path_rejects_traversal() -> None:
-    with pytest.raises(static_html_module.StaticAetherVizHtmlError):
-        static_html_module.static_html_path_for_relative_path("../README.md")
-
-
-def test_get_static_aetherviz_html_returns_404_when_unknown() -> None:
-    response = client.get(
-        "/aetherviz-static-html",
-        params={"knowledge_point_id": "physics/unknown"},
-    )
-
-    assert response.status_code == 404
-    assert response.json()["detail"] == "静态知识点不存在"
-
-
-def test_get_static_aetherviz_html_returns_500_when_file_missing(monkeypatch, tmp_path: Path) -> None:
-    monkeypatch.setattr(static_html_module, "HTML_ROOT", tmp_path)
-
-    response = client.get(
-        "/aetherviz-static-html",
-        params={"knowledge_point_id": "physics/newton_second_law"},
-    )
-
-    assert response.status_code == 500
-    assert "静态 HTML 文件不存在" in response.json()["detail"]
-
-
-def test_all_registered_knowledge_points_have_cover_image() -> None:
-    missing = [
-        point.knowledge_point_id
-        for point in KNOWLEDGE_POINTS.values()
-        if point.render_mode == "static-html" and not point.cover_image_base64
-    ]
-
-    assert missing == []
-
-
-def test_static_match_returns_html_without_llm(monkeypatch) -> None:
-    def fail_llm(*args, **kwargs):
-        raise AssertionError("static hit must not call LLM")
-
-    monkeypatch.setattr(react_module, "call_llm_stream", fail_llm)
-
-    response = client.post("/generate-aetherviz-spec", json={"topic": "牛顿第二定律"})
-
-    assert response.status_code == 200
-    assert response.headers["content-type"].startswith("text/event-stream")
-    events = parse_sse_events(response)
-    assert [event for event, _ in events] == ["start", "progress", "done"]
-    assert events[1][1]["stage"] == "static_match"
-
-    done_data = events[-1][1]
-    html = done_data["html"]
-    assert html.startswith("<!DOCTYPE html>")
-    assert "牛顿第二定律" in html
-    assert "AI互动实验 runtime theme override" in html
-    assert done_data["metadata"]["source"] == "static_html"
-    assert done_data["metadata"]["attempts"] == 0
-    assert done_data["metadata"]["degraded"] is False
-    assert done_data["metadata"]["knowledge_point_id"] == "physics/newton_second_law"
-    assert done_data["metadata"]["grade"] == "高一"
-
-
-def test_static_match_uses_default_theme_color() -> None:
-    response = client.post(
-        "/generate-aetherviz-spec",
-        json={"topic": "牛顿第二定律"},
-    )
-
-    assert response.status_code == 200
-    html = parse_sse_events(response)[-1][1]["html"]
-    assert "AI互动实验 runtime theme override" in html
-    assert f"--primary-gradient: linear-gradient(135deg, {DEFAULT_PRIMARY_COLOR}" in html
-
-
-def test_static_match_supports_registered_non_physics_subject(monkeypatch, tmp_path: Path) -> None:
-    def fail_llm(*args, **kwargs):
-        raise AssertionError("registered static hit must not call LLM")
-
-    chemistry_html_dir = tmp_path / "chemistry"
-    chemistry_html_dir.mkdir()
-    (chemistry_html_dir / "reaction-rate.html").write_text(
-        """<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-<meta charset="UTF-8">
-<title>反应速率</title>
-<style>:root { --theme-subject: #14B8A6; }</style>
-</head>
-<body><main>反应速率互动演示</main><script>window.ready=true;</script></body>
-</html>""",
-        encoding="utf-8",
-    )
-    point = KnowledgePoint(
-        subject="chemistry",
-        knowledge_domain="kinetics",
-        knowledge_point_id="chemistry/reaction_rate",
-        title="化学反应速率测试",
-        keywords=("反应速率测试", "化学反应速率测试"),
-        render_mode="static-html",
-        static_html_slug="reaction-rate",
-    )
-
-    monkeypatch.setitem(KNOWLEDGE_POINTS, point.knowledge_point_id, point)
-    monkeypatch.setattr(static_html_module, "HTML_ROOT", tmp_path)
-    monkeypatch.setattr(react_module, "call_llm_stream", fail_llm)
-
-    response = client.post("/generate-aetherviz-spec", json={"topic": "化学反应速率测试"})
-
-    assert response.status_code == 200
-    events = parse_sse_events(response)
-    assert events[-1][0] == "done"
-    done_data = events[-1][1]
-    assert done_data["metadata"]["subject"] == "chemistry"
-    assert done_data["metadata"]["knowledge_domain"] == "kinetics"
-    assert done_data["metadata"]["knowledge_point_id"] == "chemistry/reaction_rate"
-    assert "反应速率互动演示" in done_data["html"]
-    assert "AI互动实验 runtime theme override" in done_data["html"]
-
-
-def test_all_registered_knowledge_points_have_static_html() -> None:
-    missing = [
-        point.knowledge_point_id
-        for point in KNOWLEDGE_POINTS.values()
-        if not static_html_path_for_point(point).is_file()
-    ]
-
-    assert missing == []
-
-
-def test_all_registered_knowledge_points_have_grade() -> None:
-    missing = [
-        point.knowledge_point_id
-        for point in KNOWLEDGE_POINTS.values()
-        if not point.grade
-    ]
-
-    assert missing == []
-
-
-def test_all_static_html_files_are_registered() -> None:
-    registered_files = {
-        static_html_path_for_point(point).relative_to(static_html_module.HTML_ROOT)
-        for point in KNOWLEDGE_POINTS.values()
-    }
-    html_files = {
-        path.relative_to(static_html_module.HTML_ROOT)
-        for path in static_html_module.HTML_ROOT.rglob("*.html")
-    }
-
-    assert sorted(html_files - registered_files) == []
-
-
-def test_static_match_supports_builtin_math_and_chemistry_without_llm(monkeypatch) -> None:
-    def fail_llm(*args, **kwargs):
-        raise AssertionError("registered static hit must not call LLM")
-
-    monkeypatch.setattr(react_module, "call_llm_stream", fail_llm)
-
-    chemistry_response = client.post("/generate-aetherviz-spec", json={"topic": "酸碱中和反应"})
-
-    assert chemistry_response.status_code == 200
-    chemistry_done = parse_sse_events(chemistry_response)[-1][1]
-    assert chemistry_done["metadata"]["subject"] == "chemistry"
-    assert chemistry_done["metadata"]["knowledge_point_id"] == "chemistry/acid_base_neutralization"
-    assert "酸碱中和反应" in chemistry_done["html"]
-
-    chemistry_response2 = client.post("/generate-aetherviz-spec", json={"topic": "氧化还原反应"})
-    assert chemistry_response2.status_code == 200
-    chemistry_done2 = parse_sse_events(chemistry_response2)[-1][1]
-    assert chemistry_done2["metadata"]["subject"] == "chemistry"
-    assert chemistry_done2["metadata"]["knowledge_point_id"] == "chemistry/redox_reaction"
-    assert "氧化还原反应" in chemistry_done2["html"]
-
-    rate_response = client.post("/generate-aetherviz-spec", json={"topic": "化学反应速率"})
-    assert rate_response.status_code == 200
-    rate_done = parse_sse_events(rate_response)[-1][1]
-    assert rate_done["metadata"]["subject"] == "chemistry"
-    assert rate_done["metadata"]["knowledge_point_id"] == "chemistry/chemical_reaction_rate"
-    assert "化学反应速率" in rate_done["html"]
-
-    polygon_response = client.post("/generate-aetherviz-spec", json={"topic": "多边形的面积"})
-    assert polygon_response.status_code == 200
-    polygon_done = parse_sse_events(polygon_response)[-1][1]
-    assert polygon_done["metadata"]["subject"] == "math"
-    assert polygon_done["metadata"]["knowledge_point_id"] == "math/polygon_area"
-    assert "多边形的面积" in polygon_done["html"]
-
-    quadratic_function_response = client.post("/generate-aetherviz-spec", json={"topic": "高一二次函数"})
-    assert quadratic_function_response.status_code == 200
-    quadratic_function_done = parse_sse_events(quadratic_function_response)[-1][1]
-    assert quadratic_function_done["metadata"]["subject"] == "math"
-    assert quadratic_function_done["metadata"]["knowledge_point_id"] == "math/quadratic_function"
-    assert quadratic_function_done["metadata"]["grade"] == "高一"
-    assert "二次函数" in quadratic_function_done["html"]
-
-    spatial_geom_response = client.post("/generate-aetherviz-spec", json={"topic": "空间几何"})
-    assert spatial_geom_response.status_code == 200
-    spatial_geom_done = parse_sse_events(spatial_geom_response)[-1][1]
-    assert spatial_geom_done["metadata"]["subject"] == "math"
-    assert spatial_geom_done["metadata"]["knowledge_point_id"] == "math/spatial_geometry"
-    assert spatial_geom_done["metadata"]["grade"] == "高二"
-    assert "空间几何" in spatial_geom_done["html"]
-
-    protein_response = client.post("/generate-aetherviz-spec", json={"topic": "蛋白质的结构与功能"})
-    assert protein_response.status_code == 200
-    protein_done = parse_sse_events(protein_response)[-1][1]
-    assert protein_done["metadata"]["subject"] == "biology"
-    assert protein_done["metadata"]["knowledge_point_id"] == "biology/protein_structure_function"
-    assert protein_done["metadata"]["grade"] == "高一"
-    assert "蛋白质" in protein_done["html"]
-
-    dna_response = client.post("/generate-aetherviz-spec", json={"topic": "DNA的分子结构"})
-    assert dna_response.status_code == 200
-    dna_done = parse_sse_events(dna_response)[-1][1]
-    assert dna_done["metadata"]["subject"] == "biology"
-    assert dna_done["metadata"]["knowledge_point_id"] == "biology/dna_structure"
-    assert dna_done["metadata"]["grade"] == "高二"
-    assert "DNA" in dna_done["html"]
-
-
-def test_static_match_supports_builtin_chinese_without_llm(monkeypatch) -> None:
-    def fail_llm(*args, **kwargs):
-        raise AssertionError("registered static hit must not call LLM")
-
-    monkeypatch.setattr(react_module, "call_llm_stream", fail_llm)
-
-    response = client.post("/generate-aetherviz-spec", json={"topic": "灰雀"})
-
-    assert response.status_code == 200
-    events = parse_sse_events(response)
-    assert events[-1][0] == "done"
-    done_data = events[-1][1]
-    assert done_data["metadata"]["subject"] == "chinese"
-    assert done_data["metadata"]["knowledge_point_id"] == "chinese/huique"
-    assert "灰雀" in done_data["html"]
-    assert "AI互动实验 runtime theme override" in done_data["html"]
-
-
-def test_static_html_missing_returns_sse_error(monkeypatch, tmp_path: Path) -> None:
-    monkeypatch.setattr(static_html_module, "HTML_ROOT", tmp_path)
-
-    response = client.post("/generate-aetherviz-spec", json={"topic": "牛顿第二定律"})
-
-    events = parse_sse_events(response)
-    assert events[-1][0] == "error"
-    assert events[-1][1]["stage"] == "static_html_missing"
-
-
-def test_static_html_load_strips_ai_attribution(tmp_path: Path) -> None:
-    html_path = tmp_path / "demo.html"
-    html_path.write_text(
-        "<!DOCTYPE html><html><head><style>body{}</style></head><body><footer>— 由 宾果AI 为你生成❤️</footer></body></html>",
-        encoding="utf-8",
-    )
-
-    html = static_html_module.load_static_html_file(html_path, "#22D3EE")
-
-    assert "由 宾果AI 为你生成" not in html
-    assert "AI互动实验 runtime theme override" in html
+def test_static_page_routes_are_removed() -> None:
+    assert client.get("/aetherviz-static-knowledge-points").status_code == 404
+    assert client.get("/aetherviz-static-html", params={"knowledge_point_id": "physics/newton_second_law"}).status_code == 404
+    assert client.get("/static-html/physics/newton-second-law.html").status_code == 404
 
 
 def test_unmatched_topic_plan_phase_streams_plan_without_html_generation(monkeypatch) -> None:
@@ -826,6 +437,42 @@ def test_svg_validation_accepts_minimum_contract() -> None:
     assert isinstance(warnings, list)
 
 
+def test_parse_and_validate_html_uses_strict_openmaic_contract() -> None:
+    from aetherviz_service.aetherviz.html_output import parse_and_validate_html
+    from aetherviz_service.aetherviz.validator import AetherVizHtmlValidationError
+
+    bad_html = sample_svg_html().replace(
+        "window.AetherVizRuntime = { play, pause, reset, setSpeed, update, getState };",
+        "window.LegacyRuntime = { play, pause, reset, setSpeed, update, getState };",
+    )
+
+    with pytest.raises(AetherVizHtmlValidationError) as exc_info:
+        parse_and_validate_html(bad_html, "熵增演示", sample_approved_plan())
+
+    assert "window.AetherVizRuntime" in str(exc_info.value)
+
+
+def test_validation_rejects_oversized_stage_formula_and_readout() -> None:
+    from aetherviz_service.aetherviz.validator import (
+        AetherVizHtmlValidationError,
+        validate_aetherviz_html,
+    )
+
+    bad_html = sample_svg_html().replace(
+        "#aetherviz-stage svg { display: block; margin: auto; max-width: 100%; max-height: 100%; }",
+        "#aetherviz-stage svg { display: block; margin: auto; max-width: 100%; max-height: 100%; }\n.stage-number { font-size: clamp(3rem, 14vw, 150px); }",
+    ).replace(
+        "</g>",
+        '<text class="stage-number" transform="scale(1.2)" x="80" y="95">a²=64</text>\n    </g>',
+        1,
+    )
+
+    with pytest.raises(AetherVizHtmlValidationError) as exc_info:
+        validate_aetherviz_html(bad_html, topic="勾股定理", strict=True)
+
+    assert "oversized_stage_text" in str(exc_info.value)
+
+
 def test_validation_rejects_uncentered_stage_visual() -> None:
     from aetherviz_service.aetherviz.validator import (
         AetherVizHtmlValidationError,
@@ -850,51 +497,24 @@ def test_validation_rejects_uncentered_stage_visual() -> None:
     assert "missing_stage_visual_centering" in str(exc_info.value)
 
 
-def test_validation_accepts_gsap_timeline_contract() -> None:
-    from aetherviz_service.aetherviz.validator import validate_aetherviz_html
-
-    warnings = validate_aetherviz_html(
-        sample_gsap_html(),
-        topic="勾股定理",
-        strict=True,
-    )
-
-    assert isinstance(warnings, list)
-
-
-def test_validation_rejects_gsap_without_fixed_cdn() -> None:
+def test_validation_rejects_gsap_dependency() -> None:
     from aetherviz_service.aetherviz.validator import (
         AetherVizHtmlValidationError,
         validate_aetherviz_html,
     )
 
-    bad_html = sample_gsap_html().replace(
-        "https://cdn.jsdelivr.net/npm/gsap@3.15.0/dist/gsap.min.js",
-        "https://cdn.jsdelivr.net/npm/gsap/dist/gsap.min.js",
+    bad_html = sample_svg_html().replace(
+        "</head>",
+        '<script src="https://cdn.jsdelivr.net/npm/gsap@3.15.0/dist/gsap.min.js"></script>\n</head>',
+    ).replace(
+        "console.log(\"ready\");",
+        "gsap.timeline();\nconsole.log(\"ready\");",
     )
 
     with pytest.raises(AetherVizHtmlValidationError) as exc_info:
-        validate_aetherviz_html(bad_html, topic="勾股定理", strict=True)
+        validate_aetherviz_html(bad_html, topic="熵增演示", strict=True)
 
-    assert "非白名单外部资源" in str(exc_info.value)
-
-
-def test_validation_rejects_empty_gsap_timeline() -> None:
-    from aetherviz_service.aetherviz.validator import (
-        AetherVizHtmlValidationError,
-        validate_aetherviz_html,
-    )
-
-    bad_html = sample_gsap_html().replace(".addLabel('scene_legs', '>')", ".addLabelRemoved('scene_legs', '>')")
-    bad_html = bad_html.replace(".addLabel('scene_hypotenuse', '>')", ".addLabelRemoved('scene_hypotenuse', '>')")
-    bad_html = bad_html.replace(".to('#square-b', { autoAlpha: 1, duration: 0.6 }, 'scene_legs')", ".call(() => syncRuntimeState())")
-    bad_html = bad_html.replace(".to('#formula-a', { fill: '#0EA5E9', duration: 0.4 }, 'scene_legs')", ".call(() => syncRuntimeState())")
-
-    with pytest.raises(AetherVizHtmlValidationError) as exc_info:
-        validate_aetherviz_html(bad_html, topic="勾股定理", strict=True)
-
-    message = str(exc_info.value)
-    assert "GSAP timeline 至少需要 3 个 addLabel" in message or "GSAP timeline 至少需要 3 个真实" in message
+    assert "GSAP 时间线逻辑" in str(exc_info.value) or "非白名单外部资源" in str(exc_info.value)
 
 
 def test_validation_rejects_missing_animation_caption() -> None:
@@ -936,7 +556,6 @@ def test_validation_rejects_static_poster_without_stateful_caption_or_visual_upd
         validate_aetherviz_html(bad_html, topic="熵增演示", strict=True)
 
     message = str(exc_info.value)
-    assert "missing_caption_state_update" in message
     assert "missing_visual_state_update" in message
 
 
@@ -1001,7 +620,7 @@ def test_validation_rejects_inline_script_syntax_error() -> None:
     assert "SyntaxError" in message or "Unexpected token" in message
 
 
-def test_generate_phase_rejects_three_output_in_svg_mode(monkeypatch) -> None:
+def test_generate_phase_falls_back_when_model_outputs_forbidden_dependency(monkeypatch) -> None:
     calls = []
 
     def fake_llm_stream(prompt: str, system_prompt: str, max_tokens: int = 0, temperature: float = 0.3, enable_thinking: bool = False):
@@ -1028,13 +647,14 @@ animationLoop();
     )
 
     events = parse_sse_events(response)
-    assert events[-1][0] == "error"
+    assert events[-1][0] == "done"
     assert len(calls) == 2
     assert all(call[2] == react_module.HTML_OUTPUT_MAX_TOKENS for call in calls)
     assert all(call[4] is True for call in calls)
-    assert events[-1][1]["stage"] == "validation_failed"
-    assert "非白名单外部资源" in events[-1][1]["detail"]
-    assert "three.js" in events[-1][1]["detail"]
+    assert events[-1][1]["metadata"]["source"] == "openmaic_template"
+    assert events[-1][1]["metadata"]["attempts"] == 3
+    assert "three.js" not in events[-1][1]["html"]
+    assert "window.AetherVizRuntime" in events[-1][1]["html"]
 
 
 def test_default_primary_color_is_22d3ee() -> None:
@@ -1042,17 +662,17 @@ def test_default_primary_color_is_22d3ee() -> None:
 
 
 def test_extract_color_from_topic_hex() -> None:
-    color = static_html_module.extract_color_from_topic("带#FF5500颜色的主题")
+    color = extract_color_from_topic("带#FF5500颜色的主题")
     assert color == "#FF5500"
 
 
 def test_extract_color_from_topic_chinese_name() -> None:
-    color = static_html_module.extract_color_from_topic("蓝色主题下的力学")
+    color = extract_color_from_topic("蓝色主题下的力学")
     assert color == "#3B82F6"
 
 
 def test_extract_color_from_topic_no_color() -> None:
-    color = static_html_module.extract_color_from_topic("光的折射")
+    color = extract_color_from_topic("光的折射")
     assert color == "#22D3EE"
 
 
@@ -1156,7 +776,7 @@ def test_planning_normalization_keeps_new_plan_shape() -> None:
     assert plan["interactive_type"] == "simulation"
     assert plan["subject"] == "physics"
     assert plan["runtime"]["render_stack"] == "svg_canvas"
-    assert plan["runtime"]["animation_runtime"] in ("native", "gsap_timeline")
+    assert plan["runtime"]["animation_runtime"] == "native"
     assert plan["title"] == "力学过程互动动画"
     assert plan["stage_layout"].startswith("顶部目标导航")
     assert plan["interactive_spec"]["variables"][0]["name"] == "force"
@@ -1217,7 +837,7 @@ def test_planning_parse_invalid_returns_default() -> None:
     assert len(res["teaching_flow"]) >= 3
     assert res["interactive_spec"]
     assert res["runtime"]["render_stack"] in ("svg", "svg_canvas", "canvas_svg", "dom_svg")
-    assert res["runtime"]["animation_runtime"] in ("native", "gsap_timeline")
+    assert res["runtime"]["animation_runtime"] == "native"
     assert "测试主题" in res["title"]
     assert res["interactive_type"] in ("simulation", "diagram", "game")
 
@@ -1295,7 +915,7 @@ def test_parse_interactive_html_rejects_truncated_script() -> None:
     assert "截断" in message
 
 
-def test_generate_phase_returns_error_for_invalid_svg_output(monkeypatch) -> None:
+def test_generate_phase_uses_openmaic_template_for_invalid_html_output(monkeypatch) -> None:
     calls = []
 
     def fake_llm_stream(prompt: str, system_prompt: str, max_tokens: int = 0, temperature: float = 0.3, enable_thinking: bool = False):
@@ -1313,13 +933,14 @@ def test_generate_phase_returns_error_for_invalid_svg_output(monkeypatch) -> Non
     )
 
     events = parse_sse_events(response)
-    assert events[-1][0] == "error"
-    assert events[-1][1]["stage"] == "fallback_failed"
+    assert events[-1][0] == "done"
     assert len(calls) == 2
     assert all(call[2] == react_module.HTML_OUTPUT_MAX_TOKENS for call in calls)
     assert all(call[4] is True for call in calls)
-    assert "首次失败" in events[-1][1]["detail"]
-    assert "修复失败" in events[-1][1]["detail"]
+    assert events[-1][1]["metadata"]["source"] == "openmaic_template"
+    assert events[-1][1]["metadata"]["attempts"] == 3
+    assert "__AETHERVIZ_RUNTIME_READY__" in events[-1][1]["html"]
+    assert any(data.get("stage") == "fallback_template" for event, data in events if event == "progress")
 
 
 def test_generate_phase_repairs_invalid_first_output(monkeypatch) -> None:
@@ -1351,7 +972,7 @@ def test_generate_phase_repairs_invalid_first_output(monkeypatch) -> None:
     assert "repaired" in events[-1][1]["html"]
 
 
-def test_revise_phase_returns_new_plan_without_current_html(monkeypatch) -> None:
+def test_revise_phase_returns_new_plan(monkeypatch) -> None:
     calls = []
 
     def fake_llm_stream(prompt: str, system_prompt: str, max_tokens: int = 0, temperature: float = 0.3, enable_thinking: bool = False):
@@ -1386,7 +1007,6 @@ def test_revise_phase_returns_new_plan_without_current_html(monkeypatch) -> None
         json={
             "topic": "熵增演示",
             "phase": "revise",
-            "current_html": sample_svg_html(marker="before-revise"),
             "instruction": "把动画速度调慢",
         },
     )
@@ -1421,7 +1041,6 @@ def test_revise_phase_falls_back_to_default_plan_when_planning_fails(monkeypatch
         json={
             "topic": "熵增演示",
             "phase": "revise",
-            "current_html": sample_svg_html(marker="before-revise"),
             "instruction": "把动画速度调慢",
         },
     )
@@ -1449,7 +1068,7 @@ def test_revise_phase_requires_instruction_only() -> None:
     assert missing_instruction.json()["detail"] == "instruction 不能为空"
 
 
-def test_generate_phase_returns_error_for_inline_script_syntax_error(monkeypatch) -> None:
+def test_generate_phase_falls_back_for_inline_script_syntax_error(monkeypatch) -> None:
     calls = []
 
     def fake_llm_stream(prompt: str, system_prompt: str, max_tokens: int = 0, temperature: float = 0.3, enable_thinking: bool = False):
@@ -1467,10 +1086,10 @@ def test_generate_phase_returns_error_for_inline_script_syntax_error(monkeypatch
     )
 
     events = parse_sse_events(response)
-    assert events[-1][0] == "error"
-    error_data = events[-1][1]
-    assert error_data["stage"] == "validation_failed"
-    assert "内联脚本语法错误" in error_data["detail"]
+    assert events[-1][0] == "done"
+    assert events[-1][1]["metadata"]["source"] == "openmaic_template"
+    assert events[-1][1]["metadata"]["attempts"] == 3
+    assert "window.AetherVizRuntime" in events[-1][1]["html"]
     assert len(calls) == 2
     assert all(call[4] is True for call in calls)
 

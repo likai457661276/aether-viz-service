@@ -1,3 +1,4 @@
+import json
 import re
 import shutil
 import subprocess
@@ -20,6 +21,7 @@ FORBIDDEN_HTML_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"\beval\s*\(", re.IGNORECASE), "eval()危险调用"),
     (re.compile(r"\bnew\s+Function\b", re.IGNORECASE), "new Function()构造器"),
     (re.compile(r"\bdocument\.write\s*\(", re.IGNORECASE), "document.write()调用"),
+    (re.compile(r"\bgsap\s*\.", re.IGNORECASE), "GSAP 时间线逻辑"),
     (re.compile(r"OrbitControls\.js", re.IGNORECASE), "OrbitControls.js CDN引用"),
 ]
 
@@ -31,7 +33,6 @@ ALLOWED_EXTERNAL_URLS = {
     "https://cdn.staticfile.net/KaTeX/0.16.9/katex.min.css",
     "https://cdn.staticfile.net/KaTeX/0.16.9/katex.min.js",
     "https://cdn.staticfile.net/KaTeX/0.16.9/contrib/auto-render.min.js",
-    "https://cdn.jsdelivr.net/npm/gsap@3.15.0/dist/gsap.min.js",
     "https://d3js.org/d3.v7.min.js",
     "https://cdn.staticfile.net/d3/7.9.0/d3.min.js",
 }
@@ -71,6 +72,7 @@ def _is_allowed_katex_url(url: str) -> bool:
 def validate_aetherviz_html(
     html: str,
     topic: str | None = None,
+    plan: dict | None = None,
     strict: bool = True,
 ) -> list[str]:
     """校验 AetherViz 生成的 HTML，返回警告列表。
@@ -78,7 +80,7 @@ def validate_aetherviz_html(
     该函数执行多维度的 HTML 质量检查：
     1. 文档结构检查：DOCTYPE、html/head/body/title/style/script 标签完整性
     2. 安全检查：禁止标签（iframe/object/embed/form）、内联事件、非白名单外部资源
-    3. 依赖检查：必需的 CDN（KaTeX/GSAP 等白名单）是否安全
+    3. 依赖检查：必需的 CDN（KaTeX 等白名单）是否安全
     4. 运行时契约检查：SVG/DOM 初始化、动画循环等
     5. 内容质量检查：占位符检测、学习目标数量、控制面板组件数量
     
@@ -104,7 +106,8 @@ def validate_aetherviz_html(
     _collect_html_security_errors(stripped, soup, errors)
     _collect_script_syntax_errors(soup, errors)
     _collect_dependency_errors(soup, errors, strict=strict)
-    _collect_runtime_contract_errors(stripped, soup, errors, warnings, strict=strict)
+    _collect_runtime_contract_errors(stripped, soup, errors, warnings, strict=strict, plan=plan)
+    _collect_plan_alignment_warnings(soup, topic, plan, warnings)
     _collect_html_substance_errors(stripped, soup, errors, warnings, strict=strict)
     if errors:
         raise AetherVizHtmlValidationError("；".join(errors))
@@ -374,9 +377,6 @@ def _collect_dependency_errors(soup: BeautifulSoup, errors: list[str], strict: b
         if uses_auto_render and not has_katex_auto:
             errors.append("HTML 调用了 renderMathInElement 但缺少 KaTeX auto-render CDN")
 
-    if _uses_gsap(soup) and "https://cdn.jsdelivr.net/npm/gsap@3.15.0/dist/gsap.min.js" not in urls:
-        errors.append("HTML 使用 GSAP Timeline 但缺少固定版本 GSAP CDN")
-
 
 def _collect_runtime_contract_errors(
     html: str,
@@ -384,6 +384,7 @@ def _collect_runtime_contract_errors(
     errors: list[str],
     warnings: list[str],
     strict: bool = True,
+    plan: dict | None = None,
 ) -> None:
     if not strict:
         return
@@ -413,6 +414,8 @@ def _collect_runtime_contract_errors(
         if not re.search(pattern, scripts, re.IGNORECASE | re.DOTALL):
             errors.append(f"HTML 缺少{label}")
 
+    _collect_openmaic_widget_contract_errors(soup, scripts, errors, plan=plan)
+
     if not _has_animation_driver(html, scripts):
         errors.append("HTML 缺少动画驱动逻辑")
     if not _caption_updates_with_animation(soup, scripts):
@@ -426,11 +429,62 @@ def _collect_runtime_contract_errors(
         if required_text not in scripts:
             errors.append(f"HTML 缺少运行时自检标记 {required_text}")
 
-    if _uses_gsap(soup):
-        _collect_gsap_timeline_errors(soup, scripts, errors)
-
     if soup.find("svg") is None:
         warnings.append("HTML 建议包含内联 SVG 主视觉区域")
+
+
+def _collect_openmaic_widget_contract_errors(soup: BeautifulSoup, scripts: str, errors: list[str], plan: dict | None = None) -> None:
+    config_script = soup.find("script", id="widget-config")
+    if not isinstance(config_script, Tag):
+        errors.append("HTML 缺少 OpenMAIC widget-config（missing_widget_config）")
+    else:
+        script_type = str(config_script.get("type", "") or "").strip().lower()
+        if script_type != "application/json":
+            errors.append("OpenMAIC widget-config 必须使用 type=\"application/json\"")
+        try:
+            raw_json = config_script.get_text("\n", strip=True) or "{}"
+            raw_json = re.sub(r"//.*$", "", raw_json, flags=re.MULTILINE)
+            raw_json = re.sub(r"/\*.*?\*/", "", raw_json, flags=re.DOTALL)
+            raw_json = re.sub(r",(\s*[}\]])", r"\1", raw_json)
+            config = json.loads(raw_json)
+        except Exception as exc:
+            errors.append(f"OpenMAIC widget-config 不是合法 JSON：{exc}")
+            config = {}
+        if isinstance(config, dict):
+            widget_type = str(config.get("type", "") or "").strip()
+            if widget_type not in {"simulation", "diagram", "game"}:
+                errors.append("OpenMAIC widget-config.type 必须是 simulation、diagram 或 game")
+            expected_type = str((plan or {}).get("interactive_type") or (plan or {}).get("widget_type") or "").strip()
+            if expected_type and widget_type and widget_type != expected_type:
+                errors.append("OpenMAIC widget-config.type 必须与 approved_plan.interactive_type 一致")
+            if widget_type == "simulation":
+                if not isinstance(config.get("variables"), list) or not config.get("variables"):
+                    errors.append("simulation widget-config 必须包含 variables")
+            elif widget_type == "diagram":
+                if not isinstance(config.get("nodes"), list) or not config.get("nodes"):
+                    errors.append("diagram widget-config 必须包含 nodes")
+                if not isinstance(config.get("edges"), list):
+                    errors.append("diagram widget-config 必须包含 edges")
+                if not (isinstance(config.get("revealOrder"), list) or isinstance(config.get("reveal_order"), list)):
+                    errors.append("diagram widget-config 必须包含 revealOrder 或 reveal_order")
+            elif widget_type == "game":
+                if not (config.get("gameConfig") or config.get("game_config")):
+                    errors.append("game widget-config 必须包含 gameConfig")
+                if not (config.get("successCondition") or config.get("success_condition")):
+                    errors.append("game widget-config 必须包含 successCondition")
+
+    has_message_listener = re.search(
+        r"(?:window\.)?addEventListener\s*\(\s*['\"]message['\"]",
+        scripts,
+        re.IGNORECASE,
+    )
+    if not has_message_listener:
+        errors.append("HTML 缺少 OpenMAIC widget action message listener（missing_widget_message_listener）")
+    for action_type in ("SET_WIDGET_STATE", "HIGHLIGHT_ELEMENT", "ANNOTATE_ELEMENT", "REVEAL_ELEMENT"):
+        if action_type not in scripts:
+            errors.append(f"HTML 缺少 OpenMAIC widget action 处理：{action_type}")
+
+    _collect_stage_text_scale_errors(soup, errors)
 
 
 def _collect_html_substance_errors(
@@ -479,6 +533,58 @@ def _collect_html_substance_errors(
             errors.append("动画播放/重新播放按钮必须绑定进度动画逻辑（missing_animation_replay_binding）")
 
 
+def _collect_plan_alignment_warnings(
+    soup: BeautifulSoup,
+    topic: str | None,
+    plan: dict | None,
+    warnings: list[str],
+) -> None:
+    if not isinstance(plan, dict):
+        return
+
+    stage = soup.find(id="aetherviz-stage")
+    if not isinstance(stage, Tag):
+        return
+
+    stage_signal = " ".join(
+        str(value)
+        for value in (
+            stage.get_text(" ", strip=True),
+            stage.get("aria-label", ""),
+            " ".join(str(item.get("id", "")) for item in stage.find_all(True)),
+            " ".join(str(item.get("data-role", "")) for item in stage.find_all(True)),
+        )
+    )
+    if topic and topic.strip() and not _topic_is_represented(topic, stage_signal):
+        warnings.append("主舞台建议直接体现教学主题或核心对象（weak_stage_topic_signal）")
+
+    interactive_spec = plan.get("interactive_spec") if isinstance(plan.get("interactive_spec"), dict) else {}
+    expected_terms = _interactive_spec_terms(interactive_spec)
+    if expected_terms and not any(_topic_is_represented(term, stage_signal) for term in expected_terms[:8]):
+        warnings.append("主舞台元素建议覆盖 interactive_spec 中的核心变量、节点或挑战对象（weak_interactive_spec_stage_alignment）")
+
+
+def _interactive_spec_terms(spec: dict) -> list[str]:
+    terms: list[str] = []
+    for key in ("concept", "description", "challenge", "success_condition", "successCondition"):
+        value = spec.get(key)
+        if isinstance(value, str) and value.strip():
+            terms.append(value.strip())
+    for variable in spec.get("variables") or []:
+        if isinstance(variable, dict):
+            for key in ("name", "label"):
+                value = variable.get(key)
+                if isinstance(value, str) and value.strip():
+                    terms.append(value.strip())
+    for node in spec.get("nodes") or []:
+        if isinstance(node, dict):
+            for key in ("id", "label", "details", "explanation"):
+                value = node.get(key)
+                if isinstance(value, str) and value.strip():
+                    terms.append(value.strip())
+    return terms
+
+
 def _is_fallback_svg_mode(soup: BeautifulSoup) -> bool:
     return bool(soup.select_one('[data-aetherviz-render-mode="fallback-svg"]'))
 
@@ -494,41 +600,6 @@ def _external_urls(soup: BeautifulSoup) -> set[str]:
         for attr_name in ("src", "href")
         if tag.get(attr_name) and re.search(r"https?://", str(tag.get(attr_name)))
     }
-
-
-def _uses_gsap(soup: BeautifulSoup) -> bool:
-    scripts = "\n".join(script.get_text("\n", strip=False) for script in soup.find_all("script"))
-    urls = _external_urls(soup)
-    return bool(any("gsap" in url.lower() for url in urls) or re.search(r"\bgsap\s*\.", scripts, re.IGNORECASE))
-
-
-def _collect_gsap_timeline_errors(soup: BeautifulSoup, scripts: str, errors: list[str]) -> None:
-    if not re.search(r"\bgsap\s*\.\s*timeline\s*\(", scripts, re.IGNORECASE):
-        errors.append("GSAP 页面必须声明 gsap.timeline")
-
-    tween_count = len(re.findall(r"\.(?:to|from|fromTo|set)\s*\(", scripts, re.IGNORECASE))
-    if tween_count < 3:
-        errors.append("GSAP timeline 至少需要 3 个真实 tween/set 调用")
-
-    label_count = len(re.findall(r"\.addLabel\s*\(", scripts, re.IGNORECASE))
-    if label_count < 3:
-        errors.append("GSAP timeline 至少需要 3 个 addLabel 分镜标签")
-
-    if not _selector_handler_calls(scripts, "play-animation", (r"\.play\s*\(", r"\.restart\s*\(")):
-        errors.append("GSAP 页面播放按钮必须绑定 tl.play() 或 tl.restart()")
-    if not _selector_handler_calls(scripts, "pause-animation", (r"\.pause\s*\(",)):
-        errors.append("GSAP 页面暂停按钮必须绑定 tl.pause()")
-    if not _selector_handler_calls(scripts, "reset-animation", (r"\.pause\s*\(\s*0\s*\)", r"\.progress\s*\(\s*0\s*\)")):
-        errors.append("GSAP 页面重置按钮必须绑定 tl.pause(0) 或 tl.progress(0)")
-
-    if not re.search(r"\.timeScale\s*\(", scripts, re.IGNORECASE):
-        errors.append("GSAP 页面速度控制必须调用 tl.timeScale(value)")
-    if not re.search(r"\bfunction\s+update\s*\([^)]*\)\s*\{[^}]*\.(?:progress|seek)\s*\(", scripts, re.IGNORECASE | re.DOTALL):
-        errors.append("GSAP 页面 runtime update(value) 必须能调用 tl.progress(value) 或 tl.seek(value) 跳转动画状态")
-
-    raw_lower = str(soup).lower()
-    if not any(marker in raw_lower for marker in ("animation-caption", "step-caption", "stage-caption", "当前步骤")):
-        errors.append("GSAP 页面必须包含可同步更新的 animation-caption 或 step-caption")
 
 
 def _selector_handler_calls(scripts: str, element_id: str, required_patterns: tuple[str, ...]) -> bool:
@@ -621,6 +692,81 @@ def _collect_stage_centering_errors(soup: BeautifulSoup, errors: list[str]) -> N
 
     if not (has_stage_centering or has_visual_self_centering or has_svg_centering or has_canvas_centering):
         errors.append("主可视化区域必须让 SVG/Canvas 主视觉在 #aetherviz-stage 中居中显示（missing_stage_visual_centering）")
+
+
+def _collect_stage_text_scale_errors(soup: BeautifulSoup, errors: list[str]) -> None:
+    stage = soup.find(id="aetherviz-stage")
+    if not isinstance(stage, Tag):
+        return
+
+    css_text = "\n".join(style.get_text("\n", strip=False) for style in soup.find_all("style"))
+    oversized: list[str] = []
+    for tag in stage.find_all(True):
+        if not isinstance(tag, Tag):
+            continue
+        if tag.name not in {"text", "tspan", "foreignObject", "p", "div", "span", "strong"} and not tag.get_text(strip=True):
+            continue
+        style_text = _styles_for_tag(tag, css_text)
+        size_value = str(tag.get("font-size", "") or "") or _css_property(style_text, "font-size")
+        size_px = _font_size_to_px(size_value)
+        scale = _transform_scale_to_multiplier(str(tag.get("transform", "") or "") + "\n" + _css_property(style_text, "transform"))
+        if size_px is not None:
+            size_px *= scale
+        text_content = tag.get_text(" ", strip=True)
+        if _is_stage_formula_or_readout(text_content) and size_px and size_px > 24:
+            oversized.append(text_content[:24])
+        elif size_px and size_px > 28 and len(text_content) >= 2:
+            oversized.append(text_content[:24])
+
+    if oversized:
+        examples = "、".join(oversized[:3])
+        errors.append(f"主舞台包含过大文字，公式/读数应移到独立面板（oversized_stage_text：{examples}）")
+
+
+def _font_size_to_px(value: str) -> float | None:
+    text = str(value or "").strip().lower()
+    if not text:
+        return None
+    matches = re.findall(r"(-?\d+(?:\.\d+)?)\s*(px|rem|em|pt|vw|vh|vmin|vmax)?", text)
+    if not matches:
+        return None
+    return max(_css_length_to_px(float(amount), unit or "px") for amount, unit in matches)
+
+
+def _css_length_to_px(amount: float, unit: str) -> float:
+    unit = unit.lower()
+    if unit in {"rem", "em"}:
+        return amount * 16
+    if unit == "pt":
+        return amount * 1.333
+    if unit == "vw":
+        return amount * 9.6
+    if unit == "vh":
+        return amount * 5.4
+    if unit == "vmin":
+        return amount * 5.4
+    if unit == "vmax":
+        return amount * 9.6
+    return amount
+
+
+def _transform_scale_to_multiplier(value: str) -> float:
+    text = str(value or "").lower()
+    matches = re.findall(r"scale(?:x|y)?\s*\(\s*(-?\d+(?:\.\d+)?)", text)
+    if not matches:
+        return 1.0
+    return max(abs(float(item)) for item in matches)
+
+
+def _is_stage_formula_or_readout(text: str) -> bool:
+    normalized = re.sub(r"\s+", "", text or "")
+    if not normalized:
+        return False
+    return bool(
+        re.search(r"[abcxyzs]\s*[²^2]?\s*=", normalized, re.IGNORECASE)
+        or re.search(r"[+=×*/÷]", normalized)
+        or re.search(r"\d+(?:\.\d+)?", normalized) and len(normalized) <= 18
+    )
 
 
 def _styles_for_tag(tag: Tag, css_text: str) -> str:
@@ -821,8 +967,10 @@ def _has_animation_replay_control(soup: BeautifulSoup) -> bool:
 
 def _has_animation_replay_binding(soup: BeautifulSoup) -> bool:
     scripts = "\n".join(script.get_text("\n", strip=False) for script in soup.find_all("script"))
+    button_id_pattern = r"(?:play-animation|replay-animation|restart-animation|animation-play|play-btn|replay-btn|reset-animation|restart-btn)"
+    
     direct_binding = re.search(
-        r"getElementById\s*\(\s*['\"]play-animation['\"]\s*\)\s*\.addEventListener\s*\(\s*['\"]click['\"]\s*,\s*(?P<handler>[^;]{1,500})\)",
+        rf"getElementById\s*\(\s*['\"]{button_id_pattern}['\"]\s*\)\s*\.addEventListener\s*\(\s*['\"]click['\"]\s*,\s*(?P<handler>[^;]{{1,500}})\)",
         scripts,
         re.IGNORECASE | re.DOTALL,
     )
@@ -830,7 +978,7 @@ def _has_animation_replay_binding(soup: BeautifulSoup) -> bool:
         return True
 
     variable_binding = re.search(
-        r"(?:const|let|var)\s+(?P<name>[A-Za-z_$][\w$]*)\s*=\s*document\.getElementById\s*\(\s*['\"]play-animation['\"]\s*\)",
+        rf"(?:const|let|var)\s+(?P<name>[A-Za-z_$][\w$]*)\s*=\s*document\.getElementById\s*\(\s*['\"]{button_id_pattern}['\"]\s*\)",
         scripts,
         re.IGNORECASE,
     )
@@ -851,7 +999,6 @@ def _has_animation_driver(html: str, scripts: str) -> bool:
         or re.search(r"\.style\.\s*(?:animation|transition)\s*=|classList\.\s*(?:add|remove|toggle)\s*\(", scripts, re.IGNORECASE)
         or re.search(r"@keyframes|animation\s*:|transition\s*:", html, re.IGNORECASE)
         or re.search(r"\bsetProgress\s*\(|\btick\s*\(|\banimate\s*\(", scripts, re.IGNORECASE)
-        or re.search(r"\bgsap\s*\.\s*timeline\s*\(", scripts, re.IGNORECASE)
     )
 
 
@@ -919,28 +1066,52 @@ def _has_visual_state_update(soup: BeautifulSoup, html: str, scripts: str) -> bo
     selector_terms = _stage_selector_terms(stage)
     if not selector_terms:
         return False
-    has_state_mutation = bool(
+    for term in selector_terms:
+        if _selector_has_visual_mutation(term, scripts, html):
+            return True
+    return False
+
+
+def _selector_has_visual_mutation(term: str, scripts: str, html: str) -> bool:
+    raw_term = term.strip()
+    key = raw_term.strip(".#")
+    if not key:
+        return False
+
+    binding = re.search(
+        rf"(?:const|let|var)\s+(?P<name>[A-Za-z_$][\w$]*)\s*=\s*document\.(?:getElementById|querySelector)\s*\(\s*['\"](?:{re.escape(key)}|#{re.escape(key)}|\.{re.escape(key)})['\"]\s*\)",
+        scripts,
+        re.IGNORECASE,
+    )
+    if binding:
+        name = re.escape(binding.group("name"))
+        if re.search(
+            rf"\b{name}\s*\.(?:setAttribute|setAttributeNS|style\.[A-Za-z-]+|classList\.\s*(?:add|remove|toggle)|innerHTML|textContent|innerText)\b",
+            scripts,
+            re.IGNORECASE,
+        ):
+            return True
+
+    direct_selector = re.escape(raw_term if raw_term.startswith(("#", ".")) else key)
+    return bool(
         re.search(
-            r"\.(?:setAttribute|style\.[A-Za-z-]+|textContent|innerText|innerHTML)\s*=|"
-            r"classList\.\s*(?:add|remove|toggle)\s*\(|"
-            r"\bgsap\s*\.\s*timeline\s*\(|\.(?:to|from|fromTo|set)\s*\(",
+            rf"(?:getElementById|querySelector)\s*\(\s*['\"]{direct_selector}['\"]\s*\)[^;\n]{{0,240}}\.(?:setAttribute|setAttributeNS|style\.[A-Za-z-]+|classList\.\s*(?:add|remove|toggle)|innerHTML|textContent|innerText)\b",
             scripts,
             re.IGNORECASE,
         )
+        and key.lower() in html.lower()
     )
-    if not has_state_mutation:
-        return False
-    compact_html = re.sub(r"\s+", " ", html.lower())
-    for term in selector_terms:
-        normalized_term = term.lower()
-        if normalized_term in scripts.lower() or normalized_term in compact_html and normalized_term.strip(".#") in scripts.lower():
-            return True
-    return False
 
 
 def _stage_selector_terms(stage: Tag) -> set[str]:
     terms: set[str] = set()
     for item in stage.find_all(True):
+        item_classes = {str(class_name).strip().lower() for class_name in item.get("class", []) or []}
+        item_role = str(item.get("data-role", "") or "").strip().lower()
+        if item.name not in {"svg", "canvas", "g", "path", "circle", "rect", "polygon", "polyline", "line", "ellipse", "text", "tspan"}:
+            continue
+        if item_role in {"caption", "formula", "hud", "control"} or item_classes & {"animation-caption", "step-caption", "stage-caption"}:
+            continue
         tag_id = str(item.get("id", "") or "").strip()
         if tag_id:
             terms.add(f"#{tag_id}")

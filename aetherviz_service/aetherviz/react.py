@@ -1,8 +1,7 @@
 """AetherViz SSE generator orchestration.
 
 动态生成策略：
-- 静态知识点命中后直接返回静态 HTML。
-- 未命中时先生成结构化计划，再按确认计划生成自包含互动 HTML。
+- 先生成结构化计划，再按确认计划生成自包含互动 HTML。
 - revise 基于上次计划摘要 + instruction 重新规划，确认后再生成新 HTML。
 """
 
@@ -15,12 +14,10 @@ from aetherviz_service.aetherviz.constants import HTML_OUTPUT_MAX_TOKENS, PLANNI
 from aetherviz_service.aetherviz.fallback_planner import normalize_plan
 from aetherviz_service.aetherviz.fallback_validator import AetherVizInteractiveHtmlError
 from aetherviz_service.aetherviz.generation_stream import generate_from_plan_stream
-from aetherviz_service.aetherviz.matcher import match_topic_to_knowledge_point
 from aetherviz_service.aetherviz.planning_stream import planning_stream
 from aetherviz_service.aetherviz.revision_plan_stream import revise_plan_stream
 from aetherviz_service.aetherviz.sse import error_event, sse_event
-from aetherviz_service.aetherviz.static_html import StaticAetherVizHtmlError, extract_color_from_topic
-from aetherviz_service.aetherviz.static_stream import static_match_stream
+from aetherviz_service.aetherviz.theme import extract_color_from_topic
 from aetherviz_service.aetherviz.validator import AetherVizHtmlValidationError
 from aetherviz_service.llm_service import LLMServiceError, call_llm_stream
 
@@ -31,7 +28,6 @@ def react_generate_stream(
     topic: str,
     phase: str = "plan",
     approved_plan: dict | None = None,
-    current_html: str | None = None,
     instruction: str | None = None,
     context: dict | None = None,
 ) -> Iterator[str]:
@@ -48,12 +44,6 @@ def react_generate_stream(
     )
 
     try:
-        if phase != "revise":
-            match = match_topic_to_knowledge_point(topic)
-            if match is not None:
-                yield from static_match_stream(topic, color, match)
-                return
-
         if phase == "plan":
             yield from planning_stream(topic, color, llm_stream=call_llm_stream)
             return
@@ -74,8 +64,6 @@ def react_generate_stream(
             return
 
         yield error_event("invalid_phase", "不支持的生成阶段", f"phase={phase}")
-    except StaticAetherVizHtmlError as exc:
-        yield error_event("static_html_missing", "静态知识点 HTML 文件不可用", str(exc))
     except LLMServiceError as exc:
         yield error_event("llm_error", "调用大模型失败，请检查模型服务配置或稍后重试", str(exc))
     except AetherVizInteractiveHtmlError as exc:

@@ -17,6 +17,7 @@ def parse_and_validate_html(raw_html: str, topic: str, plan: dict) -> tuple[str,
     warnings = validate_aetherviz_html(
         cleaned_html,
         topic=topic,
-        strict=False,
+        plan=plan,
+        strict=True,
     )
     return cleaned_html, warnings

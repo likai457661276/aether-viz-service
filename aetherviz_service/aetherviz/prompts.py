@@ -4,29 +4,43 @@ from __future__ import annotations
 
 import json
 
-CDN_GSAP = "https://cdn.jsdelivr.net/npm/gsap@3.15.0/dist/gsap.min.js"
+OPENMAIC_WIDGET_CORE_PROMPT = """OpenMAIC interactive widget 核心契约：
+- 生成物必须是一个自包含 interactive widget，不是 PPT 截图、静态海报或普通选择题页面。
+- 必须嵌入 `<script type="application/json" id="widget-config">...</script>`；JSON.type 必须等于 simulation、diagram 或 game，并与 plan.interactive_type 一致。widget-config 内容必须是严格的纯 JSON 格式，禁止包含任何 JS 注释（如 // 或 /* */）和尾随逗号。
+- widget-config 必须承载本页核心互动配置：simulation 写 concept/description/variables/presets；diagram 写 nodes/edges/revealOrder；game 写 gameType/description/gameConfig/successCondition/feedbackRules。
+- 必须实现 `window.addEventListener("message", ...)`，至少处理 SET_WIDGET_STATE、HIGHLIGHT_ELEMENT、ANNOTATE_ELEMENT、REVEAL_ELEMENT 四类 iframe-local widget action。
+- 变量控件 ID 使用 `{variable_name}-slider` 或 `data-var="{variable_name}"`；按钮 ID 使用 `{action}-btn` 或计划中的稳定 id；可被高亮/标注的元素必须有 id 或 data-role。
+- 主舞台、控制面板、说明、公式和 HUD 必须是分区布局；控制面板不能覆盖 Canvas/SVG，移动端使用堆叠、抽屉或可折叠布局。
+- 计算对象位置时必须预留 TOP_MARGIN/BOTTOM_MARGIN 或等价安全区，不能把对象画到控制区、HUD、caption、公式区下面。
+- 舞台内只放短标签和图形标注；公式、读数、caption、推导步骤放独立面板。禁止把公式/读数渲染成主舞台超大文本；SVG text 建议 10~18px，超过 28px 必须有明确局部标签理由。
+- 使用清晰状态机：running、paused、ended 或等价状态；reset 必须重置所有位置、速度、分数、步骤、按钮文本和参数到初始状态。
+- 所有触摸目标至少 44px；slider thumb 至少 24px；Canvas 自定义手势使用 touch-action: none。
+- 输出必须只有一个 HTML 文档，只能有一个 <!DOCTYPE html> 和一个 </html>。
+"""
 
-INTERACTIVE_HTML_SYSTEM_PROMPT = """你是资深单页互动教学 HTML 工程师。
+INTERACTIVE_HTML_SYSTEM_PROMPT = f"""你是资深 OpenMAIC 单页互动 widget 工程师。
 只输出一个完整可运行 HTML 文件，从 <!DOCTYPE html> 开始，到 </html> 结束。
 如果模型输出 reasoning_content，必须使用简体中文，且只写面向用户的简短设计摘要。
 
+{OPENMAIC_WIDGET_CORE_PROMPT}
+
 硬性要求：
-- 页面面向 12~18 岁学生，必须默认自动播放，不需要点击才开始。
+- 页面面向 12~18 岁学生，默认必须呈现可理解的首屏状态；simulation/diagram 可以自动演示首段，game 必须公平开始且不能自动失败。
 - 主视觉清晰、元素少而准；不要用大量装饰、虚构数据或无关图形填充画面。
 - 页面类型固定为 single-page interactive，必须按 plan.interactive_type 生成 simulation、diagram 或 game。
 - 至少呈现 3 个可观察状态变化：对象移动/变形、颜色或高亮变化、数值/公式/caption 同步变化。
 - 每一幕使用 class="animation-caption" 或 id="animation-caption" 的中文旁白说明当前发生了什么、为什么重要、学生该观察什么；caption 必须随动画状态更新。
 - 页面必须可见展示完整分镜/动画实现说明列表（例如第1幕到第4幕），不能只显示当前幕；当前播放到哪一幕必须用 class="active"、aria-current="step" 或 data-current="true" 同步标注。
 - 主可视化区使用 id="aetherviz-stage"，主 SVG/Canvas 居中，主元素有稳定 id/class 或 data-role，便于修订和校验。
-- 学习目标区 class="learning-objectives" 且 data-region="learning-goal" 至少 3 条；控制区 class="control-panel" 且 data-region="controls" 至少包含播放、暂停、重置和一个真实参数或速度控件。
+- 学习目标区 class="learning-objectives" 且 data-region="learning-goal" 至少 3 条；控制区 class="control-panel" 且 data-region="controls" 至少包含播放(id="play-animation")、暂停(id="pause-animation")、重置(id="reset-animation")和一个真实参数或速度控件。
 - 公式或结论区使用 data-region="formula"；步骤说明使用 data-region="caption"；页面主布局容器优先使用 data-region="app-shell"。
-- 控件、caption、公式/概念区不能遮挡主图；长文本放独立说明区或自动换行。
+- 控件、caption、公式/概念区不能遮挡主图；长文本放独立说明区或自动换行；主舞台内禁止出现巨型公式、巨型读数或覆盖图形的大段文字。
 - 单屏适配 960x540、常见桌面宽度和移动端；html/body 高度 100%，禁止页面级滚动条。
 - 所有事件用 addEventListener 绑定，禁止内联 onXxx。
-- 声明 window.AetherVizRuntime = { play, pause, reset, setSpeed, update, getState }。
+- 声明 window.AetherVizRuntime = {{ play, pause, reset, setSpeed, update, getState }}。
 - 初始化成功设置 window.__AETHERVIZ_RUNTIME_READY__ = true；异常设置 window.__AETHERVIZ_RUNTIME_ERROR__ 并在页面显示错误提示。
-- CSS 和业务 JS 内联；不引入 Three.js、D3、图片生成或外部业务接口。
-- 仅当计划 animation_runtime=gsap_timeline 时允许引入固定 GSAP CDN，并只用 GSAP 管理时间线。
+- CSS 和业务 JS 内联；不引入 Three.js、D3、外部时间线库、图片生成或外部业务接口。
+- 动画和互动逻辑使用 OpenMAIC 风格的原生 HTML/CSS/JS、Canvas/SVG、requestAnimationFrame、CSS transition/keyframes 和 message action listener。
 """
 
 SIMULATION_SYSTEM_PROMPT = INTERACTIVE_HTML_SYSTEM_PROMPT + """
@@ -34,6 +48,8 @@ simulation 补充要求：
 - 必须把 interactive_spec.variables 落成真实滑块、按钮或预设控件。
 - 参数变化要实时驱动画面、数值读数、caption 和结论，不允许只改文字。
 - 默认状态能直接理解，至少提供一个可比较的参数变化结果。
+- 启动/播放后必须有明显运动、旋转、变形或轨迹变化，不能只有数字变化。
+- resetSimulation 或等价函数必须把所有变量、动画时间、图形位置、按钮状态和提示恢复初始值。
 """
 
 DIAGRAM_SYSTEM_PROMPT = INTERACTIVE_HTML_SYSTEM_PROMPT + """
@@ -48,6 +64,8 @@ game 补充要求：
 - 必须把 interactive_spec.challenge、success_condition、feedback_rules 落成可玩的课堂挑战。
 - 不能退化为普通选择题堆叠；需要有操作对象、排序、匹配、调参或策略选择。
 - 默认公平开始，提供即时反馈和解释。
+- 如果包含实时游戏循环，必须有 3~5 秒安全期或等价安全初始状态，玩家不能一开始就失败。
+- 学习必须通过操作发生，题目问答只能作为辅助手段，不能成为唯一玩法。
 """
 
 REPAIR_SYSTEM_PROMPT = """你是资深 HTML 自动修复工程师。
@@ -60,6 +78,7 @@ REPAIR_SYSTEM_PROMPT = """你是资深 HTML 自动修复工程师。
 具体修复要求：
 - 只输出修复后的完整 <!DOCTYPE html>...</html>，不输出 Markdown 或解释。
 - 保持独立 HTML，CSS 与业务 JavaScript 内联。
+- 补齐 OpenMAIC widget 契约：`script#widget-config[type="application/json"]`、message action listener、稳定元素 id/data-role。
 - 确保学习目标（class="learning-objectives"，至少 3 条）、主可视化区（id="aetherviz-stage"）、控制面板（class="control-panel"）存在。
 - 确保 #aetherviz-stage 内主 SVG/Canvas 在舞台水平和垂直居中；SVG 需要用居中的 viewBox 或 main-visual-group，Canvas 需要基于 width/height 的中心点绘制。
 - 确保页面保留中文旁白式 caption，并像完整互动课件一样默认进入可观察状态。
@@ -68,44 +87,22 @@ REPAIR_SYSTEM_PROMPT = """你是资深 HTML 自动修复工程师。
 - 确保页面使用单屏无滚动布局，html/body 与页面根容器压缩在 iframe 首屏内，禁止页面级滚动条。
 - 确保标签、公式、步骤说明和控件避让主图，长文本进入说明区或自动换行。
 - 在保证动画可播放优先的前提下，优先使用独立布局区域承载控制面板、caption、公式结论区，并给主舞台预留底部安全间距，避免悬浮遮挡。
+- 移除舞台内巨型公式、巨型读数和遮挡主图的大字号文本；公式和读数迁移到 data-region="formula" 或 HUD 面板。
 - 移除页脚署名、品牌署名和生成来源文字。
 - 默认移除全局进度条/进度滑块；除非原始主题明确要求，否则不要恢复进度条。
 - 确保播放/暂停/重置按钮（id="play-animation"、id="pause-animation"、id="reset-animation"）存在并绑定真实事件。
 - 确保 window.AetherVizRuntime = { play, pause, reset, setSpeed, update, getState } 声明完整。
 - 确保 window.__AETHERVIZ_RUNTIME_READY__ = true 在初始化成功时设置。
-- 不引入 Three.js 或外部业务接口。若原计划 animation_runtime=gsap_timeline，应保留固定 GSAP CDN、补齐 timeline label 和控制绑定，不要退回静态 SVG。
+- 不引入 Three.js、D3、外部时间线库或外部业务接口。
 """
 
 
-def is_gsap_timeline_plan(plan: dict | None) -> bool:
-    runtime = plan.get("runtime") if isinstance(plan, dict) else None
-    return bool(runtime and isinstance(runtime, dict) and runtime.get("animation_runtime") == "gsap_timeline")
-
-
 def system_prompt_for_interactive_type(plan: dict) -> str:
-    base_prompt = {
+    return {
         "simulation": SIMULATION_SYSTEM_PROMPT,
         "diagram": DIAGRAM_SYSTEM_PROMPT,
         "game": GAME_SYSTEM_PROMPT,
     }.get(str(plan.get("interactive_type")), INTERACTIVE_HTML_SYSTEM_PROMPT)
-    return system_prompt_for_plan(base_prompt, plan)
-
-
-def system_prompt_for_plan(base_prompt: str, plan: dict) -> str:
-    if not is_gsap_timeline_plan(plan):
-        return base_prompt
-    return f"""{base_prompt}
-
-GSAP Timeline 计划要求：
-- 本计划 animation_runtime=gsap_timeline，必须引入且只能引入固定 CDN：{CDN_GSAP}
-- 使用 const tl = gsap.timeline({{ paused: true, defaults: {{ ease: "power2.inOut" }}, onUpdate: syncRuntimeState }});
-- 使用 addLabel() 为每个 teaching_flow step 建立可读 label，至少 3 个 label，label 名称应与 step id 对应。
-- timeline 内至少包含 3 个真实 tween/set 调用，用于元素进出场、步骤高亮、公式同步或 caption 更新。
-- 播放按钮调用 tl.play() 或 tl.restart()；暂停按钮调用 tl.pause()；重置按钮调用 tl.pause(0) 或 tl.progress(0)。
-- 速度控制调用 tl.timeScale(value)；不要生成可见全局进度条，window.AetherVizRuntime.update(value) 可在内部调用 tl.progress(value) 供宿主程序跳转状态。
-- window.AetherVizRuntime 统一代理 timeline：play、pause、reset、setSpeed、update、getState 都要真实读写 tl。
-- Canvas 高频运动仍用 requestAnimationFrame 绘制；如果页面使用 Canvas，GSAP 只驱动 state.progress 或阶段值，再调用 renderCanvas。
-"""
 
 
 def build_repair_prompt(
@@ -146,7 +143,6 @@ def build_repair_prompt(
 def build_interactive_generation_prompt(topic: str, plan: dict) -> str:
     runtime = plan.get("runtime") if isinstance(plan.get("runtime"), dict) else {}
     render_stack = runtime.get("render_stack") or "svg"
-    animation_runtime = runtime.get("animation_runtime") or "native"
     interactive_type = plan.get("interactive_type", "simulation")
     type_hint = {
         "simulation": "仿真互动：学生调节变量时，主舞台、参数读数、caption 和结论必须实时同步变化。",
@@ -167,30 +163,19 @@ def build_interactive_generation_prompt(topic: str, plan: dict) -> str:
         else ""
     )
     interactive_spec = plan.get("interactive_spec") or {}
+    widget_outline = plan.get("widget_outline") or {
+        "type": interactive_type,
+        "concept": interactive_spec.get("concept", topic) if isinstance(interactive_spec, dict) else topic,
+    }
     teaching_flow = plan.get("teaching_flow", [])
     teaching_flow_section = (
         f"教学流程（页面需要完整展示，并能同步标注当前步骤）:\n{json.dumps(teaching_flow, ensure_ascii=False, indent=2)}\n"
         if teaching_flow
         else ""
     )
-    if animation_runtime == "gsap_timeline":
-        runtime_section = f"""动画运行时（必须落实）：
-- 使用 GSAP Timeline 编排动画，不要只引用库。
-- 引入且只能引入固定 CDN：{CDN_GSAP}
-- 声明 const tl = gsap.timeline({{ paused: true, defaults: {{ ease: "power2.inOut" }}, onUpdate: syncRuntimeState }});
-- teaching_flow 每个 step 都要有 tl.addLabel(step.id, ...)，至少 3 个 label。
-- 每个 scene 至少对应一个 .to() / .from() / .fromTo() / .set()，用来驱动画面、caption、公式或高亮。
-- id="play-animation" 绑定 tl.play() 或 tl.restart()；id="pause-animation" 绑定 tl.pause()；id="reset-animation" 绑定 tl.pause(0) 或 tl.progress(0)。
-- 速度控件绑定 tl.timeScale(value)；默认不要生成可见全局进度条或进度滑块。
-- animation-caption 或 step-caption 必须随 tl 的当前 scene 同步更新。
-- 页面中的完整分镜列表必须随 tl 的当前 scene 同步更新 active/current 标记，当前幕可高亮，但其他幕说明仍保持可见。
-- window.AetherVizRuntime 必须代理 timeline 的 play、pause、reset、setSpeed、update、getState，其中 update(value) 可内部调用 tl.progress(value) 以支持宿主程序跳转，但不要因此渲染进度条。
-- Canvas 高频运动仍用 requestAnimationFrame 绘制；若使用 Canvas，GSAP 只驱动 progress/state，再调用 renderCanvas。
-"""
-    else:
-        runtime_section = """动画运行时（必须落实）：
+    runtime_section = """动画运行时（必须落实）：
 - 使用 native 运行时：requestAnimationFrame、CSS transition、classList 或原生 DOM/SVG/Canvas 更新。
-- 不要引入 GSAP；播放、暂停、重置、速度和主题参数控件仍必须真实驱动画面。
+- 不要引入任何外部时间线库；播放、暂停、重置、速度和主题参数控件仍必须真实驱动画面。
 - 运行时更新当前步骤时，必须同步更新完整分镜列表的 active/current 标记，其他幕说明仍保持可见。
 - 默认不要生成可见全局进度条或进度滑块；window.AetherVizRuntime.update(value) 可内部跳转当前步骤或动画状态。
 """
@@ -215,21 +200,33 @@ def build_interactive_generation_prompt(topic: str, plan: dict) -> str:
 4. 互动规格
 {json.dumps(interactive_spec, ensure_ascii=False, indent=2)}
 
-5. 互动验收
+5. Widget Outline
+{json.dumps(widget_outline, ensure_ascii=False, indent=2)}
+
+6. OpenMAIC widget 契约落地
+- 必须把第 4 节互动规格原样转化为 `script#widget-config[type="application/json"]`。
+- widget-config.type 必须是 "{interactive_type}"。
+- 必须实现 iframe action message listener：SET_WIDGET_STATE、HIGHLIGHT_ELEMENT、ANNOTATE_ELEMENT、REVEAL_ELEMENT。
+- SET_WIDGET_STATE 必须能更新对应 slider/input/select 并派发 input/change 事件，让画面实时刷新。
+- HIGHLIGHT_ELEMENT/ANNOTATE_ELEMENT/REVEAL_ELEMENT 必须作用于真实 DOM/SVG 元素，不能写空 switch。
+- 页面初始化不得依赖 localStorage、外部接口或异步资源才能显示主视觉。
+
+7. 互动验收
 - 默认进入可观察状态，至少 3 个可观察状态变化，不能只是静态图形加文字。
 - #aetherviz-stage 内主 SVG/Canvas 居中；SVG 使用 preserveAspectRatio="xMidYMid meet" 和稳定主视觉 id/class/data-role。
 - 主舞台使用 id="aetherviz-stage" 和 data-region="stage"；控制区、公式区、caption 区使用稳定 data-region，关键教学元素使用 data-role。
 - animation-caption 或 step-caption 必须随动画状态更新。
 - 必须在页面中显示完整教学流程列表，覆盖 teaching_flow 条目；当前步骤用 active/current 状态同步标注，不能只显示当前 caption。
 - 控件必须绑定真实功能；不要生成可见全局进度条或进度滑块。
+- 公式、读数、caption 和说明不得作为主舞台巨型文字覆盖图形；主舞台内文字仅用于短标签，复杂表达放到公式/HUD 面板。
 - 不输出页脚署名、品牌署名或生成来源文案。
 
-6. 互动类型要求
+8. 互动类型要求
 {type_hint}
 
 {teaching_flow_section}
 
-8. 控件
+9. 控件
 {json.dumps(plan.get("controls", []), ensure_ascii=False, indent=2)}
 
 {formula_section}输出格式：只输出完整 HTML，不要输出 Markdown、解释或页面署名。

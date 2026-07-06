@@ -2,9 +2,7 @@
 
 `AI互动实验` 是一个基于 Python 3.12 和 FastAPI 的后端服务，用于根据教学主题生成完整、可直接打开的互动教学 HTML。
 
-服务包含 AI互动实验生成链路：静态知识点命中、主题色注入、未命中时的通用 SVG HTML 生成、数学专项 SVG + KaTeX + CSS/原生 JS 动画生成，以及基于当前 HTML 的修订。
-
-当前不包含前端、导出、数据库或任务队列能力。
+当前生成链路只保留 OpenMAIC 风格的动态单页互动课件：先生成可确认的 `interactive` 计划，再按确认计划生成自包含 HTML。项目不再包含静态知识点命中、静态 HTML 文件读取或静态 HTML 返回接口。
 
 ## 目录结构
 
@@ -20,17 +18,14 @@ ai-interactive-experiment/
 │       ├── react.py
 │       ├── fallback_planner.py
 │       ├── fallback_validator.py
+│       ├── generation_stream.py
+│       ├── html_output.py
+│       ├── openmaic_template.py
+│       ├── planning_stream.py
+│       ├── prompts.py
+│       ├── revision_plan_stream.py
+│       ├── theme.py
 │       ├── validator.py
-│       ├── knowledge_points.py
-│       ├── cover_images.py
-│       ├── matcher.py
-│       ├── static_html.py
-│       ├── html/
-│       │   ├── biology/
-│       │   ├── chemistry/
-│       │   ├── chinese/
-│       │   ├── math/
-│       │   └── physics/
 │       └── schemas/
 │           └── aetherviz.py
 ├── tests/
@@ -54,7 +49,7 @@ uv python pin 3.12
 uv sync --dev
 ```
 
-也可以通过 `requirements.txt` 查看运行依赖。依赖声明以 `pyproject.toml` 为准。
+依赖声明以 `pyproject.toml` 为准。
 
 ## 配置
 
@@ -88,87 +83,39 @@ docker compose -f docker-compose.dev.yml up app
 docker compose -f docker-compose.prod.yml up -d app
 ```
 
-开发环境已开启 CORS `allow_origins=["*"]`。生产环境应按实际前端域名收敛 CORS 配置。
+## 前端联调项目
+
+关联前端项目为 `bingo-aetherviz` / `AI动态课件`：
+
+```text
+/Users/likai/Documents/workspace/bingo-aetherviz
+```
+
+前端是 Vite + React + TypeScript 应用，负责 chat 工作区、计划确认、SSE 事件消费、多个 HTML 产物管理、iframe `srcDoc` 预览和运行时错误桥接。后端负责 OpenMAIC widget 计划、HTML 生成、自动修复、分型兜底、严格校验和最终自包含 HTML 输出。
+
+职责边界：
+
+- 前端不渲染课件内部 SVG、Canvas 或 DOM 互动逻辑。
+- 前端不把后端生成物依赖重新搬回 React 组件。
+- 前端只消费后端返回的自包含 HTML，并通过 iframe 隔离预览。
+- `phase=revise` 只发送主题、修改意见和摘要型 `context`，不发送完整 HTML。
+
+前端联调命令以该前端仓库 `package.json` 为准，常用命令：
+
+```bash
+cd /Users/likai/Documents/workspace/bingo-aetherviz
+pnpm dev:local
+pnpm dev:local:proxy
+pnpm build
+```
+
+其中 `pnpm dev:local` 通过 `VITE_API_BASE_URL=http://localhost:10095` 直连本后端，`pnpm dev:local:proxy` 通过 Vite proxy 指向本后端。
 
 ## API
 
-### GET /aetherviz-static-knowledge-points
-
-返回当前已注册、可直接命中静态 HTML 的 AI互动实验知识点列表。该接口不调用大模型，适合前端展示可用主题、搜索提示或调试静态命中覆盖范围。
-
-响应示例：
-
-```json
-{
-  "success": true,
-  "total": 1,
-  "knowledge_points": [
-    {
-      "knowledge_point_id": "physics/newton_second_law",
-      "title": "牛顿第二定律",
-      "subject": "physics",
-      "knowledge_domain": "mechanics",
-      "grade": "高一",
-      "keywords": ["牛顿第二定律", "F=ma", "加速度"],
-      "render_mode": "static-html",
-      "static_html_slug": "newton-second-law",
-      "static_html_path": "physics/newton-second-law.html",
-      "core_concepts": ["牛顿第二定律", "F=ma", "加速度"],
-      "key_formulas": [],
-      "cover_image_base64": "/9j/4AAQSkZJRgABAQA..."
-    }
-  ]
-}
-```
-
-`cover_image_base64` 为静态 HTML 首屏封面截图的 JPEG base64 字符串，不包含 `data:image/jpeg;base64,` 前缀。
-
-### GET /aetherviz-static-html
-
-根据 `knowledge_point_id` 返回已注册静态知识点对应的完整独立 HTML。该接口不调用大模型。
-
-请求参数：
-
-- `knowledge_point_id`：必填，例如 `physics/newton_second_law`。
-
-响应示例：
-
-```json
-{
-  "success": true,
-  "knowledge_point_id": "physics/newton_second_law",
-  "title": "牛顿第二定律",
-  "subject": "physics",
-  "knowledge_domain": "mechanics",
-  "grade": "高一",
-  "render_mode": "static-html",
-  "static_html_slug": "newton-second-law",
-  "static_html_path": "physics/newton-second-law.html",
-  "primary_color": "#22D3EE",
-  "html": "<!DOCTYPE html><html lang=\"zh-CN\">...</html>"
-}
-```
-
-错误约定：
-
-- `404`：`knowledge_point_id` 未注册为静态知识点。
-- `500`：知识点已注册，但对应静态 HTML 文件不存在或格式不正确。
-
-### GET /static-html/{static_html_path}
-
-根据静态 HTML 相对路径直接返回 `text/html`，用于前端或宿主已持有 `static_html_path` 时加载原始课件文件。路径必须位于 `aetherviz/html/` 下，并且必须是 `.html` 文件。
-
-请求示例：
-
-```text
-GET /static-html/physics/newton-second-law.html
-```
-
-响应为完整独立 HTML 文本。路径不存在或不合法时返回 `404`。
-
 ### POST /generate-aetherviz-spec
 
-根据教学主题生成 AI互动实验风格的完整独立互动教学 HTML。接口采用同端 SSE；静态知识点命中时直接返回 HTML，动态生成统一为单页 `interactive` 计划，并通过 `interactive_type` 分流为 `simulation`、`diagram` 或 `game`。
+根据教学主题生成 AI互动实验风格的完整独立互动教学 HTML。接口采用同端 SSE，统一走动态 OpenMAIC 生成链路，计划类型固定为单页 `interactive`，并通过 `interactive_type` 分流为 `simulation`、`diagram` 或 `game`。
 
 计划阶段请求示例：
 
@@ -194,11 +141,13 @@ GET /static-html/physics/newton-second-law.html
     "learner_level": "初中/高中",
     "stage_layout": "顶部展示学习目标，中间大舞台展示粒子扩散轨迹，底部放置播放控制和结论区。",
     "interactive_spec": {
+      "type": "simulation",
       "concept": "熵增",
       "description": "通过调节速度观察粒子从有序到无序的变化。",
       "variables": [
         {"name": "speed", "label": "速度", "min": 0.5, "max": 2, "default": 1, "step": 0.1, "unit": "x"}
       ],
+      "presets": [{"id": "default", "label": "默认", "values": {"speed": 1}}],
       "observations": ["观察扩散速度改变后，粒子状态和结论如何同步变化。"]
     },
     "teaching_flow": [
@@ -262,62 +211,50 @@ GET /static-html/physics/newton-second-law.html
 响应类型为 `text/event-stream`。事件包括：
 
 - `start`：生成任务启动。
-- `progress`：阶段进度，例如 `static_match`、`planning` 或 `generating`。
-- `thinking_delta`：HTML 生成、自动修复和修订阶段的用户可读中文思考摘要；兼容模型返回英文 `reasoning_content` 时，服务端会转成中文摘要后再透出。计划阶段默认不启用思考流。
+- `progress`：阶段进度，例如 `planning`、`generating`、`repairing` 或 `fallback_template`。
+- `thinking_delta`：HTML 生成、自动修复和修订阶段的用户可读中文思考摘要；计划阶段默认不启用思考流。
 - `plan_delta`：计划阶段或重新规划阶段的结构化计划 JSON 输出片段。
 - `plan_ready`：计划阶段完成，包含结构化 `plan`；用户确认后再请求 `phase=generate`。
-- `generation_delta`：生成阶段的大模型输出片段，携带本次 `output_tokens` 和累计 `output_tokens_total`；不包含输入 prompt token。
+- `generation_delta`：生成阶段的大模型输出片段，携带本次 `output_tokens` 和累计 `output_tokens_total`。
 - `done`：生成完成，包含最终 `html` 和 `metadata`。
 - `error`：生成失败，包含用户可读 `message`、阶段 `stage` 和调试用 `detail`。
-
-典型静态命中流程：
-
-```text
-event: start
-data: {"success": true, "stage": "start", "message": "开始生成《牛顿第二定律》的互动可视化页面", "progress": 3}
-
-event: progress
-data: {"success": true, "stage": "static_match", "message": "已命中静态知识点：牛顿第二定律", "progress": 35, "subject": "physics", "knowledge_domain": "mechanics", "knowledge_point_id": "physics/newton_second_law", "grade": "高一", "match_confidence": 0.98}
-
-event: done
-data: {"success": true, "stage": "done", "message": "已返回静态互动可视化页面", "progress": 100, "html": "<!DOCTYPE html><html lang=\"zh-CN\">...</html>", "metadata": {"topic": "牛顿第二定律", "attempts": 0, "source": "static_html", "degraded": false, "knowledge_point_id": "physics/newton_second_law"}}
-```
 
 错误约定：
 
 - `400`：`topic` 为空。
 - `400`：`phase=generate` 时缺少 `approved_plan`。
 - `400`：`phase=revise` 时缺少 `instruction`。
-- SSE `error` 且 `stage=static_html_missing`：主题已命中知识点，但静态 HTML 文件不可用。
 - SSE `error` 且 `stage=llm_error`：调用模型服务失败。
-- SSE `error` 且 `stage=fallback_failed`：互动 HTML 输出解析或基础质量门未通过；系统已尝试一次自动修复但仍失败。
-- SSE `error` 且 `stage=validation_failed`：fallback HTML 未通过结构、安全、依赖、交互或可视化区域检查；系统已尝试一次自动修复但仍失败。
+- SSE `error` 且 `stage=fallback_failed`：互动 HTML 输出解析、自动修复和 OpenMAIC 稳定模板都未通过质量门。
+- SSE `error` 且 `stage=validation_failed`：HTML 未通过结构、安全、依赖、交互或可视化区域检查，且 OpenMAIC 稳定模板也无法生成有效页面。
 - SSE `error` 且 `stage=unknown_error`：生成过程中发生未预期异常。
 
 ## 生成流程
 
-`/generate-aetherviz-spec` 使用“静态优先 + 动态双阶段兜底”策略：
+`/generate-aetherviz-spec` 使用动态双阶段生成策略：
 
-1. 通过 `matcher.py` 对主题做服务端知识点关键词匹配。
-2. 命中后读取 `aetherviz/html/{subject}/{slug}.html`，并通过 `static_html.py` 注入运行时主题色覆盖层。
-3. 未命中且 `phase=plan` 时由 `fallback_planner.py` 生成单页 interactive 计划，字段包括 `page_type`、`interactive_type`、`subject`、`title`、`goal`、`stage_layout`、`interactive_spec`、`teaching_flow`、`controls`、`formulas`、`runtime` 和 `primary_color`。
-4. 前端确认计划后，以 `phase=generate` 携带 `approved_plan` 再次请求。
-5. `react.py` 按 `interactive_type` 选择 simulation、diagram 或 game 生成 prompt；SVG 表达结构和标注，Canvas 承担连续运动、轨迹或粒子，DOM 承担步骤说明、公式和控制区；动画由 CSS transition/keyframes、`requestAnimationFrame` 或计划指定的 GSAP Timeline 管理。
-6. `phase=revise` 时，后端忽略废弃的 HTML 入参，只基于 `instruction`、`context.plan_summary` 和会话摘要重新规划，返回新的 `plan_ready`，不生成补丁、不合并 HTML、不返回旧索引字段。
-7. `fallback_validator.py` 提取 HTML、清理代码围栏；`validator.py` 执行文档结构、安全、依赖、交互和可视化区域校验。首次解析或校验失败时会发出 `progress stage=repairing` 并自动修复一次，成功时 `metadata.repaired=true`、`attempts=2`。
+1. `phase=plan` 时由 `fallback_planner.py` 生成单页 interactive 计划，字段包括 `page_type`、`interactive_type`、`widget_type`、`subject`、`title`、`goal`、`stage_layout`、`interactive_spec`、`widget_outline`、`teaching_flow`、`controls`、`formulas`、`runtime` 和 `primary_color`。
+2. 前端确认计划后，以 `phase=generate` 携带 `approved_plan` 再次请求。
+3. `react.py` 按 `interactive_type` 选择 simulation、diagram 或 game 生成 prompt；生成逻辑以 OpenMAIC interactive 为核心，HTML 内需包含 `script#widget-config` 和 iframe message action listener；SVG 表达结构和标注，Canvas 承担连续运动、轨迹或粒子，DOM 承担步骤说明、公式和控制区；动画由原生 CSS transition/keyframes、`requestAnimationFrame` 和 DOM/SVG/Canvas 状态更新管理，不使用 GSAP。
+4. `phase=revise` 时，后端忽略废弃的 HTML 入参，只基于 `instruction`、`context.plan_summary` 和会话摘要重新规划，返回新的 `plan_ready`，不生成补丁、不合并 HTML、不返回旧索引字段。
+5. `fallback_validator.py` 提取 HTML、清理代码围栏；`validator.py` 以严格模式执行文档结构、安全、依赖、OpenMAIC 契约、运行时、交互和可视化区域校验。首次解析或校验失败时会发出 `progress stage=repairing` 并自动修复一次，成功时 `metadata.repaired=true`、`attempts=2`。
+6. 若模型生成和自动修复都失败，`openmaic_template.py` 会按确认后的 plan 生成确定性的分型 OpenMAIC 单页互动 HTML，再进入同一套严格校验；成功时 `metadata.source=openmaic_template`、`attempts=3`、`degraded=true`。该兜底只保证稳定可运行，不恢复旧静态 HTML，也不引入 GSAP 或旧提示词。
 
-主题色从 `topic` 中的 `#RRGGBB` 或中文颜色词提取，未提取到时使用默认色 `#22D3EE`。主题色适配通过后置 `:root` 覆盖层完成，不批量替换整份 HTML，也不覆盖学科语义色。
+主题色从 `topic` 中的 `#RRGGBB` 或中文颜色词提取，未提取到时使用默认色 `#22D3EE`。
 
-## 静态 HTML 开发
+## OpenMAIC Widget 链路改造方向
 
-新增可静态命中的知识点时，需要：
+本项目采用 Widget 链路级 OpenMAIC 对齐：保留当前 FastAPI 单页 SSE 接口，不迁移 OpenMAIC 的 Next.js、多场景课堂、LangGraph 或多 Agent 应用架构。
 
-1. 在 `aetherviz_service/aetherviz/html/{subject}/` 下新增完整独立 HTML 文件。
-2. 在 `aetherviz_service/aetherviz/knowledge_points.py` 注册知识点标题、关键词、年级 `grade`、知识域和 `static_html_slug`。
-3. 在 `aetherviz_service/aetherviz/cover_images.py` 添加首屏 JPEG 封面 base64，键名使用 `{subject}/{static_html_slug}`。
-4. 在 `tests/test_aetherviz.py` 覆盖静态文件映射、主题色注入、命中后不调用 LLM，以及必要的学科或年级断言。
+默认改造方向：
 
-静态 HTML 应保持完整独立，可直接保存和打开。
+- 保留现有公共接口 `POST /generate-aetherviz-spec`，不新增静态 HTML 接口。
+- 计划对象继续以 `page_type: "interactive"` 为主，保留 `interactive_type` 兼容前端；可补充 OpenMAIC 风格 `widget_type` / `widget_outline`，但不得破坏现有前端字段。
+- 后端按 `simulation`、`diagram`、`game` 拆分独立 prompt、分型 widget-config、分型模板兜底和分型校验。
+- `openmaic_template.py` 使用分型兜底，避免所有主题共用同一套主舞台图形。
+- `validator.py` 执行主题语义与 `interactive_spec` 对主舞台元素的最小一致性检查。
+- `metadata.source=openmaic_template` 表示降级输出，前端可展示 `source`、`attempts`、`repaired`、`degraded` 和 `validation_warnings`。
+- 前端保留 iframe 隔离和运行时错误桥接，并支持向 iframe 发送 OpenMAIC widget action：`SET_WIDGET_STATE`、`HIGHLIGHT_ELEMENT`、`ANNOTATE_ELEMENT`、`REVEAL_ELEMENT`。
 
 ## 验证
 
@@ -339,8 +276,4 @@ curl 示例：
 curl -N -X POST http://localhost:10095/generate-aetherviz-spec \
   -H "Content-Type: application/json" \
   -d '{"topic":"牛顿第二定律"}'
-```
-
-```bash
-curl "http://localhost:10095/aetherviz-static-html?knowledge_point_id=physics/newton_second_law"
 ```

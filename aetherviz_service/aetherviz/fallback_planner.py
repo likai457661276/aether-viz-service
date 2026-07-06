@@ -21,23 +21,27 @@ SUBJECT_KEYWORDS = {
 
 VALID_INTERACTIVE_TYPES = {"simulation", "diagram", "game"}
 VALID_RENDER_STACKS = {"svg", "svg_canvas", "canvas_svg", "dom_svg"}
-VALID_ANIMATION_RUNTIMES = {"native", "gsap_timeline"}
+VALID_ANIMATION_RUNTIMES = {"native"}
 
 SIMULATION_KEYWORDS = ["运动", "参数", "实验", "函数", "概率", "反应速率", "电路", "轨迹", "速度", "采样"]
 DIAGRAM_KEYWORDS = ["流程", "结构", "分类", "因果", "步骤", "阅读结构", "知识图谱", "体系", "过程"]
 GAME_KEYWORDS = ["练习", "闯关", "匹配", "排序", "挑战", "小游戏", "巩固", "得分"]
 
 PLANNING_SYSTEM_PROMPT_TEMPLATE = """你是资深互动教学课件规划师。
-为 12~18 岁学生设计一个单页 interactive HTML 课件计划。
+为 12~18 岁学生设计一个 OpenMAIC 风格的单页 interactive widget 计划。
 
 规划原则：
 - page_type 固定为 interactive。
 - interactive_type 只能是 simulation、diagram、game。
-- interactive_spec 必须描述互动意图和核心配置：simulation 写 variables/presets/observations，diagram 写 nodes/edges/reveal_order，game 写 challenge/success_condition/feedback_rules。
+- interactive_spec 是 OpenMAIC WidgetOutline + WidgetConfig 的单页化核心，必须能直接嵌入 HTML 的 script#widget-config。
+- simulation: interactive_spec 必须写 type、concept、description、variables、presets、observations；变量 name 要可作为 slider id/data-var。
+- diagram: interactive_spec 必须写 type、concept、description、nodes、edges、reveal_order；nodes 每项必须有 id、label、details/explanation。
+- game: interactive_spec 必须写 type、concept、description、game_type、challenge、success_condition、feedback_rules、game_config；必须是操作型挑战，不是普通选择题堆叠。
 - teaching_flow 用 3~5 个教学节奏步骤描述观察、操作、归纳。
 - controls 只保留真实影响学习的控件，2~5 个。
-- runtime.render_stack 只能是 svg、svg_canvas、canvas_svg、dom_svg；runtime.animation_runtime 只能是 native、gsap_timeline。
+- runtime.render_stack 只能是 svg、svg_canvas、canvas_svg、dom_svg；runtime.animation_runtime 固定为 native。
 - stage_layout 必须说明目标区、主舞台、控制区和结论区如何在单屏内摆放。
+- stage_layout 必须明确公式、读数、caption 与控制面板不进入主舞台覆盖层；主舞台只放图形和短标签。
 
 只输出 JSON 对象，不输出 Markdown 或解释。
 """
@@ -80,8 +84,6 @@ def select_render_stack(interactive_type: str, subject: str, topic: str) -> str:
 
 
 def select_animation_runtime(interactive_type: str, render_stack: str) -> str:
-    if interactive_type == "diagram" and render_stack == "dom_svg":
-        return "gsap_timeline"
     return "native"
 
 
@@ -100,8 +102,9 @@ def build_planning_prompt(topic: str, primary_color: str) -> tuple[str, str]:
 主色调：{primary_color}
 
 必须输出完整 JSON，字段包括：
-page_type、interactive_type、subject、title、goal、learner_level、stage_layout、
-interactive_spec、teaching_flow、controls、formulas、runtime、primary_color。
+page_type、interactive_type、widget_type、subject、title、goal、learner_level、stage_layout、
+interactive_spec、widget_outline、teaching_flow、controls、formulas、runtime、primary_color。
+widget_type 必须与 interactive_type 相同；widget_outline 用于概括主舞台对象、状态机、可观察变化和必须响应的 action，不替代 interactive_spec。
 """
     return PLANNING_SYSTEM_PROMPT_TEMPLATE, user_prompt
 
@@ -172,16 +175,19 @@ def normalize_plan(raw_plan: dict | None, topic: str, primary_color: str = DEFAU
 
     interactive_spec = _normalize_interactive_spec(raw.get("interactive_spec"), fallback["interactive_spec"], interactive_type, topic)
     teaching_flow = _normalize_teaching_flow(raw.get("teaching_flow"), fallback["teaching_flow"])
+    widget_outline = _normalize_widget_outline(raw.get("widget_outline"), interactive_spec, interactive_type, topic)
 
     return {
         "page_type": "interactive",
         "interactive_type": interactive_type,
+        "widget_type": interactive_type,
         "subject": subject,
         "title": (_safe_str(raw.get("title")) or fallback["title"])[:48],
         "goal": (_safe_str(raw.get("goal")) or fallback["goal"])[:180],
         "learner_level": (_safe_str(raw.get("learner_level")) or "初中/高中")[:24],
         "stage_layout": (_safe_str(raw.get("stage_layout")) or fallback["stage_layout"])[:220],
         "interactive_spec": interactive_spec,
+        "widget_outline": widget_outline,
         "teaching_flow": teaching_flow,
         "controls": _normalize_controls(raw.get("controls"), fallback["controls"]),
         "formulas": _string_list(raw.get("formulas"), fallback["formulas"], max_items=5, max_len=100),
@@ -202,12 +208,19 @@ def _default_plan(topic: str, primary_color: str) -> dict:
     return {
         "page_type": "interactive",
         "interactive_type": interactive_type,
+        "widget_type": interactive_type,
         "subject": subject,
         "title": f"{topic}互动课件",
         "goal": f'通过单页互动操作理解"{topic}"的关键概念和变化规律。',
         "learner_level": "初中/高中",
         "stage_layout": "顶部展示学习目标，中间为主舞台，底部放置控制区、当前说明和结论区，移动端纵向堆叠但保持主视觉优先。",
         "interactive_spec": _default_interactive_spec(topic, interactive_type),
+        "widget_outline": {
+            "type": interactive_type,
+            "topic": topic,
+            "intent": "single_page_openmaic_widget",
+            "required_regions": ["learning-goal", "stage", "controls", "caption", "formula"],
+        },
         "teaching_flow": [
             {"id": "observe", "label": "观察初始状态", "focus": "核心对象和变量被清晰标注", "caption": "先观察页面中哪些对象会发生变化。"},
             {"id": "interact", "label": "操作互动控件", "focus": "学生调节参数或逐步揭示内容", "caption": "再通过控件改变状态，比较不同结果。"},
@@ -227,6 +240,7 @@ def _default_plan(topic: str, primary_color: str) -> dict:
 def _default_interactive_spec(topic: str, interactive_type: str) -> dict:
     if interactive_type == "simulation":
         return {
+            "type": "simulation",
             "concept": topic,
             "description": "学生通过调节参数观察结果变化。",
             "variables": [
@@ -237,21 +251,29 @@ def _default_interactive_spec(topic: str, interactive_type: str) -> dict:
         }
     if interactive_type == "game":
         return {
+            "type": "game",
             "concept": topic,
             "description": "学生完成一个与知识点直接相关的互动挑战。",
+            "game_type": "manipulation",
             "challenge": "根据提示完成匹配、排序或选择策略。",
             "success_condition": "所有关键对象放入正确位置并能解释原因。",
             "feedback_rules": ["正确时显示原因解释", "错误时高亮冲突点并给出提示"],
+            "game_config": {
+                "controls": ["drag", "check", "reset"],
+                "fair_start": "默认状态没有失败条件，学生先观察目标再开始操作。",
+                "levels": [{"id": "level-1", "label": "基础挑战"}],
+            },
         }
     return {
+        "type": "diagram",
         "concept": topic,
         "description": "学生逐步揭示节点和关系，理解整体结构。",
         "nodes": [
-            {"id": "core", "label": topic, "explanation": "核心概念"},
-            {"id": "cause", "label": "关键原因", "explanation": "导致变化或形成结构的主要因素"},
-            {"id": "result", "label": "结果结论", "explanation": "最终需要掌握的规律"},
+            {"id": "core", "label": topic, "details": "核心概念", "explanation": "核心概念"},
+            {"id": "cause", "label": "关键原因", "details": "导致变化或形成结构的主要因素", "explanation": "导致变化或形成结构的主要因素"},
+            {"id": "result", "label": "结果结论", "details": "最终需要掌握的规律", "explanation": "最终需要掌握的规律"},
         ],
-        "edges": [{"source": "cause", "target": "core"}, {"source": "core", "target": "result"}],
+        "edges": [{"from": "cause", "to": "core"}, {"from": "core", "to": "result"}],
         "reveal_order": ["core", "cause", "result"],
     }
 
@@ -280,6 +302,7 @@ def _normalize_interactive_spec(raw_spec: object, default: dict, interactive_typ
     if not isinstance(raw_spec, dict):
         return dict(default)
     spec = dict(raw_spec)
+    spec["type"] = interactive_type
     spec.setdefault("concept", topic)
     spec.setdefault("description", default.get("description"))
     if interactive_type == "simulation":
@@ -287,16 +310,65 @@ def _normalize_interactive_spec(raw_spec: object, default: dict, interactive_typ
         spec["variables"] = variables if isinstance(variables, list) and variables else default.get("variables", [])
         observations = spec.get("observations")
         spec["observations"] = observations if isinstance(observations, list) and observations else default.get("observations", [])
+        presets = spec.get("presets")
+        spec["presets"] = presets if isinstance(presets, list) and presets else default.get("presets", [])
     elif interactive_type == "diagram":
         for field in ("nodes", "edges", "reveal_order"):
             value = spec.get(field)
             spec[field] = value if isinstance(value, list) and value else default.get(field, [])
+        spec["nodes"] = [_normalize_diagram_node(node, index) for index, node in enumerate(spec["nodes"])]
+        spec["edges"] = [_normalize_diagram_edge(edge) for edge in spec["edges"]]
     else:
         spec.setdefault("challenge", default.get("challenge"))
         spec.setdefault("success_condition", default.get("success_condition"))
+        spec.setdefault("game_type", default.get("game_type", "manipulation"))
+        spec.setdefault("game_config", default.get("game_config", {}))
         rules = spec.get("feedback_rules")
         spec["feedback_rules"] = rules if isinstance(rules, list) and rules else default.get("feedback_rules", [])
     return spec
+
+
+def _normalize_widget_outline(raw_outline: object, interactive_spec: dict, interactive_type: str, topic: str) -> dict:
+    outline = dict(raw_outline) if isinstance(raw_outline, dict) else {}
+    outline["type"] = interactive_type
+    outline.setdefault("topic", topic)
+    outline.setdefault("intent", "single_page_openmaic_widget")
+    outline.setdefault("concept", interactive_spec.get("concept") or topic)
+    if interactive_type == "simulation":
+        outline.setdefault("core_objects", [item.get("name") for item in interactive_spec.get("variables", []) if isinstance(item, dict)] or ["parameter"])
+        outline.setdefault("state_model", ["running", "paused", "ended"])
+        outline.setdefault("observable_changes", interactive_spec.get("observations") or ["参数变化驱动画面、读数和结论同步变化"])
+    elif interactive_type == "diagram":
+        outline.setdefault("core_objects", [item.get("id") for item in interactive_spec.get("nodes", []) if isinstance(item, dict)] or ["core"])
+        outline.setdefault("state_model", ["hidden", "revealed", "highlighted"])
+        outline.setdefault("observable_changes", ["节点逐步揭示", "关系连线高亮", "说明同步更新"])
+    else:
+        outline.setdefault("core_objects", ["challenge", "choice", "feedback"])
+        outline.setdefault("state_model", ["ready", "playing", "success"])
+        outline.setdefault("observable_changes", ["操作对象移动", "结果即时反馈", "成功条件高亮"])
+    outline.setdefault("required_regions", ["learning-goal", "stage", "controls", "caption", "formula"])
+    return outline
+
+
+def _normalize_diagram_node(node: object, index: int) -> dict:
+    if not isinstance(node, dict):
+        return {"id": f"node-{index + 1}", "label": f"节点{index + 1}", "details": "观察该节点的含义。", "explanation": "观察该节点的含义。"}
+    node_id = re.sub(r"[^a-zA-Z0-9_-]+", "-", _safe_str(node.get("id")) or f"node-{index + 1}").strip("-")
+    label = (_safe_str(node.get("label")) or node_id or f"节点{index + 1}")[:32]
+    details = (_safe_str(node.get("details")) or _safe_str(node.get("explanation")) or "观察该节点的含义。")[:160]
+    return {"id": node_id or f"node-{index + 1}", "label": label, "details": details, "explanation": details}
+
+
+def _normalize_diagram_edge(edge: object) -> dict:
+    if not isinstance(edge, dict):
+        return {"from": "core", "to": "result"}
+    source = _safe_str(edge.get("from") or edge.get("source")) or "core"
+    target = _safe_str(edge.get("to") or edge.get("target")) or "result"
+    normalized = {"from": source, "to": target}
+    label = _safe_str(edge.get("label"))
+    if label:
+        normalized["label"] = label[:32]
+    return normalized
 
 
 def _normalize_teaching_flow(raw_flow: object, default: list[dict]) -> list[dict]:
