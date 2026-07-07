@@ -6,6 +6,7 @@ import json
 
 OPENMAIC_WIDGET_CORE_PROMPT = """OpenMAIC interactive widget 核心契约：
 - 生成物必须是一个自包含 interactive widget，不是 PPT 截图、静态海报或普通选择题页面。
+- 生成逻辑必须以 scene_outline、widget_outline、interactive_spec 和 design_brief 为唯一蓝图；不得退化成通用模板动画。
 - 必须嵌入 `<script type="application/json" id="widget-config">...</script>`；JSON.type 必须等于 simulation、diagram 或 game，并与 plan.interactive_type 一致。widget-config 内容必须是严格的纯 JSON 格式，禁止包含任何 JS 注释（如 // 或 /* */）和尾随逗号。
 - widget-config 必须承载本页核心互动配置：simulation 写 concept/description/variables/presets；diagram 写 nodes/edges/revealOrder；game 写 gameType/description/gameConfig/successCondition/feedbackRules。
 - 必须实现 `window.addEventListener("message", ...)`，至少处理 SET_WIDGET_STATE、HIGHLIGHT_ELEMENT、ANNOTATE_ELEMENT、REVEAL_ELEMENT 四类 iframe-local widget action。
@@ -74,6 +75,7 @@ REPAIR_SYSTEM_PROMPT = """你是资深 HTML 自动修复工程师。
 
 修复的第一优先级：动画能完整播放并清晰演示教学目标。
 在保证动画质量的前提下，再修复具体的结构问题。
+禁止用通用 HTML 替换原页面；必须在原始设计意图和已确认计划范围内修复。
 
 具体修复要求：
 - 只输出修复后的完整 <!DOCTYPE html>...</html>，不输出 Markdown 或解释。
@@ -94,6 +96,19 @@ REPAIR_SYSTEM_PROMPT = """你是资深 HTML 自动修复工程师。
 - 确保 window.AetherVizRuntime = { play, pause, reset, setSpeed, update, getState } 声明完整。
 - 确保 window.__AETHERVIZ_RUNTIME_READY__ = true 在初始化成功时设置。
 - 不引入 Three.js、D3、外部时间线库或外部业务接口。
+"""
+
+EDIT_HTML_SYSTEM_PROMPT = """你是资深 OpenMAIC 单页互动 HTML 修改工程师。
+你会收到一个现有 HTML 文件、用户修改意见和可选教案上下文。
+
+要求：
+- 只输出修改后的完整 <!DOCTYPE html>...</html>，不输出 Markdown 或解释。
+- 以传入的 HTML 文件为唯一修改基线，不要推倒重写，不要生成全新无关页面。
+- 保留原页面已有的教学主题、主要结构、交互控件、动画逻辑和可运行脚本。
+- 按用户修改意见调整 HTML、CSS、SVG/Canvas/DOM 和业务 JS。
+- 所有修改都产出新的 HTML 分支，不覆盖旧 HTML。
+- 修复明显语法问题，确保内联 JavaScript 可解析。
+- 不引入 Three.js、D3、GSAP、外部时间线库或外部业务接口。
 """
 
 
@@ -122,6 +137,8 @@ def build_repair_prompt(
 互动类型：{plan.get("interactive_type", "")}
 互动规格：
 {json.dumps(plan.get("interactive_spec") or {}, ensure_ascii=False, indent=2)}
+设计蓝图：
+{json.dumps(plan.get("design_brief") or {}, ensure_ascii=False, indent=2)}
 教学流程：
 {json.dumps(plan.get("teaching_flow", []), ensure_ascii=False, indent=2)}
 
@@ -138,6 +155,33 @@ def build_repair_prompt(
 {raw_html[:12000]}
 
 请直接输出修复后的完整 HTML，不要输出任何解释。"""
+
+
+def build_edit_html_prompt(
+    *,
+    topic: str,
+    instruction: str,
+    current_html: str,
+    context: dict | None,
+) -> str:
+    context_payload = {
+        "selected_file": (context or {}).get("selected_file"),
+        "plan_summary": (context or {}).get("plan_summary"),
+        "memory": (context or {}).get("memory"),
+        "recent_messages": (context or {}).get("recent_messages"),
+    }
+    return f"""请根据用户修改意见编辑当前 HTML 文件，并输出编辑后的完整 HTML。
+
+教学主题：{topic}
+用户修改意见：{instruction}
+
+可选上下文：
+{json.dumps(context_payload, ensure_ascii=False, indent=2)}
+
+当前 HTML 文件：
+{current_html[:40000]}
+
+请直接输出修改后的完整 HTML。"""
 
 
 def build_interactive_generation_prompt(topic: str, plan: dict) -> str:
@@ -167,6 +211,10 @@ def build_interactive_generation_prompt(topic: str, plan: dict) -> str:
         "type": interactive_type,
         "concept": interactive_spec.get("concept", topic) if isinstance(interactive_spec, dict) else topic,
     }
+    scene_outline = plan.get("scene_outline") or {}
+    design_brief = plan.get("design_brief") or {}
+    key_points = plan.get("key_points") or scene_outline.get("keyPoints") or []
+    widget_actions = plan.get("widget_actions") or []
     teaching_flow = plan.get("teaching_flow", [])
     teaching_flow_section = (
         f"教学流程（页面需要完整展示，并能同步标注当前步骤）:\n{json.dumps(teaching_flow, ensure_ascii=False, indent=2)}\n"
@@ -188,30 +236,41 @@ def build_interactive_generation_prompt(topic: str, plan: dict) -> str:
 互动类型：{interactive_type}
 主色：{plan.get("primary_color", "#22D3EE")}
 
-1. 渲染栈
+1. OpenMAIC Scene Outline
+{json.dumps(scene_outline, ensure_ascii=False, indent=2)}
+
+2. 关键教学点
+{json.dumps(key_points, ensure_ascii=False, indent=2)}
+
+3. 渲染栈
 {render_stack_hint}
 
-2. 运行时
+4. 运行时
 {runtime_section}
 
-3. 舞台布局
+5. 舞台布局
 {plan.get("stage_layout", "顶部学习目标，中间大舞台，底部 caption、控制条和公式/结论区。")}
 
-4. 互动规格
+6. 互动规格
 {json.dumps(interactive_spec, ensure_ascii=False, indent=2)}
 
-5. Widget Outline
+7. Widget Outline
 {json.dumps(widget_outline, ensure_ascii=False, indent=2)}
 
-6. OpenMAIC widget 契约落地
-- 必须把第 4 节互动规格原样转化为 `script#widget-config[type="application/json"]`。
+8. Design Brief
+{json.dumps(design_brief, ensure_ascii=False, indent=2)}
+
+9. OpenMAIC widget 契约落地
+- 必须把第 6 节互动规格原样转化为 `script#widget-config[type="application/json"]`。
 - widget-config.type 必须是 "{interactive_type}"。
 - 必须实现 iframe action message listener：SET_WIDGET_STATE、HIGHLIGHT_ELEMENT、ANNOTATE_ELEMENT、REVEAL_ELEMENT。
 - SET_WIDGET_STATE 必须能更新对应 slider/input/select 并派发 input/change 事件，让画面实时刷新。
 - HIGHLIGHT_ELEMENT/ANNOTATE_ELEMENT/REVEAL_ELEMENT 必须作用于真实 DOM/SVG 元素，不能写空 switch。
 - 页面初始化不得依赖 localStorage、外部接口或异步资源才能显示主视觉。
+OpenMAIC action 示例（需要可执行地映射到上述 message listener）:
+{json.dumps(widget_actions, ensure_ascii=False, indent=2)}
 
-7. 互动验收
+10. 互动验收
 - 默认进入可观察状态，至少 3 个可观察状态变化，不能只是静态图形加文字。
 - #aetherviz-stage 内主 SVG/Canvas 居中；SVG 使用 preserveAspectRatio="xMidYMid meet" 和稳定主视觉 id/class/data-role。
 - 主舞台使用 id="aetherviz-stage" 和 data-region="stage"；控制区、公式区、caption 区使用稳定 data-region，关键教学元素使用 data-role。
@@ -221,12 +280,12 @@ def build_interactive_generation_prompt(topic: str, plan: dict) -> str:
 - 公式、读数、caption 和说明不得作为主舞台巨型文字覆盖图形；主舞台内文字仅用于短标签，复杂表达放到公式/HUD 面板。
 - 不输出页脚署名、品牌署名或生成来源文案。
 
-8. 互动类型要求
+11. 互动类型要求
 {type_hint}
 
 {teaching_flow_section}
 
-9. 控件
+12. 控件
 {json.dumps(plan.get("controls", []), ensure_ascii=False, indent=2)}
 
 {formula_section}输出格式：只输出完整 HTML，不要输出 Markdown、解释或页面署名。

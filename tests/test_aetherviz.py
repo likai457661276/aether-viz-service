@@ -332,7 +332,7 @@ def test_generate_phase_uses_approved_plan_for_html(monkeypatch) -> None:
     assert "核心概念A" in html
     assert done_data["metadata"]["source"] == "llm_interactive"
     assert done_data["metadata"]["attempts"] == 1
-    assert done_data["metadata"]["degraded"] is True
+    assert done_data["metadata"]["degraded"] is False
     assert done_data["metadata"]["render_mode"] in ("simulation", "diagram", "game")
     assert done_data["metadata"]["plan"]["controls"][0]["id"] == "speed-control"
     assert done_data["output_tokens_total"] > 0
@@ -437,19 +437,18 @@ def test_svg_validation_accepts_minimum_contract() -> None:
     assert isinstance(warnings, list)
 
 
-def test_parse_and_validate_html_uses_strict_openmaic_contract() -> None:
+def test_parse_and_validate_html_uses_basic_html_contract_only() -> None:
     from aetherviz_service.aetherviz.html_output import parse_and_validate_html
-    from aetherviz_service.aetherviz.validator import AetherVizHtmlValidationError
 
     bad_html = sample_svg_html().replace(
         "window.AetherVizRuntime = { play, pause, reset, setSpeed, update, getState };",
         "window.LegacyRuntime = { play, pause, reset, setSpeed, update, getState };",
     )
 
-    with pytest.raises(AetherVizHtmlValidationError) as exc_info:
-        parse_and_validate_html(bad_html, "熵增演示", sample_approved_plan())
+    html, warnings = parse_and_validate_html(bad_html, "熵增演示", sample_approved_plan())
 
-    assert "window.AetherVizRuntime" in str(exc_info.value)
+    assert "window.LegacyRuntime" in html
+    assert isinstance(warnings, list)
 
 
 def test_validation_rejects_oversized_stage_formula_and_readout() -> None:
@@ -620,7 +619,7 @@ def test_validation_rejects_inline_script_syntax_error() -> None:
     assert "SyntaxError" in message or "Unexpected token" in message
 
 
-def test_generate_phase_falls_back_when_model_outputs_forbidden_dependency(monkeypatch) -> None:
+def test_generate_phase_errors_when_repair_keeps_forbidden_dependency(monkeypatch) -> None:
     calls = []
 
     def fake_llm_stream(prompt: str, system_prompt: str, max_tokens: int = 0, temperature: float = 0.3, enable_thinking: bool = False):
@@ -647,14 +646,12 @@ animationLoop();
     )
 
     events = parse_sse_events(response)
-    assert events[-1][0] == "done"
+    assert events[-1][0] == "error"
     assert len(calls) == 2
     assert all(call[2] == react_module.HTML_OUTPUT_MAX_TOKENS for call in calls)
     assert all(call[4] is True for call in calls)
-    assert events[-1][1]["metadata"]["source"] == "openmaic_template"
-    assert events[-1][1]["metadata"]["attempts"] == 3
-    assert "three.js" not in events[-1][1]["html"]
-    assert "window.AetherVizRuntime" in events[-1][1]["html"]
+    assert events[-1][1]["stage"] in {"validation_failed", "html_generation_failed"}
+    assert "确定性 HTML" not in events[-1][1]["message"]
 
 
 def test_default_primary_color_is_22d3ee() -> None:
@@ -724,15 +721,24 @@ def test_generation_prompt_requires_visible_scene_list() -> None:
     assert "当前步骤用 active/current 状态同步标注" in prompt
 
 
-def test_default_math_simulation_spec_is_not_pythagorean_hardcoded() -> None:
+def test_default_pythagorean_plan_is_openmaic_specific() -> None:
     from aetherviz_service.aetherviz.fallback_planner import normalize_plan
 
     plan = normalize_plan({}, "勾股定理")
 
     assert plan["interactive_type"] == "simulation"
     spec = plan["interactive_spec"]
-    assert spec["concept"] == "勾股定理"
-    assert "3-4-5" not in json.dumps(spec, ensure_ascii=False)
+    assert spec["concept"] == "勾股定理的几何证明"
+    assert [item["name"] for item in spec["variables"]] == ["a", "b"]
+    assert "3-4-5" in json.dumps(spec, ensure_ascii=False)
+    assert plan["scene_outline"]["widgetType"] == "simulation"
+    assert plan["design_brief"]["stage_objects"]
+    assert {action["type"] for action in plan["widget_actions"]} == {
+        "widget_setState",
+        "widget_highlight",
+        "widget_annotation",
+        "widget_reveal",
+    }
 
 
 def test_fallback_planner_selects_interactive_types() -> None:
@@ -915,7 +921,7 @@ def test_parse_interactive_html_rejects_truncated_script() -> None:
     assert "截断" in message
 
 
-def test_generate_phase_uses_openmaic_template_for_invalid_html_output(monkeypatch) -> None:
+def test_generate_phase_errors_when_repair_output_is_invalid(monkeypatch) -> None:
     calls = []
 
     def fake_llm_stream(prompt: str, system_prompt: str, max_tokens: int = 0, temperature: float = 0.3, enable_thinking: bool = False):
@@ -933,14 +939,12 @@ def test_generate_phase_uses_openmaic_template_for_invalid_html_output(monkeypat
     )
 
     events = parse_sse_events(response)
-    assert events[-1][0] == "done"
+    assert events[-1][0] == "error"
     assert len(calls) == 2
     assert all(call[2] == react_module.HTML_OUTPUT_MAX_TOKENS for call in calls)
     assert all(call[4] is True for call in calls)
-    assert events[-1][1]["metadata"]["source"] == "openmaic_template"
-    assert events[-1][1]["metadata"]["attempts"] == 3
-    assert "__AETHERVIZ_RUNTIME_READY__" in events[-1][1]["html"]
-    assert any(data.get("stage") == "fallback_template" for event, data in events if event == "progress")
+    assert events[-1][1]["stage"] in {"validation_failed", "html_generation_failed"}
+    assert any(data.get("stage") == "repairing" for event, data in events if event == "progress")
 
 
 def test_generate_phase_repairs_invalid_first_output(monkeypatch) -> None:
@@ -1068,7 +1072,50 @@ def test_revise_phase_requires_instruction_only() -> None:
     assert missing_instruction.json()["detail"] == "instruction 不能为空"
 
 
-def test_generate_phase_falls_back_for_inline_script_syntax_error(monkeypatch) -> None:
+def test_edit_phase_uses_current_html_as_context_and_returns_new_html(monkeypatch) -> None:
+    calls = []
+
+    def fake_llm_stream(prompt: str, system_prompt: str, max_tokens: int = 0, temperature: float = 0.3, enable_thinking: bool = False):
+        calls.append((prompt, system_prompt, max_tokens, temperature, enable_thinking))
+        assert "当前 HTML 文件" in prompt
+        assert "把标题改成慢速演示" in prompt
+        assert "before-edit" in prompt
+        yield sample_svg_html(topic="慢速熵增演示", marker="after-edit")
+
+    monkeypatch.setattr(react_module, "call_llm_stream", fake_llm_stream)
+
+    response = client.post(
+        "/generate-aetherviz-spec",
+        json={
+            "topic": "熵增演示",
+            "phase": "edit",
+            "instruction": "把标题改成慢速演示",
+            "current_html": sample_svg_html(marker="before-edit"),
+            "context": {"selected_file": {"id": "html-1", "title": "原始 HTML"}},
+        },
+    )
+
+    events = parse_sse_events(response)
+    assert events[-1][0] == "done"
+    assert len(calls) == 1
+    assert calls[0][2] == react_module.HTML_OUTPUT_MAX_TOKENS
+    assert calls[0][4] is True
+    assert events[-1][1]["phase"] == "edit"
+    assert events[-1][1]["metadata"]["source"] == "llm_html_edit"
+    assert "after-edit" in events[-1][1]["html"]
+
+
+def test_edit_phase_requires_current_html() -> None:
+    response = client.post(
+        "/generate-aetherviz-spec",
+        json={"topic": "熵增演示", "phase": "edit", "instruction": "改标题"},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "current_html 不能为空"
+
+
+def test_generate_phase_errors_for_inline_script_syntax_error_after_repair(monkeypatch) -> None:
     calls = []
 
     def fake_llm_stream(prompt: str, system_prompt: str, max_tokens: int = 0, temperature: float = 0.3, enable_thinking: bool = False):
@@ -1086,10 +1133,8 @@ def test_generate_phase_falls_back_for_inline_script_syntax_error(monkeypatch) -
     )
 
     events = parse_sse_events(response)
-    assert events[-1][0] == "done"
-    assert events[-1][1]["metadata"]["source"] == "openmaic_template"
-    assert events[-1][1]["metadata"]["attempts"] == 3
-    assert "window.AetherVizRuntime" in events[-1][1]["html"]
+    assert events[-1][0] == "error"
+    assert events[-1][1]["stage"] in {"validation_failed", "html_generation_failed"}
     assert len(calls) == 2
     assert all(call[4] is True for call in calls)
 

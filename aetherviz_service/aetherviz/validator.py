@@ -114,6 +114,26 @@ def validate_aetherviz_html(
     return warnings
 
 
+def validate_basic_aetherviz_html(
+    html: str,
+    topic: str | None = None,
+) -> list[str]:
+    """Run only the minimum checks required before returning generated HTML."""
+    stripped = (html or "").strip()
+    if not stripped:
+        raise AetherVizHtmlValidationError("HTML 不能为空")
+
+    soup = BeautifulSoup(stripped, "html.parser")
+    errors: list[str] = []
+    warnings: list[str] = []
+    _collect_document_structure_errors(stripped, soup, topic, errors, warnings, strict=False)
+    _collect_html_security_errors(stripped, soup, errors)
+    _collect_script_syntax_errors(soup, errors)
+    if errors:
+        raise AetherVizHtmlValidationError("；".join(errors))
+    return warnings
+
+
 def sanitize_aetherviz_html(html: str) -> str:
     """对 HTML 进行边界清理，并移除旧版生成署名短句。
     

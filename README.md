@@ -20,7 +20,6 @@ ai-interactive-experiment/
 │       ├── fallback_validator.py
 │       ├── generation_stream.py
 │       ├── html_output.py
-│       ├── openmaic_template.py
 │       ├── planning_stream.py
 │       ├── prompts.py
 │       ├── revision_plan_stream.py
@@ -91,14 +90,15 @@ docker compose -f docker-compose.prod.yml up -d app
 /Users/likai/Documents/workspace/bingo-aetherviz
 ```
 
-前端是 Vite + React + TypeScript 应用，负责 chat 工作区、计划确认、SSE 事件消费、多个 HTML 产物管理、iframe `srcDoc` 预览和运行时错误桥接。后端负责 OpenMAIC widget 计划、HTML 生成、自动修复、分型兜底、严格校验和最终自包含 HTML 输出。
+前端是 Vite + React + TypeScript 应用，负责 chat 工作区、计划确认、SSE 事件消费、多个 HTML 产物管理、iframe `srcDoc` 预览和运行时错误桥接。后端负责 OpenMAIC widget 计划、HTML 生成、HTML 文件编辑、基础语法/安全校验、自动修复和最终自包含 HTML 输出。
 
 职责边界：
 
 - 前端不渲染课件内部 SVG、Canvas 或 DOM 互动逻辑。
 - 前端不把后端生成物依赖重新搬回 React 组件。
 - 前端只消费后端返回的自包含 HTML，并通过 iframe 隔离预览。
-- `phase=revise` 只发送主题、修改意见和摘要型 `context`，不发送完整 HTML。
+- `phase=revise` 只发送主题、修改意见和摘要型 `context`，用于修改教案计划，不发送完整 HTML。
+- `phase=edit` 发送主题、修改意见、选中 HTML 文件全文 `current_html` 和摘要型 `context`，用于基于已有 HTML 生成新的 HTML 分支。
 
 前端联调命令以该前端仓库 `package.json` 为准，常用命令：
 
@@ -208,11 +208,40 @@ pnpm build
 
 `context` 是前端 chat 会话的可选上下文字段，用于描述当前选择的文件摘要、可用文件摘要、计划摘要、短期记忆和最近有效消息。`phase=revise` 不接收也不读取完整 HTML，只基于用户要求和计划摘要生成新的 `plan_ready`，用户确认后再用 `phase=generate` 生成新的 HTML 分支。
 
+HTML 文件编辑阶段请求示例：
+
+```json
+{
+  "topic": "熵增演示",
+  "phase": "edit",
+  "instruction": "把标题改成慢速演示，并把说明文字放到左侧",
+  "current_html": "<!DOCTYPE html>...",
+  "context": {
+    "selected_file": {
+      "id": "html-...",
+      "title": "熵增演示",
+      "mode": "simulation",
+      "topic": "熵增演示",
+      "html_size": 12345,
+      "created_at": 1760000000000
+    },
+    "plan_summary": {
+      "title": "熵增演示互动动画",
+      "goal": "用分层动画解释熵增的核心过程。",
+      "mode": "simulation",
+      "interactive_type": "simulation"
+    }
+  }
+}
+```
+
+`phase=edit` 必须携带选中的 HTML 文件全文。后端以该文件为修改基线，根据 `instruction` 生成新的完整 HTML，前端保存为新的时间线分支，不覆盖原文件。
+
 响应类型为 `text/event-stream`。事件包括：
 
 - `start`：生成任务启动。
-- `progress`：阶段进度，例如 `planning`、`generating`、`repairing` 或 `fallback_template`。
-- `thinking_delta`：HTML 生成、自动修复和修订阶段的用户可读中文思考摘要；计划阶段默认不启用思考流。
+- `progress`：阶段进度，例如 `planning`、`generating`、`html_editing` 或 `repairing`。
+- `thinking_delta`：HTML 生成、HTML 编辑、自动修复和修订阶段的用户可读中文思考摘要；计划阶段默认不启用思考流。
 - `plan_delta`：计划阶段或重新规划阶段的结构化计划 JSON 输出片段。
 - `plan_ready`：计划阶段完成，包含结构化 `plan`；用户确认后再请求 `phase=generate`。
 - `generation_delta`：生成阶段的大模型输出片段，携带本次 `output_tokens` 和累计 `output_tokens_total`。
@@ -224,21 +253,23 @@ pnpm build
 - `400`：`topic` 为空。
 - `400`：`phase=generate` 时缺少 `approved_plan`。
 - `400`：`phase=revise` 时缺少 `instruction`。
+- `400`：`phase=edit` 时缺少 `instruction` 或 `current_html`。
 - SSE `error` 且 `stage=llm_error`：调用模型服务失败。
-- SSE `error` 且 `stage=fallback_failed`：互动 HTML 输出解析、自动修复和 OpenMAIC 稳定模板都未通过质量门。
-- SSE `error` 且 `stage=validation_failed`：HTML 未通过结构、安全、依赖、交互或可视化区域检查，且 OpenMAIC 稳定模板也无法生成有效页面。
+- SSE `error` 且 `stage=html_generation_failed`：互动 HTML 输出解析或自动修复未通过基础质量门。
+- SSE `error` 且 `stage=validation_failed`：HTML 未通过基础文档结构、安全边界或内联脚本语法检查。
 - SSE `error` 且 `stage=unknown_error`：生成过程中发生未预期异常。
 
 ## 生成流程
 
 `/generate-aetherviz-spec` 使用动态双阶段生成策略：
 
-1. `phase=plan` 时由 `fallback_planner.py` 生成单页 interactive 计划，字段包括 `page_type`、`interactive_type`、`widget_type`、`subject`、`title`、`goal`、`stage_layout`、`interactive_spec`、`widget_outline`、`teaching_flow`、`controls`、`formulas`、`runtime` 和 `primary_color`。
+1. `phase=plan` 时由 `fallback_planner.py` 生成单页 interactive 计划，字段包括 `page_type`、`interactive_type`、`widget_type`、`scene_outline`、`subject`、`title`、`goal`、`stage_layout`、`key_points`、`design_brief`、`interactive_spec`、`widget_outline`、`widget_actions`、`teaching_flow`、`controls`、`formulas`、`runtime` 和 `primary_color`。
 2. 前端确认计划后，以 `phase=generate` 携带 `approved_plan` 再次请求。
 3. `react.py` 按 `interactive_type` 选择 simulation、diagram 或 game 生成 prompt；生成逻辑以 OpenMAIC interactive 为核心，HTML 内需包含 `script#widget-config` 和 iframe message action listener；SVG 表达结构和标注，Canvas 承担连续运动、轨迹或粒子，DOM 承担步骤说明、公式和控制区；动画由原生 CSS transition/keyframes、`requestAnimationFrame` 和 DOM/SVG/Canvas 状态更新管理，不使用 GSAP。
 4. `phase=revise` 时，后端忽略废弃的 HTML 入参，只基于 `instruction`、`context.plan_summary` 和会话摘要重新规划，返回新的 `plan_ready`，不生成补丁、不合并 HTML、不返回旧索引字段。
-5. `fallback_validator.py` 提取 HTML、清理代码围栏；`validator.py` 以严格模式执行文档结构、安全、依赖、OpenMAIC 契约、运行时、交互和可视化区域校验。首次解析或校验失败时会发出 `progress stage=repairing` 并自动修复一次，成功时 `metadata.repaired=true`、`attempts=2`。
-6. 若模型生成和自动修复都失败，`openmaic_template.py` 会按确认后的 plan 生成确定性的分型 OpenMAIC 单页互动 HTML，再进入同一套严格校验；成功时 `metadata.source=openmaic_template`、`attempts=3`、`degraded=true`。该兜底只保证稳定可运行，不恢复旧静态 HTML，也不引入 GSAP 或旧提示词。
+5. `phase=edit` 时，后端读取 `current_html` 作为唯一修改基线，根据 `instruction` 编辑 HTML，返回新的 `done.html` 分支，不覆盖旧 HTML。
+6. `fallback_validator.py` 提取 HTML、清理代码围栏；`validator.py` 在生产生成链路只执行基础文档结构、安全边界和内联脚本语法检查。首次解析或基础校验失败时会发出 `progress stage=repairing` 并自动修复一次，成功时 `metadata.repaired=true`、`attempts=2`。
+7. OpenMAIC 契约、运行时、交互完整性、主舞台质量等检查保留为开发测试能力，不作为生产返回前的硬拦截；用户可继续通过 chat 基于现有 HTML 逐步改进。
 
 主题色从 `topic` 中的 `#RRGGBB` 或中文颜色词提取，未提取到时使用默认色 `#22D3EE`。
 
@@ -250,10 +281,10 @@ pnpm build
 
 - 保留现有公共接口 `POST /generate-aetherviz-spec`，不新增静态 HTML 接口。
 - 计划对象继续以 `page_type: "interactive"` 为主，保留 `interactive_type` 兼容前端；可补充 OpenMAIC 风格 `widget_type` / `widget_outline`，但不得破坏现有前端字段。
-- 后端按 `simulation`、`diagram`、`game` 拆分独立 prompt、分型 widget-config、分型模板兜底和分型校验。
-- `openmaic_template.py` 使用分型兜底，避免所有主题共用同一套主舞台图形。
-- `validator.py` 执行主题语义与 `interactive_spec` 对主舞台元素的最小一致性检查。
-- `metadata.source=openmaic_template` 表示降级输出，前端可展示 `source`、`attempts`、`repaired`、`degraded` 和 `validation_warnings`。
+- 后端按 `simulation`、`diagram`、`game` 拆分独立 prompt、分型 widget-config 和开发期分型校验。
+- 计划对象必须包含 OpenMAIC 风格 `scene_outline`、`widget_outline`、`design_brief` 和 `widget_actions`，作为后续 HTML 生成的唯一蓝图。
+- `validator.py` 保留主题语义与 `interactive_spec` 对主舞台元素的一致性检查，但生产生成链路只使用基础语法/安全校验。
+- 前端可展示 `source`、`attempts`、`repaired`、`degraded` 和 `validation_warnings`。
 - 前端保留 iframe 隔离和运行时错误桥接，并支持向 iframe 发送 OpenMAIC widget action：`SET_WIDGET_STATE`、`HIGHLIGHT_ELEMENT`、`ANNOTATE_ELEMENT`、`REVEAL_ELEMENT`。
 
 ## 验证

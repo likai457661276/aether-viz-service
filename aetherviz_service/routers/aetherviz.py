@@ -18,6 +18,11 @@ def generate_aetherviz_spec(request: GenerateAetherVizSpecRequest) -> StreamingR
         raise HTTPException(status_code=400, detail="approved_plan 不能为空")
     if request.phase == "revise" and not (request.instruction or "").strip():
         raise HTTPException(status_code=400, detail="instruction 不能为空")
+    if request.phase == "edit":
+        if not (request.instruction or "").strip():
+            raise HTTPException(status_code=400, detail="instruction 不能为空")
+        if not (request.current_html or "").strip():
+            raise HTTPException(status_code=400, detail="current_html 不能为空")
 
     return StreamingResponse(
         react_generate_stream(
@@ -25,6 +30,7 @@ def generate_aetherviz_spec(request: GenerateAetherVizSpecRequest) -> StreamingR
             phase=request.phase,
             approved_plan=request.approved_plan.model_dump() if request.approved_plan else None,
             instruction=request.instruction,
+            current_html=request.current_html,
             context=request.context,
         ),
         media_type="text/event-stream",

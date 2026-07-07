@@ -33,13 +33,17 @@ class AetherVizPlan(BaseModel):
     page_type: Literal["interactive"] = "interactive"
     interactive_type: InteractiveType
     widget_type: InteractiveType | None = None
+    scene_outline: dict[str, Any] | None = None
     subject: str
     title: str
     goal: str
     learner_level: str | None = None
     stage_layout: str | None = None
+    key_points: list[str] = Field(default_factory=list)
+    design_brief: dict[str, Any] = Field(default_factory=dict)
     interactive_spec: dict[str, Any] = Field(default_factory=dict)
     widget_outline: dict[str, Any] | None = None
+    widget_actions: list[dict[str, Any]] = Field(default_factory=list)
     teaching_flow: list[AetherVizTeachingFlowStep] = Field(default_factory=list)
     controls: list[AetherVizPlanControl] = Field(default_factory=list)
     formulas: list[str] = Field(default_factory=list)
@@ -49,9 +53,10 @@ class AetherVizPlan(BaseModel):
 
 class GenerateAetherVizSpecRequest(BaseModel):
     topic: str = Field(...)
-    phase: Literal["plan", "generate", "revise"] = "plan"
+    phase: Literal["plan", "generate", "revise", "edit"] = "plan"
     approved_plan: AetherVizPlan | None = None
     instruction: str | None = None
+    current_html: str | None = None
     context: dict[str, Any] | None = None
 
 

@@ -7,7 +7,6 @@ from collections.abc import Iterator
 from aetherviz_service.aetherviz.constants import HTML_OUTPUT_MAX_TOKENS
 from aetherviz_service.aetherviz.fallback_validator import AetherVizInteractiveHtmlError
 from aetherviz_service.aetherviz.html_output import parse_and_validate_html
-from aetherviz_service.aetherviz.openmaic_template import build_openmaic_template_html
 from aetherviz_service.aetherviz.prompts import (
     REPAIR_SYSTEM_PROMPT,
     build_interactive_generation_prompt,
@@ -62,7 +61,7 @@ def generate_from_plan_stream(topic: str, plan: dict, *, llm_stream: LLMStreamCa
         attempts=attempts,
         repaired=repaired,
         source=source,
-        degraded=source == "openmaic_template" or bool(warnings),
+        degraded=bool(warnings),
         validation_warnings=warnings,
         render_mode=plan["interactive_type"],
         subject=plan["subject"],
@@ -133,20 +132,6 @@ def parse_validate_or_repair_stream(
             html_output, warnings = parse_and_validate_html(repaired_raw_html, topic, plan)
         except (AetherVizInteractiveHtmlError, AetherVizHtmlValidationError) as second_exc:
             second_error = str(second_exc)
-            yield progress_event(
-                "fallback_template",
-                "模型输出仍未通过质量检查，正在使用 OpenMAIC 稳定模板生成",
-                99,
-                phase=phase,
-                interactive_type=plan.get("interactive_type"),
-                subject=plan.get("subject"),
-                detail=f"首次失败：{first_error}；修复失败：{second_error}",
-            )
-            template_html = build_openmaic_template_html(topic, plan)
-            try:
-                html_output, warnings = parse_and_validate_html(template_html, topic, plan)
-            except (AetherVizInteractiveHtmlError, AetherVizHtmlValidationError) as template_exc:
-                combined = f"首次失败：{first_error}；修复失败：{second_error}；OpenMAIC 模板失败：{template_exc}"
-                raise type(first_exc)(combined) from template_exc
-            return html_output, warnings, 3, True, "openmaic_template"
+            combined = f"首次失败：{first_error}；修复失败：{second_error}"
+            raise type(first_exc)(combined) from second_exc
         return html_output, warnings, 2, True, "llm_interactive"

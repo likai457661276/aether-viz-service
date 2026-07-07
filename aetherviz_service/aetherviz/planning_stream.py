@@ -17,9 +17,9 @@ def planning_stream(topic: str, color: str, *, llm_stream: LLMStreamCallable) ->
     yield progress_event("planning", "正在分析教学目标，制定单页互动课件方案", 20, phase="plan")
     for delta in (
         "识别学科与核心目标...\n",
-        "选择 interactive_type：simulation / diagram / game...\n",
-        "生成 interactive_spec、教学流程和互动控件...\n",
-        "规划单屏舞台布局、渲染栈和运行时...\n",
+        "整理教师可确认的课堂目标与教学重点...\n",
+        "细化互动变量、观察任务和课堂演示步骤...\n",
+        "规划单屏舞台布局、互动控件和公式呈现...\n",
     ):
         yield sse_event(
             "plan_delta",
@@ -55,7 +55,7 @@ def planning_stream(topic: str, color: str, *, llm_stream: LLMStreamCallable) ->
                 {
                     "success": True,
                     "stage": "planning",
-                    "message": f"正在生成单页互动课件方案，已输出约 {output_tokens_total} Token",
+                    "message": f"正在生成单页互动课件方案，已输出约 {output_tokens_total} 字内容",
                     "progress": 45,
                     "phase": "plan",
                     "delta": chunk.delta,
