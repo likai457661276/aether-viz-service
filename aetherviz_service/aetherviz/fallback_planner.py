@@ -9,7 +9,7 @@ from typing import Any
 DEFAULT_PRIMARY_COLOR = "#22D3EE"
 
 SUBJECT_KEYWORDS = {
-    "math": ["数学", "几何", "函数", "方程", "概率", "统计", "面积", "体积", "坐标", "圆", "抛物线", "勾股"],
+    "math": ["数学", "几何", "函数", "方程", "概率", "统计", "面积", "体积", "坐标", "圆", "抛物线", "定理", "证明", "公式"],
     "physics": ["物理", "运动", "速度", "加速度", "力", "能量", "电流", "电压", "波", "光", "抛体"],
     "chemistry": ["化学", "反应", "分子", "原子", "离子", "酸", "碱", "盐", "溶液", "反应速率"],
     "biology": ["生物", "细胞", "基因", "dna", "蛋白质", "光合", "呼吸", "生态", "遗传"],
@@ -21,7 +21,8 @@ SUBJECT_KEYWORDS = {
 
 VALID_INTERACTIVE_TYPES = {"simulation", "diagram", "game"}
 VALID_RENDER_STACKS = {"svg", "svg_canvas", "canvas_svg", "dom_svg"}
-VALID_ANIMATION_RUNTIMES = {"native"}
+VALID_ANIMATION_RUNTIMES = {"native", "gsap"}
+GSAP_CORE_CDN = "https://cdn.jsdelivr.net/npm/gsap@3/dist/gsap.min.js"
 
 SIMULATION_KEYWORDS = ["运动", "参数", "实验", "函数", "概率", "反应速率", "电路", "轨迹", "速度", "采样"]
 DIAGRAM_KEYWORDS = ["流程", "结构", "分类", "因果", "步骤", "阅读结构", "知识图谱", "体系", "过程"]
@@ -41,7 +42,8 @@ PLANNING_SYSTEM_PROMPT_TEMPLATE = """你是资深互动教学课件规划师。
 - game: interactive_spec 必须写 type、concept、description、game_type、challenge、success_condition、feedback_rules、game_config；必须是操作型挑战，不是普通选择题堆叠。
 - teaching_flow 用 3~5 个教学节奏步骤描述观察、操作、归纳。
 - controls 只保留真实影响学习的控件，2~5 个。
-- runtime.render_stack 只能是 svg、svg_canvas、canvas_svg、dom_svg；runtime.animation_runtime 固定为 native。
+- runtime.render_stack 只能是 svg、svg_canvas、canvas_svg、dom_svg；runtime.animation_runtime 优先使用 gsap，只有纯 Canvas 高频粒子等必须逐帧绘制的场景才使用 native。
+- runtime.external_libraries 在 animation_runtime 为 gsap 时必须包含 https://cdn.jsdelivr.net/npm/gsap@3/dist/gsap.min.js。
 - stage_layout 必须说明目标区、主舞台、控制区和结论区如何在单屏内摆放。
 - stage_layout 必须明确公式、读数、caption 与控制面板不进入主舞台覆盖层；主舞台只放图形和短标签。
 - design_brief 必须写出主舞台对象、布局坐标/相对位置、颜色语义、动态更新规则、默认预设和验收标准。
@@ -88,7 +90,7 @@ def select_render_stack(interactive_type: str, subject: str, topic: str) -> str:
 
 
 def select_animation_runtime(interactive_type: str, render_stack: str) -> str:
-    return "native"
+    return "gsap"
 
 
 def build_planning_prompt(topic: str, primary_color: str) -> tuple[str, str]:
@@ -205,7 +207,7 @@ def normalize_plan(raw_plan: dict | None, topic: str, primary_color: str = DEFAU
         "runtime": {
             "render_stack": render_stack,
             "animation_runtime": animation_runtime,
-            "external_libraries": _string_list(runtime_raw.get("external_libraries"), [], max_items=3, max_len=80),
+            "external_libraries": _normalize_external_libraries(runtime_raw.get("external_libraries"), animation_runtime),
         },
         "primary_color": _safe_str(raw.get("primary_color")) or primary_color,
     }
@@ -219,19 +221,6 @@ def _default_plan(topic: str, primary_color: str) -> dict:
     interactive_spec = _default_interactive_spec(topic, interactive_type)
     key_points = _default_key_points(topic, interactive_type)
     widget_outline = _normalize_widget_outline(None, interactive_spec, interactive_type, topic)
-    if _is_pythagorean_topic(topic):
-        render_stack = "svg"
-        widget_outline = {
-            "type": "simulation",
-            "topic": topic,
-            "intent": "single_page_openmaic_widget",
-            "concept": "勾股定理的几何证明",
-            "core_objects": ["直角三角形", "a² 正方形", "b² 正方形", "c² 正方形"],
-            "keyVariables": ["a（直角边1）", "b（直角边2）"],
-            "state_model": ["观察三边", "调节边长", "比较面积", "归纳公式"],
-            "observable_changes": ["三角形边长实时变化", "三个正方形面积数值同步更新", "a²+b² 与 c² 比较结果保持相等"],
-            "required_regions": ["learning-goal", "stage", "controls", "caption", "formula"],
-        }
     return {
         "page_type": "interactive",
         "interactive_type": interactive_type,
@@ -257,7 +246,7 @@ def _default_plan(topic: str, primary_color: str) -> dict:
         "runtime": {
             "render_stack": render_stack,
             "animation_runtime": animation_runtime,
-            "external_libraries": [],
+            "external_libraries": _normalize_external_libraries([], animation_runtime),
         },
         "primary_color": primary_color,
     }
@@ -265,39 +254,6 @@ def _default_plan(topic: str, primary_color: str) -> dict:
 
 def _default_interactive_spec(topic: str, interactive_type: str) -> dict:
     if interactive_type == "simulation":
-        if _is_pythagorean_topic(topic):
-            return {
-                "type": "simulation",
-                "concept": "勾股定理的几何证明",
-                "description": "学生通过拖动直角边 a 和 b，观察 a²、b² 与 c² 三个正方形面积关系。",
-                "variables": [
-                    {"name": "a", "label": "直角边 a", "min": 3, "max": 9, "default": 6, "step": 0.5, "unit": ""},
-                    {"name": "b", "label": "直角边 b", "min": 4, "max": 12, "default": 8, "step": 0.5, "unit": ""},
-                ],
-                "presets": [
-                    {"id": "triple-345", "label": "3-4-5", "values": {"a": 3, "b": 4}},
-                    {"id": "triple-51213", "label": "5-12-13", "values": {"a": 5, "b": 12}},
-                    {"id": "triple-6810", "label": "6-8-10", "values": {"a": 6, "b": 8}},
-                    {"id": "isosceles", "label": "等腰直角", "values": {"a": 6, "b": 6}},
-                    {"id": "triple-72425", "label": "7-24-25", "values": {"a": 7, "b": 24}},
-                ],
-                "observations": [
-                    "直角三角形两条直角边改变时，斜边 c 按 c=√(a²+b²) 同步变化。",
-                    "红色 a² 正方形、青色 b² 正方形和紫色 c² 正方形面积读数同步更新。",
-                    "无论怎样调节，a²+b² 的结果都与 c² 相等。",
-                ],
-                "visual_model": {
-                    "kind": "right_triangle_with_squares",
-                    "stage": "grid_svg",
-                    "triangle": {"right_angle_vertex": "O", "legs": ["a", "b"], "hypotenuse": "c"},
-                    "squares": [
-                        {"id": "square-a", "attached_to": "a", "area": "a²", "color_role": "red"},
-                        {"id": "square-b", "attached_to": "b", "area": "b²", "color_role": "cyan"},
-                        {"id": "square-c", "attached_to": "c", "area": "c²", "color_role": "violet"},
-                    ],
-                    "labels": ["a = {a}", "b = {b}", "c = √(a²+b²)", "a² + b² = c²"],
-                },
-            }
         return {
             "type": "simulation",
             "concept": topic,
@@ -339,14 +295,6 @@ def _default_interactive_spec(topic: str, interactive_type: str) -> dict:
 
 def _default_controls(interactive_type: str, topic: str = "") -> list[dict]:
     if interactive_type == "simulation":
-        if _is_pythagorean_topic(topic):
-            return [
-                {"id": "a-slider", "label": "直角边 a", "type": "slider", "bind": "a"},
-                {"id": "b-slider", "label": "直角边 b", "type": "slider", "bind": "b"},
-                {"id": "play-animation", "label": "启动演示", "type": "button", "action": "play"},
-                {"id": "pause-animation", "label": "暂停", "type": "button", "action": "pause"},
-                {"id": "reset-animation", "label": "重置", "type": "button", "action": "reset"},
-            ]
         return [
             {"id": "parameter-slider", "label": "关键参数", "type": "slider", "bind": "parameter"},
             {"id": "play-button", "label": "播放", "type": "button", "action": "play"},
@@ -379,8 +327,6 @@ def _normalize_interactive_spec(raw_spec: object, default: dict, interactive_typ
         spec["observations"] = observations if isinstance(observations, list) and observations else default.get("observations", [])
         presets = spec.get("presets")
         spec["presets"] = presets if isinstance(presets, list) and presets else default.get("presets", [])
-        if _is_pythagorean_topic(topic):
-            spec = _enrich_pythagorean_spec(spec, default)
     elif interactive_type == "diagram":
         for field in ("nodes", "edges", "reveal_order"):
             value = spec.get(field)
@@ -394,18 +340,6 @@ def _normalize_interactive_spec(raw_spec: object, default: dict, interactive_typ
         spec.setdefault("game_config", default.get("game_config", {}))
         rules = spec.get("feedback_rules")
         spec["feedback_rules"] = rules if isinstance(rules, list) and rules else default.get("feedback_rules", [])
-    return spec
-
-
-def _enrich_pythagorean_spec(spec: dict, default: dict) -> dict:
-    names = {str(item.get("name") or "") for item in spec.get("variables", []) if isinstance(item, dict)}
-    if not {"a", "b"}.issubset(names):
-        spec["variables"] = default.get("variables", [])
-    if len(spec.get("presets", [])) < 3:
-        spec["presets"] = default.get("presets", [])
-    spec.setdefault("visual_model", default.get("visual_model", {}))
-    spec["concept"] = "勾股定理的几何证明"
-    spec["description"] = "学生通过拖动直角边 a 和 b，观察 a²、b² 与 c² 三个正方形面积关系。"
     return spec
 
 
@@ -507,23 +441,20 @@ def _string_list(value: object, default: list[str], max_items: int, max_len: int
     return items[:max_items] or list(default[:max_items])
 
 
+def _normalize_external_libraries(value: object, animation_runtime: str) -> list[str]:
+    libraries = _string_list(value, [], max_items=3, max_len=120)
+    if animation_runtime == "gsap" and GSAP_CORE_CDN not in libraries:
+        return [GSAP_CORE_CDN, *libraries][:3]
+    if animation_runtime != "gsap":
+        return [library for library in libraries if "gsap" not in library.lower()]
+    return libraries
+
+
 def _safe_str(value: object) -> str:
     return str(value).strip() if value is not None else ""
 
 
-def _is_pythagorean_topic(topic: str) -> bool:
-    text = (topic or "").lower()
-    return "勾股" in text or "pythagorean" in text
-
-
 def _default_key_points(topic: str, interactive_type: str) -> list[str]:
-    if _is_pythagorean_topic(topic):
-        return [
-            "操作说明：调整直角边 a 和 b 的长度",
-            "观察 a²、b²、c² 三个正方形面积同步变化",
-            "比较 a²+b² 与 c² 的数值始终相等",
-            "理解面积法证明勾股定理的本质",
-        ]
     if interactive_type == "simulation":
         return ["识别可调变量", "观察变量改变后的画面变化", "把读数变化与核心规律对应起来"]
     if interactive_type == "game":
@@ -532,8 +463,6 @@ def _default_key_points(topic: str, interactive_type: str) -> list[str]:
 
 
 def _default_formulas(topic: str, subject: str) -> list[str]:
-    if _is_pythagorean_topic(topic):
-        return ["a^2+b^2=c^2", "c=\\sqrt{a^2+b^2}", "S_{a^2}+S_{b^2}=S_{c^2}"]
     return [topic] if subject == "math" else []
 
 
@@ -541,12 +470,8 @@ def _default_scene_outline(topic: str, interactive_type: str, key_points: list[s
     return {
         "id": "scene_1",
         "type": "interactive",
-        "title": f"{topic}互动证明" if _is_pythagorean_topic(topic) else f"{topic}互动课件",
-        "description": (
-            "学生通过拖动滑块改变直角边长度，观察面积关系，直观理解定理。"
-            if _is_pythagorean_topic(topic)
-            else f"学生通过互动操作观察{topic}的关键变化。"
-        ),
+        "title": f"{topic}互动课件",
+        "description": f"学生通过互动操作观察{topic}的关键变化。",
         "keyPoints": key_points,
         "order": 1,
         "widgetType": interactive_type,
@@ -576,22 +501,6 @@ def _normalize_scene_outline(
 
 
 def _default_design_brief(topic: str, interactive_type: str) -> dict[str, Any]:
-    if _is_pythagorean_topic(topic):
-        return {
-            "layout": "左侧控制面板，右侧大网格 SVG 舞台；控制面板不覆盖主舞台。",
-            "stage_objects": ["right-triangle", "square-a", "square-b", "square-c", "area-readout", "formula-proof"],
-            "visual_rules": [
-                "直角顶点固定，a 沿水平轴、b 沿竖直轴缩放，斜边 c 自动重算。",
-                "a² 正方形用红色，b² 正方形用青色，c² 正方形用紫色半透明斜放。",
-                "舞台标签只显示短文本，完整公式和读数放在侧栏或 HUD。",
-            ],
-            "state_updates": [
-                "slider a/b input 触发 updateGeometry",
-                "updateGeometry 同步 SVG points、square polygons、label、readout 和 caption",
-                "presets 通过 SET_WIDGET_STATE 或按钮写入 a/b 并派发 input/change",
-            ],
-            "acceptance": ["默认 6-8-10 可见", "拖动 a/b 后 a²+b² 与 c² 始终一致", "支持四类 widget action"],
-        }
     return {
         "layout": "单屏分区布局，主舞台、控制区、caption 和公式区互不遮挡。",
         "stage_objects": ["main-visual", "control-panel", "caption", "formula"],

@@ -32,7 +32,7 @@ def revise_plan_stream(
             system_prompt=planning_sys,
             max_tokens=PLANNING_MAX_TOKENS,
             temperature=0.25,
-            enable_thinking=False,
+            enable_thinking=True,
         ):
             chunk = coerce_llm_stream_chunk(raw_chunk)
             if not chunk.delta or chunk.kind == "reasoning":

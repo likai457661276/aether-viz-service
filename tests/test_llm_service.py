@@ -11,6 +11,10 @@ def make_config(**overrides):
         "openai_api_key": None,
         "openai_model": "qwen3.7-plus",
         "openai_base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "planning_openai_api_key": None,
+        "planning_openai_model": "deepseek-v4-flash",
+        "planning_openai_base_url": None,
+        "planning_reasoning_effort": "high",
     }
     values.update(overrides)
     return SimpleNamespace(**values)
@@ -55,6 +59,36 @@ def test_resolve_llm_config_requires_a_key() -> None:
         _resolve_llm_config(make_config())
 
 
+def test_resolve_llm_config_uses_planning_model_with_shared_key() -> None:
+    resolved = _resolve_llm_config(
+        make_config(openai_api_key="compatible-key"),
+        use_planning_model=True,
+    )
+
+    assert resolved.api_key == "compatible-key"
+    assert resolved.model == "deepseek-v4-flash"
+    assert resolved.base_url == "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    assert resolved.reasoning_effort == "high"
+
+
+def test_resolve_llm_config_allows_dedicated_planning_provider() -> None:
+    resolved = _resolve_llm_config(
+        make_config(
+            openai_api_key="html-key",
+            planning_openai_api_key="planning-key",
+            planning_openai_base_url="https://workspace.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
+            planning_openai_model="deepseek-v4-flash,deepseek-v4-pro",
+            planning_reasoning_effort="max",
+        ),
+        use_planning_model=True,
+    )
+
+    assert resolved.api_key == "planning-key"
+    assert resolved.model == "deepseek-v4-flash"
+    assert resolved.base_url == "https://workspace.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
+    assert resolved.reasoning_effort == "max"
+
+
 def test_call_llm_stream_does_not_enable_thinking_by_default(monkeypatch) -> None:
     calls = []
 
@@ -78,7 +112,7 @@ def test_call_llm_stream_does_not_enable_thinking_by_default(monkeypatch) -> Non
         model="qwen3.7-plus",
         base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
     )
-    monkeypatch.setattr(llm_module, "_openai_client", lambda: (fake_client, fake_config))
+    monkeypatch.setattr(llm_module, "_openai_client", lambda **kwargs: (fake_client, fake_config))
 
     chunks = list(llm_module.call_llm_stream("题目", system_prompt="系统"))
 
@@ -116,7 +150,7 @@ def test_call_llm_stream_enables_dashscope_thinking_when_requested(monkeypatch) 
         model="qwen3.7-plus",
         base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
     )
-    monkeypatch.setattr(llm_module, "_openai_client", lambda: (fake_client, fake_config))
+    monkeypatch.setattr(llm_module, "_openai_client", lambda **kwargs: (fake_client, fake_config))
 
     chunks = list(llm_module.call_llm_stream("题目", system_prompt="系统", enable_thinking=True))
 
@@ -124,6 +158,48 @@ def test_call_llm_stream_enables_dashscope_thinking_when_requested(monkeypatch) 
     assert chunks == [
         LLMStreamChunk(kind="reasoning", delta="先分析数学关系"),
         LLMStreamChunk(kind="content", delta="最终回复"),
+    ]
+
+
+def test_call_llm_stream_uses_deepseek_reasoning_effort(monkeypatch) -> None:
+    calls = []
+
+    class FakeCompletions:
+        def create(self, **kwargs):
+            calls.append(kwargs)
+            return [
+                SimpleNamespace(
+                    choices=[
+                        SimpleNamespace(
+                            delta=SimpleNamespace(reasoning_content="先推理方案结构", content="")
+                        )
+                    ]
+                ),
+                SimpleNamespace(
+                    choices=[
+                        SimpleNamespace(
+                            delta=SimpleNamespace(reasoning_content="", content="最终方案")
+                        )
+                    ]
+                ),
+            ]
+
+    fake_client = SimpleNamespace(chat=SimpleNamespace(completions=FakeCompletions()))
+    fake_config = llm_module.ActiveLLMConfig(
+        api_key="compatible-key",
+        model="deepseek-v4-flash",
+        base_url="https://workspace.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
+        reasoning_effort="high",
+    )
+    monkeypatch.setattr(llm_module, "_openai_client", lambda **kwargs: (fake_client, fake_config))
+
+    chunks = list(llm_module.call_planning_llm_stream("题目", system_prompt="系统"))
+
+    assert calls[0]["reasoning_effort"] == "high"
+    assert "extra_body" not in calls[0]
+    assert chunks == [
+        LLMStreamChunk(kind="reasoning", delta="先推理方案结构"),
+        LLMStreamChunk(kind="content", delta="最终方案"),
     ]
 
 
@@ -149,7 +225,7 @@ def test_call_llm_stream_does_not_send_thinking_to_non_dashscope_provider(monkey
         model="gpt-4.1-mini",
         base_url="https://api.openai.com/v1",
     )
-    monkeypatch.setattr(llm_module, "_openai_client", lambda: (fake_client, fake_config))
+    monkeypatch.setattr(llm_module, "_openai_client", lambda **kwargs: (fake_client, fake_config))
 
     chunks = list(llm_module.call_llm_stream("题目", system_prompt="系统"))
 

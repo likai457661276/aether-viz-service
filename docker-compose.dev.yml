@@ -5,7 +5,7 @@ services:
       dockerfile: Dockerfile
     command: uv run --frozen uvicorn aetherviz_service.main:app --host 0.0.0.0 --port 10095 --reload --reload-dir aetherviz_service
     environment:
-      UV_PROJECT_ENVIRONMENT: /tmp/ai-interactive-experiment-app-venv
+      UV_PROJECT_ENVIRONMENT: /tmp/aether-viz-service-app-venv
       UV_LINK_MODE: copy
     ports:
       - "10095:10095"
@@ -20,7 +20,7 @@ services:
       dockerfile: Dockerfile
     command: uv run --frozen pytest
     environment:
-      UV_PROJECT_ENVIRONMENT: /tmp/ai-interactive-experiment-test-venv
+      UV_PROJECT_ENVIRONMENT: /tmp/aether-viz-service-test-venv
       UV_LINK_MODE: copy
     env_file:
       - .env

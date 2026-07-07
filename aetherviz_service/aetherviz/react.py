@@ -20,7 +20,7 @@ from aetherviz_service.aetherviz.revision_plan_stream import revise_plan_stream
 from aetherviz_service.aetherviz.sse import error_event, sse_event
 from aetherviz_service.aetherviz.theme import extract_color_from_topic
 from aetherviz_service.aetherviz.validator import AetherVizHtmlValidationError
-from aetherviz_service.llm_service import LLMServiceError, call_llm_stream
+from aetherviz_service.llm_service import LLMServiceError, call_llm_stream, call_planning_llm_stream
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +47,7 @@ def react_generate_stream(
 
     try:
         if phase == "plan":
-            yield from planning_stream(topic, color, llm_stream=call_llm_stream)
+            yield from planning_stream(topic, color, llm_stream=call_planning_llm_stream)
             return
 
         if phase == "generate":
@@ -62,7 +62,7 @@ def react_generate_stream(
             if not instruction or not instruction.strip():
                 yield error_event("instruction_required", "重新规划需要修改意见", "phase=revise 必须携带 instruction")
                 return
-            yield from revise_plan_stream(topic, instruction, color=color, context=context, llm_stream=call_llm_stream)
+            yield from revise_plan_stream(topic, instruction, color=color, context=context, llm_stream=call_planning_llm_stream)
             return
 
         if phase == "edit":

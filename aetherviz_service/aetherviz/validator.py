@@ -21,7 +21,6 @@ FORBIDDEN_HTML_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"\beval\s*\(", re.IGNORECASE), "eval()危险调用"),
     (re.compile(r"\bnew\s+Function\b", re.IGNORECASE), "new Function()构造器"),
     (re.compile(r"\bdocument\.write\s*\(", re.IGNORECASE), "document.write()调用"),
-    (re.compile(r"\bgsap\s*\.", re.IGNORECASE), "GSAP 时间线逻辑"),
     (re.compile(r"OrbitControls\.js", re.IGNORECASE), "OrbitControls.js CDN引用"),
 ]
 
@@ -35,6 +34,7 @@ ALLOWED_EXTERNAL_URLS = {
     "https://cdn.staticfile.net/KaTeX/0.16.9/contrib/auto-render.min.js",
     "https://d3js.org/d3.v7.min.js",
     "https://cdn.staticfile.net/d3/7.9.0/d3.min.js",
+    "https://cdn.jsdelivr.net/npm/gsap@3/dist/gsap.min.js",
 }
 
 PLACEHOLDER_HTML_PATTERNS = [
@@ -1018,6 +1018,7 @@ def _has_animation_driver(html: str, scripts: str) -> bool:
         re.search(r"requestAnimationFrame\s*\(", scripts, re.IGNORECASE)
         or re.search(r"\.style\.\s*(?:animation|transition)\s*=|classList\.\s*(?:add|remove|toggle)\s*\(", scripts, re.IGNORECASE)
         or re.search(r"@keyframes|animation\s*:|transition\s*:", html, re.IGNORECASE)
+        or re.search(r"\bgsap\.(?:timeline|to|from|fromTo|set)\s*\(", scripts, re.IGNORECASE)
         or re.search(r"\bsetProgress\s*\(|\btick\s*\(|\banimate\s*\(", scripts, re.IGNORECASE)
     )
 
@@ -1113,6 +1114,21 @@ def _selector_has_visual_mutation(term: str, scripts: str, html: str) -> bool:
             return True
 
     direct_selector = re.escape(raw_term if raw_term.startswith(("#", ".")) else key)
+    gsap_selector = re.escape(raw_term if raw_term.startswith(("#", ".")) else f"#{key}")
+    gsap_class_selector = re.escape(raw_term if raw_term.startswith(("#", ".")) else f".{key}")
+    if key.lower() in html.lower() and (
+        re.search(
+            rf"\bgsap\.(?:to|from|fromTo|set)\s*\(\s*['\"](?:{gsap_selector}|{gsap_class_selector})['\"]",
+            scripts,
+            re.IGNORECASE,
+        )
+        or re.search(
+            rf"\.(?:to|from|fromTo|set)\s*\(\s*['\"](?:{gsap_selector}|{gsap_class_selector})['\"]",
+            scripts,
+            re.IGNORECASE,
+        )
+    ):
+        return True
     return bool(
         re.search(
             rf"(?:getElementById|querySelector)\s*\(\s*['\"]{direct_selector}['\"]\s*\)[^;\n]{{0,240}}\.(?:setAttribute|setAttributeNS|style\.[A-Za-z-]+|classList\.\s*(?:add|remove|toggle)|innerHTML|textContent|innerText)\b",
@@ -1161,7 +1177,11 @@ def _handler_starts_animation(handler: str) -> bool:
             re.IGNORECASE,
         )
         or re.search(r"\.(?:play|restart)\s*\(", handler, re.IGNORECASE)
-        or re.search(r"requestAnimationFrame\s*\(|classList\.\s*(?:add|remove|toggle)\s*\(|\.style\.\s*(?:animation|transition)\s*=", handler, re.IGNORECASE)
+        or re.search(
+            r"requestAnimationFrame\s*\(|classList\.\s*(?:add|remove|toggle)\s*\(|\.style\.\s*(?:animation|transition)\s*=|\bgsap\.(?:timeline|to|from|fromTo|set)\s*\(",
+            handler,
+            re.IGNORECASE,
+        )
     )
 
 

@@ -1,6 +1,6 @@
 # AGENTS.md
 
-本文件定义 `ai-interactive-experiment` 仓库当前分支的项目级代理协作规范。
+本文件定义 `aether-viz-service` 仓库当前分支的项目级代理协作规范。
 
 适用范围：仓库根目录及其所有子目录。
 

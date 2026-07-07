@@ -215,7 +215,7 @@ def test_unmatched_topic_plan_phase_streams_plan_without_html_generation(monkeyp
         yield raw[:80]
         yield raw[80:]
 
-    monkeypatch.setattr(react_module, "call_llm_stream", fake_llm_stream)
+    monkeypatch.setattr(react_module, "call_planning_llm_stream", fake_llm_stream)
 
     response = client.post("/generate-aetherviz-spec", json={"topic": "熵增演示"})
 
@@ -226,7 +226,7 @@ def test_unmatched_topic_plan_phase_streams_plan_without_html_generation(monkeyp
     plan = events[-1][1]["plan"]
     assert len(stream_calls) == 1
     assert stream_calls[0][2] == react_module.PLANNING_MAX_TOKENS
-    assert stream_calls[0][4] is False
+    assert stream_calls[0][4] is True
     assert plan["subject"] == "general"
     assert plan["page_type"] == "interactive"
     assert plan["interactive_type"] in ("simulation", "diagram", "game")
@@ -245,25 +245,25 @@ def test_plan_phase_disables_reasoning_delta_and_streams_math_css_mode(monkeypat
             "page_type": "interactive",
             "interactive_type": "simulation",
             "subject": "math",
-            "title": "勾股定理互动动画",
-            "goal": "通过拖动直角三角形边长观察面积关系。",
+            "title": "几何定理互动动画",
+            "goal": "通过拖动参数观察几何关系。",
             "stage_layout": "顶部目标导航，中间大几何舞台，底部控制条和公式结论。",
             "interactive_spec": {
-                "concept": "勾股定理",
-                "variables": [{"name": "leg", "label": "直角边", "min": 1, "max": 10, "default": 3, "step": 1}],
-                "observations": ["观察边长变化和面积关系。"],
+                "concept": "几何定理",
+                "variables": [{"name": "parameter", "label": "几何参数", "min": 1, "max": 10, "default": 3, "step": 1}],
+                "observations": ["观察参数变化和几何关系。"],
             },
-            "teaching_flow": [{"id": "observe", "label": "显示直角三角形", "focus": "直角三角形居中", "caption": "观察三边。"}],
-            "controls": [{"id": "leg-slider", "label": "直角边", "type": "slider"}],
-            "formulas": ["a^2+b^2=c^2"],
+            "teaching_flow": [{"id": "observe", "label": "显示几何图形", "focus": "几何图形居中", "caption": "观察关键量。"}],
+            "controls": [{"id": "parameter-slider", "label": "几何参数", "type": "slider"}],
+            "formulas": ["几何定理"],
             "runtime": {"render_stack": "svg", "animation_runtime": "native", "external_libraries": []},
             "primary_color": "#22D3EE",
         })
         yield LLMStreamChunk(kind="content", delta=raw)
 
-    monkeypatch.setattr(react_module, "call_llm_stream", fake_llm_stream)
+    monkeypatch.setattr(react_module, "call_planning_llm_stream", fake_llm_stream)
 
-    response = client.post("/generate-aetherviz-spec", json={"topic": "勾股定理"})
+    response = client.post("/generate-aetherviz-spec", json={"topic": "几何定理"})
 
     events = parse_sse_events(response)
     assert "thinking_delta" not in [event for event, _ in events]
@@ -271,7 +271,7 @@ def test_plan_phase_disables_reasoning_delta_and_streams_math_css_mode(monkeypat
     assert events[-1][1]["plan"]["interactive_type"] == "simulation"
     assert len(calls) == 1
     assert calls[0][2] == react_module.PLANNING_MAX_TOKENS
-    assert calls[0][4] is False
+    assert calls[0][4] is True
 
 
 def test_generate_phase_requires_approved_plan() -> None:
@@ -317,6 +317,8 @@ def test_generate_phase_uses_approved_plan_for_html(monkeypatch) -> None:
     assert "禁止页面级滚动条" in prompt + system_prompt
     assert "至少 3 个可观察状态变化" in prompt
     assert "不要生成可见全局进度条" in prompt
+    assert "https://cdn.jsdelivr.net/npm/gsap@3/dist/gsap.min.js" in prompt + system_prompt
+    assert "gsap.timeline" in prompt + system_prompt
     assert "生成来源文案" in prompt
     assert "caption 必须随动画状态更新" in system_prompt
     assert "高饱和度" not in prompt + system_prompt
@@ -462,12 +464,12 @@ def test_validation_rejects_oversized_stage_formula_and_readout() -> None:
         "#aetherviz-stage svg { display: block; margin: auto; max-width: 100%; max-height: 100%; }\n.stage-number { font-size: clamp(3rem, 14vw, 150px); }",
     ).replace(
         "</g>",
-        '<text class="stage-number" transform="scale(1.2)" x="80" y="95">a²=64</text>\n    </g>',
+        '<text class="stage-number" transform="scale(1.2)" x="80" y="95">读数=64</text>\n    </g>',
         1,
     )
 
     with pytest.raises(AetherVizHtmlValidationError) as exc_info:
-        validate_aetherviz_html(bad_html, topic="勾股定理", strict=True)
+        validate_aetherviz_html(bad_html, topic="几何定理", strict=True)
 
     assert "oversized_stage_text" in str(exc_info.value)
 
@@ -496,7 +498,23 @@ def test_validation_rejects_uncentered_stage_visual() -> None:
     assert "missing_stage_visual_centering" in str(exc_info.value)
 
 
-def test_validation_rejects_gsap_dependency() -> None:
+def test_validation_allows_gsap_core_dependency() -> None:
+    from aetherviz_service.aetherviz.validator import validate_aetherviz_html
+
+    html = sample_svg_html().replace(
+        "</head>",
+        '<script src="https://cdn.jsdelivr.net/npm/gsap@3/dist/gsap.min.js"></script>\n</head>',
+    ).replace(
+        "console.log(\"ready\");",
+        "gsap.timeline();\nconsole.log(\"ready\");",
+    )
+
+    warnings = validate_aetherviz_html(html, topic="熵增演示", strict=True)
+
+    assert warnings == []
+
+
+def test_validation_rejects_gsap_plugin_dependency() -> None:
     from aetherviz_service.aetherviz.validator import (
         AetherVizHtmlValidationError,
         validate_aetherviz_html,
@@ -504,16 +522,13 @@ def test_validation_rejects_gsap_dependency() -> None:
 
     bad_html = sample_svg_html().replace(
         "</head>",
-        '<script src="https://cdn.jsdelivr.net/npm/gsap@3.15.0/dist/gsap.min.js"></script>\n</head>',
-    ).replace(
-        "console.log(\"ready\");",
-        "gsap.timeline();\nconsole.log(\"ready\");",
+        '<script src="https://cdn.jsdelivr.net/npm/gsap@3/dist/ScrollTrigger.min.js"></script>\n</head>',
     )
 
     with pytest.raises(AetherVizHtmlValidationError) as exc_info:
         validate_aetherviz_html(bad_html, topic="熵增演示", strict=True)
 
-    assert "GSAP 时间线逻辑" in str(exc_info.value) or "非白名单外部资源" in str(exc_info.value)
+    assert "非白名单外部资源" in str(exc_info.value)
 
 
 def test_validation_rejects_missing_animation_caption() -> None:
@@ -698,7 +713,7 @@ def test_build_planning_prompt_contains_subject_guide() -> None:
     assert "服务端学科识别：math" in user_prompt
     assert "推荐互动类型：simulation" in user_prompt
     assert "推荐渲染栈：svg" in user_prompt
-    assert "推荐动画运行时：native" in user_prompt
+    assert "推荐动画运行时：gsap" in user_prompt
     assert "stage_layout" in user_prompt
     assert "interactive_spec" in sys_prompt
     assert "teaching_flow" in sys_prompt
@@ -711,8 +726,8 @@ def test_build_planning_prompt_contains_subject_guide() -> None:
 def test_generation_prompt_requires_visible_scene_list() -> None:
     from aetherviz_service.aetherviz.prompts import INTERACTIVE_HTML_SYSTEM_PROMPT, build_interactive_generation_prompt
 
-    plan = sample_approved_plan("勾股定理")
-    prompt = build_interactive_generation_prompt("勾股定理", plan)
+    plan = sample_approved_plan("几何定理")
+    prompt = build_interactive_generation_prompt("几何定理", plan)
 
     assert "single-page interactive" in INTERACTIVE_HTML_SYSTEM_PROMPT
     assert "active" in INTERACTIVE_HTML_SYSTEM_PROMPT
@@ -721,16 +736,16 @@ def test_generation_prompt_requires_visible_scene_list() -> None:
     assert "当前步骤用 active/current 状态同步标注" in prompt
 
 
-def test_default_pythagorean_plan_is_openmaic_specific() -> None:
+def test_default_math_plan_uses_generic_fallback_without_topic_specific_overrides() -> None:
     from aetherviz_service.aetherviz.fallback_planner import normalize_plan
 
-    plan = normalize_plan({}, "勾股定理")
+    plan = normalize_plan({}, "几何定理")
 
     assert plan["interactive_type"] == "simulation"
     spec = plan["interactive_spec"]
-    assert spec["concept"] == "勾股定理的几何证明"
-    assert [item["name"] for item in spec["variables"]] == ["a", "b"]
-    assert "3-4-5" in json.dumps(spec, ensure_ascii=False)
+    assert spec["concept"] == "几何定理"
+    assert [item["name"] for item in spec["variables"]] == ["parameter"]
+    assert spec["presets"] == [{"id": "default", "label": "默认状态", "values": {"parameter": 5}}]
     assert plan["scene_outline"]["widgetType"] == "simulation"
     assert plan["design_brief"]["stage_objects"]
     assert {action["type"] for action in plan["widget_actions"]} == {
@@ -843,7 +858,8 @@ def test_planning_parse_invalid_returns_default() -> None:
     assert len(res["teaching_flow"]) >= 3
     assert res["interactive_spec"]
     assert res["runtime"]["render_stack"] in ("svg", "svg_canvas", "canvas_svg", "dom_svg")
-    assert res["runtime"]["animation_runtime"] == "native"
+    assert res["runtime"]["animation_runtime"] == "gsap"
+    assert "https://cdn.jsdelivr.net/npm/gsap@3/dist/gsap.min.js" in res["runtime"]["external_libraries"]
     assert "测试主题" in res["title"]
     assert res["interactive_type"] in ("simulation", "diagram", "game")
 
@@ -855,7 +871,7 @@ def test_fallback_planning_failure_returns_default_plan(monkeypatch) -> None:
         calls.append((prompt, system_prompt, max_tokens, temperature, enable_thinking))
         raise RuntimeError("planning failed")
 
-    monkeypatch.setattr(react_module, "call_llm_stream", fake_llm_stream)
+    monkeypatch.setattr(react_module, "call_planning_llm_stream", fake_llm_stream)
 
     response = client.post("/generate-aetherviz-spec", json={"topic": "熵增演示"})
 
@@ -1004,7 +1020,7 @@ def test_revise_phase_returns_new_plan(monkeypatch) -> None:
             ensure_ascii=False,
         )
 
-    monkeypatch.setattr(react_module, "call_llm_stream", fake_llm_stream)
+    monkeypatch.setattr(react_module, "call_planning_llm_stream", fake_llm_stream)
 
     response = client.post(
         "/generate-aetherviz-spec",
@@ -1025,7 +1041,7 @@ def test_revise_phase_returns_new_plan(monkeypatch) -> None:
     assert "interactive_spec" in system_prompt
     assert max_tokens == react_module.PLANNING_MAX_TOKENS
     assert temperature == 0.25
-    assert enable_thinking is False
+    assert enable_thinking is True
     assert events[-1][1]["phase"] == "revise"
     assert events[-1][1]["plan"]["title"] == "慢速熵增互动课件"
     assert "html" not in events[-1][1]
@@ -1038,7 +1054,7 @@ def test_revise_phase_falls_back_to_default_plan_when_planning_fails(monkeypatch
         calls.append((prompt, system_prompt, max_tokens, temperature, enable_thinking))
         raise RuntimeError("planner down")
 
-    monkeypatch.setattr(react_module, "call_llm_stream", fake_llm_stream)
+    monkeypatch.setattr(react_module, "call_planning_llm_stream", fake_llm_stream)
 
     response = client.post(
         "/generate-aetherviz-spec",

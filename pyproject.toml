@@ -1,5 +1,5 @@
 [project]
-name = "ai-interactive-experiment"
+name = "aether-viz-service"
 version = "0.1.0"
 description = "AI互动实验：a FastAPI service for generating interactive teaching HTML."
 readme = "README.md"

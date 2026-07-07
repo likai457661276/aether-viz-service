@@ -7,7 +7,7 @@
 ## 目录结构
 
 ```text
-ai-interactive-experiment/
+aether-viz-service/
 ├── aetherviz_service/
 │   ├── main.py
 │   ├── config.py
@@ -58,9 +58,20 @@ uv sync --dev
 OPENAI_API_KEY="你的 OpenAI-compatible API Key"
 OPENAI_BASE_URL="https://dashscope.aliyuncs.com/compatible-mode/v1"
 OPENAI_MODEL="qwen3.7-plus"
+PLANNING_OPENAI_MODEL="deepseek-v4-flash"
+PLANNING_REASONING_EFFORT="high"
 ```
 
-`OPENAI_MODEL` 支持逗号分隔的候选模型列表，服务调用时使用第一个模型。不要把真实 API Key 提交到仓库。
+`OPENAI_MODEL` 支持逗号分隔的候选模型列表，服务调用时使用第一个模型。`phase=plan` 和 `phase=revise` 的教学方案生成默认使用 `PLANNING_OPENAI_MODEL=deepseek-v4-flash`，并通过 `PLANNING_REASONING_EFFORT=high` 开启 DeepSeek V4 推理强度；HTML 生成、修复和编辑仍使用 `OPENAI_MODEL`。
+
+如教学方案生成需要单独的百炼业务空间或独立 Key，可额外设置：
+
+```bash
+PLANNING_OPENAI_API_KEY="你的教学方案模型 API Key"
+PLANNING_OPENAI_BASE_URL="https://{WorkspaceId}.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
+```
+
+`PLANNING_OPENAI_API_KEY` 和 `PLANNING_OPENAI_BASE_URL` 留空时会复用 `OPENAI_API_KEY` 和 `OPENAI_BASE_URL`。不要把真实 API Key 提交到仓库。
 
 ## 启动服务
 
@@ -161,7 +172,11 @@ pnpm build
       {"id": "reset-button", "label": "重置", "type": "button", "action": "reset"}
     ],
     "formulas": [],
-    "runtime": {"render_stack": "svg_canvas", "animation_runtime": "native", "external_libraries": []},
+    "runtime": {
+      "render_stack": "svg_canvas",
+      "animation_runtime": "gsap",
+      "external_libraries": ["https://cdn.jsdelivr.net/npm/gsap@3/dist/gsap.min.js"]
+    },
     "primary_color": "#22D3EE"
   }
 }
@@ -263,10 +278,10 @@ HTML 文件编辑阶段请求示例：
 
 `/generate-aetherviz-spec` 使用动态双阶段生成策略：
 
-1. `phase=plan` 时由 `fallback_planner.py` 生成单页 interactive 计划，字段包括 `page_type`、`interactive_type`、`widget_type`、`scene_outline`、`subject`、`title`、`goal`、`stage_layout`、`key_points`、`design_brief`、`interactive_spec`、`widget_outline`、`widget_actions`、`teaching_flow`、`controls`、`formulas`、`runtime` 和 `primary_color`。
+1. `phase=plan` 时由 `fallback_planner.py` 使用独立教学方案模型配置生成单页 interactive 计划，默认模型为 `deepseek-v4-flash`，字段包括 `page_type`、`interactive_type`、`widget_type`、`scene_outline`、`subject`、`title`、`goal`、`stage_layout`、`key_points`、`design_brief`、`interactive_spec`、`widget_outline`、`widget_actions`、`teaching_flow`、`controls`、`formulas`、`runtime` 和 `primary_color`。
 2. 前端确认计划后，以 `phase=generate` 携带 `approved_plan` 再次请求。
-3. `react.py` 按 `interactive_type` 选择 simulation、diagram 或 game 生成 prompt；生成逻辑以 OpenMAIC interactive 为核心，HTML 内需包含 `script#widget-config` 和 iframe message action listener；SVG 表达结构和标注，Canvas 承担连续运动、轨迹或粒子，DOM 承担步骤说明、公式和控制区；动画由原生 CSS transition/keyframes、`requestAnimationFrame` 和 DOM/SVG/Canvas 状态更新管理，不使用 GSAP。
-4. `phase=revise` 时，后端忽略废弃的 HTML 入参，只基于 `instruction`、`context.plan_summary` 和会话摘要重新规划，返回新的 `plan_ready`，不生成补丁、不合并 HTML、不返回旧索引字段。
+3. `react.py` 按 `interactive_type` 选择 simulation、diagram 或 game 生成 prompt；生成逻辑以 OpenMAIC interactive 为核心，HTML 内需包含 `script#widget-config` 和 iframe message action listener；SVG 表达结构和标注，Canvas 承担连续运动、轨迹或粒子，DOM 承担步骤说明、公式和控制区；默认加载白名单 GSAP core CDN，用 `gsap.timeline()` 管理分镜、播放/暂停/重置/速度和步骤同步，Canvas 高频绘制可继续使用 `requestAnimationFrame` 作为补充。
+4. `phase=revise` 时，后端忽略废弃的 HTML 入参，只基于 `instruction`、`context.plan_summary` 和会话摘要使用独立教学方案模型重新规划，返回新的 `plan_ready`，不生成补丁、不合并 HTML、不返回旧索引字段。
 5. `phase=edit` 时，后端读取 `current_html` 作为唯一修改基线，根据 `instruction` 编辑 HTML，返回新的 `done.html` 分支，不覆盖旧 HTML。
 6. `fallback_validator.py` 提取 HTML、清理代码围栏；`validator.py` 在生产生成链路只执行基础文档结构、安全边界和内联脚本语法检查。首次解析或基础校验失败时会发出 `progress stage=repairing` 并自动修复一次，成功时 `metadata.repaired=true`、`attempts=2`。
 7. OpenMAIC 契约、运行时、交互完整性、主舞台质量等检查保留为开发测试能力，不作为生产返回前的硬拦截；用户可继续通过 chat 基于现有 HTML 逐步改进。
