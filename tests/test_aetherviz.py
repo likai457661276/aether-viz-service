@@ -1049,100 +1049,12 @@ def test_basic_html_validation_rejects_oversized_output() -> None:
         validate_basic_aetherviz_html(html, topic="熵增演示")
 
 
-def test_revise_phase_returns_new_plan(monkeypatch) -> None:
-    calls = []
-
-    def fake_llm_stream(prompt: str, system_prompt: str, max_tokens: int = 0, temperature: float = 0.3, enable_thinking: bool = False):
-        calls.append((prompt, system_prompt, max_tokens, temperature, enable_thinking))
-        yield json.dumps(
-            {
-                "page_type": "interactive",
-                "interactive_type": "simulation",
-                "subject": "general",
-                "title": "慢速熵增互动课件",
-                "goal": "通过更慢的参数变化观察熵增过程。",
-                "stage_layout": "顶部目标，中间粒子舞台，底部速度滑块和结论。",
-                "interactive_spec": {
-                    "concept": "熵增",
-                    "description": "调慢速度观察粒子扩散。",
-                    "variables": [{"name": "speed", "label": "速度", "min": 0.2, "max": 1, "default": 0.5, "step": 0.1}],
-                    "observations": ["观察慢速扩散。"],
-                },
-                "teaching_flow": [
-                    {"id": "observe", "label": "慢速观察", "focus": "粒子扩散速度降低", "caption": "放慢速度观察每一步变化。"}
-                ],
-                "controls": [{"id": "speed-slider", "label": "速度", "type": "slider", "bind": "speed"}],
-                "runtime": {"render_stack": "dom_svg", "animation_runtime": "native", "external_libraries": []},
-            },
-            ensure_ascii=False,
-        )
-
-    monkeypatch.setattr(react_module, "call_planning_llm_stream", fake_llm_stream)
-
+def test_revise_phase_is_not_supported() -> None:
     response = client.post(
-        "/generate-aetherviz-spec",
-        json={
-            "topic": "熵增演示",
-            "phase": "revise",
-            "instruction": "把动画速度调慢",
-        },
-    )
-
-    events = parse_sse_events(response)
-    assert events[-1][0] == "plan_ready"
-    assert len(calls) == 1
-    prompt, system_prompt, max_tokens, temperature, enable_thinking = calls[0]
-    assert "把动画速度调慢" in prompt
-    assert "不修改旧 HTML" in prompt
-    assert "before-revise" not in prompt
-    assert "interactive_spec" in system_prompt
-    assert max_tokens == react_module.PLANNING_MAX_TOKENS
-    assert temperature == 0.25
-    assert enable_thinking is True
-    assert events[-1][1]["phase"] == "revise"
-    assert events[-1][1]["plan"]["title"] == "慢速熵增互动课件"
-    assert "html" not in events[-1][1]
-
-
-def test_revise_phase_falls_back_to_default_plan_when_planning_fails(monkeypatch) -> None:
-    calls = []
-
-    def fake_llm_stream(prompt: str, system_prompt: str, max_tokens: int = 0, temperature: float = 0.3, enable_thinking: bool = False):
-        calls.append((prompt, system_prompt, max_tokens, temperature, enable_thinking))
-        raise RuntimeError("planner down")
-
-    monkeypatch.setattr(react_module, "call_planning_llm_stream", fake_llm_stream)
-
-    response = client.post(
-        "/generate-aetherviz-spec",
-        json={
-            "topic": "熵增演示",
-            "phase": "revise",
-            "instruction": "把动画速度调慢",
-        },
-    )
-
-    events = parse_sse_events(response)
-    assert events[-1][0] == "plan_ready"
-    assert len(calls) == 1
-    assert any("兜底计划" in data.get("message", "") for event, data in events if event == "plan_delta")
-    assert events[-1][1]["plan"]["page_type"] == "interactive"
-    assert events[-1][1]["plan"]["interactive_type"] in ("simulation", "diagram", "game")
-
-
-def test_revise_phase_requires_instruction_only() -> None:
-    without_html = client.post(
         "/generate-aetherviz-spec",
         json={"topic": "熵增演示", "phase": "revise", "instruction": "改慢一点"},
     )
-    assert without_html.status_code == 200
-
-    missing_instruction = client.post(
-        "/generate-aetherviz-spec",
-        json={"topic": "熵增演示", "phase": "revise"},
-    )
-    assert missing_instruction.status_code == 400
-    assert missing_instruction.json()["detail"] == "instruction 不能为空"
+    assert response.status_code == 422
 
 
 def test_edit_phase_uses_current_html_as_context_and_returns_new_html(monkeypatch) -> None:

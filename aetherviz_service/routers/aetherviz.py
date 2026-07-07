@@ -16,8 +16,6 @@ def generate_aetherviz_spec(request: GenerateAetherVizSpecRequest) -> StreamingR
         raise HTTPException(status_code=400, detail="topic 不能为空")
     if request.phase == "generate" and request.approved_plan is None:
         raise HTTPException(status_code=400, detail="approved_plan 不能为空")
-    if request.phase == "revise" and not (request.instruction or "").strip():
-        raise HTTPException(status_code=400, detail="instruction 不能为空")
     if request.phase == "edit":
         if not (request.instruction or "").strip():
             raise HTTPException(status_code=400, detail="instruction 不能为空")

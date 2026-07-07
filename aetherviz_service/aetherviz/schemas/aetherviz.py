@@ -54,7 +54,7 @@ class AetherVizPlan(BaseModel):
 
 class GenerateAetherVizSpecRequest(BaseModel):
     topic: str = Field(...)
-    phase: Literal["plan", "generate", "revise", "edit"] = "plan"
+    phase: Literal["plan", "generate", "edit"] = "plan"
     approved_plan: AetherVizPlan | None = None
     instruction: str | None = None
     current_html: str | None = None
