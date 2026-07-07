@@ -180,6 +180,13 @@ console.log("{marker}");
 </html>"""
 
 
+def oversized_sample_html(topic: str = "熵增演示", marker: str = "oversized") -> str:
+    return sample_svg_html(topic=topic, marker=marker).replace(
+        "</main>",
+        f"<section data-region=\"caption\">{'超长说明' * 12000}</section></main>",
+    )
+
+
 def test_generate_aetherviz_spec_returns_400_when_topic_empty() -> None:
     response = client.post("/generate-aetherviz-spec", json={"topic": "   "})
 
@@ -724,7 +731,12 @@ def test_build_planning_prompt_contains_subject_guide() -> None:
 
 
 def test_generation_prompt_requires_visible_scene_list() -> None:
-    from aetherviz_service.aetherviz.prompts import INTERACTIVE_HTML_SYSTEM_PROMPT, build_interactive_generation_prompt
+    from aetherviz_service.aetherviz.prompts import (
+        EDIT_HTML_SYSTEM_PROMPT,
+        INTERACTIVE_HTML_SYSTEM_PROMPT,
+        REPAIR_SYSTEM_PROMPT,
+        build_interactive_generation_prompt,
+    )
 
     plan = sample_approved_plan("几何定理")
     prompt = build_interactive_generation_prompt("几何定理", plan)
@@ -732,6 +744,12 @@ def test_generation_prompt_requires_visible_scene_list() -> None:
     assert "single-page interactive" in INTERACTIVE_HTML_SYSTEM_PROMPT
     assert "active" in INTERACTIVE_HTML_SYSTEM_PROMPT
     assert "aria-current=\"step\"" in INTERACTIVE_HTML_SYSTEM_PROMPT
+    assert "36000 字符以内" in INTERACTIVE_HTML_SYSTEM_PROMPT
+    assert "40000 字符" in INTERACTIVE_HTML_SYSTEM_PROMPT
+    assert "36000 字符以内" in REPAIR_SYSTEM_PROMPT
+    assert "40000 字符" in REPAIR_SYSTEM_PROMPT
+    assert "36000 字符以内" in EDIT_HTML_SYSTEM_PROMPT
+    assert "40000 字符" in EDIT_HTML_SYSTEM_PROMPT
     assert "覆盖 teaching_flow 条目" in prompt
     assert "当前步骤用 active/current 状态同步标注" in prompt
 
@@ -990,6 +1008,45 @@ def test_generate_phase_repairs_invalid_first_output(monkeypatch) -> None:
     assert events[-1][1]["metadata"]["attempts"] == 2
     assert events[-1][1]["metadata"]["repaired"] is True
     assert "repaired" in events[-1][1]["html"]
+
+
+def test_generate_phase_repairs_oversized_html_output(monkeypatch) -> None:
+    calls = []
+
+    def fake_llm_stream(prompt: str, system_prompt: str, max_tokens: int = 0, temperature: float = 0.3, enable_thinking: bool = False):
+        calls.append((prompt, system_prompt, max_tokens, temperature, enable_thinking))
+        if len(calls) == 1:
+            yield oversized_sample_html(marker="too-long")
+            return
+        yield sample_svg_html(marker="compressed")
+
+    monkeypatch.setattr(react_module, "call_llm_stream", fake_llm_stream)
+
+    response = client.post(
+        "/generate-aetherviz-spec",
+        json={"topic": "熵增演示", "phase": "generate", "approved_plan": sample_approved_plan()},
+    )
+
+    events = parse_sse_events(response)
+    repair_events = [data for event, data in events if event == "progress" and data.get("stage") == "repairing"]
+    assert events[-1][0] == "done"
+    assert len(calls) == 2
+    assert repair_events
+    assert "超过上线限制" in repair_events[0]["detail"]
+    assert "40000" in calls[1][0]
+    assert events[-1][1]["metadata"]["repaired"] is True
+    assert "compressed" in events[-1][1]["html"]
+
+
+def test_basic_html_validation_rejects_oversized_output() -> None:
+    from aetherviz_service.aetherviz.constants import HTML_OUTPUT_HARD_LIMIT_CHARS
+    from aetherviz_service.aetherviz.validator import AetherVizHtmlValidationError, validate_basic_aetherviz_html
+
+    html = oversized_sample_html()
+    assert len(html) > HTML_OUTPUT_HARD_LIMIT_CHARS
+
+    with pytest.raises(AetherVizHtmlValidationError, match="超过上线限制"):
+        validate_basic_aetherviz_html(html, topic="熵增演示")
 
 
 def test_revise_phase_returns_new_plan(monkeypatch) -> None:

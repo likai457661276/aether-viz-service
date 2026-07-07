@@ -9,6 +9,8 @@ from urllib.parse import urlsplit
 
 from bs4 import BeautifulSoup, Doctype, Tag
 
+from aetherviz_service.aetherviz.constants import HTML_OUTPUT_HARD_LIMIT_CHARS
+
 
 class AetherVizHtmlValidationError(ValueError):
     pass
@@ -102,6 +104,7 @@ def validate_aetherviz_html(
     soup = BeautifulSoup(stripped, "html.parser")
     errors: list[str] = []
     warnings: list[str] = []
+    _collect_html_length_errors(stripped, errors)
     _collect_document_structure_errors(stripped, soup, topic, errors, warnings, strict=strict)
     _collect_html_security_errors(stripped, soup, errors)
     _collect_script_syntax_errors(soup, errors)
@@ -126,6 +129,7 @@ def validate_basic_aetherviz_html(
     soup = BeautifulSoup(stripped, "html.parser")
     errors: list[str] = []
     warnings: list[str] = []
+    _collect_html_length_errors(stripped, errors)
     _collect_document_structure_errors(stripped, soup, topic, errors, warnings, strict=False)
     _collect_html_security_errors(stripped, soup, errors)
     _collect_script_syntax_errors(soup, errors)
@@ -145,6 +149,13 @@ def sanitize_aetherviz_html(html: str) -> str:
     """
     cleaned = (html or "").strip()
     return AI_ATTRIBUTION_PATTERN.sub("", cleaned)
+
+
+def _collect_html_length_errors(html: str, errors: list[str]) -> None:
+    if len(html) > HTML_OUTPUT_HARD_LIMIT_CHARS:
+        errors.append(
+            f"HTML 长度超过上线限制：当前 {len(html)} 字符，必须不超过 {HTML_OUTPUT_HARD_LIMIT_CHARS} 字符"
+        )
 
 
 def _collect_document_structure_errors(
