@@ -14,6 +14,12 @@ class Settings(BaseSettings):
     planning_openai_base_url: str | None = None
     planning_openai_model: str = "deepseek-v4-flash"
     planning_reasoning_effort: str | None = "high"
+    aetherviz_plan_model: str = "deepseek-v4-flash"
+    aetherviz_html_model: str = "qwen3.7-plus"
+    aetherviz_repair_model: str = "qwen3.7-plus"
+    aetherviz_agent_max_repair_attempts: int = 2
+    aetherviz_agent_sandbox_root: str = ".aetherviz_sandbox"
+    aetherviz_agent_context_policy: str = "auto"
 
     model_config = SettingsConfigDict(
         env_file=".env",
