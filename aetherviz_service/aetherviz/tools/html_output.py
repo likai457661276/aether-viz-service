@@ -2,7 +2,6 @@
 
 import logging
 import re
-from aetherviz_service.llm_service import strip_code_fences
 
 logger = logging.getLogger(__name__)
 
@@ -178,7 +177,7 @@ def parse_interactive_html(raw_output: str) -> str:
         raise AetherVizInteractiveHtmlError("LLM 输出为空")
 
     # 去除 Markdown 代码围栏
-    stripped = strip_code_fences(raw_output).strip()
+    stripped = _strip_code_fences(raw_output).strip()
 
     # 如果有多个围栏或者残留的前后文，进行一些合理清洗
     # 提取 HTML 首尾
@@ -232,3 +231,15 @@ def parse_interactive_html(raw_output: str) -> str:
         )
 
     return stripped
+
+
+def _strip_code_fences(text: str) -> str:
+    """去除 LLM 输出中可能包含的 Markdown 代码围栏（```html...```）。"""
+    stripped = text.strip()
+    fenced = re.fullmatch(r"```[a-zA-Z0-9_-]*\s*(.*?)\s*```", stripped, re.DOTALL)
+    if fenced:
+        return fenced.group(1).strip()
+    # 只去掉开头和结尾的围栏标记，不破坏正文中可能存在的模板字面量反引号
+    stripped = re.sub(r"^```[a-zA-Z0-9_-]*\s*", "", stripped)
+    stripped = re.sub(r"\s*```$", "", stripped)
+    return stripped.strip()

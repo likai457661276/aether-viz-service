@@ -14,7 +14,7 @@ FORBIDDEN_PATTERNS = [
     (re.compile(r"\beval\s*\(", re.IGNORECASE), "eval()"),
     (re.compile(r"\bnew\s+Function\b", re.IGNORECASE), "new Function()"),
     (re.compile(r"\bdocument\.write\s*\(", re.IGNORECASE), "document.write()"),
-    (re.compile(r"(?<!@)\bimport\s+[\w*{]", re.IGNORECASE), "ES Module import"),
+    (re.compile(r"(?<!['\"`@#\w])\bimport\s+(?![\w\s]*['\"`])", re.IGNORECASE), "ES Module import"),
     (re.compile(r"\brequire\s*\(", re.IGNORECASE), "CommonJS require()"),
 ]
 def check_security(html: str) -> dict:

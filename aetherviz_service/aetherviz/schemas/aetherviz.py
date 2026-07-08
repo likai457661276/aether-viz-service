@@ -52,22 +52,3 @@ class AetherVizPlan(BaseModel):
     primary_color: str = "#22D3EE"
 
 
-class GenerateAetherVizSpecRequest(BaseModel):
-    topic: str = Field(...)
-    phase: Literal["plan", "generate", "edit"] = "plan"
-    approved_plan: AetherVizPlan | None = None
-    instruction: str | None = None
-    current_html: str | None = None
-    context: dict[str, Any] | None = None
-
-
-class GenerateAetherVizHtmlMetadata(BaseModel):
-    topic: str
-    attempts: int
-    source: str | None = None
-    repaired: bool = False
-    degraded: bool = False
-    validation_warnings: list[str] = Field(default_factory=list)
-    subject: str | None = None
-    render_mode: str | None = None
-    plan: AetherVizPlan | None = None

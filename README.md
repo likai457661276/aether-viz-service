@@ -11,7 +11,6 @@ aether-viz-service/
 ├── aetherviz_service/
 │   ├── main.py
 │   ├── config.py
-│   ├── llm_service.py
 │   └── aetherviz/
 │       ├── api/              # HTTP schema、route、SSE 事件
 │       ├── agents/           # Deep Agents runtime、指令、topic profile、planner、html、repair、model factory
@@ -20,10 +19,9 @@ aether-viz-service/
 │       ├── workflow/         # plan contract、plan、revise_plan、approve_plan、generate、edit_html 编排
 │       └── schemas/
 ├── tests/
-│   ├── test_aetherviz.py
-│   └── test_llm_service.py
+│   └── test_aetherviz.py
 ├── pyproject.toml
-├── requirements.txt
+├── uv.lock
 ├── Dockerfile
 ├── docker-compose.dev.yml
 └── docker-compose.prod.yml
@@ -193,7 +191,6 @@ HTML 文件编辑阶段请求示例：
     "selected_file": {
       "id": "html-...",
       "title": "熵增演示",
-      "mode": "simulation",
       "topic": "熵增演示",
       "html_size": 12345,
       "created_at": 1760000000000
@@ -201,8 +198,11 @@ HTML 文件编辑阶段请求示例：
     "plan_summary": {
       "title": "熵增演示互动动画",
       "goal": "用分层动画解释熵增的核心过程。",
-      "mode": "simulation",
-      "interactive_type": "simulation"
+      "interactive_type": "simulation",
+      "widget_actions": [
+        {"type": "widget_setState", "state": {"speed": 1.2}},
+        {"type": "widget_highlight", "target": "[data-role='main-visual']"}
+      ]
     }
   }
 }
@@ -247,7 +247,7 @@ HTML 文件编辑阶段请求示例：
 - `repair.done`
 - `html.done`
 - `context.compressed`
-- `error`：生成失败，包含用户可读 `message`、阶段 `stage` 和调试用 `detail`。
+- `error`：生成失败，包含用户可读 `message`、错误码 `code` 和调试用 `detail`。
 
 错误约定：
 
@@ -256,10 +256,11 @@ HTML 文件编辑阶段请求示例：
 - `400`：`phase=revise_plan` 时缺少 `current_plan` 或 `message`。
 - `400`：`phase=approve_plan` 时缺少 `plan`。
 - `400`：`phase=edit_html` 时缺少 `message` 或 `current_html`。
-- SSE `error` 且 `stage=llm_error`：调用模型服务失败。
-- SSE `error` 且 `stage=html_generation_failed`：互动 HTML 输出解析或自动修复未通过基础质量门。
-- SSE `error` 且 `stage=validation_failed`：HTML 未通过基础文档结构、安全边界、长度上限或内联脚本语法检查。
-- SSE `error` 且 `stage=unknown_error`：生成过程中发生未预期异常。
+- SSE `error` 且 `code=validation_failed`：HTML 未通过基础文档结构、安全边界、长度上限或内联脚本语法检查，自动修复后仍失败。
+- SSE `error` 且 `code=invalid_phase`：请求了不支持的 `phase`。
+- SSE `error` 且 `code=runtime_error`：生成过程中发生未预期异常。
+
+`sandbox.written` 事件在 `data` 中返回 `html_path`、`bytes` 和 `chars`；`validation.report` 和修复事件返回结构化 `report`；`html.done` 返回最终 `html`、`metadata` 和 `artifacts` 摘要。
 
 ## 生成流程
 
@@ -287,15 +288,15 @@ HTML 文件编辑阶段请求示例：
 - 后端按 `simulation`、`diagram`、`game` 拆分独立 prompt、分型 widget-config 和开发期分型校验。
 - 计划对象必须包含 OpenMAIC 风格 `scene_outline`、`widget_outline`、`design_brief` 和 `widget_actions`，作为后续 HTML 生成的唯一蓝图。
 - 旧版共享模块和兼容层已移除；计划契约在 `workflow/plan_contract.py`，Deep Agents prompt 在 `agents/instructions.py`，HTML 输出边界与确定性检查在 `tools/`。
-- 前端可展示 `source`、`attempts`、`repaired`、`degraded` 和 `validation_warnings`。
-- 前端保留 iframe 隔离和运行时错误桥接，并支持向 iframe 发送 OpenMAIC widget action：`SET_WIDGET_STATE`、`HIGHLIGHT_ELEMENT`、`ANNOTATE_ELEMENT`、`REVEAL_ELEMENT`。
+- 前端可展示 `attempts`、`repaired`、`degraded`、`validation_warnings`、`context_status` 和 `artifacts`。
+- 计划中的 OpenMAIC action 使用 `widget_setState`、`widget_highlight`、`widget_annotation`、`widget_reveal`；生成物 iframe 内部应兼容 `SET_WIDGET_STATE`、`HIGHLIGHT_ELEMENT`、`ANNOTATE_ELEMENT`、`REVEAL_ELEMENT` 消息。
 
 ## 验证
 
 运行 AI互动实验测试：
 
 ```bash
-uv run pytest tests/test_aetherviz.py tests/test_llm_service.py
+uv run pytest tests/test_aetherviz.py
 ```
 
 运行全量测试：

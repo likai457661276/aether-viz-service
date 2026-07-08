@@ -89,7 +89,7 @@ def select_render_stack(interactive_type: str, subject: str, topic: str) -> str:
     return "svg_canvas"
 
 
-def select_animation_runtime(interactive_type: str, render_stack: str) -> str:
+def select_animation_runtime() -> str:
     return "gsap"
 
 
@@ -97,7 +97,7 @@ def build_planning_prompt(topic: str, primary_color: str) -> tuple[str, str]:
     subject = detect_subject(topic)
     interactive_type = select_interactive_type(topic, subject)
     render_stack = select_render_stack(interactive_type, subject, topic)
-    animation_runtime = select_animation_runtime(interactive_type, render_stack)
+    animation_runtime = select_animation_runtime()
     user_prompt = f"""请为以下教学主题设计单页 interactive 课件计划。
 
 主题：{topic}
@@ -150,9 +150,9 @@ def normalize_plan(raw_plan: dict | None, topic: str, primary_color: str = DEFAU
     render_stack = _safe_str(runtime_raw.get("render_stack") or raw.get("render_stack")) or select_render_stack(interactive_type, subject, topic)
     if render_stack not in VALID_RENDER_STACKS:
         render_stack = select_render_stack(interactive_type, subject, topic)
-    animation_runtime = _safe_str(runtime_raw.get("animation_runtime") or raw.get("animation_runtime")) or select_animation_runtime(interactive_type, render_stack)
+    animation_runtime = _safe_str(runtime_raw.get("animation_runtime") or raw.get("animation_runtime")) or select_animation_runtime()
     if animation_runtime not in VALID_ANIMATION_RUNTIMES:
-        animation_runtime = select_animation_runtime(interactive_type, render_stack)
+        animation_runtime = select_animation_runtime()
 
     interactive_spec = _normalize_interactive_spec(raw.get("interactive_spec"), baseline["interactive_spec"], interactive_type, topic)
     teaching_flow = _normalize_teaching_flow(raw.get("teaching_flow"), baseline["teaching_flow"])
@@ -192,7 +192,7 @@ def _default_plan(topic: str, primary_color: str) -> dict:
     subject = detect_subject(topic)
     interactive_type = select_interactive_type(topic, subject)
     render_stack = select_render_stack(interactive_type, subject, topic)
-    animation_runtime = select_animation_runtime(interactive_type, render_stack)
+    animation_runtime = select_animation_runtime()
     interactive_spec = _default_interactive_spec(topic, interactive_type)
     key_points = _default_key_points(topic, interactive_type)
     widget_outline = _normalize_widget_outline(None, interactive_spec, interactive_type, topic)
