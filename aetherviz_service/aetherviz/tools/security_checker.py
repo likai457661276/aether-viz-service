@@ -7,7 +7,7 @@ from urllib.parse import urlsplit
 
 from bs4 import BeautifulSoup
 
-from aetherviz_service.aetherviz.validator import ALLOWED_EXTERNAL_URLS
+from aetherviz_service.aetherviz.tools.security_policy import ALLOWED_EXTERNAL_URLS, KATEX_URL_PATTERN
 
 FORBIDDEN_TAGS = {"iframe", "object", "embed", "form"}
 FORBIDDEN_PATTERNS = [
@@ -17,11 +17,6 @@ FORBIDDEN_PATTERNS = [
     (re.compile(r"(?<!@)\bimport\s+[\w*{]", re.IGNORECASE), "ES Module import"),
     (re.compile(r"\brequire\s*\(", re.IGNORECASE), "CommonJS require()"),
 ]
-KATEX_URL_PATTERN = re.compile(
-    r"^https://(?:cdn\.jsdelivr\.net/npm/katex@[^/]+/dist|cdn\.staticfile\.net/KaTeX/[^/]+)/(katex\.min\.css|katex\.min\.js|contrib/auto-render\.min\.js)$"
-)
-
-
 def check_security(html: str) -> dict:
     soup = BeautifulSoup(html or "", "html.parser")
     errors = []

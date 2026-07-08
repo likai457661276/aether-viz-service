@@ -1,4 +1,4 @@
-"""Prompt templates and prompt builders for AetherViz dynamic HTML."""
+"""Deep Agents instructions and prompt builders for AetherViz dynamic HTML."""
 
 from __future__ import annotations
 

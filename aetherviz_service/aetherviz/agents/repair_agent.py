@@ -7,9 +7,8 @@ import logging
 from typing import Any
 
 from aetherviz_service.aetherviz.agents.model_factory import create_agent_app, extract_agent_text, has_primary_llm_config
-from aetherviz_service.aetherviz.fallback_validator import parse_interactive_html
-from aetherviz_service.aetherviz.prompts import REPAIR_SYSTEM_PROMPT, build_repair_prompt
-from aetherviz_service.aetherviz.validator import sanitize_aetherviz_html
+from aetherviz_service.aetherviz.agents.instructions import REPAIR_SYSTEM_PROMPT, build_repair_prompt
+from aetherviz_service.aetherviz.tools.html_output import parse_interactive_html, sanitize_aetherviz_html
 
 logger = logging.getLogger(__name__)
 

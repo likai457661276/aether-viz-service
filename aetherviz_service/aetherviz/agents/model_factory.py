@@ -51,6 +51,7 @@ def create_agent_app(kind: str, *, tools: list[Any] | None = None, system_prompt
         model=create_chat_model(kind),
         tools=tools or [],
         system_prompt=system_prompt,
+        name=f"aetherviz-{kind}-agent",
     )
 
 

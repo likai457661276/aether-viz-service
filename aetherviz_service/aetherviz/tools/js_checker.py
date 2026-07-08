@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from bs4 import BeautifulSoup, Tag
 
-from aetherviz_service.aetherviz.validator import _check_javascript_syntax
+from aetherviz_service.aetherviz.tools.javascript_syntax import check_javascript_syntax
 
 
 def check_inline_javascript(html: str) -> dict:
@@ -16,7 +16,7 @@ def check_inline_javascript(html: str) -> dict:
     ]
     errors = []
     if scripts:
-        error = _check_javascript_syntax("\n;\n".join(scripts))
+        error = check_javascript_syntax("\n;\n".join(scripts))
         if error:
             errors.append({"type": "js_syntax", "message": error, "line": None})
     return {

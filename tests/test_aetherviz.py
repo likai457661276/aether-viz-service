@@ -11,6 +11,7 @@ from aetherviz_service.config import settings
 from aetherviz_service.main import app
 
 client = TestClient(app)
+AETHERVIZ_ENDPOINT = "/bingo-ai/generate-aetherviz-spec"
 
 
 @pytest.fixture(autouse=True)
@@ -113,7 +114,7 @@ window.__AETHERVIZ_RUNTIME_READY__ = true;
 
 
 def test_generate_aetherviz_spec_returns_400_when_topic_empty() -> None:
-    response = client.post("/generate-aetherviz-spec", json={"topic": "   "})
+    response = client.post(AETHERVIZ_ENDPOINT, json={"topic": "   "})
 
     assert response.status_code == 400
     assert response.json()["detail"] == "topic 不能为空"
@@ -125,8 +126,12 @@ def test_static_page_routes_are_removed() -> None:
     assert client.get("/static-html/physics/newton-second-law.html").status_code == 404
 
 
+def test_aetherviz_route_requires_bingo_ai_prefix() -> None:
+    assert client.post("/generate-aetherviz-spec", json={"topic": "熵增演示"}).status_code == 404
+
+
 def test_plan_phase_streams_new_plan_events() -> None:
-    response = client.post("/generate-aetherviz-spec", json={"topic": "初中物理 电路串并联", "phase": "plan"})
+    response = client.post(AETHERVIZ_ENDPOINT, json={"topic": "初中物理 电路串并联", "phase": "plan"})
 
     assert response.status_code == 200
     events = parse_sse_events(response)
@@ -143,7 +148,7 @@ def test_plan_phase_streams_new_plan_events() -> None:
 
 def test_revise_plan_requires_current_plan_and_message() -> None:
     response = client.post(
-        "/generate-aetherviz-spec",
+        AETHERVIZ_ENDPOINT,
         json={"topic": "熵增演示", "phase": "revise_plan", "current_plan": sample_plan()},
     )
 
@@ -153,7 +158,7 @@ def test_revise_plan_requires_current_plan_and_message() -> None:
 
 def test_revise_plan_streams_complete_revised_plan() -> None:
     response = client.post(
-        "/generate-aetherviz-spec",
+        AETHERVIZ_ENDPOINT,
         json={
             "topic": "熵增演示",
             "phase": "revise_plan",
@@ -170,7 +175,7 @@ def test_revise_plan_streams_complete_revised_plan() -> None:
 
 
 def test_approve_plan_marks_plan_approved() -> None:
-    response = client.post("/generate-aetherviz-spec", json={"phase": "approve_plan", "plan": sample_plan()})
+    response = client.post(AETHERVIZ_ENDPOINT, json={"phase": "approve_plan", "plan": sample_plan()})
 
     events = parse_sse_events(response)
     assert events[-1][0] == "plan.approved"
@@ -178,7 +183,7 @@ def test_approve_plan_marks_plan_approved() -> None:
 
 
 def test_generate_phase_requires_approved_plan() -> None:
-    response = client.post("/generate-aetherviz-spec", json={"phase": "generate"})
+    response = client.post(AETHERVIZ_ENDPOINT, json={"phase": "generate"})
 
     assert response.status_code == 400
     assert response.json()["detail"] == "approved_plan 不能为空"
@@ -186,7 +191,7 @@ def test_generate_phase_requires_approved_plan() -> None:
 
 def test_generate_phase_runs_sandbox_validation_and_done() -> None:
     response = client.post(
-        "/generate-aetherviz-spec",
+        AETHERVIZ_ENDPOINT,
         json={"topic": "熵增演示", "phase": "generate", "approved_plan": sample_plan()},
     )
 
@@ -202,9 +207,23 @@ def test_generate_phase_runs_sandbox_validation_and_done() -> None:
     assert done["data"]["metadata"]["artifacts"]["report_path"].endswith("validation-report.json")
 
 
+def test_generate_phase_escapes_special_topic_in_deterministic_html() -> None:
+    topic = '能量"</script><script>alert(1)</script>'
+    response = client.post(
+        AETHERVIZ_ENDPOINT,
+        json={"topic": topic, "phase": "generate", "approved_plan": sample_plan(topic)},
+    )
+
+    events = parse_sse_events(response)
+    done = next(data for event, data in events if event == "html.done")
+    generated_html = done["data"]["html"]
+    assert "<script>alert(1)</script>" not in generated_html
+    assert "<\\/script>" in generated_html
+
+
 def test_edit_html_generates_new_branch_events() -> None:
     response = client.post(
-        "/generate-aetherviz-spec",
+        AETHERVIZ_ENDPOINT,
         json={"phase": "edit_html", "current_html": sample_html(), "message": "把按钮改大", "context": {"topic": "熵增演示"}},
     )
 

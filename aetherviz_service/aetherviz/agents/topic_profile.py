@@ -1,4 +1,4 @@
-"""Theme helpers for dynamic AetherViz generation."""
+"""Topic profiling helpers for AetherViz Deep Agents."""
 
 from __future__ import annotations
 

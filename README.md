@@ -12,18 +12,12 @@ aether-viz-service/
 │   ├── main.py
 │   ├── config.py
 │   ├── llm_service.py
-│   ├── routers/
-│   │   └── aetherviz.py
 │   └── aetherviz/
 │       ├── api/              # HTTP schema、route、SSE 事件
-│       ├── agents/           # Deep Agents runtime、planner、html、repair、model factory
-│       ├── tools/            # HTML parser、JS checker、安全、长度、validation report
+│       ├── agents/           # Deep Agents runtime、指令、topic profile、planner、html、repair、model factory
+│       ├── tools/            # HTML 提取/清理、parser、JS checker、安全、长度、validation report
 │       ├── sandbox/          # run_id 沙箱与产物文件
-│       ├── workflow/         # plan、revise_plan、approve_plan、generate、edit_html 编排
-│       ├── fallback_planner.py
-│       ├── prompts.py
-│       ├── theme.py
-│       ├── validator.py
+│       ├── workflow/         # plan contract、plan、revise_plan、approve_plan、generate、edit_html 编排
 │       └── schemas/
 ├── tests/
 │   ├── test_aetherviz.py
@@ -129,7 +123,7 @@ pnpm build
 
 ## API
 
-### POST /generate-aetherviz-spec
+### POST /bingo-ai/generate-aetherviz-spec
 
 根据教学主题生成 AI互动实验风格的完整独立互动教学 HTML。接口采用同端 SSE，统一走 Deep Agents 工作流，计划类型固定为单页 `interactive`，并通过 `interactive_type` 分流为 `simulation`、`diagram` 或 `game`。
 
@@ -269,7 +263,7 @@ HTML 文件编辑阶段请求示例：
 
 ## 生成流程
 
-`/generate-aetherviz-spec` 使用 Deep Agents 阶段化生成策略：
+`/bingo-ai/generate-aetherviz-spec` 使用 Deep Agents 阶段化生成策略：
 
 1. `phase=plan` 由 `planning_agent` 生成完整 `draft` 教案计划。
 2. `phase=revise_plan` 由 `planning_agent` 接收 `current_plan + message`，重新生成完整 `revised` 计划，不返回局部 patch。
@@ -288,11 +282,11 @@ HTML 文件编辑阶段请求示例：
 
 默认改造方向：
 
-- 保留现有公共接口 `POST /generate-aetherviz-spec`，不新增静态 HTML 接口。
+- 保留现有公共接口 `POST /bingo-ai/generate-aetherviz-spec`，不新增静态 HTML 接口。
 - 计划对象继续以 `page_type: "interactive"` 为主，保留 `interactive_type` 兼容前端；可补充 OpenMAIC 风格 `widget_type` / `widget_outline`，但不得破坏现有前端字段。
 - 后端按 `simulation`、`diagram`、`game` 拆分独立 prompt、分型 widget-config 和开发期分型校验。
 - 计划对象必须包含 OpenMAIC 风格 `scene_outline`、`widget_outline`、`design_brief` 和 `widget_actions`，作为后续 HTML 生成的唯一蓝图。
-- `validator.py` 保留主题语义与 `interactive_spec` 对主舞台元素的一致性检查，但生产生成链路只使用基础结构、语法、安全和长度校验。
+- 旧版共享模块和兼容层已移除；计划契约在 `workflow/plan_contract.py`，Deep Agents prompt 在 `agents/instructions.py`，HTML 输出边界与确定性检查在 `tools/`。
 - 前端可展示 `source`、`attempts`、`repaired`、`degraded` 和 `validation_warnings`。
 - 前端保留 iframe 隔离和运行时错误桥接，并支持向 iframe 发送 OpenMAIC widget action：`SET_WIDGET_STATE`、`HIGHLIGHT_ELEMENT`、`ANNOTATE_ELEMENT`、`REVEAL_ELEMENT`。
 
@@ -313,7 +307,7 @@ uv run pytest
 curl 示例：
 
 ```bash
-curl -N -X POST http://localhost:10095/generate-aetherviz-spec \
+curl -N -X POST http://localhost:10095/bingo-ai/generate-aetherviz-spec \
   -H "Content-Type: application/json" \
   -d '{"topic":"牛顿第二定律"}'
 ```

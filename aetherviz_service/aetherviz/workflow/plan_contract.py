@@ -1,4 +1,4 @@
-"""Fallback planning for single-page OpenMAIC-style interactive content."""
+"""Plan contract helpers for single-page OpenMAIC-style interactive content."""
 
 from __future__ import annotations
 
@@ -136,13 +136,13 @@ def parse_planning_result(raw: str, topic: str = "", primary_color: str = DEFAUL
 
 def normalize_plan(raw_plan: dict | None, topic: str, primary_color: str = DEFAULT_PRIMARY_COLOR) -> dict:
     raw = raw_plan if isinstance(raw_plan, dict) else {}
-    fallback = _default_plan(topic, primary_color)
+    baseline = _default_plan(topic, primary_color)
 
-    subject = _safe_str(raw.get("subject")) or fallback["subject"]
+    subject = _safe_str(raw.get("subject")) or baseline["subject"]
     if subject not in {*SUBJECT_KEYWORDS.keys(), "astronomy", "general"}:
-        subject = fallback["subject"]
+        subject = baseline["subject"]
 
-    interactive_type = _safe_str(raw.get("interactive_type")) or fallback["interactive_type"]
+    interactive_type = _safe_str(raw.get("interactive_type")) or baseline["interactive_type"]
     if interactive_type not in VALID_INTERACTIVE_TYPES:
         interactive_type = select_interactive_type(topic, subject)
 
@@ -154,12 +154,12 @@ def normalize_plan(raw_plan: dict | None, topic: str, primary_color: str = DEFAU
     if animation_runtime not in VALID_ANIMATION_RUNTIMES:
         animation_runtime = select_animation_runtime(interactive_type, render_stack)
 
-    interactive_spec = _normalize_interactive_spec(raw.get("interactive_spec"), fallback["interactive_spec"], interactive_type, topic)
-    teaching_flow = _normalize_teaching_flow(raw.get("teaching_flow"), fallback["teaching_flow"])
+    interactive_spec = _normalize_interactive_spec(raw.get("interactive_spec"), baseline["interactive_spec"], interactive_type, topic)
+    teaching_flow = _normalize_teaching_flow(raw.get("teaching_flow"), baseline["teaching_flow"])
     widget_outline = _normalize_widget_outline(raw.get("widget_outline"), interactive_spec, interactive_type, topic)
-    key_points = _string_list(raw.get("key_points") or raw.get("keyPoints"), fallback["key_points"], max_items=6, max_len=120)
-    scene_outline = _normalize_scene_outline(raw.get("scene_outline"), fallback["scene_outline"], interactive_type, topic, key_points, widget_outline)
-    design_brief = _normalize_design_brief(raw.get("design_brief"), fallback["design_brief"])
+    key_points = _string_list(raw.get("key_points") or raw.get("keyPoints"), baseline["key_points"], max_items=6, max_len=120)
+    scene_outline = _normalize_scene_outline(raw.get("scene_outline"), baseline["scene_outline"], interactive_type, topic, key_points, widget_outline)
+    design_brief = _normalize_design_brief(raw.get("design_brief"), baseline["design_brief"])
 
     return {
         "page_type": "interactive",
@@ -167,18 +167,18 @@ def normalize_plan(raw_plan: dict | None, topic: str, primary_color: str = DEFAU
         "widget_type": interactive_type,
         "scene_outline": scene_outline,
         "subject": subject,
-        "title": (_safe_str(raw.get("title")) or fallback["title"])[:48],
-        "goal": (_safe_str(raw.get("goal")) or fallback["goal"])[:180],
+        "title": (_safe_str(raw.get("title")) or baseline["title"])[:48],
+        "goal": (_safe_str(raw.get("goal")) or baseline["goal"])[:180],
         "learner_level": (_safe_str(raw.get("learner_level")) or "初中/高中")[:24],
-        "stage_layout": (_safe_str(raw.get("stage_layout")) or fallback["stage_layout"])[:220],
+        "stage_layout": (_safe_str(raw.get("stage_layout")) or baseline["stage_layout"])[:220],
         "key_points": key_points,
         "design_brief": design_brief,
         "interactive_spec": interactive_spec,
         "widget_outline": widget_outline,
-        "widget_actions": _normalize_widget_actions(raw.get("widget_actions"), fallback["widget_actions"], interactive_spec, interactive_type),
+        "widget_actions": _normalize_widget_actions(raw.get("widget_actions"), baseline["widget_actions"], interactive_spec, interactive_type),
         "teaching_flow": teaching_flow,
-        "controls": _normalize_controls(raw.get("controls"), fallback["controls"]),
-        "formulas": _string_list(raw.get("formulas"), fallback["formulas"], max_items=5, max_len=100),
+        "controls": _normalize_controls(raw.get("controls"), baseline["controls"]),
+        "formulas": _string_list(raw.get("formulas"), baseline["formulas"], max_items=5, max_len=100),
         "runtime": {
             "render_stack": render_stack,
             "animation_runtime": animation_runtime,

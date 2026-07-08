@@ -1,6 +1,7 @@
-"""AetherViz 交互式 HTML 质量门。"""
+"""Generated HTML extraction and boundary cleanup."""
 
 import logging
+import re
 from aetherviz_service.llm_service import strip_code_fences
 
 logger = logging.getLogger(__name__)
@@ -8,6 +9,17 @@ logger = logging.getLogger(__name__)
 
 class AetherVizInteractiveHtmlError(ValueError):
     pass
+
+
+AI_ATTRIBUTION_PATTERN = re.compile(
+    r"(?:[—\-·•]\s*)?由\s*宾果AI\s*(?:为你)?生成\s*(?:❤️|❤|\ufe0f)?",
+    re.IGNORECASE,
+)
+
+
+def sanitize_aetherviz_html(html: str) -> str:
+    cleaned = (html or "").strip()
+    return AI_ATTRIBUTION_PATTERN.sub("", cleaned)
 
 
 def _balance_js_brackets(script_chunk: str) -> str:

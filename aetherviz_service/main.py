@@ -1,8 +1,8 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from aetherviz_service.aetherviz.api.routes import router as aetherviz_router
 from aetherviz_service.config import settings
-from aetherviz_service.routers.aetherviz import router as aetherviz_router
 
 app = FastAPI(
     title=settings.app_name,
@@ -17,4 +17,4 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(aetherviz_router)
+app.include_router(aetherviz_router, prefix="/bingo-ai")

@@ -6,14 +6,13 @@ import logging
 from collections.abc import Iterator
 from typing import Any
 
+from aetherviz_service.aetherviz.agents.instructions import REPAIR_SYSTEM_PROMPT
 from aetherviz_service.aetherviz.agents.model_factory import create_agent_app, extract_agent_text, has_primary_llm_config
-from aetherviz_service.aetherviz.fallback_planner import normalize_plan
-from aetherviz_service.aetherviz.fallback_validator import parse_interactive_html
-from aetherviz_service.aetherviz.prompts import REPAIR_SYSTEM_PROMPT
 from aetherviz_service.aetherviz.sandbox.artifacts import SandboxArtifacts
 from aetherviz_service.aetherviz.sandbox.manager import SandboxManager
-from aetherviz_service.aetherviz.validator import sanitize_aetherviz_html
+from aetherviz_service.aetherviz.tools.html_output import parse_interactive_html, sanitize_aetherviz_html
 from aetherviz_service.aetherviz.workflow.generate_workflow import _run_html_workflow
+from aetherviz_service.aetherviz.workflow.plan_contract import normalize_plan
 
 logger = logging.getLogger(__name__)
 

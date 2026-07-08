@@ -11,8 +11,12 @@ from aetherviz_service.aetherviz.agents.model_factory import (
     extract_agent_text,
     has_planning_llm_config,
 )
-from aetherviz_service.aetherviz.fallback_planner import build_planning_prompt, normalize_plan, parse_planning_result
-from aetherviz_service.aetherviz.theme import extract_color_from_topic
+from aetherviz_service.aetherviz.agents.topic_profile import extract_color_from_topic
+from aetherviz_service.aetherviz.workflow.plan_contract import (
+    build_planning_prompt,
+    normalize_plan,
+    parse_planning_result,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +29,7 @@ def create_plan(topic: str, *, context: dict[str, Any] | None = None) -> tuple[d
     color = extract_color_from_topic(topic)
     system_prompt, user_prompt = build_planning_prompt(topic, color)
     if not has_planning_llm_config():
-        return _fallback_plan(topic, color, status="draft"), True
+        return _deterministic_plan(topic, color, status="draft"), True
     try:
         agent = create_agent_app("planning", system_prompt=f"{PLANNER_SYSTEM_PROMPT}\n\n{system_prompt}")
         result = agent.invoke({"messages": [{"role": "user", "content": user_prompt}]})
@@ -35,8 +39,8 @@ def create_plan(topic: str, *, context: dict[str, Any] | None = None) -> tuple[d
         plan["context_status"] = {"status": "normal"}
         return plan, False
     except Exception as exc:
-        logger.warning("planning_agent failed, using fallback plan: %s", exc)
-        return _fallback_plan(topic, color, status="draft"), True
+        logger.warning("planning_agent failed, using deterministic plan: %s", exc)
+        return _deterministic_plan(topic, color, status="draft"), True
 
 
 def revise_plan(
@@ -61,7 +65,7 @@ def revise_plan(
 """
     if not has_planning_llm_config():
         plan = normalize_plan(current_plan, topic, color)
-        return _apply_revision_fallback(plan, topic, message), True
+        return _apply_deterministic_revision(plan, topic, message), True
     try:
         system_prompt, _ = build_planning_prompt(topic, color)
         agent = create_agent_app("planning", system_prompt=f"{PLANNER_SYSTEM_PROMPT}\n\n{system_prompt}")
@@ -73,9 +77,9 @@ def revise_plan(
         plan["context_status"] = {"status": "normal"}
         return plan, False
     except Exception as exc:
-        logger.warning("planning_agent revision failed, using fallback revision: %s", exc)
+        logger.warning("planning_agent revision failed, using deterministic revision: %s", exc)
         plan = normalize_plan(current_plan, topic, color)
-        return _apply_revision_fallback(plan, topic, message), True
+        return _apply_deterministic_revision(plan, topic, message), True
 
 
 def approve_plan(plan: dict[str, Any]) -> dict[str, Any]:
@@ -87,7 +91,7 @@ def approve_plan(plan: dict[str, Any]) -> dict[str, Any]:
     return approved
 
 
-def _fallback_plan(topic: str, color: str, *, status: str) -> dict[str, Any]:
+def _deterministic_plan(topic: str, color: str, *, status: str) -> dict[str, Any]:
     plan = normalize_plan({}, topic, color)
     plan["status"] = status
     plan["plan_id"] = _plan_id(topic, status)
@@ -96,7 +100,7 @@ def _fallback_plan(topic: str, color: str, *, status: str) -> dict[str, Any]:
     return plan
 
 
-def _apply_revision_fallback(plan: dict[str, Any], topic: str, message: str) -> dict[str, Any]:
+def _apply_deterministic_revision(plan: dict[str, Any], topic: str, message: str) -> dict[str, Any]:
     revised = dict(plan)
     revised["status"] = "revised"
     revised["plan_id"] = _plan_id(topic, "revised")
