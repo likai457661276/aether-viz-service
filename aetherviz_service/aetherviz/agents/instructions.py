@@ -8,7 +8,7 @@ from aetherviz_service.aetherviz.constants import HTML_OUTPUT_HARD_LIMIT_CHARS, 
 
 GSAP_CORE_CDN = "https://cdn.jsdelivr.net/npm/gsap@3/dist/gsap.min.js"
 
-OPENMAIC_WIDGET_CORE_PROMPT = """OpenMAIC interactive widget 核心契约：
+WIDGET_CORE_PROMPT = """互动 widget 核心契约：
 - 生成物必须是一个自包含 interactive widget，不是 PPT 截图、静态海报或普通选择题页面。
 - 生成逻辑必须以 scene_outline、widget_outline、interactive_spec 和 design_brief 为唯一蓝图；不得退化成通用模板动画。
 - 必须嵌入 `<script type="application/json" id="widget-config">...</script>`；JSON.type 必须等于 simulation、diagram 或 game，并与 plan.interactive_type 一致。widget-config 内容必须是严格的纯 JSON 格式，禁止包含任何 JS 注释（如 // 或 /* */）和尾随逗号。
@@ -23,11 +23,11 @@ OPENMAIC_WIDGET_CORE_PROMPT = """OpenMAIC interactive widget 核心契约：
 - 输出必须只有一个 HTML 文档，只能有一个 <!DOCTYPE html> 和一个 </html>。
 """
 
-INTERACTIVE_HTML_SYSTEM_PROMPT = f"""你是资深 OpenMAIC 单页互动 widget 工程师。
+INTERACTIVE_HTML_SYSTEM_PROMPT = f"""你是资深单页互动 widget 工程师。
 只输出一个完整可运行 HTML 文件，从 <!DOCTYPE html> 开始，到 </html> 结束。
 如果模型输出 reasoning_content，必须使用简体中文，且只写面向用户的简短设计摘要。
 
-{OPENMAIC_WIDGET_CORE_PROMPT}
+{WIDGET_CORE_PROMPT}
 
 硬性要求：
 - 页面面向 12~18 岁学生，默认必须呈现可理解的首屏状态；simulation/diagram 可以自动演示首段，game 必须公平开始且不能自动失败。
@@ -88,7 +88,7 @@ REPAIR_SYSTEM_PROMPT = f"""你是资深 HTML 自动修复工程师。
 具体修复要求：
 - 只输出修复后的完整 <!DOCTYPE html>...</html>，不输出 Markdown 或解释。
 - 保持独立 HTML，CSS 与业务 JavaScript 内联。
-- 补齐 OpenMAIC widget 契约：`script#widget-config[type="application/json"]`、message action listener、稳定元素 id/data-role。
+- 补齐 widget 契约：`script#widget-config[type="application/json"]`、message action listener、稳定元素 id/data-role。
 - 确保学习目标（class="learning-objectives"，至少 3 条）、主可视化区（id="aetherviz-stage"）、控制面板（class="control-panel"）存在。
 - 确保 #aetherviz-stage 内主 SVG/Canvas 在舞台水平和垂直居中；SVG 需要用居中的 viewBox 或 main-visual-group，Canvas 需要基于 width/height 的中心点绘制。
 - 确保页面保留中文旁白式 caption，并像完整互动课件一样默认进入可观察状态。
@@ -108,7 +108,7 @@ REPAIR_SYSTEM_PROMPT = f"""你是资深 HTML 自动修复工程师。
 - 修复后的完整 HTML 必须控制在 {HTML_OUTPUT_TARGET_CHARS} 字符以内，绝对不要超过 {HTML_OUTPUT_HARD_LIMIT_CHARS} 字符；修复时优先压缩重复 CSS/JS、删除冗长注释和重复 DOM，禁止用长篇说明或大段静态数据撑大文件。
 """
 
-EDIT_HTML_SYSTEM_PROMPT = f"""你是资深 OpenMAIC 单页互动 HTML 修改工程师。
+EDIT_HTML_SYSTEM_PROMPT = f"""你是资深单页互动 HTML 修改工程师。
 你会收到一个现有 HTML 文件、用户修改意见和可选教案上下文。
 
 要求：
@@ -147,12 +147,8 @@ def build_repair_prompt(
 教学目标：{plan.get("goal", "")}
 动画运行时：{(plan.get("runtime") or {}).get("animation_runtime", plan.get("animation_runtime", "gsap"))}
 互动类型：{plan.get("interactive_type", "")}
-互动规格：
-{json.dumps(plan.get("interactive_spec") or {}, ensure_ascii=False, indent=2)}
-设计蓝图：
-{json.dumps(plan.get("design_brief") or {}, ensure_ascii=False, indent=2)}
-教学流程：
-{json.dumps(plan.get("teaching_flow", []), ensure_ascii=False, indent=2)}
+核心互动规格（精简）：
+{json.dumps(plan.get("interactive_spec") or {}, ensure_ascii=False)}
 
 修复第一目标：确保动画能完整播放并清晰演示上述教学目标。
 舞台居中目标：#aetherviz-stage 内主 SVG/Canvas 必须在画布中居中显示，不能偏在左下角或任意角落。若是 SVG，请修正 viewBox、preserveAspectRatio、主体 group transform 或元素坐标；若是 Canvas，请按 width/2、height/2 计算中心后绘制主体。
@@ -164,7 +160,7 @@ def build_repair_prompt(
 {original_prompt}
 
 失败 HTML（请在此基础上修复，不要推倒重写；若原文过长，以下只保留前 {HTML_OUTPUT_HARD_LIMIT_CHARS} 字符，修复输出必须压缩到上限以内）：
-{raw_html[:HTML_OUTPUT_HARD_LIMIT_CHARS]}
+{raw_html}
 
 请直接输出修复后的完整 HTML，不要输出任何解释。"""
 
@@ -253,7 +249,7 @@ def build_interactive_generation_prompt(topic: str, plan: dict) -> str:
 互动类型：{interactive_type}
 主色：{plan.get("primary_color", "#22D3EE")}
 
-1. OpenMAIC Scene Outline
+1. Scene Outline
 {json.dumps(scene_outline, ensure_ascii=False, indent=2)}
 
 2. 关键教学点
@@ -277,14 +273,14 @@ def build_interactive_generation_prompt(topic: str, plan: dict) -> str:
 8. Design Brief
 {json.dumps(design_brief, ensure_ascii=False, indent=2)}
 
-9. OpenMAIC widget 契约落地
+9. widget 契约落地
 - 必须把第 6 节互动规格原样转化为 `script#widget-config[type="application/json"]`。
 - widget-config.type 必须是 "{interactive_type}"。
 - 必须实现 iframe action message listener：SET_WIDGET_STATE、HIGHLIGHT_ELEMENT、ANNOTATE_ELEMENT、REVEAL_ELEMENT。
 - SET_WIDGET_STATE 必须能更新对应 slider/input/select 并派发 input/change 事件，让画面实时刷新。
 - HIGHLIGHT_ELEMENT/ANNOTATE_ELEMENT/REVEAL_ELEMENT 必须作用于真实 DOM/SVG 元素，不能写空 switch。
 - 页面初始化不得依赖 localStorage、外部接口或异步资源才能显示主视觉。
-OpenMAIC action 示例（需要可执行地映射到上述 message listener）:
+widget action 示例（需要可执行地映射到上述 message listener）:
 {json.dumps(widget_actions, ensure_ascii=False, indent=2)}
 
 10. 互动验收

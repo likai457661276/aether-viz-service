@@ -67,7 +67,7 @@ Deep Agents 通过 repair_agent 调用 qwen3.7-plus 自动修复
 
 ## 非目标
 
-- 不迁移到 OpenMAIC 的 Next.js、多场景课堂或 LangGraph 多 Agent 应用架构。
+- 不迁移到外部系统的 Next.js、多场景课堂或 LangGraph 多 Agent 应用架构。
 - 不让前端渲染课件内部 SVG、Canvas 或 DOM 逻辑。
 - 不把生成物依赖搬回 React 组件。
 - 不让 LLM 自行判定安全边界。

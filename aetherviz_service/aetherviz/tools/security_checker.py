@@ -17,12 +17,12 @@ FORBIDDEN_PATTERNS = [
     (re.compile(r"(?<!['\"`@#\w])\bimport\s+(?![\w\s]*['\"`])", re.IGNORECASE), "ES Module import"),
     (re.compile(r"\brequire\s*\(", re.IGNORECASE), "CommonJS require()"),
 ]
-def check_security(html: str) -> dict:
-    soup = BeautifulSoup(html or "", "html.parser")
+def check_security(html: str, *, soup: BeautifulSoup | None = None) -> dict:
+    parsed = soup or BeautifulSoup(html or "", "html.parser")
     errors = []
-    for tag in soup.find_all(FORBIDDEN_TAGS):
+    for tag in parsed.find_all(FORBIDDEN_TAGS):
         errors.append({"type": "forbidden_tag", "message": f"HTML 包含禁止标签 <{tag.name}>", "line": None})
-    for tag in soup.find_all(True):
+    for tag in parsed.find_all(True):
         for attr_name, attr_value in tag.attrs.items():
             lower_name = attr_name.lower()
             value = " ".join(attr_value) if isinstance(attr_value, list) else str(attr_value)

@@ -1,3 +1,7 @@
+from aetherviz_service.observability.langsmith import configure_langsmith
+
+configure_langsmith()
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 

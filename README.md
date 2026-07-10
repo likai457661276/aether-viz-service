@@ -2,7 +2,7 @@
 
 `AI互动实验` 是一个基于 Python 3.12 和 FastAPI 的后端服务，用于根据教学主题生成完整、可直接打开的互动教学 HTML。
 
-当前生成链路只保留 Deep Agents 驱动的 OpenMAIC 风格动态单页互动课件：先生成可确认的 `interactive` 教案计划，用户可多轮修订计划，确认后再生成自包含 HTML。HTML 会写入任务沙箱，并经过 HTML parser、JS checker、安全检查和长度检查；失败时由 `repair_agent` 自动修复。项目不再包含静态知识点命中、静态 HTML 文件读取或静态 HTML 返回接口。
+当前生成链路只保留 Deep Agents 驱动的动态单页互动课件：先生成可确认的 `interactive` 教案计划，用户可多轮修订计划，确认后再生成自包含 HTML。HTML 会写入任务沙箱，并经过 HTML parser、JS checker、安全检查和长度检查；失败时由 `repair_agent` 自动修复。项目不再包含静态知识点命中、静态 HTML 文件读取或静态 HTML 返回接口。
 
 ## 目录结构
 
@@ -49,7 +49,7 @@ OPENAI_API_KEY="你的 OpenAI-compatible API Key"
 OPENAI_BASE_URL="https://dashscope.aliyuncs.com/compatible-mode/v1"
 OPENAI_MODEL="qwen3.7-plus"
 PLANNING_OPENAI_MODEL="deepseek-v4-flash"
-PLANNING_REASONING_EFFORT="high"
+PLANNING_REASONING_EFFORT="low"
 AETHERVIZ_PLAN_MODEL="deepseek-v4-flash"
 AETHERVIZ_HTML_MODEL="qwen3.7-plus"
 AETHERVIZ_REPAIR_MODEL="qwen3.7-plus"
@@ -68,6 +68,19 @@ PLANNING_OPENAI_BASE_URL="https://{WorkspaceId}.cn-beijing.maas.aliyuncs.com/com
 ```
 
 `PLANNING_OPENAI_API_KEY` 和 `PLANNING_OPENAI_BASE_URL` 留空时会复用 `OPENAI_API_KEY` 和 `OPENAI_BASE_URL`。不要把真实 API Key 提交到仓库。
+
+### LangSmith 可观测性
+
+服务基于 LangChain / Deep Agents，可通过 LangSmith 自动采集 planner、html、repair 等 agent 调用链路。在 `.env` 中启用：
+
+```bash
+LANGSMITH_TRACING="true"
+LANGSMITH_ENDPOINT="https://api.smith.langchain.com"
+LANGSMITH_API_KEY="你的 LangSmith API Key"
+LANGSMITH_PROJECT="deepagents-v4-html"
+```
+
+`LANGSMITH_TRACING=false` 或未配置 `LANGSMITH_API_KEY` 时不会上报 trace。组织级 API Key 如需指定工作区，可额外设置 `LANGSMITH_WORKSPACE_ID`。Trace 会在应用启动时写入进程环境变量，Deep Agents 的 `invoke` 调用会自动出现在 LangSmith 项目面板中。
 
 ## 启动服务
 
@@ -97,7 +110,7 @@ docker compose -f docker-compose.prod.yml up -d app
 /Users/likai/Documents/workspace/bingo-aetherviz
 ```
 
-前端是 Vite + React + TypeScript 应用，负责 chat 工作区、计划确认、SSE 事件消费、多个 HTML 产物管理、iframe `srcDoc` 预览和运行时错误桥接。后端负责 OpenMAIC widget 计划、HTML 生成、HTML 文件编辑、基础语法/安全/长度校验、自动修复和最终自包含 HTML 输出。
+前端是 Vite + React + TypeScript 应用，负责 chat 工作区、计划确认、SSE 事件消费、多个 HTML 产物管理、iframe `srcDoc` 预览和运行时错误桥接。后端负责互动 widget 计划、HTML 生成、HTML 文件编辑、基础语法/安全/长度校验、自动修复和最终自包含 HTML 输出。
 
 职责边界：
 
@@ -233,12 +246,13 @@ HTML 文件编辑阶段请求示例：
 响应类型为 `text/event-stream`。事件包括：
 
 - `plan.started`
-- `plan.delta`
+- `plan.delta`：规划进度更新；`data` 可含 `delta`（当前步骤文案或推理摘要）、`planning_steps`（步骤清单，含 `content`/`status`）、`active_step_index`
 - `plan.ready`
 - `plan.revise_started`
 - `plan.revised`
 - `plan.approved`
 - `html.generation_started`
+- `html.delta`：HTML 生成进度更新；`data` 可含 `delta`（当前步骤文案）、`html_steps`（步骤清单，含 `content`/`status`）、`active_step_index`
 - `html.edit_started`
 - `sandbox.written`
 - `validation.started`
@@ -264,10 +278,10 @@ HTML 文件编辑阶段请求示例：
 
 ## 生成流程
 
-`/bingo-ai/generate-aetherviz-spec` 使用 Deep Agents 阶段化生成策略：
+`/bingo-ai/generate-aetherviz-spec` 使用阶段化生成策略：
 
-1. `phase=plan` 由 `planning_agent` 生成完整 `draft` 教案计划。
-2. `phase=revise_plan` 由 `planning_agent` 接收 `current_plan + message`，重新生成完整 `revised` 计划，不返回局部 patch。
+1. `phase=plan` 由单次 LLM 规划（默认 `deepseek-v4-flash`，可通过 `PLANNING_REASONING_EFFORT` 开启推理模式）生成完整 `draft` 教案计划。
+2. `phase=revise_plan` 由规划模型接收 `current_plan + message`，重新生成完整 `revised` 计划，不返回局部 patch。
 3. `phase=approve_plan` 将计划状态置为 `approved`。
 4. `phase=generate` 由 `html_agent` 根据已确认计划生成完整自包含 HTML，并写入 run_id 沙箱。
 5. `validation_report` 聚合 HTML parser、JS checker、安全检查和长度检查，输出结构化报告并写入沙箱。
@@ -277,19 +291,19 @@ HTML 文件编辑阶段请求示例：
 
 主题色从 `topic` 中的 `#RRGGBB` 或中文颜色词提取，未提取到时使用默认色 `#22D3EE`。
 
-## OpenMAIC Widget 链路改造方向
+## Widget 链路改造方向
 
-本项目采用 Widget 链路级 OpenMAIC 对齐：保留当前 FastAPI 单页 SSE 接口，不迁移 OpenMAIC 的 Next.js、多场景课堂、LangGraph 或多 Agent 应用架构。
+本项目采用 Widget 链路级对齐：保留当前 FastAPI 单页 SSE 接口，不迁移外部系统的 Next.js、多场景课堂、LangGraph 或多 Agent 应用架构。
 
 默认改造方向：
 
 - 保留现有公共接口 `POST /bingo-ai/generate-aetherviz-spec`，不新增静态 HTML 接口。
-- 计划对象继续以 `page_type: "interactive"` 为主，保留 `interactive_type` 兼容前端；可补充 OpenMAIC 风格 `widget_type` / `widget_outline`，但不得破坏现有前端字段。
+- 计划对象继续以 `page_type: "interactive"` 为主，保留 `interactive_type` 兼容前端；可补充 `widget_type` / `widget_outline`，但不得破坏现有前端字段。
 - 后端按 `simulation`、`diagram`、`game` 拆分独立 prompt、分型 widget-config 和开发期分型校验。
-- 计划对象必须包含 OpenMAIC 风格 `scene_outline`、`widget_outline`、`design_brief` 和 `widget_actions`，作为后续 HTML 生成的唯一蓝图。
+- 计划对象必须包含 `scene_outline`、`widget_outline`、`design_brief` 和 `widget_actions`，作为后续 HTML 生成的唯一蓝图。
 - 旧版共享模块和兼容层已移除；计划契约在 `workflow/plan_contract.py`，Deep Agents prompt 在 `agents/instructions.py`，HTML 输出边界与确定性检查在 `tools/`。
 - 前端可展示 `attempts`、`repaired`、`degraded`、`validation_warnings`、`context_status` 和 `artifacts`。
-- 计划中的 OpenMAIC action 使用 `widget_setState`、`widget_highlight`、`widget_annotation`、`widget_reveal`；生成物 iframe 内部应兼容 `SET_WIDGET_STATE`、`HIGHLIGHT_ELEMENT`、`ANNOTATE_ELEMENT`、`REVEAL_ELEMENT` 消息。
+- 计划中的 action 使用 `widget_setState`、`widget_highlight`、`widget_annotation`、`widget_reveal`；生成物 iframe 内部应兼容 `SET_WIDGET_STATE`、`HIGHLIGHT_ELEMENT`、`ANNOTATE_ELEMENT`、`REVEAL_ELEMENT` 消息。
 
 ## 验证
 

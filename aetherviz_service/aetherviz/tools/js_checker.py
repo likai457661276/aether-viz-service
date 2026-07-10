@@ -7,11 +7,11 @@ from bs4 import BeautifulSoup, Tag
 from aetherviz_service.aetherviz.tools.javascript_syntax import check_javascript_syntax
 
 
-def check_inline_javascript(html: str) -> dict:
-    soup = BeautifulSoup(html or "", "html.parser")
+def check_inline_javascript(html: str, *, soup: BeautifulSoup | None = None) -> dict:
+    parsed = soup or BeautifulSoup(html or "", "html.parser")
     scripts = [
         script.get_text("\n", strip=False)
-        for script in soup.find_all("script")
+        for script in parsed.find_all("script")
         if _is_executable_inline_script(script)
     ]
     errors = []

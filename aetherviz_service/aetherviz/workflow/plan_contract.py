@@ -1,4 +1,4 @@
-"""Plan contract helpers for single-page OpenMAIC-style interactive content."""
+"""Plan contract helpers for single-page interactive content."""
 
 from __future__ import annotations
 
@@ -29,14 +29,14 @@ DIAGRAM_KEYWORDS = ["流程", "结构", "分类", "因果", "步骤", "阅读结
 GAME_KEYWORDS = ["练习", "闯关", "匹配", "排序", "挑战", "小游戏", "巩固", "得分"]
 
 PLANNING_SYSTEM_PROMPT_TEMPLATE = """你是资深互动教学课件规划师。
-为 12~18 岁学生设计一个 OpenMAIC 风格的单页 interactive widget 计划。
+为 12~18 岁学生设计一个单页 interactive widget 计划。
 
 规划原则：
 - page_type 固定为 interactive。
 - interactive_type 只能是 simulation、diagram、game。
-- 输出必须同时具备 OpenMAIC 两层结构：scene_outline 描述课堂场景，interactive_spec 描述可直接生成 HTML 的 WidgetConfig。
+- 输出必须同时具备两层结构：scene_outline 描述课堂场景，interactive_spec 描述可直接生成 HTML 的 WidgetConfig。
 - scene_outline 必须包含 id、type、title、description、keyPoints、order、widgetType、widgetOutline；widgetType 必须与 interactive_type 一致。
-- interactive_spec 是 OpenMAIC WidgetOutline + WidgetConfig 的单页化核心，必须能直接嵌入 HTML 的 script#widget-config。
+- interactive_spec 是 WidgetOutline + WidgetConfig 的单页化核心，必须能直接嵌入 HTML 的 script#widget-config。
 - simulation: interactive_spec 必须写 type、concept、description、variables、presets、observations；变量 name 要可作为 slider id/data-var。
 - diagram: interactive_spec 必须写 type、concept、description、nodes、edges、reveal_order；nodes 每项必须有 id、label、details/explanation。
 - game: interactive_spec 必须写 type、concept、description、game_type、challenge、success_condition、feedback_rules、game_config；必须是操作型挑战，不是普通选择题堆叠。
@@ -47,7 +47,7 @@ PLANNING_SYSTEM_PROMPT_TEMPLATE = """你是资深互动教学课件规划师。
 - stage_layout 必须说明目标区、主舞台、控制区和结论区如何在单屏内摆放。
 - stage_layout 必须明确公式、读数、caption 与控制面板不进入主舞台覆盖层；主舞台只放图形和短标签。
 - design_brief 必须写出主舞台对象、布局坐标/相对位置、颜色语义、动态更新规则、默认预设和验收标准。
-- widget_actions 必须给出 OpenMAIC iframe action 示例，至少覆盖 widget_setState、widget_highlight、widget_annotation、widget_reveal。
+- widget_actions 必须给出 iframe action 示例，至少覆盖 widget_setState、widget_highlight、widget_annotation、widget_reveal。
 
 只输出 JSON 对象，不输出 Markdown 或解释。
 """
@@ -322,7 +322,7 @@ def _normalize_widget_outline(raw_outline: object, interactive_spec: dict, inter
     outline = dict(raw_outline) if isinstance(raw_outline, dict) else {}
     outline["type"] = interactive_type
     outline.setdefault("topic", topic)
-    outline.setdefault("intent", "single_page_openmaic_widget")
+    outline.setdefault("intent", "single_page_interactive_widget")
     outline.setdefault("concept", interactive_spec.get("concept") or topic)
     if interactive_type == "simulation":
         outline.setdefault("core_objects", [item.get("name") for item in interactive_spec.get("variables", []) if isinstance(item, dict)] or ["parameter"])
