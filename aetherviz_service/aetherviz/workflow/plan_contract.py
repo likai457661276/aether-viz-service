@@ -6,6 +6,8 @@ import json
 import re
 from typing import Any
 
+from aetherviz_service.aetherviz.constants import get_gsap_core_cdn_url
+
 DEFAULT_PRIMARY_COLOR = "#22D3EE"
 
 SUBJECT_KEYWORDS = {
@@ -22,13 +24,13 @@ SUBJECT_KEYWORDS = {
 VALID_INTERACTIVE_TYPES = {"simulation", "diagram", "game"}
 VALID_RENDER_STACKS = {"svg", "svg_canvas", "canvas_svg", "dom_svg"}
 VALID_ANIMATION_RUNTIMES = {"native", "gsap"}
-GSAP_CORE_CDN = "https://cdn.jsdelivr.net/npm/gsap@3/dist/gsap.min.js"
+GSAP_CORE_CDN = get_gsap_core_cdn_url()
 
 SIMULATION_KEYWORDS = ["运动", "参数", "实验", "函数", "概率", "反应速率", "电路", "轨迹", "速度", "采样"]
 DIAGRAM_KEYWORDS = ["流程", "结构", "分类", "因果", "步骤", "阅读结构", "知识图谱", "体系", "过程"]
 GAME_KEYWORDS = ["练习", "闯关", "匹配", "排序", "挑战", "小游戏", "巩固", "得分"]
 
-PLANNING_SYSTEM_PROMPT_TEMPLATE = """你是资深互动教学课件规划师。
+PLANNING_SYSTEM_PROMPT_TEMPLATE = f"""你是资深互动教学课件规划师。
 为 12~18 岁学生设计一个单页 interactive widget 计划。
 
 规划原则：
@@ -43,7 +45,7 @@ PLANNING_SYSTEM_PROMPT_TEMPLATE = """你是资深互动教学课件规划师。
 - teaching_flow 用 3~5 个教学节奏步骤描述观察、操作、归纳。
 - controls 只保留真实影响学习的控件，2~5 个。
 - runtime.render_stack 只能是 svg、svg_canvas、canvas_svg、dom_svg；runtime.animation_runtime 优先使用 gsap，只有纯 Canvas 高频粒子等必须逐帧绘制的场景才使用 native。
-- runtime.external_libraries 在 animation_runtime 为 gsap 时必须包含 https://cdn.jsdelivr.net/npm/gsap@3/dist/gsap.min.js。
+- runtime.external_libraries 在 animation_runtime 为 gsap 时必须包含 {GSAP_CORE_CDN}。
 - stage_layout 必须说明目标区、主舞台、控制区和结论区如何在单屏内摆放。
 - stage_layout 必须明确公式、读数、caption 与控制面板不进入主舞台覆盖层；主舞台只放图形和短标签。
 - design_brief 必须写出主舞台对象、布局坐标/相对位置、颜色语义、动态更新规则、默认预设和验收标准。
@@ -418,8 +420,10 @@ def _string_list(value: object, default: list[str], max_items: int, max_len: int
 
 def _normalize_external_libraries(value: object, animation_runtime: str) -> list[str]:
     libraries = _string_list(value, [], max_items=3, max_len=120)
-    if animation_runtime == "gsap" and GSAP_CORE_CDN not in libraries:
-        return [GSAP_CORE_CDN, *libraries][:3]
+    gsap_cdn_url = get_gsap_core_cdn_url()
+    libraries = [library for library in libraries if "gsap" not in library.lower() or library == gsap_cdn_url]
+    if animation_runtime == "gsap" and gsap_cdn_url not in libraries:
+        return [gsap_cdn_url, *libraries][:3]
     if animation_runtime != "gsap":
         return [library for library in libraries if "gsap" not in library.lower()]
     return libraries

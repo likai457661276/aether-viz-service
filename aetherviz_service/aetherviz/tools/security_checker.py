@@ -7,6 +7,7 @@ from urllib.parse import urlsplit
 
 from bs4 import BeautifulSoup
 
+from aetherviz_service.aetherviz.constants import get_gsap_core_cdn_url
 from aetherviz_service.aetherviz.tools.security_policy import ALLOWED_EXTERNAL_URLS, KATEX_URL_PATTERN
 
 FORBIDDEN_TAGS = {"iframe", "object", "embed", "form"}
@@ -20,6 +21,7 @@ FORBIDDEN_PATTERNS = [
 def check_security(html: str, *, soup: BeautifulSoup | None = None) -> dict:
     parsed = soup or BeautifulSoup(html or "", "html.parser")
     errors = []
+    configured_gsap_url = _normalize_url(get_gsap_core_cdn_url())
     for tag in parsed.find_all(FORBIDDEN_TAGS):
         errors.append({"type": "forbidden_tag", "message": f"HTML 包含禁止标签 <{tag.name}>", "line": None})
     for tag in parsed.find_all(True):
@@ -33,7 +35,11 @@ def check_security(html: str, *, soup: BeautifulSoup | None = None) -> dict:
                 errors.append({"type": "javascript_url", "message": "禁止 javascript: URL", "line": None})
             if lower_name in {"src", "href"} and re.search(r"https?://", lower_value):
                 normalized = _normalize_url(value)
-                if normalized not in ALLOWED_EXTERNAL_URLS and not KATEX_URL_PATTERN.match(normalized):
+                if (
+                    normalized not in ALLOWED_EXTERNAL_URLS
+                    and normalized != configured_gsap_url
+                    and not KATEX_URL_PATTERN.match(normalized)
+                ):
                     errors.append(
                         {
                             "type": "external_resource",

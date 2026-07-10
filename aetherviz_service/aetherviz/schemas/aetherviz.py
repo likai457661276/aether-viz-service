@@ -2,11 +2,12 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from aetherviz_service.aetherviz.constants import get_gsap_core_cdn_url
+
 
 InteractiveType = Literal["simulation", "diagram", "game"]
 RenderStack = Literal["svg", "svg_canvas", "canvas_svg", "dom_svg"]
 AnimationRuntime = Literal["native", "gsap"]
-GSAP_CORE_CDN = "https://cdn.jsdelivr.net/npm/gsap@3/dist/gsap.min.js"
 
 
 class AetherVizPlanControl(BaseModel):
@@ -27,7 +28,7 @@ class AetherVizTeachingFlowStep(BaseModel):
 class AetherVizRuntime(BaseModel):
     render_stack: RenderStack = "svg"
     animation_runtime: AnimationRuntime = "gsap"
-    external_libraries: list[str] = Field(default_factory=lambda: [GSAP_CORE_CDN])
+    external_libraries: list[str] = Field(default_factory=lambda: [get_gsap_core_cdn_url()])
 
 
 class AetherVizPlan(BaseModel):
@@ -50,5 +51,4 @@ class AetherVizPlan(BaseModel):
     formulas: list[str] = Field(default_factory=list)
     runtime: AetherVizRuntime = Field(default_factory=AetherVizRuntime)
     primary_color: str = "#22D3EE"
-
 

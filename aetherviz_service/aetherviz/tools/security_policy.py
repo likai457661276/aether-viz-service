@@ -15,7 +15,6 @@ ALLOWED_EXTERNAL_URLS = {
     "https://cdn.staticfile.net/KaTeX/0.16.9/contrib/auto-render.min.js",
     "https://d3js.org/d3.v7.min.js",
     "https://cdn.staticfile.net/d3/7.9.0/d3.min.js",
-    "https://cdn.jsdelivr.net/npm/gsap@3/dist/gsap.min.js",
 }
 
 KATEX_URL_PATTERN = re.compile(

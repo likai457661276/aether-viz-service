@@ -10,14 +10,15 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Any
 
+from langchain_core.messages import HumanMessage, SystemMessage
+
 from aetherviz_service.aetherviz.agents.instructions import (
     build_interactive_generation_prompt,
     system_prompt_for_interactive_type,
 )
 from aetherviz_service.aetherviz.agents.model_factory import (
-    agent_invoke_config,
-    create_agent_app,
-    extract_agent_text,
+    create_chat_model,
+    extract_llm_text,
     has_primary_llm_config,
 )
 from aetherviz_service.aetherviz.tools.html_output import parse_interactive_html, sanitize_aetherviz_html
@@ -25,22 +26,11 @@ from aetherviz_service.config import settings
 
 logger = logging.getLogger(__name__)
 
-HTML_AGENT_WORKFLOW_PROMPT = """你是 html_agent，负责生成完整互动 HTML。
-
-工作方式（必须遵守）：
-1. 只用 write_file 将完整 HTML 写入 /widget.html（只允许 1 次 write_file）。
-2. write_file 成功后，立即在最终回复直接输出完整 <!DOCTYPE html>...</html> 并结束任务。
-3. 禁止使用 read_file、edit_file、write_todos、execute、task 子代理或其它工具。
-4. 禁止分步审查、回读文件或循环打磨；写完即输出。
-5. 最终回复必须是完整 HTML 文档，禁止 Markdown 包装。"""
-
 DEFAULT_HTML_PROGRESS_STEPS: list[dict[str, str]] = [
-    {"content": "写入完整 HTML 初稿", "status": "pending"},
-    {"content": "输出最终 HTML 文档", "status": "pending"},
+    {"content": "生成完整 HTML 文档", "status": "pending"},
+    {"content": "提取并整理 HTML 输出", "status": "pending"},
 ]
-
-HTML_OUTPUT_FILE = "/widget.html"
-_MIN_READY_HTML_CHARS = 500
+HTML_SIZE_EVENT_INTERVAL_BYTES = 512
 
 
 class HtmlGenerationError(Exception):
@@ -66,78 +56,64 @@ def stream_generate_html(topic: str, plan: dict[str, Any]) -> Iterator[dict[str,
         return
 
     prompt = build_interactive_generation_prompt(topic, plan)
-    combined_system_prompt = f"{HTML_AGENT_WORKFLOW_PROMPT}\n\n{system_prompt_for_interactive_type(plan)}"
-    final_state: dict[str, Any] | None = None
+    system_prompt = system_prompt_for_interactive_type(plan)
+    raw_html = ""
+    last_size_event_bytes = 0
     timed_out = False
     degraded = False
     deadline = time.monotonic() + max(settings.aetherviz_html_timeout_seconds, 1)
-    progress_emitted = False
-
     try:
         yield from _iter_initial_html_progress()
-        progress_emitted = True
-        agent = create_agent_app("html", system_prompt=combined_system_prompt)
-        for mode, chunk in agent.stream(
-            {"messages": [{"role": "user", "content": prompt}]},
-            stream_mode=["updates", "values"],
-            config=agent_invoke_config("html"),
-        ):
+        model = create_chat_model("html")
+        messages = [SystemMessage(content=system_prompt), HumanMessage(content=prompt)]
+        extraction_progress_emitted = False
+        for chunk in model.stream(messages):
             if time.monotonic() > deadline:
                 timed_out = True
                 degraded = True
                 logger.warning(
-                    "html_agent timed out after %ss; using best available Deep Agents output",
+                    "html model timed out after %ss; using best available output",
                     settings.aetherviz_html_timeout_seconds,
                 )
                 break
-            if mode == "values" and isinstance(chunk, dict):
-                final_state = chunk
-                ready_html = _extract_ready_html_from_agent_state(chunk)
-                if ready_html:
-                    parsed_html = sanitize_aetherviz_html(parse_interactive_html(ready_html))
-                    yield _completed_html_progress_payload()
-                    yield HtmlStreamResult(html=parsed_html, degraded=degraded or timed_out)
-                    return
-            elif mode == "updates" and isinstance(chunk, dict):
-                files = _extract_files_from_stream_chunk(chunk)
-                if files:
-                    ready_html = _extract_ready_html_from_files(files)
-                    if ready_html:
-                        final_state = {"files": files, **(final_state or {})}
-                        parsed_html = sanitize_aetherviz_html(parse_interactive_html(ready_html))
-                        yield _completed_html_progress_payload()
-                        yield HtmlStreamResult(html=parsed_html, degraded=degraded)
-                        return
+            text = extract_llm_text(chunk)
+            if text:
+                raw_html += text
+                current_bytes = len(raw_html.encode("utf-8"))
+                if not extraction_progress_emitted:
+                    extraction_progress_emitted = True
+                    yield build_html_progress_payload(
+                        [
+                            {**DEFAULT_HTML_PROGRESS_STEPS[0], "status": "completed"},
+                            {**DEFAULT_HTML_PROGRESS_STEPS[1], "status": "in_progress"},
+                        ],
+                        html_content=raw_html,
+                    )
+                    last_size_event_bytes = current_bytes
+                elif current_bytes - last_size_event_bytes >= HTML_SIZE_EVENT_INTERVAL_BYTES:
+                    yield build_html_size_payload(raw_html)
+                    last_size_event_bytes = current_bytes
 
-        raw_html = _extract_html_from_agent_state(final_state or {})
         if not raw_html.strip():
             raise HtmlGenerationError(
-                "HTML 生成失败，Deep Agents 未产出可用页面",
-                detail="html_agent did not produce HTML output",
+                "HTML 生成失败，模型未产出可用页面",
+                detail="html model did not produce HTML output",
             )
         parsed_html = sanitize_aetherviz_html(parse_interactive_html(raw_html))
-        if not progress_emitted:
-            yield _completed_html_progress_payload()
+        yield _completed_html_progress_payload(parsed_html)
         yield HtmlStreamResult(html=parsed_html, degraded=timed_out or degraded)
     except HtmlGenerationError:
         raise
     except Exception as exc:
         logger.warning("html_agent failed: %s", exc)
-        partial_html = _extract_html_from_agent_state(final_state or {})
-        if partial_html.strip():
+        if raw_html.strip():
             try:
-                parsed_html = sanitize_aetherviz_html(parse_interactive_html(partial_html))
-                yield _completed_html_progress_payload()
+                parsed_html = sanitize_aetherviz_html(parse_interactive_html(raw_html))
+                yield _completed_html_progress_payload(parsed_html)
                 yield HtmlStreamResult(html=parsed_html, degraded=True)
                 return
             except Exception:
-                logger.warning("html_agent partial Deep Agents output failed validation")
-        if _is_recursion_limit_error(exc):
-            raise HtmlGenerationError(
-                "HTML 生成失败，Agent 步骤过多未正常结束",
-                code="generation_failed",
-                detail=str(exc),
-            ) from exc
+                logger.warning("html model partial output failed parsing")
         raise HtmlGenerationError(
             "HTML 生成失败，未获得可用页面",
             detail=str(exc),
@@ -156,12 +132,29 @@ def generate_html(topic: str, plan: dict[str, Any]) -> tuple[str, bool]:
     return result.html, result.degraded
 
 
-def build_html_progress_payload(steps: list[dict[str, str]]) -> dict[str, Any]:
+def build_html_progress_payload(
+    steps: list[dict[str, str]],
+    *,
+    html_content: str | None = None,
+) -> dict[str, Any]:
     active_index = next((index for index, step in enumerate(steps) if step["status"] == "in_progress"), None)
-    return {
+    payload = {
         "delta": _format_html_progress_delta(steps),
         "html_steps": steps,
         "active_step_index": active_index,
+    }
+    if html_content is not None:
+        payload.update(build_html_size_payload(html_content))
+    return payload
+
+
+def build_html_size_payload(html_content: str) -> dict[str, Any]:
+    """Return the actual accumulated HTML size without returning partial HTML."""
+
+    return {
+        "delta": "",
+        "bytes": len(html_content.encode("utf-8")),
+        "chars": len(html_content),
     }
 
 
@@ -180,78 +173,11 @@ def _iter_initial_html_progress() -> Iterator[dict[str, Any]]:
     yield build_html_progress_payload(steps)
 
 
-def _completed_html_progress_payload() -> dict[str, Any]:
-    return build_html_progress_payload([{**step, "status": "completed"} for step in DEFAULT_HTML_PROGRESS_STEPS])
-
-
-def _extract_files_from_stream_chunk(chunk: dict[str, Any]) -> dict[str, Any] | None:
-    files = chunk.get("files")
-    if isinstance(files, dict):
-        return files
-    for node_update in chunk.values():
-        if isinstance(node_update, dict) and isinstance(node_update.get("files"), dict):
-            return node_update["files"]
-    return None
-
-
-def _extract_ready_html_from_agent_state(state: dict[str, Any]) -> str:
-    return _extract_ready_html_from_files(state.get("files")) or _extract_ready_html_from_text(
-        extract_agent_text(state)
+def _completed_html_progress_payload(html_content: str | None = None) -> dict[str, Any]:
+    return build_html_progress_payload(
+        [{**step, "status": "completed"} for step in DEFAULT_HTML_PROGRESS_STEPS],
+        html_content=html_content,
     )
-
-
-def _extract_ready_html_from_files(files: Any) -> str:
-    if not isinstance(files, dict):
-        return ""
-    content = files.get(HTML_OUTPUT_FILE)
-    if content is None:
-        for path, value in files.items():
-            if str(path).endswith(".html"):
-                content = value
-                break
-    text = str(content or "").strip()
-    return text if _is_ready_html_document(text) else ""
-
-
-def _extract_ready_html_from_text(text: str) -> str:
-    candidate = text.strip()
-    return candidate if _is_ready_html_document(candidate) else ""
-
-
-def _is_ready_html_document(text: str) -> bool:
-    if not _looks_like_html(text):
-        return False
-    if len(text) < _MIN_READY_HTML_CHARS:
-        return False
-    return "</html>" in text.lower()
-
-
-def _extract_html_from_agent_state(state: dict[str, Any]) -> str:
-    files = state.get("files")
-    if isinstance(files, dict):
-        preferred = [str(path) for path in files if str(path).endswith(".html")]
-        for path in [HTML_OUTPUT_FILE, *preferred, *files.keys()]:
-            content = files.get(path)
-            text = str(content or "").strip()
-            if _looks_like_html(text):
-                return text
-    text = extract_agent_text(state).strip()
-    if _looks_like_html(text):
-        return text
-    return text
-
-
-def _looks_like_html(text: str) -> bool:
-    lowered = text.lower()
-    return lowered.startswith("<!doctype html") or "<html" in lowered
-
-
-def _is_recursion_limit_error(exc: BaseException) -> bool:
-    name = type(exc).__name__
-    if name == "GraphRecursionError":
-        return True
-    message = str(exc)
-    return "Recursion limit" in message or "GRAPH_RECURSION_LIMIT" in message
 
 
 def _iter_deterministic_html_progress() -> Iterator[dict[str, Any]]:
@@ -325,7 +251,7 @@ function updateVisualization(){{
 }}
 function tick(){{if(state.playing){{state.progress=(state.progress+1)%101;document.getElementById('parameter').value=String(state.progress);updateVisualization();}}requestAnimationFrame(tick);}}
 function play(){{state.playing=true;}}function pause(){{state.playing=false;}}function reset(){{state.progress=0;state.playing=false;document.getElementById('parameter').value='0';updateVisualization();}}
-function handleWidgetAction(event){{const msg=event.data||{{}};if(msg.type==='SET_WIDGET_STATE'&&msg.state){{Object.assign(state,msg.state);updateVisualization();}}if(msg.type==='ANNOTATE_ELEMENT'&&msg.content)caption.textContent=String(msg.content);}}
+function handleWidgetAction(event){{const msg=event.data||{{}};if(msg.type==='SET_WIDGET_STATE'&&msg.state){{Object.assign(state,msg.state);updateVisualization();}}if(msg.type==='HIGHLIGHT_ELEMENT'&&msg.target){{const el=document.querySelector(msg.target);if(el)el.style.filter='drop-shadow(0 0 8px #f59e0b)';}}if(msg.type==='ANNOTATE_ELEMENT'&&msg.content)caption.textContent=String(msg.content);if(msg.type==='REVEAL_ELEMENT'&&msg.target){{const el=document.querySelector(msg.target);if(el)el.hidden=false;}}}}
 document.getElementById('play-animation').addEventListener('click',()=>play());
 document.getElementById('pause-animation').addEventListener('click',()=>pause());
 document.getElementById('reset-animation').addEventListener('click',()=>reset());

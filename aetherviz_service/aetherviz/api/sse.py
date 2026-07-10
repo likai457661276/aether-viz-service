@@ -1,4 +1,4 @@
-"""SSE helpers for the Deep Agents workflow."""
+"""SSE helpers for the AetherViz workflow."""
 
 from __future__ import annotations
 

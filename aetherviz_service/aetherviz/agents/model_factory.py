@@ -1,18 +1,10 @@
-"""LangChain model and Deep Agent factory."""
+"""LangChain chat model factory for AetherViz workflows."""
 
 from __future__ import annotations
 
 from typing import Any
 
 from aetherviz_service.config import settings
-
-_AETHERVIZ_HARNESS_READY = False
-
-_KIND_TOOL_EXCLUSIONS: dict[str, frozenset[str]] = {
-    "html": frozenset({"write_todos", "execute", "task", "read_file", "edit_file", "glob", "grep", "ls"}),
-    "repair": frozenset({"write_todos", "execute", "task", "glob", "grep", "ls"}),
-}
-
 
 def _blank_to_none(value: str | None) -> str | None:
     if value is None:
@@ -29,23 +21,6 @@ def has_planning_llm_config() -> bool:
     return bool(_blank_to_none(settings.planning_openai_api_key) or _blank_to_none(settings.openai_api_key))
 
 
-def _ensure_aetherviz_harness() -> None:
-    global _AETHERVIZ_HARNESS_READY
-    if _AETHERVIZ_HARNESS_READY:
-        return
-    from deepagents import GeneralPurposeSubagentProfile, HarnessProfile, register_harness_profile
-    from langchain.agents.middleware import TodoListMiddleware
-
-    register_harness_profile(
-        "openai",
-        HarnessProfile(
-            excluded_middleware=frozenset({TodoListMiddleware, "TodoListMiddleware"}),
-            general_purpose_subagent=GeneralPurposeSubagentProfile(enabled=False),
-        ),
-    )
-    _AETHERVIZ_HARNESS_READY = True
-
-
 def _html_model_kwargs() -> dict[str, Any]:
     kwargs: dict[str, Any] = {
         "model": settings.aetherviz_html_model,
@@ -53,6 +28,8 @@ def _html_model_kwargs() -> dict[str, Any]:
         "base_url": _blank_to_none(settings.openai_base_url),
         "temperature": 0.2,
         "max_tokens": 16384,
+        "timeout": max(settings.aetherviz_html_timeout_seconds, 1),
+        "max_retries": max(settings.aetherviz_html_max_retries, 0),
     }
     if settings.aetherviz_html_enable_thinking:
         kwargs["extra_body"] = {"enable_thinking": True}
@@ -74,6 +51,8 @@ def create_chat_model(kind: str):
             "base_url": _blank_to_none(settings.planning_openai_base_url) or _blank_to_none(settings.openai_base_url),
             "temperature": 0.3,
             "max_tokens": 8192,
+            "timeout": max(settings.aetherviz_plan_timeout_seconds, 1),
+            "max_retries": max(settings.aetherviz_plan_max_retries, 0),
         }
         reasoning_effort = _blank_to_none(settings.planning_reasoning_effort)
         if reasoning_effort:
@@ -90,45 +69,10 @@ def create_chat_model(kind: str):
         base_url=_blank_to_none(settings.openai_base_url),
         temperature=0.08,
         max_tokens=16384,
+        timeout=max(settings.aetherviz_repair_timeout_seconds, 1),
+        max_retries=max(settings.aetherviz_repair_max_retries, 0),
         extra_body={"enable_thinking": False},
     )
-
-
-def create_agent_app(
-    kind: str,
-    *,
-    tools: list[Any] | None = None,
-    system_prompt: str = "",
-    permissions: list[Any] | None = None,
-):
-    from deepagents import create_deep_agent
-    from deepagents.middleware._tool_exclusion import _ToolExclusionMiddleware
-    from deepagents.middleware.filesystem import FilesystemPermission
-
-    _ensure_aetherviz_harness()
-    exclusions = _KIND_TOOL_EXCLUSIONS.get(kind, frozenset({"write_todos", "execute", "task"}))
-    middleware = [_ToolExclusionMiddleware(excluded=exclusions)]
-    if kind == "html" and permissions is None:
-        permissions = [FilesystemPermission(operations=["read"], paths=["/**"], mode="deny")]
-
-    kwargs: dict[str, Any] = {
-        "model": create_chat_model(kind),
-        "tools": tools or [],
-        "system_prompt": system_prompt,
-        "middleware": middleware,
-        "name": f"aetherviz-{kind}-agent",
-    }
-    if permissions is not None:
-        kwargs["permissions"] = permissions
-    return create_deep_agent(**kwargs)
-
-
-def agent_invoke_config(kind: str) -> dict[str, Any]:
-    if kind == "html":
-        return {"recursion_limit": settings.aetherviz_html_recursion_limit}
-    if kind == "repair":
-        return {"recursion_limit": settings.aetherviz_repair_recursion_limit}
-    return {"recursion_limit": 25}
 
 
 def extract_llm_text(message: Any) -> str:
@@ -159,21 +103,3 @@ def extract_llm_reasoning(message: Any) -> str:
         if value:
             return str(value)
     return ""
-
-
-def extract_agent_text(result: Any) -> str:
-    if isinstance(result, str):
-        return result
-    if isinstance(result, dict):
-        messages = result.get("messages")
-        if isinstance(messages, list) and messages:
-            last = messages[-1]
-            content = getattr(last, "content", None)
-            if content:
-                return str(content)
-            if isinstance(last, dict):
-                return str(last.get("content") or "")
-        for key in ("content", "output", "text"):
-            if result.get(key):
-                return str(result[key])
-    return str(result or "")

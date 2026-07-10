@@ -2,7 +2,7 @@
 
 `AI互动实验` 是一个基于 Python 3.12 和 FastAPI 的后端服务，用于根据教学主题生成完整、可直接打开的互动教学 HTML。
 
-当前生成链路只保留 Deep Agents 驱动的动态单页互动课件：先生成可确认的 `interactive` 教案计划，用户可多轮修订计划，确认后再生成自包含 HTML。HTML 会写入任务沙箱，并经过 HTML parser、JS checker、安全检查和长度检查；失败时由 `repair_agent` 自动修复。项目不再包含静态知识点命中、静态 HTML 文件读取或静态 HTML 返回接口。
+当前生成链路使用 LangChain `ChatOpenAI` 直接生成动态单页互动课件：先生成可确认的 `interactive` 教案计划，用户可多轮修订计划，确认后再生成自包含 HTML。HTML 只在请求内存中完成检查和修复，通过 SSE 返回前端渲染与会话缓存；后端不落盘缓存 HTML、修复稿或检查报告。检查覆盖 HTML parser、JS checker、安全、长度和低成本 Widget 运行契约；失败时先执行确定性修复，必要时最多调用一次修复模型。
 
 ## 目录结构
 
@@ -13,9 +13,8 @@ aether-viz-service/
 │   ├── config.py
 │   └── aetherviz/
 │       ├── api/              # HTTP schema、route、SSE 事件
-│       ├── agents/           # Deep Agents runtime、指令、topic profile、planner、html、repair、model factory
+│       ├── agents/           # 模型调用、指令、topic profile、planner、html、repair、model factory
 │       ├── tools/            # HTML 提取/清理、parser、JS checker、安全、长度、validation report
-│       ├── sandbox/          # run_id 沙箱与产物文件
 │       ├── workflow/         # plan contract、plan、revise_plan、approve_plan、generate、edit_html 编排
 │       └── schemas/
 ├── tests/
@@ -53,12 +52,17 @@ PLANNING_REASONING_EFFORT="low"
 AETHERVIZ_PLAN_MODEL="deepseek-v4-flash"
 AETHERVIZ_HTML_MODEL="qwen3.7-plus"
 AETHERVIZ_REPAIR_MODEL="qwen3.7-plus"
-AETHERVIZ_AGENT_MAX_REPAIR_ATTEMPTS="2"
-AETHERVIZ_AGENT_SANDBOX_ROOT=".aetherviz_sandbox"
-AETHERVIZ_AGENT_CONTEXT_POLICY="auto"
+AETHERVIZ_GSAP_CDN_URL="https://cdn.jsdelivr.net/npm/gsap@3/dist/gsap.min.js"
+AETHERVIZ_MAX_REPAIR_ATTEMPTS="1"
+AETHERVIZ_PLAN_TIMEOUT_SECONDS="180"
+AETHERVIZ_PLAN_MAX_RETRIES="1"
+AETHERVIZ_HTML_TIMEOUT_SECONDS="600"
+AETHERVIZ_HTML_MAX_RETRIES="1"
+AETHERVIZ_REPAIR_TIMEOUT_SECONDS="300"
+AETHERVIZ_REPAIR_MAX_RETRIES="1"
 ```
 
-`phase=plan` 和 `phase=revise_plan` 默认使用 `AETHERVIZ_PLAN_MODEL=deepseek-v4-flash`。HTML 生成和修复默认使用 `AETHERVIZ_HTML_MODEL=qwen3.7-plus`、`AETHERVIZ_REPAIR_MODEL=qwen3.7-plus`，并通过 `langchain-openai.ChatOpenAI` 显式接入百炼 OpenAI-compatible endpoint。`AETHERVIZ_AGENT_SANDBOX_ROOT` 控制任务沙箱目录，开发环境默认 `.aetherviz_sandbox`。
+`phase=plan` 和 `phase=revise_plan` 默认使用 `AETHERVIZ_PLAN_MODEL=deepseek-v4-flash`。HTML 生成和修复默认使用 `AETHERVIZ_HTML_MODEL=qwen3.7-plus`、`AETHERVIZ_REPAIR_MODEL=qwen3.7-plus`，并通过 `langchain-openai.ChatOpenAI` 直接接入百炼 OpenAI-compatible endpoint。`AETHERVIZ_GSAP_CDN_URL` 配置生成物使用的 GSAP core HTTPS 地址，修改后需重启服务；该地址会同步进入计划、生成/编辑/修复提示词和安全白名单。各阶段 timeout 和 max retries 配置直接作用于模型 HTTP 请求。
 
 如教学方案生成需要单独的百炼业务空间或独立 Key，可额外设置：
 
@@ -71,16 +75,16 @@ PLANNING_OPENAI_BASE_URL="https://{WorkspaceId}.cn-beijing.maas.aliyuncs.com/com
 
 ### LangSmith 可观测性
 
-服务基于 LangChain / Deep Agents，可通过 LangSmith 自动采集 planner、html、repair 等 agent 调用链路。在 `.env` 中启用：
+服务基于 LangChain，可通过 LangSmith 自动采集 planner、html、repair 等模型调用链路。在 `.env` 中启用：
 
 ```bash
 LANGSMITH_TRACING="true"
 LANGSMITH_ENDPOINT="https://api.smith.langchain.com"
 LANGSMITH_API_KEY="你的 LangSmith API Key"
-LANGSMITH_PROJECT="deepagents-v4-html"
+LANGSMITH_PROJECT="aetherviz-direct-html"
 ```
 
-`LANGSMITH_TRACING=false` 或未配置 `LANGSMITH_API_KEY` 时不会上报 trace。组织级 API Key 如需指定工作区，可额外设置 `LANGSMITH_WORKSPACE_ID`。Trace 会在应用启动时写入进程环境变量，Deep Agents 的 `invoke` 调用会自动出现在 LangSmith 项目面板中。
+`LANGSMITH_TRACING=false` 或未配置 `LANGSMITH_API_KEY` 时不会上报 trace。组织级 API Key 如需指定工作区，可额外设置 `LANGSMITH_WORKSPACE_ID`。Trace 会在应用启动时写入进程环境变量，LangChain 的模型调用会自动出现在 LangSmith 项目面板中。
 
 ## 启动服务
 
@@ -136,7 +140,7 @@ pnpm build
 
 ### POST /bingo-ai/generate-aetherviz-spec
 
-根据教学主题生成 AI互动实验风格的完整独立互动教学 HTML。接口采用同端 SSE，统一走 Deep Agents 工作流，计划类型固定为单页 `interactive`，并通过 `interactive_type` 分流为 `simulation`、`diagram` 或 `game`。
+根据教学主题生成 AI互动实验风格的完整独立互动教学 HTML。接口采用同端 SSE 和确定性工作流，计划类型固定为单页 `interactive`，并通过 `interactive_type` 分流为 `simulation`、`diagram` 或 `game`。
 
 计划阶段请求示例：
 
@@ -252,9 +256,8 @@ HTML 文件编辑阶段请求示例：
 - `plan.revised`
 - `plan.approved`
 - `html.generation_started`
-- `html.delta`：HTML 生成进度更新；`data` 可含 `delta`（当前步骤文案）、`html_steps`（步骤清单，含 `content`/`status`）、`active_step_index`
+- `html.delta`：HTML 生成进度与实时大小更新；`data` 可含 `delta`、`html_steps`、`active_step_index`、累计 `bytes` 和 `chars`
 - `html.edit_started`
-- `sandbox.written`
 - `validation.started`
 - `validation.report`
 - `repair.started`
@@ -274,7 +277,7 @@ HTML 文件编辑阶段请求示例：
 - SSE `error` 且 `code=invalid_phase`：请求了不支持的 `phase`。
 - SSE `error` 且 `code=runtime_error`：生成过程中发生未预期异常。
 
-`sandbox.written` 事件在 `data` 中返回 `html_path`、`bytes` 和 `chars`；`validation.report` 和修复事件返回结构化 `report`；`html.done` 返回最终 `html`、`metadata` 和 `artifacts` 摘要。
+`validation.report` 和修复事件返回结构化 `report`；`html.done` 返回最终完整 `html`，其 `metadata.bytes/chars` 为最终实际大小。前端应持有 HTML、渲染 iframe，并负责会话内缓存。
 
 ## 生成流程
 
@@ -283,11 +286,13 @@ HTML 文件编辑阶段请求示例：
 1. `phase=plan` 由单次 LLM 规划（默认 `deepseek-v4-flash`，可通过 `PLANNING_REASONING_EFFORT` 开启推理模式）生成完整 `draft` 教案计划。
 2. `phase=revise_plan` 由规划模型接收 `current_plan + message`，重新生成完整 `revised` 计划，不返回局部 patch。
 3. `phase=approve_plan` 将计划状态置为 `approved`。
-4. `phase=generate` 由 `html_agent` 根据已确认计划生成完整自包含 HTML，并写入 run_id 沙箱。
-5. `validation_report` 聚合 HTML parser、JS checker、安全检查和长度检查，输出结构化报告并写入沙箱。
-6. 检查失败时由 `repair_agent` 使用 `qwen3.7-plus` 自动修复，最多 2 次；工具只产生报告，不直接改写 HTML。
+4. `phase=generate` 由 `html_agent` 根据已确认计划生成完整自包含 HTML，并在 `html.delta` 中持续返回累计实际大小。
+5. `validation_report` 在内存中聚合 HTML parser、JS checker、安全检查、长度检查和 Widget 最小运行契约检查，验证 widget-config、主舞台、核心控件、runtime API、ready 标记和 iframe action listener。
+6. 检查失败时先执行确定性修复；仍失败时由 `repair_agent` 使用 `qwen3.7-plus` 定向修复，最多 1 次。内容与错误集合无变化时立即停止重试。
 7. `phase=edit_html` 基于选中 HTML 全文生成新的 HTML 分支，不覆盖旧 HTML。
-8. 大型 HTML、检查报告和修复草稿写入沙箱；SSE 只返回摘要、最终 HTML 和 `metadata`。
+8. 最终 HTML 仅通过 `html.done` 返回前端；服务端不保留 HTML 文件缓存或产物路径。
+
+生产同步链路不启动服务端浏览器。真实运行时错误由前端 iframe bridge 捕获，用户可发起一次定向 `phase=edit_html` 修复并生成新分支。
 
 主题色从 `topic` 中的 `#RRGGBB` 或中文颜色词提取，未提取到时使用默认色 `#22D3EE`。
 
@@ -301,8 +306,9 @@ HTML 文件编辑阶段请求示例：
 - 计划对象继续以 `page_type: "interactive"` 为主，保留 `interactive_type` 兼容前端；可补充 `widget_type` / `widget_outline`，但不得破坏现有前端字段。
 - 后端按 `simulation`、`diagram`、`game` 拆分独立 prompt、分型 widget-config 和开发期分型校验。
 - 计划对象必须包含 `scene_outline`、`widget_outline`、`design_brief` 和 `widget_actions`，作为后续 HTML 生成的唯一蓝图。
-- 旧版共享模块和兼容层已移除；计划契约在 `workflow/plan_contract.py`，Deep Agents prompt 在 `agents/instructions.py`，HTML 输出边界与确定性检查在 `tools/`。
-- 前端可展示 `attempts`、`repaired`、`degraded`、`validation_warnings`、`context_status` 和 `artifacts`。
+- 旧版共享模块和兼容层已移除；计划契约在 `workflow/plan_contract.py`，直接模型 prompt 在 `agents/instructions.py`，HTML 输出边界与确定性检查在 `tools/`。
+- `html.done.metadata.generation_backend` 当前固定为 `direct`，用于前端和观测系统识别直接模型链路。
+- 前端可展示 `attempts`、`repaired`、`degraded`、`validation_warnings`、`context_status`、`bytes` 和 `chars`。
 - 计划中的 action 使用 `widget_setState`、`widget_highlight`、`widget_annotation`、`widget_reveal`；生成物 iframe 内部应兼容 `SET_WIDGET_STATE`、`HIGHLIGHT_ELEMENT`、`ANNOTATE_ELEMENT`、`REVEAL_ELEMENT` 消息。
 
 ## 验证

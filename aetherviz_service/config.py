@@ -1,3 +1,6 @@
+from urllib.parse import urlsplit
+
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -17,20 +20,32 @@ class Settings(BaseSettings):
     aetherviz_plan_model: str = "deepseek-v4-flash"
     aetherviz_html_model: str = "qwen3.7-plus"
     aetherviz_repair_model: str = "qwen3.7-plus"
+    aetherviz_gsap_cdn_url: str = "https://cdn.jsdelivr.net/npm/gsap@3/dist/gsap.min.js"
     aetherviz_html_enable_thinking: bool = False
     aetherviz_html_reasoning_effort: str | None = None
-    aetherviz_agent_max_repair_attempts: int = 2
-    aetherviz_agent_sandbox_root: str = ".aetherviz_sandbox"
-    aetherviz_agent_context_policy: str = "auto"
+    aetherviz_max_repair_attempts: int = 1
+    aetherviz_plan_timeout_seconds: int = 180
+    aetherviz_plan_max_retries: int = 1
     aetherviz_html_timeout_seconds: int = 600
-    aetherviz_html_recursion_limit: int = 32
+    aetherviz_html_max_retries: int = 1
     aetherviz_repair_timeout_seconds: int = 300
-    aetherviz_repair_recursion_limit: int = 20
+    aetherviz_repair_max_retries: int = 1
     langsmith_tracing: bool = False
     langsmith_endpoint: str | None = "https://api.smith.langchain.com"
     langsmith_api_key: str | None = None
     langsmith_project: str | None = None
     langsmith_workspace_id: str | None = None
+
+    @field_validator("aetherviz_gsap_cdn_url")
+    @classmethod
+    def validate_gsap_cdn_url(cls, value: str) -> str:
+        normalized = value.strip()
+        parsed = urlsplit(normalized)
+        if parsed.scheme.lower() != "https" or not parsed.netloc:
+            raise ValueError("AETHERVIZ_GSAP_CDN_URL 必须是有效的 HTTPS URL")
+        if parsed.username or parsed.password or parsed.query or parsed.fragment:
+            raise ValueError("AETHERVIZ_GSAP_CDN_URL 不允许包含凭据、query 或 fragment")
+        return normalized
 
     model_config = SettingsConfigDict(
         env_file=".env",

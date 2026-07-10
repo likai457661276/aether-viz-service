@@ -1,4 +1,4 @@
-"""LangSmith tracing setup for LangChain / Deep Agents."""
+"""LangSmith tracing setup for LangChain model calls."""
 
 from __future__ import annotations
 

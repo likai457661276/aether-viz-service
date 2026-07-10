@@ -7,11 +7,12 @@ from collections.abc import Iterator
 from typing import Any
 
 from aetherviz_service.aetherviz.agents.html_agent import HtmlGenerationError, HtmlStreamResult, stream_generate_html
-from aetherviz_service.aetherviz.agents.instructions import build_interactive_generation_prompt
-from aetherviz_service.aetherviz.agents.repair_agent import RepairStreamResult, stream_repair_html
+from aetherviz_service.aetherviz.agents.repair_agent import (
+    RepairStreamResult,
+    deterministic_repair_html,
+    stream_repair_html,
+)
 from aetherviz_service.aetherviz.api.sse import agent_error_event, agent_sse_event
-from aetherviz_service.aetherviz.sandbox.artifacts import SandboxArtifacts
-from aetherviz_service.aetherviz.sandbox.manager import SandboxManager
 from aetherviz_service.aetherviz.tools.validation_report import build_validation_report
 from aetherviz_service.config import settings
 
@@ -21,8 +22,6 @@ def run_generate_workflow(
     run_id: str,
     topic: str,
     approved_plan: dict[str, Any],
-    sandbox: SandboxManager,
-    artifacts: SandboxArtifacts,
 ) -> Iterator[str]:
     yield from _run_html_workflow(
         run_id=run_id,
@@ -30,10 +29,7 @@ def run_generate_workflow(
         start_event="html.generation_started",
         topic=topic,
         plan=approved_plan,
-        sandbox=sandbox,
-        artifacts=artifacts,
         html_stream_factory=lambda: stream_generate_html(topic, approved_plan),
-        original_prompt=build_interactive_generation_prompt(topic, approved_plan),
     )
 
 
@@ -44,11 +40,8 @@ def _run_html_workflow(
     start_event: str,
     topic: str,
     plan: dict[str, Any],
-    sandbox: SandboxManager,
-    artifacts: SandboxArtifacts,
     html_factory=None,
     html_stream_factory=None,
-    original_prompt: str = "",
 ) -> Iterator[str]:
     started_at = time.monotonic()
     metadata = {
@@ -58,6 +51,7 @@ def _run_html_workflow(
         "validation_warnings": [],
         "stage": "generate",
         "elapsed_ms": 0,
+        "generation_backend": "direct",
     }
     yield agent_sse_event(
         start_event,
@@ -73,6 +67,13 @@ def _run_html_workflow(
             for item in html_stream_factory():
                 if isinstance(item, HtmlStreamResult):
                     html, degraded = item.html, item.degraded
+                    yield agent_sse_event(
+                        "html.delta",
+                        run_id=run_id,
+                        phase=phase,
+                        data={"delta": "", "bytes": len(html.encode("utf-8")), "chars": len(html)},
+                        metadata=_metadata(metadata, started_at, stage="generate"),
+                    )
                     continue
                 yield agent_sse_event(
                     "html.delta",
@@ -102,22 +103,14 @@ def _run_html_workflow(
         )
         return
     metadata["degraded"] = degraded
-    html_path = sandbox.write_html(artifacts, html)
-    yield agent_sse_event(
-        "sandbox.written",
-        run_id=run_id,
-        phase=phase,
-        data={"html_path": str(html_path), "bytes": len(html.encode("utf-8")), "chars": len(html)},
-        metadata=_metadata(metadata, started_at, stage="sandbox"),
-    )
     yield agent_sse_event(
         "validation.started",
         run_id=run_id,
         phase=phase,
-        data={"html_path": str(html_path)},
+        data={"bytes": len(html.encode("utf-8")), "chars": len(html)},
         metadata=_metadata(metadata, started_at, stage="validation"),
     )
-    report = _validate(html, artifacts)
+    report = _validate(html)
     yield from _emit_validation_events(
         run_id=run_id,
         phase=phase,
@@ -135,11 +128,8 @@ def _run_html_workflow(
             plan=plan,
             html=html,
             report=report,
-            sandbox=sandbox,
-            artifacts=artifacts,
             metadata=metadata,
             started_at=started_at,
-            original_prompt=original_prompt,
         )
         if not report["ok"]:
             yield agent_error_event(
@@ -167,22 +157,13 @@ def _run_html_workflow(
                 "render_mode": plan.get("interactive_type"),
                 "subject": plan.get("subject"),
                 "elapsed_ms": int((time.monotonic() - started_at) * 1000),
-                "artifacts": {
-                    "html_path": str(artifacts.html_path),
-                    "report_path": str(artifacts.report_path),
-                },
+                "generation_backend": "direct",
+                "bytes": len(html.encode("utf-8")),
+                "chars": len(html),
             },
         },
         metadata=_metadata(metadata, started_at, stage="done"),
     )
-    if metadata["degraded"]:
-        yield agent_sse_event(
-            "context.compressed",
-            run_id=run_id,
-            phase=phase,
-            data={"context_status": {"status": "compressed", "summary": "大型 HTML 和检查报告已写入沙箱，仅保留摘要。"}},
-            metadata=_metadata(metadata, started_at, stage="done"),
-        )
 
 
 def _attempt_repair_loop(
@@ -193,56 +174,30 @@ def _attempt_repair_loop(
     plan: dict[str, Any],
     html: str,
     report: dict[str, Any],
-    sandbox: SandboxManager,
-    artifacts: SandboxArtifacts,
     metadata: dict[str, Any],
     started_at: float,
-    original_prompt: str,
 ) -> Iterator[str]:
     repaired = False
-    max_attempts = max(settings.aetherviz_agent_max_repair_attempts, 0)
-    for attempt in range(max_attempts):
+    deterministic_html = deterministic_repair_html(html, report)
+    if deterministic_html != html:
         metadata["attempts"] += 1
         yield agent_sse_event(
             "repair.started",
             run_id=run_id,
             phase=phase,
-            data={
-                "attempt": attempt + 1,
-                "summary": report.get("summary"),
-                "errors": report.get("errors", [])[:5],
-            },
+            data={"attempt": 1, "strategy": "deterministic", "summary": report.get("summary")},
             metadata=_metadata(metadata, started_at, stage="repair"),
         )
-        repair_degraded = False
-        for item in stream_repair_html(
-            topic=topic,
-            plan=plan,
-            raw_html=html,
-            report=report,
-            original_prompt=original_prompt,
-        ):
-            if isinstance(item, RepairStreamResult):
-                html, repair_degraded = item.html, item.degraded
-                continue
-            yield agent_sse_event(
-                "html.delta",
-                run_id=run_id,
-                phase=phase,
-                data=item,
-                metadata=_metadata(metadata, started_at, stage="repair"),
-            )
-        metadata["degraded"] = metadata["degraded"] or repair_degraded
+        html = deterministic_html
         repaired = True
-        html_path = sandbox.write_html(artifacts, html, repaired=True)
         yield agent_sse_event(
-            "sandbox.written",
+            "html.delta",
             run_id=run_id,
             phase=phase,
-            data={"html_path": str(html_path), "bytes": len(html.encode("utf-8")), "chars": len(html), "repaired": True},
+            data={"delta": "", "bytes": len(html.encode("utf-8")), "chars": len(html)},
             metadata=_metadata(metadata, started_at, stage="repair"),
         )
-        report = _validate(html, artifacts, html_path=html_path)
+        report = _validate(html)
         yield from _emit_validation_events(
             run_id=run_id,
             phase=phase,
@@ -256,12 +211,81 @@ def _attempt_repair_loop(
             "repair.done",
             run_id=run_id,
             phase=phase,
-            data={"attempt": attempt + 1, "ok": report["ok"], "summary": report.get("summary")},
+            data={"attempt": 1, "strategy": "deterministic", "ok": report["ok"], "summary": report.get("summary")},
+            metadata=_metadata(metadata, started_at, stage="repair"),
+        )
+        if report["ok"]:
+            return html, report, repaired, metadata["degraded"]
+
+    max_attempts = min(max(settings.aetherviz_max_repair_attempts, 0), 1)
+    for attempt in range(max_attempts):
+        previous_html = html
+        previous_errors = _error_signature(report)
+        metadata["attempts"] += 1
+        attempt_number = attempt + 1 + int(repaired)
+        yield agent_sse_event(
+            "repair.started",
+            run_id=run_id,
+            phase=phase,
+            data={
+                "attempt": attempt_number,
+                "strategy": "model",
+                "summary": report.get("summary"),
+                "errors": report.get("errors", [])[:5],
+            },
+            metadata=_metadata(metadata, started_at, stage="repair"),
+        )
+        repair_degraded = False
+        for item in stream_repair_html(
+            topic=topic,
+            plan=plan,
+            raw_html=html,
+            report=report,
+        ):
+            if isinstance(item, RepairStreamResult):
+                html, repair_degraded = item.html, item.degraded
+                continue
+            yield agent_sse_event(
+                "html.delta",
+                run_id=run_id,
+                phase=phase,
+                data=item,
+                metadata=_metadata(metadata, started_at, stage="repair"),
+            )
+        metadata["degraded"] = metadata["degraded"] or repair_degraded
+        repaired = True
+        report = _validate(html)
+        yield from _emit_validation_events(
+            run_id=run_id,
+            phase=phase,
+            report=report,
+            metadata=metadata,
+            started_at=started_at,
+            stage="repair",
+        )
+        metadata["validation_warnings"] = [warning["message"] for warning in report.get("warnings", [])]
+        yield agent_sse_event(
+            "repair.done",
+            run_id=run_id,
+            phase=phase,
+            data={"attempt": attempt_number, "strategy": "model", "ok": report["ok"], "summary": report.get("summary")},
             metadata=_metadata(metadata, started_at, stage="repair"),
         )
         if report["ok"]:
             break
+        if html == previous_html or _error_signature(report) == previous_errors:
+            break
     return html, report, repaired, metadata["degraded"]
+
+
+def _error_signature(report: dict[str, Any]) -> tuple[str, ...]:
+    return tuple(
+        sorted(
+            str(error.get("type") or error.get("message") or "unknown")
+            for error in report.get("errors", [])
+            if isinstance(error, dict)
+        )
+    )
 
 
 def _emit_validation_events(
@@ -290,12 +314,8 @@ def _emit_validation_events(
     )
 
 
-def _validate(html: str, artifacts: SandboxArtifacts, *, html_path=None) -> dict[str, Any]:
-    return build_validation_report(
-        html,
-        html_path=html_path or artifacts.html_path,
-        report_path=artifacts.report_path,
-    )
+def _validate(html: str) -> dict[str, Any]:
+    return build_validation_report(html)
 
 
 def _report_summary(report: dict[str, Any]) -> dict[str, Any]:

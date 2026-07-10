@@ -1,4 +1,4 @@
-"""AetherViz Deep Agents workflow tests."""
+"""AetherViz workflow tests."""
 
 from __future__ import annotations
 
@@ -92,11 +92,14 @@ def sample_html() -> str:
 <meta charset="utf-8">
 <title>熵增演示</title>
 <style>body{margin:0}#aetherviz-stage{display:grid;place-items:center;min-height:240px}</style>
+<script type="application/json" id="widget-config">{"type":"simulation","concept":"熵增"}</script>
 </head>
 <body>
 <main id="aetherviz-stage"><svg viewBox="0 0 100 100"><circle id="dot" cx="20" cy="50" r="8"></circle></svg></main>
 <p id="animation-caption">当前步骤：观察。</p>
 <button id="play-animation">播放</button>
+<button id="pause-animation">暂停</button>
+<button id="reset-animation">重置</button>
 <script>
 const state = { progress: 0 };
 const dot = document.getElementById('dot');
@@ -106,8 +109,20 @@ function updateVisualization(){
   dot.setAttribute('cx', String(20 + state.progress / 2));
   caption.textContent = state.progress > 50 ? '当前步骤：归纳。' : '当前步骤：观察。';
 }
+function play(){ updateVisualization(); }
+function pause(){ state.paused = true; }
+function reset(){ state.progress = 0; updateVisualization(); }
 document.getElementById('play-animation').addEventListener('click', updateVisualization);
-window.AetherVizRuntime = { update: updateVisualization, getState: () => state };
+document.getElementById('pause-animation').addEventListener('click', pause);
+document.getElementById('reset-animation').addEventListener('click', reset);
+window.addEventListener('message', function(event) {
+  const type = event.data && event.data.type;
+  if (type === 'SET_WIDGET_STATE') Object.assign(state, event.data.state || {});
+  if (type === 'HIGHLIGHT_ELEMENT') dot.dataset.highlighted = 'true';
+  if (type === 'ANNOTATE_ELEMENT') caption.textContent = event.data.content || '';
+  if (type === 'REVEAL_ELEMENT') dot.hidden = false;
+});
+window.AetherVizRuntime = { play, pause, reset, update: updateVisualization, getState: () => state };
 window.__AETHERVIZ_RUNTIME_READY__ = true;
 </script>
 </body>
@@ -195,7 +210,7 @@ def test_generate_phase_requires_approved_plan() -> None:
     assert response.json()["detail"] == "approved_plan 不能为空"
 
 
-def test_generate_phase_runs_sandbox_validation_and_done() -> None:
+def test_generate_phase_streams_html_size_validates_in_memory_and_returns_html() -> None:
     response = client.post(
         AETHERVIZ_ENDPOINT,
         json={"topic": "熵增演示", "phase": "generate", "approved_plan": sample_plan()},
@@ -205,16 +220,23 @@ def test_generate_phase_runs_sandbox_validation_and_done() -> None:
     names = [event for event, _ in events]
     assert "html.generation_started" in names
     assert "html.delta" in names
-    assert "sandbox.written" in names
+    assert "sandbox.written" not in names
     assert "validation.check" in names
     assert "validation.report" in names
     assert "html.done" in names
     done = next(data for event, data in events if event == "html.done")
     assert done["data"]["html"].startswith("<!DOCTYPE html>")
     assert done["data"]["metadata"]["attempts"] >= 1
+    assert done["data"]["metadata"]["generation_backend"] == "direct"
+    assert done["data"]["metadata"]["bytes"] == len(done["data"]["html"].encode("utf-8"))
+    assert done["data"]["metadata"]["chars"] == len(done["data"]["html"])
     assert done["metadata"]["stage"] == "done"
     assert "plan" not in done["data"]["metadata"]
-    assert done["data"]["metadata"]["artifacts"]["report_path"].endswith("validation-report.json")
+    assert "artifacts" not in done["data"]["metadata"]
+    size_events = [data["data"] for event, data in events if event == "html.delta" and data["data"].get("bytes")]
+    assert size_events
+    assert size_events[-1]["bytes"] == len(done["data"]["html"].encode("utf-8"))
+    assert size_events[-1]["chars"] == len(done["data"]["html"])
 
 
 def test_generate_phase_returns_error_when_html_agent_fails_completely(monkeypatch) -> None:
@@ -281,6 +303,35 @@ def test_validation_report_rejects_dangerous_external_resource() -> None:
     assert any(error["type"] == "external_resource" for error in report["errors"])
 
 
+def test_security_checker_allows_only_configured_gsap_cdn(monkeypatch) -> None:
+    from aetherviz_service.aetherviz.tools.security_checker import check_security
+
+    custom_url = "https://assets.example.edu/vendor/gsap.min.js"
+    monkeypatch.setattr(settings, "aetherviz_gsap_cdn_url", custom_url)
+
+    allowed = check_security(f'<!DOCTYPE html><html><head><script src="{custom_url}"></script></head></html>')
+    old_default = check_security(
+        '<!DOCTYPE html><html><head><script src="https://cdn.jsdelivr.net/npm/gsap@3/dist/gsap.min.js"></script></head></html>'
+    )
+
+    assert allowed["ok"] is True
+    assert old_default["ok"] is False
+    assert any(error["type"] == "external_resource" for error in old_default["errors"])
+
+
+def test_plan_normalization_uses_configured_gsap_cdn(monkeypatch) -> None:
+    from aetherviz_service.aetherviz.workflow.plan_contract import normalize_plan
+
+    custom_url = "https://assets.example.edu/vendor/gsap.min.js"
+    monkeypatch.setattr(settings, "aetherviz_gsap_cdn_url", custom_url)
+    raw_plan = sample_plan()
+    raw_plan["runtime"]["external_libraries"] = ["https://cdn.jsdelivr.net/npm/gsap@3/dist/gsap.min.js"]
+
+    normalized = normalize_plan(raw_plan, "熵增演示")
+
+    assert normalized["runtime"]["external_libraries"] == [custom_url]
+
+
 def test_validation_report_rejects_inline_script_syntax_error() -> None:
     from aetherviz_service.aetherviz.tools.validation_report import build_validation_report
 
@@ -290,6 +341,29 @@ def test_validation_report_rejects_inline_script_syntax_error() -> None:
 
     assert report["ok"] is False
     assert any(error["type"] == "js_syntax" for error in report["errors"])
+
+
+def test_validation_report_rejects_missing_widget_runtime_contract() -> None:
+    from aetherviz_service.aetherviz.tools.validation_report import build_validation_report
+
+    bad_html = "<!DOCTYPE html><html><body><script>const ok = true;</script></body></html>"
+
+    report = build_validation_report(bad_html)
+
+    assert report["ok"] is False
+    error_types = {error["type"] for error in report["errors"]}
+    assert "missing_widget_config" in error_types
+    assert "missing_stage" in error_types
+    assert "missing_runtime" in error_types
+
+
+def test_validation_report_accepts_minimum_widget_runtime_contract() -> None:
+    from aetherviz_service.aetherviz.tools.validation_report import build_validation_report
+
+    report = build_validation_report(sample_html())
+
+    assert report["ok"] is True
+    assert report["checks"]["widget_contract_checker"]["ok"] is True
 
 
 def test_generate_phase_triggers_repair_when_validation_fails(monkeypatch) -> None:

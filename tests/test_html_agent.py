@@ -7,34 +7,15 @@ from unittest.mock import MagicMock
 from tests.test_aetherviz import sample_html
 
 from aetherviz_service.aetherviz.agents import html_agent
+from aetherviz_service.aetherviz.agents.repair_agent import deterministic_repair_html
 
 SAMPLE_HTML = sample_html()
 from aetherviz_service.aetherviz.agents.html_agent import (
     HtmlGenerationError,
     HtmlStreamResult,
-    _extract_html_from_agent_state,
-    _extract_ready_html_from_files,
-    _is_ready_html_document,
     build_html_progress_payload,
     stream_generate_html,
 )
-
-
-def test_extract_html_from_agent_state_prefers_widget_file() -> None:
-    state = {
-        "files": {
-            "/notes.txt": "not html",
-            "/widget.html": "<!DOCTYPE html><html><body>ok</body></html>",
-        }
-    }
-
-    assert _extract_html_from_agent_state(state).startswith("<!DOCTYPE html>")
-
-
-def test_extract_ready_html_from_files_requires_complete_document() -> None:
-    short_html = "<!DOCTYPE html><html><body>ok</body></html>"
-    assert _extract_ready_html_from_files({"/widget.html": short_html}) == ""
-    assert _is_ready_html_document(SAMPLE_HTML)
 
 
 def test_build_html_progress_payload_marks_active_step() -> None:
@@ -50,6 +31,12 @@ def test_build_html_progress_payload_marks_active_step() -> None:
     assert payload["delta"].startswith("正在")
 
 
+def test_deterministic_repair_inserts_body_close_before_html_close() -> None:
+    repaired = deterministic_repair_html("<!DOCTYPE html><html><script>const ok = true;</script></html>")
+
+    assert repaired.endswith("</body>\n</html>")
+
+
 def test_stream_generate_html_emits_progress_and_result_without_llm(monkeypatch) -> None:
     monkeypatch.setattr(html_agent, "has_primary_llm_config", lambda: False)
 
@@ -61,16 +48,13 @@ def test_stream_generate_html_emits_progress_and_result_without_llm(monkeypatch)
     assert result.html.startswith("<!DOCTYPE html>")
 
 
-def test_stream_generate_html_exits_early_after_widget_file_write(monkeypatch) -> None:
-    class FakeAgent:
-        def stream(self, input, stream_mode=None, config=None):
-            yield (
-                "updates",
-                {"tools": {"files": {"/widget.html": SAMPLE_HTML}}},
-            )
+def test_stream_generate_html_collects_direct_model_output(monkeypatch) -> None:
+    class FakeModel:
+        def stream(self, messages):
+            yield MagicMock(content=SAMPLE_HTML, additional_kwargs={})
 
     monkeypatch.setattr(html_agent, "has_primary_llm_config", lambda: True)
-    monkeypatch.setattr(html_agent, "create_agent_app", lambda *args, **kwargs: FakeAgent())
+    monkeypatch.setattr(html_agent, "create_chat_model", lambda kind: FakeModel())
 
     items = list(stream_generate_html("测试主题", {"title": "测试", "goal": "目标", "interactive_type": "diagram"}))
     progress = [item for item in items if isinstance(item, dict)]
@@ -78,27 +62,40 @@ def test_stream_generate_html_exits_early_after_widget_file_write(monkeypatch) -
 
     assert progress[0]["html_steps"][0]["status"] == "in_progress"
     assert progress[-1]["html_steps"][-1]["status"] == "completed"
+    assert progress[-1]["bytes"] == len(SAMPLE_HTML.encode("utf-8"))
+    assert progress[-1]["chars"] == len(SAMPLE_HTML)
     assert result.degraded is False
     assert "aetherviz-stage" in result.html
     assert "play-animation" in result.html
 
 
-def test_stream_generate_html_returns_early_when_values_contain_ready_html(monkeypatch) -> None:
-    class FailingAgent:
-        def stream(self, input, stream_mode=None, config=None):
-            yield (
-                "values",
-                {
-                    "files": {
-                        "/widget.html": SAMPLE_HTML,
-                    },
-                    "messages": [MagicMock(content="")],
-                },
-            )
+def test_stream_generate_html_reports_accumulated_size_while_streaming(monkeypatch) -> None:
+    midpoint = len(SAMPLE_HTML) // 2
+
+    class FakeModel:
+        def stream(self, messages):
+            yield MagicMock(content=SAMPLE_HTML[:midpoint], additional_kwargs={})
+            yield MagicMock(content=SAMPLE_HTML[midpoint:], additional_kwargs={})
+
+    monkeypatch.setattr(html_agent, "has_primary_llm_config", lambda: True)
+    monkeypatch.setattr(html_agent, "create_chat_model", lambda kind: FakeModel())
+
+    items = list(stream_generate_html("测试主题", {"title": "测试", "goal": "目标", "interactive_type": "diagram"}))
+    size_events = [item for item in items if isinstance(item, dict) and item.get("bytes")]
+
+    assert len(size_events) >= 2
+    assert size_events[0]["bytes"] < size_events[-1]["bytes"]
+    assert size_events[-1]["bytes"] == len(SAMPLE_HTML.encode("utf-8"))
+
+
+def test_stream_generate_html_uses_valid_partial_output_after_stream_failure(monkeypatch) -> None:
+    class FailingModel:
+        def stream(self, messages):
+            yield MagicMock(content=SAMPLE_HTML, additional_kwargs={})
             raise RuntimeError("boom")
 
     monkeypatch.setattr(html_agent, "has_primary_llm_config", lambda: True)
-    monkeypatch.setattr(html_agent, "create_agent_app", lambda *args, **kwargs: FailingAgent())
+    monkeypatch.setattr(html_agent, "create_chat_model", lambda kind: FailingModel())
 
     result = next(
         item
@@ -106,17 +103,17 @@ def test_stream_generate_html_returns_early_when_values_contain_ready_html(monke
         if isinstance(item, HtmlStreamResult)
     )
 
-    assert result.degraded is False
+    assert result.degraded is True
     assert "aetherviz-stage" in result.html
 
 
 def test_stream_generate_html_raises_on_complete_failure(monkeypatch) -> None:
-    class EmptyFailingAgent:
-        def stream(self, input, stream_mode=None, config=None):
+    class EmptyFailingModel:
+        def stream(self, messages):
             raise RuntimeError("boom")
 
     monkeypatch.setattr(html_agent, "has_primary_llm_config", lambda: True)
-    monkeypatch.setattr(html_agent, "create_agent_app", lambda *args, **kwargs: EmptyFailingAgent())
+    monkeypatch.setattr(html_agent, "create_chat_model", lambda kind: EmptyFailingModel())
 
     try:
         list(stream_generate_html("测试主题", {"title": "测试", "goal": "目标", "interactive_type": "diagram"}))

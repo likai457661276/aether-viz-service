@@ -1,1 +1,1 @@
-"""Deep Agents integration for AetherViz."""
+"""Model-backed generation components for AetherViz."""

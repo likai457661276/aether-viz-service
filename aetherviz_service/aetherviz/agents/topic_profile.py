@@ -1,4 +1,4 @@
-"""Topic profiling helpers for AetherViz Deep Agents."""
+"""Topic profiling helpers for AetherViz."""
 
 from __future__ import annotations
 
