@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import json
 import logging
+import queue
+import threading
+import time
 from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Any
@@ -22,6 +25,7 @@ from aetherviz_service.aetherviz.workflow.plan_contract import (
     normalize_plan,
     parse_planning_result,
 )
+from aetherviz_service.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -218,10 +222,11 @@ def _stream_planning(
         active_step_index = 0
         chunk_count = 0
         last_reasoning_tail = ""
+        deadline = time.monotonic() + max(settings.aetherviz_plan_timeout_seconds, 1)
 
         yield _build_step_progress_payload(active_step_index)
 
-        for chunk in model.stream(messages):
+        for chunk in _iter_model_stream_chunks(model, messages, deadline=deadline):
             chunk_count += 1
             text = extract_llm_text(chunk)
             reasoning = extract_llm_reasoning(chunk)
@@ -263,6 +268,44 @@ def _stream_planning(
         plan["plan_id"] = plan.get("plan_id") or _plan_id(topic, status)
         plan["context_status"] = {"status": "compressed" if status == "revised" else "normal"}
         yield PlanningStreamResult(plan=plan, degraded=True)
+
+
+def _iter_model_stream_chunks(model: Any, messages: list[Any], *, deadline: float) -> Iterator[Any]:
+    """Yield stream chunks until completion, raising TimeoutError if wall-clock deadline elapses.
+
+    ChatOpenAI.request timeout alone may not interrupt a hung streaming response before the
+    first token; this helper polls a background producer so planning can degrade deterministically.
+    """
+    chunk_queue: queue.Queue[Any] = queue.Queue()
+    sentinel = object()
+    errors: list[BaseException] = []
+
+    def _produce() -> None:
+        try:
+            for chunk in model.stream(messages):
+                chunk_queue.put(chunk)
+        except BaseException as exc:  # noqa: BLE001 - surface producer failures to consumer
+            errors.append(exc)
+        finally:
+            chunk_queue.put(sentinel)
+
+    worker = threading.Thread(target=_produce, name="aetherviz-planning-stream", daemon=True)
+    worker.start()
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError(
+                f"planning model timed out after {settings.aetherviz_plan_timeout_seconds}s"
+            )
+        try:
+            item = chunk_queue.get(timeout=min(remaining, 0.5))
+        except queue.Empty:
+            continue
+        if item is sentinel:
+            if errors:
+                raise errors[0]
+            return
+        yield item
 
 
 def _steps_with_active_index(active_step_index: int, *, completed: bool = False) -> list[dict[str, str]]:

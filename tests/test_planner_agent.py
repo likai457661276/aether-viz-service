@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from unittest.mock import MagicMock
 
 from aetherviz_service.aetherviz.agents import planner_agent
@@ -13,6 +14,7 @@ from aetherviz_service.aetherviz.agents.planner_agent import (
     normalize_planning_steps,
     stream_create_plan,
 )
+from aetherviz_service.config import settings
 
 SAMPLE_PLAN_JSON = (
     '{"page_type":"interactive","interactive_type":"simulation","title":"测试","goal":"目标",'
@@ -114,3 +116,42 @@ def test_stream_create_plan_streams_reasoning_delta(monkeypatch) -> None:
     )
 
     assert "互动仿真" in reasoning_delta["delta"]
+
+
+def test_stream_create_plan_times_out_hung_stream_and_degrades(monkeypatch) -> None:
+    class HungModel:
+        def stream(self, messages):
+            time.sleep(2)
+            if False:  # pragma: no cover - never yields
+                yield MagicMock(content=SAMPLE_PLAN_JSON, additional_kwargs={})
+
+    monkeypatch.setattr(planner_agent, "has_planning_llm_config", lambda: True)
+    monkeypatch.setattr(planner_agent, "create_chat_model", lambda kind: HungModel())
+    monkeypatch.setattr(settings, "aetherviz_plan_timeout_seconds", 1)
+
+    items = list(stream_create_plan("勾股定理"))
+    result = next(item for item in items if isinstance(item, PlanningStreamResult))
+
+    assert result.degraded is True
+    assert result.plan["status"] == "draft"
+    assert result.plan["page_type"] == "interactive"
+    assert result.plan["title"]
+
+
+def test_stream_create_plan_times_out_between_chunks_and_degrades(monkeypatch) -> None:
+    class SlowModel:
+        def stream(self, messages):
+            yield MagicMock(content='{"page_type":', additional_kwargs={})
+            time.sleep(2)
+            yield MagicMock(content=SAMPLE_PLAN_JSON, additional_kwargs={})
+
+    monkeypatch.setattr(planner_agent, "has_planning_llm_config", lambda: True)
+    monkeypatch.setattr(planner_agent, "create_chat_model", lambda kind: SlowModel())
+    monkeypatch.setattr(settings, "aetherviz_plan_timeout_seconds", 1)
+
+    items = list(stream_create_plan("勾股定理"))
+    result = next(item for item in items if isinstance(item, PlanningStreamResult))
+
+    assert result.degraded is True
+    assert result.plan["status"] == "draft"
+    assert result.plan["page_type"] == "interactive"

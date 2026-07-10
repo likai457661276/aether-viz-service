@@ -52,12 +52,16 @@ def _run_html_workflow(
         "stage": "generate",
         "elapsed_ms": 0,
         "generation_backend": "direct",
+        "reasoning_enabled": phase == "generate" and settings.aetherviz_html_enable_thinking,
     }
     yield agent_sse_event(
         start_event,
         run_id=run_id,
         phase=phase,
-        data={"message": "html_agent 开始生成 HTML"},
+        data={
+            "message": "html_agent 开始生成 HTML",
+            "reasoning_enabled": metadata["reasoning_enabled"],
+        },
         metadata=_metadata(metadata, started_at, stage="generate"),
     )
     html = None
@@ -67,11 +71,18 @@ def _run_html_workflow(
             for item in html_stream_factory():
                 if isinstance(item, HtmlStreamResult):
                     html, degraded = item.html, item.degraded
+                    metadata["reasoning_elapsed_ms"] = item.reasoning_elapsed_ms
                     yield agent_sse_event(
                         "html.delta",
                         run_id=run_id,
                         phase=phase,
-                        data={"delta": "", "bytes": len(html.encode("utf-8")), "chars": len(html)},
+                        data={
+                            "delta": "",
+                            "bytes": len(html.encode("utf-8")),
+                            "chars": len(html),
+                            "reasoning_active": False,
+                            "reasoning_elapsed_ms": item.reasoning_elapsed_ms,
+                        },
                         metadata=_metadata(metadata, started_at, stage="generate"),
                     )
                     continue
@@ -157,6 +168,7 @@ def _run_html_workflow(
                 "render_mode": plan.get("interactive_type"),
                 "subject": plan.get("subject"),
                 "elapsed_ms": int((time.monotonic() - started_at) * 1000),
+                "reasoning_elapsed_ms": metadata.get("reasoning_elapsed_ms", 0),
                 "generation_backend": "direct",
                 "bytes": len(html.encode("utf-8")),
                 "chars": len(html),

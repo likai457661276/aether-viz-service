@@ -18,6 +18,7 @@ from aetherviz_service.aetherviz.agents.instructions import (
 )
 from aetherviz_service.aetherviz.agents.model_factory import (
     create_chat_model,
+    extract_llm_reasoning,
     extract_llm_text,
     has_primary_llm_config,
 )
@@ -31,6 +32,7 @@ DEFAULT_HTML_PROGRESS_STEPS: list[dict[str, str]] = [
     {"content": "提取并整理 HTML 输出", "status": "pending"},
 ]
 HTML_SIZE_EVENT_INTERVAL_BYTES = 512
+HTML_REASONING_EVENT_INTERVAL_MS = 250
 
 
 class HtmlGenerationError(Exception):
@@ -47,6 +49,7 @@ class HtmlGenerationError(Exception):
 class HtmlStreamResult:
     html: str
     degraded: bool
+    reasoning_elapsed_ms: int = 0
 
 
 def stream_generate_html(topic: str, plan: dict[str, Any]) -> Iterator[dict[str, Any] | HtmlStreamResult]:
@@ -61,11 +64,15 @@ def stream_generate_html(topic: str, plan: dict[str, Any]) -> Iterator[dict[str,
     last_size_event_bytes = 0
     timed_out = False
     degraded = False
+    reasoning_started_at = time.monotonic()
+    reasoning_elapsed_ms = 0
+    last_reasoning_event_ms = -HTML_REASONING_EVENT_INTERVAL_MS
     deadline = time.monotonic() + max(settings.aetherviz_html_timeout_seconds, 1)
     try:
         yield from _iter_initial_html_progress()
         model = create_chat_model("html")
         messages = [SystemMessage(content=system_prompt), HumanMessage(content=prompt)]
+        reasoning_started_at = time.monotonic()
         extraction_progress_emitted = False
         for chunk in model.stream(messages):
             if time.monotonic() > deadline:
@@ -76,8 +83,21 @@ def stream_generate_html(topic: str, plan: dict[str, Any]) -> Iterator[dict[str,
                     settings.aetherviz_html_timeout_seconds,
                 )
                 break
+            reasoning = extract_llm_reasoning(chunk)
+            if settings.aetherviz_html_enable_thinking and reasoning:
+                reasoning_elapsed_ms = int((time.monotonic() - reasoning_started_at) * 1000)
+                if reasoning_elapsed_ms - last_reasoning_event_ms >= HTML_REASONING_EVENT_INTERVAL_MS:
+                    yield build_html_reasoning_payload(reasoning_elapsed_ms, active=True)
+                    last_reasoning_event_ms = reasoning_elapsed_ms
             text = extract_llm_text(chunk)
             if text:
+                if settings.aetherviz_html_enable_thinking:
+                    reasoning_elapsed_ms = max(
+                        reasoning_elapsed_ms,
+                        int((time.monotonic() - reasoning_started_at) * 1000),
+                    )
+                    if not extraction_progress_emitted:
+                        yield build_html_reasoning_payload(reasoning_elapsed_ms, active=False)
                 raw_html += text
                 current_bytes = len(raw_html.encode("utf-8"))
                 if not extraction_progress_emitted:
@@ -101,7 +121,11 @@ def stream_generate_html(topic: str, plan: dict[str, Any]) -> Iterator[dict[str,
             )
         parsed_html = sanitize_aetherviz_html(parse_interactive_html(raw_html))
         yield _completed_html_progress_payload(parsed_html)
-        yield HtmlStreamResult(html=parsed_html, degraded=timed_out or degraded)
+        yield HtmlStreamResult(
+            html=parsed_html,
+            degraded=timed_out or degraded,
+            reasoning_elapsed_ms=reasoning_elapsed_ms,
+        )
     except HtmlGenerationError:
         raise
     except Exception as exc:
@@ -110,7 +134,11 @@ def stream_generate_html(topic: str, plan: dict[str, Any]) -> Iterator[dict[str,
             try:
                 parsed_html = sanitize_aetherviz_html(parse_interactive_html(raw_html))
                 yield _completed_html_progress_payload(parsed_html)
-                yield HtmlStreamResult(html=parsed_html, degraded=True)
+                yield HtmlStreamResult(
+                    html=parsed_html,
+                    degraded=True,
+                    reasoning_elapsed_ms=reasoning_elapsed_ms,
+                )
                 return
             except Exception:
                 logger.warning("html model partial output failed parsing")
@@ -155,6 +183,16 @@ def build_html_size_payload(html_content: str) -> dict[str, Any]:
         "delta": "",
         "bytes": len(html_content.encode("utf-8")),
         "chars": len(html_content),
+    }
+
+
+def build_html_reasoning_payload(elapsed_ms: int, *, active: bool) -> dict[str, Any]:
+    """Expose reasoning duration without forwarding private chain-of-thought text."""
+
+    return {
+        "delta": "",
+        "reasoning_active": active,
+        "reasoning_elapsed_ms": max(elapsed_ms, 0),
     }
 
 

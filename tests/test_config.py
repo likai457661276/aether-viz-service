@@ -8,6 +8,16 @@ from pydantic import ValidationError
 from aetherviz_service.config import Settings
 
 
+def test_html_generation_thinking_disabled_by_default() -> None:
+    """HTML 直出阶段默认应关闭推理模式：推理内容不展示给用户，且推理与正文共享
+    completion token 预算，开启后实测会显著增加耗时并提高输出被截断的概率。
+    """
+    settings = Settings(_env_file=None)
+
+    assert settings.aetherviz_html_enable_thinking is False
+    assert settings.aetherviz_html_reasoning_effort is None
+
+
 def test_gsap_cdn_url_accepts_https() -> None:
     settings = Settings(
         _env_file=None,

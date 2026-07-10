@@ -228,6 +228,7 @@ def test_generate_phase_streams_html_size_validates_in_memory_and_returns_html()
     assert done["data"]["html"].startswith("<!DOCTYPE html>")
     assert done["data"]["metadata"]["attempts"] >= 1
     assert done["data"]["metadata"]["generation_backend"] == "direct"
+    assert done["data"]["metadata"]["reasoning_elapsed_ms"] >= 0
     assert done["data"]["metadata"]["bytes"] == len(done["data"]["html"].encode("utf-8"))
     assert done["data"]["metadata"]["chars"] == len(done["data"]["html"])
     assert done["metadata"]["stage"] == "done"

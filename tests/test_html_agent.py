@@ -69,6 +69,26 @@ def test_stream_generate_html_collects_direct_model_output(monkeypatch) -> None:
     assert "play-animation" in result.html
 
 
+def test_stream_generate_html_reports_reasoning_duration_without_content(monkeypatch) -> None:
+    class FakeModel:
+        def stream(self, messages):
+            yield MagicMock(content="", additional_kwargs={"reasoning_content": "private reasoning"})
+            yield MagicMock(content=SAMPLE_HTML, additional_kwargs={})
+
+    monkeypatch.setattr(html_agent, "has_primary_llm_config", lambda: True)
+    monkeypatch.setattr(html_agent, "create_chat_model", lambda kind: FakeModel())
+    monkeypatch.setattr(html_agent.settings, "aetherviz_html_enable_thinking", True)
+
+    items = list(stream_generate_html("测试主题", {"title": "测试", "goal": "目标", "interactive_type": "diagram"}))
+    reasoning_events = [item for item in items if isinstance(item, dict) and "reasoning_elapsed_ms" in item]
+    result = next(item for item in items if isinstance(item, HtmlStreamResult))
+
+    assert reasoning_events
+    assert reasoning_events[-1]["reasoning_active"] is False
+    assert all("private reasoning" not in str(item) for item in items)
+    assert result.reasoning_elapsed_ms >= 0
+
+
 def test_stream_generate_html_reports_accumulated_size_while_streaming(monkeypatch) -> None:
     midpoint = len(SAMPLE_HTML) // 2
 

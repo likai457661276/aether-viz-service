@@ -46,11 +46,10 @@ uv sync --dev
 ```bash
 OPENAI_API_KEY="你的 OpenAI-compatible API Key"
 OPENAI_BASE_URL="https://dashscope.aliyuncs.com/compatible-mode/v1"
-OPENAI_MODEL="qwen3.7-plus"
 PLANNING_OPENAI_MODEL="deepseek-v4-flash"
 PLANNING_REASONING_EFFORT="low"
 AETHERVIZ_PLAN_MODEL="deepseek-v4-flash"
-AETHERVIZ_HTML_MODEL="qwen3.7-plus"
+AETHERVIZ_HTML_MODEL="deepseek-v4-flash"
 AETHERVIZ_REPAIR_MODEL="qwen3.7-plus"
 AETHERVIZ_GSAP_CDN_URL="https://cdn.jsdelivr.net/npm/gsap@3/dist/gsap.min.js"
 AETHERVIZ_MAX_REPAIR_ATTEMPTS="1"
@@ -58,11 +57,13 @@ AETHERVIZ_PLAN_TIMEOUT_SECONDS="180"
 AETHERVIZ_PLAN_MAX_RETRIES="1"
 AETHERVIZ_HTML_TIMEOUT_SECONDS="600"
 AETHERVIZ_HTML_MAX_RETRIES="1"
+AETHERVIZ_HTML_ENABLE_THINKING="false"
+# AETHERVIZ_HTML_REASONING_EFFORT="medium"
 AETHERVIZ_REPAIR_TIMEOUT_SECONDS="300"
 AETHERVIZ_REPAIR_MAX_RETRIES="1"
 ```
 
-`phase=plan` 和 `phase=revise_plan` 默认使用 `AETHERVIZ_PLAN_MODEL=deepseek-v4-flash`。HTML 生成和修复默认使用 `AETHERVIZ_HTML_MODEL=qwen3.7-plus`、`AETHERVIZ_REPAIR_MODEL=qwen3.7-plus`，并通过 `langchain-openai.ChatOpenAI` 直接接入百炼 OpenAI-compatible endpoint。`AETHERVIZ_GSAP_CDN_URL` 配置生成物使用的 GSAP core HTTPS 地址，修改后需重启服务；该地址会同步进入计划、生成/编辑/修复提示词和安全白名单。各阶段 timeout 和 max retries 配置直接作用于模型 HTTP 请求。
+`phase=plan` 和 `phase=revise_plan` 默认使用 `AETHERVIZ_PLAN_MODEL=deepseek-v4-flash`。初次 HTML 生成默认使用 `AETHERVIZ_HTML_MODEL=deepseek-v4-flash` 且默认关闭推理模式（`AETHERVIZ_HTML_ENABLE_THINKING=false`），模型修复默认使用 `AETHERVIZ_REPAIR_MODEL=qwen3.7-plus`；三者均通过 `langchain-openai.ChatOpenAI` 直接接入百炼 OpenAI-compatible endpoint。HTML 直出阶段的推理内容不会展示给用户，且推理与正文共享 completion token 预算，实测开启后会显著增加耗时并提高输出被截断的概率，因此默认关闭；如需实验性开启，可设置 `AETHERVIZ_HTML_ENABLE_THINKING=true` 并配置 `AETHERVIZ_HTML_REASONING_EFFORT`，此时 HTML 推理耗时通过 SSE 元数据返回，前端只展示时长，不展示模型推理原文。`AETHERVIZ_GSAP_CDN_URL` 配置生成物使用的 GSAP core HTTPS 地址，修改后需重启服务；该地址会同步进入计划、生成/编辑/修复提示词和安全白名单。各阶段 timeout 和 max retries 配置直接作用于模型 HTTP 请求。
 
 如教学方案生成需要单独的百炼业务空间或独立 Key，可额外设置：
 
