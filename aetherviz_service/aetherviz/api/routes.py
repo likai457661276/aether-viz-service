@@ -11,7 +11,6 @@ from pydantic import ValidationError
 from aetherviz_service.aetherviz.agents.runtime import agent_runtime_stream
 from aetherviz_service.aetherviz.api.schemas import GenerateAetherVizSpecRequest, dump_plan
 
-
 router = APIRouter(tags=["aetherviz"])
 
 

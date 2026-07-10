@@ -50,6 +50,8 @@ class HtmlStreamResult:
     html: str
     degraded: bool
     reasoning_elapsed_ms: int = 0
+    first_chunk_elapsed_ms: int = 0
+    generation_elapsed_ms: int = 0
 
 
 def stream_generate_html(topic: str, plan: dict[str, Any]) -> Iterator[dict[str, Any] | HtmlStreamResult]:
@@ -66,6 +68,8 @@ def stream_generate_html(topic: str, plan: dict[str, Any]) -> Iterator[dict[str,
     degraded = False
     reasoning_started_at = time.monotonic()
     reasoning_elapsed_ms = 0
+    first_chunk_elapsed_ms = 0
+    generation_elapsed_ms = 0
     last_reasoning_event_ms = -HTML_REASONING_EVENT_INTERVAL_MS
     deadline = time.monotonic() + max(settings.aetherviz_html_timeout_seconds, 1)
     try:
@@ -73,8 +77,11 @@ def stream_generate_html(topic: str, plan: dict[str, Any]) -> Iterator[dict[str,
         model = create_chat_model("html")
         messages = [SystemMessage(content=system_prompt), HumanMessage(content=prompt)]
         reasoning_started_at = time.monotonic()
+        stream_started_at = reasoning_started_at
         extraction_progress_emitted = False
         for chunk in model.stream(messages):
+            if first_chunk_elapsed_ms == 0:
+                first_chunk_elapsed_ms = max(int((time.monotonic() - stream_started_at) * 1000), 1)
             if time.monotonic() > deadline:
                 timed_out = True
                 degraded = True
@@ -102,13 +109,15 @@ def stream_generate_html(topic: str, plan: dict[str, Any]) -> Iterator[dict[str,
                 current_bytes = len(raw_html.encode("utf-8"))
                 if not extraction_progress_emitted:
                     extraction_progress_emitted = True
-                    yield build_html_progress_payload(
+                    first_content_payload = build_html_progress_payload(
                         [
                             {**DEFAULT_HTML_PROGRESS_STEPS[0], "status": "completed"},
                             {**DEFAULT_HTML_PROGRESS_STEPS[1], "status": "in_progress"},
                         ],
                         html_content=raw_html,
                     )
+                    first_content_payload["first_chunk_elapsed_ms"] = first_chunk_elapsed_ms
+                    yield first_content_payload
                     last_size_event_bytes = current_bytes
                 elif current_bytes - last_size_event_bytes >= HTML_SIZE_EVENT_INTERVAL_BYTES:
                     yield build_html_size_payload(raw_html)
@@ -119,16 +128,23 @@ def stream_generate_html(topic: str, plan: dict[str, Any]) -> Iterator[dict[str,
                 "HTML 生成失败，模型未产出可用页面",
                 detail="html model did not produce HTML output",
             )
+        generation_elapsed_ms = int((time.monotonic() - stream_started_at) * 1000)
         parsed_html = sanitize_aetherviz_html(parse_interactive_html(raw_html))
         yield _completed_html_progress_payload(parsed_html)
         yield HtmlStreamResult(
             html=parsed_html,
             degraded=timed_out or degraded,
             reasoning_elapsed_ms=reasoning_elapsed_ms,
+            first_chunk_elapsed_ms=first_chunk_elapsed_ms,
+            generation_elapsed_ms=generation_elapsed_ms,
         )
     except HtmlGenerationError:
         raise
-    except Exception as exc:
+    except (Exception, GeneratorExit) as exc:
+        # GeneratorExit 通常来自内层 model.stream() 迭代器被外部（客户端断开、
+        # 底层连接中断）关闭并作为普通异常向上传播；此处仍处于本生成器的正常
+        # 执行路径中（不是本生成器自身被 close() 挂起），可以安全地继续 yield
+        # 已累积内容做降级兜底，避免整份产出被静默丢弃。
         logger.warning("html_agent failed: %s", exc)
         if raw_html.strip():
             try:
@@ -138,6 +154,8 @@ def stream_generate_html(topic: str, plan: dict[str, Any]) -> Iterator[dict[str,
                     html=parsed_html,
                     degraded=True,
                     reasoning_elapsed_ms=reasoning_elapsed_ms,
+                    first_chunk_elapsed_ms=first_chunk_elapsed_ms,
+                    generation_elapsed_ms=int((time.monotonic() - reasoning_started_at) * 1000),
                 )
                 return
             except Exception:

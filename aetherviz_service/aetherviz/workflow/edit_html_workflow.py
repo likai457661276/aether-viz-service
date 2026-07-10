@@ -130,7 +130,10 @@ def _stream_edit_html(
             html=edited_html,
             degraded=timed_out,
         )
-    except Exception as exc:
+    except (Exception, GeneratorExit) as exc:
+        # 同 html_agent：GeneratorExit 多数由内层 model.stream() 迭代器被中断后
+        # 作为普通异常传播而来，此处仍可安全兜底降级输出，不能只靠 except
+        # Exception（GeneratorExit 继承自 BaseException，不会被其捕获）。
         logger.warning("edit_html model failed: %s", exc)
         if raw_text.strip():
             try:

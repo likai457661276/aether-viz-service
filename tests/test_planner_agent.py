@@ -14,6 +14,10 @@ from aetherviz_service.aetherviz.agents.planner_agent import (
     normalize_planning_steps,
     stream_create_plan,
 )
+from aetherviz_service.aetherviz.workflow.plan_contract import (
+    build_planning_prompt,
+    select_revision_interactive_type,
+)
 from aetherviz_service.config import settings
 
 SAMPLE_PLAN_JSON = (
@@ -96,6 +100,43 @@ def test_stream_create_plan_streams_single_llm_progress(monkeypatch) -> None:
     assert progress[0]["planning_steps"][0]["status"] == "in_progress"
     assert result.degraded is False
     assert result.plan["interactive_type"] == "simulation"
+
+
+def test_planning_prompt_only_includes_selected_type_contract() -> None:
+    system_prompt, user_prompt = build_planning_prompt("勾股定理", "#22D3EE")
+
+    assert "simulation 的 interactive_spec" in system_prompt
+    assert "diagram 的 interactive_spec" not in system_prompt
+    assert "game 的 interactive_spec" not in system_prompt
+    assert "page_type、widget_type" in system_prompt
+    assert "固定互动类型：simulation" in user_prompt
+
+
+def test_revision_type_follows_explicit_user_intent() -> None:
+    assert select_revision_interactive_type("simulation", "改成闯关挑战", "勾股定理") == "game"
+    assert select_revision_interactive_type("simulation", "调整配色", "勾股定理") == "simulation"
+
+
+def test_stream_create_plan_collects_usage_metadata(monkeypatch) -> None:
+    class FakeModel:
+        def stream(self, messages):
+            yield MagicMock(content=SAMPLE_PLAN_JSON, additional_kwargs={}, usage_metadata=None)
+            yield MagicMock(
+                content="",
+                additional_kwargs={},
+                usage_metadata={"input_tokens": 120, "output_tokens": 80, "total_tokens": 200},
+            )
+
+    monkeypatch.setattr(planner_agent, "has_planning_llm_config", lambda: True)
+    monkeypatch.setattr(planner_agent, "create_chat_model", lambda kind: FakeModel())
+
+    result = next(item for item in stream_create_plan("测试主题") if isinstance(item, PlanningStreamResult))
+
+    assert result.input_tokens == 120
+    assert result.output_tokens == 80
+    assert result.total_tokens == 200
+    assert result.planning_elapsed_ms >= 0
+    assert result.first_chunk_elapsed_ms >= 0
 
 
 def test_stream_create_plan_streams_reasoning_delta(monkeypatch) -> None:

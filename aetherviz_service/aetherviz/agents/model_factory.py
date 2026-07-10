@@ -24,11 +24,11 @@ def has_planning_llm_config() -> bool:
 
 def _html_model_kwargs() -> dict[str, Any]:
     kwargs: dict[str, Any] = {
-        "model": settings.openai_model,
+        "model": settings.openai_html_model,
         "api_key": _blank_to_none(settings.openai_api_key),
         "base_url": _blank_to_none(settings.openai_base_url),
         "temperature": 0.2,
-        "max_tokens": 16384,
+        "max_tokens": max(settings.aetherviz_html_max_tokens, 512),
         "timeout": max(settings.aetherviz_html_timeout_seconds, 1),
         "max_retries": max(settings.aetherviz_html_max_retries, 0),
     }
@@ -47,27 +47,26 @@ def create_chat_model(kind: str):
 
     if kind == "planning":
         planning_kwargs: dict[str, Any] = {
-            "model": settings.openai_model,
+            "model": settings.openai_plan_model,
             "api_key": _blank_to_none(settings.openai_api_key),
             "base_url": _blank_to_none(settings.openai_base_url),
-            "temperature": 0.3,
-            "max_tokens": 8192,
+            "temperature": 0.1,
+            "max_tokens": max(settings.aetherviz_plan_max_tokens, 512),
             "timeout": max(settings.aetherviz_plan_timeout_seconds, 1),
             "max_retries": max(settings.aetherviz_plan_max_retries, 0),
-            "reasoning_effort": "medium",
+            "extra_body": {"enable_thinking": False},
+            "model_kwargs": {"response_format": {"type": "json_object"}},
+            "stream_usage": True,
         }
-        base_url = str(planning_kwargs.get("base_url") or "").lower()
-        if "dashscope" in base_url or "maas.aliyuncs.com" in base_url:
-            planning_kwargs["extra_body"] = {"enable_thinking": True}
         return ChatOpenAI(**planning_kwargs)
     if kind == "html":
         return ChatOpenAI(**_html_model_kwargs())
     return ChatOpenAI(
-        model=settings.openai_model,
+        model=settings.openai_html_model,
         api_key=_blank_to_none(settings.openai_api_key),
         base_url=_blank_to_none(settings.openai_base_url),
         temperature=0.08,
-        max_tokens=16384,
+        max_tokens=max(settings.aetherviz_html_max_tokens, 512),
         timeout=max(settings.aetherviz_repair_timeout_seconds, 1),
         max_retries=max(settings.aetherviz_repair_max_retries, 0),
         extra_body={"enable_thinking": False},

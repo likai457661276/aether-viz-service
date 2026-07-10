@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html as html_lib
 import json
 import logging
 import re
@@ -129,7 +130,9 @@ def stream_repair_html(
             html_content=repaired_html,
         )
         yield RepairStreamResult(html=repaired_html, degraded=timed_out)
-    except Exception as exc:
+    except (Exception, GeneratorExit) as exc:
+        # 同 html_agent/edit_html_workflow：显式捕获 GeneratorExit，避免模型
+        # 流被外部中断时已产出的部分内容被静默丢弃。
         logger.warning("repair model failed, using deterministic repair: %s", exc)
         if raw_text.strip():
             try:
@@ -173,10 +176,58 @@ def deterministic_repair_html(
         repaired = _insert_widget_config(repaired, plan)
     if plan is not None or "missing_control" in error_types:
         repaired = _insert_runtime_controls(repaired)
+    if "inline_event" in error_types:
+        repaired = _move_inline_events_to_listeners(repaired)
     if "html_length_hard_limit" in error_types:
         repaired = re.sub(r"<!--(?!\[if)[\s\S]*?-->", "", repaired, flags=re.IGNORECASE)
         repaired = re.sub(r">\s+<", "><", repaired)
     return repaired
+
+
+def _move_inline_events_to_listeners(html: str) -> str:
+    """Move inline onXxx handlers into equivalent addEventListener bindings.
+
+    这是纯代码搬移，不改变原元素、事件顺序或 handler 内容。若生成出的
+    handler 本身存在语法/安全问题，后续确定性校验仍会阻止其通过。
+    """
+    handlers: list[tuple[str, str, str]] = []
+    tag_index = 0
+    event_attr = re.compile(r"\s+(on[a-zA-Z]+)\s*=\s*(['\"])(.*?)\2", re.DOTALL)
+
+    def rewrite_tag(match: re.Match[str]) -> str:
+        nonlocal tag_index
+        tag = match.group(0)
+        found = list(event_attr.finditer(tag))
+        if not found:
+            return tag
+        marker = f"aetherviz-event-{tag_index}"
+        tag_index += 1
+        for attr in found:
+            handlers.append(
+                (
+                    marker,
+                    attr.group(1)[2:].lower(),
+                    html_lib.unescape(attr.group(3)).strip(),
+                )
+            )
+        tag = event_attr.sub("", tag)
+        insert_at = tag.rfind("/>")
+        if insert_at < 0:
+            insert_at = tag.rfind(">")
+        return tag[:insert_at] + f' data-aetherviz-event="{marker}"' + tag[insert_at:]
+
+    repaired = re.sub(r"<[A-Za-z][^<>]*>", rewrite_tag, html)
+    if not handlers:
+        return html
+    bindings = "".join(
+        "var el=document.querySelector(" + json.dumps(f'[data-aetherviz-event="{marker}"]') + ");"
+        + f"if(el)el.addEventListener({json.dumps(event_name)},function(event){{{source}}});"
+        for marker, event_name, source in handlers
+    )
+    script = f"<script>(function(){{{bindings}}})();</script>\n"
+    body_close = re.search(r"</body\s*>", repaired, re.IGNORECASE)
+    insert_at = body_close.start() if body_close else len(repaired)
+    return repaired[:insert_at] + script + repaired[insert_at:]
 
 
 def _insert_widget_config(html: str, plan: dict[str, Any] | None) -> str:

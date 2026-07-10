@@ -22,25 +22,18 @@ from aetherviz_service.aetherviz.agents.model_factory import (
 from aetherviz_service.aetherviz.agents.topic_profile import extract_color_from_topic
 from aetherviz_service.aetherviz.workflow.plan_contract import (
     build_planning_prompt,
+    compact_plan_for_revision,
     normalize_plan,
     parse_planning_result,
+    select_revision_interactive_type,
 )
 from aetherviz_service.config import settings
 
 logger = logging.getLogger(__name__)
 
-PLANNER_SYSTEM_PROMPT = """你是 planning_agent，只负责生成或修订 AI互动实验教案计划。
-
-工作方式（必须遵守）：
-1. 先在推理中完成教学目标、互动类型、场景结构与 widget 规格的设计取舍。
-2. 最终回复只输出一个完整 JSON 对象；禁止 Markdown 包装，禁止输出中间草稿或解释文字。
-3. 如模型支持 reasoning_content，请用简体中文写面向用户的简短设计摘要，说明关键教学取舍。
-
-输出必须是完整 JSON 计划对象，不返回局部 patch。"""
-
 DEFAULT_PLANNING_STEPS: list[dict[str, str]] = [
     {"content": "分析教学目标与互动类型", "status": "pending"},
-    {"content": "设计 scene_outline / interactive_spec / design_brief", "status": "pending"},
+    {"content": "设计 interactive_spec / teaching_flow / design_brief", "status": "pending"},
     {"content": "检查 JSON 字段完整性与约束", "status": "pending"},
 ]
 
@@ -53,6 +46,11 @@ _STREAM_CHUNKS_PER_STEP = 6
 class PlanningStreamResult:
     plan: dict[str, Any]
     degraded: bool
+    planning_elapsed_ms: int = 0
+    first_chunk_elapsed_ms: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    total_tokens: int = 0
 
 
 def stream_create_plan(topic: str, *, context: dict[str, Any] | None = None) -> Iterator[dict[str, Any] | PlanningStreamResult]:
@@ -62,7 +60,7 @@ def stream_create_plan(topic: str, *, context: dict[str, Any] | None = None) -> 
         topic=topic,
         color=color,
         user_prompt=user_prompt,
-        combined_system_prompt=f"{PLANNER_SYSTEM_PROMPT}\n\n{system_prompt}",
+        combined_system_prompt=system_prompt,
         status="draft",
         deterministic_factory=lambda: _deterministic_plan(topic, color, status="draft"),
     )
@@ -76,19 +74,25 @@ def stream_revise_plan(
     context: dict[str, Any] | None = None,
 ) -> Iterator[dict[str, Any] | PlanningStreamResult]:
     color = extract_color_from_topic(topic)
-    user_prompt = f"""请根据用户修改意见重新生成完整教案计划。
+    normalized_current = normalize_plan(current_plan, topic, color)
+    interactive_type = select_revision_interactive_type(
+        normalized_current.get("interactive_type"),
+        message,
+        topic,
+    )
+    system_prompt, task_context = build_planning_prompt(
+        topic,
+        color,
+        interactive_type_override=interactive_type,
+        subject_override=str(normalized_current.get("subject") or ""),
+    )
+    user_prompt = f"""{task_context}
+根据修改意见重新生成完整教学语义 JSON，不输出 diff；未要求变更的语义应保持一致。
 
-教学主题：{topic}
-用户修改意见：{message}
-当前计划 JSON：
-{json.dumps(current_plan, ensure_ascii=False)}
-
-要求：
-- 必须输出完整计划 JSON，不输出 diff。
-- status 设为 revised。
-- revision_summary 简要说明本次修改。
+修改意见：{message}
+当前教学语义 JSON：
+{json.dumps(compact_plan_for_revision(normalized_current), ensure_ascii=False, separators=(",", ":"))}
 """
-    system_prompt, _ = build_planning_prompt(topic, color)
 
     def finalize(plan: dict[str, Any]) -> dict[str, Any]:
         plan["status"] = "revised"
@@ -101,9 +105,9 @@ def stream_revise_plan(
         topic=topic,
         color=color,
         user_prompt=user_prompt,
-        combined_system_prompt=f"{PLANNER_SYSTEM_PROMPT}\n\n{system_prompt}",
+        combined_system_prompt=system_prompt,
         status="revised",
-        deterministic_factory=lambda: _apply_deterministic_revision(normalize_plan(current_plan, topic, color), topic, message),
+        deterministic_factory=lambda: _apply_deterministic_revision(normalized_current, topic, message),
         finalize_plan=finalize,
     )
 
@@ -212,6 +216,9 @@ def _stream_planning(
         yield PlanningStreamResult(plan=plan, degraded=True)
         return
 
+    started_at = time.monotonic()
+    first_chunk_elapsed_ms = 0
+    token_usage = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
     try:
         model = create_chat_model("planning")
         messages = [
@@ -228,8 +235,13 @@ def _stream_planning(
 
         for chunk in _iter_model_stream_chunks(model, messages, deadline=deadline):
             chunk_count += 1
+            if chunk_count == 1:
+                first_chunk_elapsed_ms = int((time.monotonic() - started_at) * 1000)
             text = extract_llm_text(chunk)
             reasoning = extract_llm_reasoning(chunk)
+            chunk_usage = _extract_token_usage(chunk)
+            if chunk_usage["total_tokens"]:
+                token_usage.update(chunk_usage)
             if text:
                 raw_text += text
             if reasoning:
@@ -259,7 +271,13 @@ def _stream_planning(
             plan["status"] = status
             plan["plan_id"] = plan.get("plan_id") or _plan_id(topic, status)
             plan["context_status"] = {"status": "normal"}
-        yield PlanningStreamResult(plan=plan, degraded=False)
+        yield PlanningStreamResult(
+            plan=plan,
+            degraded=False,
+            planning_elapsed_ms=int((time.monotonic() - started_at) * 1000),
+            first_chunk_elapsed_ms=first_chunk_elapsed_ms,
+            **token_usage,
+        )
     except Exception as exc:
         logger.warning("planning_agent failed, using deterministic plan: %s", exc)
         yield from _iter_deterministic_progress()
@@ -267,7 +285,31 @@ def _stream_planning(
         plan["status"] = status
         plan["plan_id"] = plan.get("plan_id") or _plan_id(topic, status)
         plan["context_status"] = {"status": "compressed" if status == "revised" else "normal"}
-        yield PlanningStreamResult(plan=plan, degraded=True)
+        yield PlanningStreamResult(
+            plan=plan,
+            degraded=True,
+            planning_elapsed_ms=int((time.monotonic() - started_at) * 1000),
+            first_chunk_elapsed_ms=first_chunk_elapsed_ms,
+            **token_usage,
+        )
+
+
+def _extract_token_usage(chunk: Any) -> dict[str, int]:
+    usage = getattr(chunk, "usage_metadata", None)
+    if not isinstance(usage, dict):
+        response_metadata = getattr(chunk, "response_metadata", None)
+        if isinstance(response_metadata, dict):
+            usage = response_metadata.get("token_usage")
+    if not isinstance(usage, dict):
+        return {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
+    input_tokens = int(usage.get("input_tokens") or usage.get("prompt_tokens") or 0)
+    output_tokens = int(usage.get("output_tokens") or usage.get("completion_tokens") or 0)
+    total_tokens = int(usage.get("total_tokens") or input_tokens + output_tokens)
+    return {
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "total_tokens": total_tokens,
+    }
 
 
 def _iter_model_stream_chunks(model: Any, messages: list[Any], *, deadline: float) -> Iterator[Any]:

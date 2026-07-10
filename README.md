@@ -46,10 +46,14 @@ uv sync --dev
 ```bash
 OPENAI_API_KEY="你的 OpenAI-compatible API Key"
 OPENAI_BASE_URL="https://dashscope.aliyuncs.com/compatible-mode/v1"
-OPENAI_MODEL="deepseek-v4-flash"
+OPENAI_PLAN_MODEL="deepseek-v4-flash"
+OPENAI_HTML_MODEL="qwen3.7-plus"
+AETHERVIZ_PLAN_MAX_TOKENS=3072
+AETHERVIZ_GSAP_CDN_URL="https://cdn.jsdelivr.net/npm/gsap@3/dist/gsap.min.js"
+AETHERVIZ_HTML_MAX_TOKENS=12288
 ```
 
-规划、HTML 生成和模型修复统一复用这组服务配置。`OPENAI_BASE_URL` 默认使用百炼 OpenAI-compatible endpoint，`OPENAI_MODEL` 默认使用 `deepseek-v4-flash`，因此本地 `.env` 最少只需填写 `OPENAI_API_KEY`。阶段级温度、token、超时、重试及推理策略由服务内置默认值控制；HTML 直出默认关闭推理，避免增加耗时和截断概率。不要把真实 API Key 提交到仓库。
+规划阶段使用 `OPENAI_PLAN_MODEL`，HTML 生成、HTML 编辑和模型修复使用 `OPENAI_HTML_MODEL`。两类模型复用 `OPENAI_API_KEY` 与 `OPENAI_BASE_URL`；默认分别为 `deepseek-v4-flash` 和 `qwen3.7-plus`。`AETHERVIZ_PLAN_MAX_TOKENS` 控制计划 JSON 的最大输出 token，默认 3072；规划阶段固定关闭深度思考并启用 JSON Mode，以降低延迟和格式漂移。`AETHERVIZ_GSAP_CDN_URL` 用于统一切换生成提示、计划归一化和安全白名单中的 GSAP core UMD 地址，只接受不含凭据、query 或 fragment 的 HTTPS URL。`AETHERVIZ_HTML_MAX_TOKENS` 控制 HTML 生成、编辑和模型修复的最大输出 token，默认 12288。阶段级温度、超时及重试策略由服务内置默认值控制；HTML 直出默认关闭推理，避免增加耗时和截断概率。不要把真实 API Key 提交到仓库。
 
 ### LangSmith 可观测性
 
@@ -69,7 +73,7 @@ LANGSMITH_PROJECT="aetherviz-direct-html"
 本地直接启动：
 
 ```bash
-uv run uvicorn aetherviz_service.main:app --reload --port 10095
+uv run uvicorn aetherviz_service.main:app --port 10095
 ```
 
 Docker 开发环境：
@@ -303,6 +307,14 @@ uv run pytest tests/test_aetherviz.py
 ```bash
 uv run pytest
 ```
+
+运行 Python 静态检查：
+
+```bash
+uv run ruff check .
+```
+
+安全自动修复可使用 `uv run ruff check . --fix`；暂不对全仓库执行批量格式化，避免改写提示词和内嵌 HTML/JS。
 
 curl 示例：
 

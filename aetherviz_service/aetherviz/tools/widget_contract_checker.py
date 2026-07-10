@@ -17,6 +17,10 @@ REQUIRED_WIDGET_ACTIONS = (
 )
 ALLOWED_WIDGET_TYPES = {"simulation", "diagram", "game"}
 
+_SET_ATTR_COORD_RE = re.compile(
+    r"([A-Za-z_$][\w.$]*)\.setAttribute\(\s*['\"](x|y)['\"]\s*,\s*([^)]+?)\s*\)"
+)
+
 
 def check_widget_runtime_contract(html: str, *, soup: BeautifulSoup | None = None) -> dict:
     parsed = soup or BeautifulSoup(html or "", "html.parser")
@@ -48,9 +52,18 @@ def check_widget_runtime_contract(html: str, *, soup: BeautifulSoup | None = Non
         if action not in script_text:
             warnings.append(_warning("missing_widget_action", f"未显式处理 widget action：{action}"))
 
+    _check_duplicate_label_positions(parsed, script_text, warnings)
+
     external_gsap = any("gsap" in str(script.get("src") or "").lower() for script in parsed.find_all("script"))
     if external_gsap and not re.search(r"window\.gsap|typeof\s+gsap|typeof\s+window\.gsap", script_text):
         warnings.append(_warning("missing_gsap_fallback_guard", "使用 GSAP CDN，但未检测到 native fallback 判断"))
+    if external_gsap and _has_call_only_gsap_timeline(script_text):
+        warnings.append(
+            _warning(
+                "call_only_gsap_timeline",
+                "GSAP timeline 仅检测到零时长 call，分镜可能在同一时刻瞬间执行",
+            )
+        )
 
     return {
         "ok": not errors,
@@ -59,6 +72,70 @@ def check_widget_runtime_contract(html: str, *, soup: BeautifulSoup | None = Non
         "errors": errors,
         "warnings": warnings,
     }
+
+
+def _has_call_only_gsap_timeline(script_text: str) -> bool:
+    has_timeline = bool(re.search(r"(?:window\.)?gsap\.timeline\s*\(", script_text))
+    has_call = bool(re.search(r"\.call\s*\(", script_text))
+    has_duration_tween = bool(re.search(r"\.(?:to|from|fromTo)\s*\(", script_text))
+    has_positioned_call = bool(
+        re.search(
+            r"\.call\s*\([^;]*?,\s*(?:null|\[[^\]]*\])\s*,\s*(?:['\"]|[0-9])",
+            script_text,
+        )
+    )
+    return has_timeline and has_call and not has_duration_tween and not has_positioned_call
+
+
+def _check_duplicate_label_positions(
+    parsed: BeautifulSoup, script_text: str, warnings: list[dict]
+) -> None:
+    """Warn when two different text labels resolve to the exact same coordinates.
+
+    覆盖两种常见情况：模板里直接写死的静态 x/y 属性，以及运行时通过
+    `element.setAttribute('x'/'y', expr)` 用相同表达式驱动多个元素坐标
+    （典型场景：变量标签与其面积/数值标签被复制成同一组坐标，导致文字互相
+    覆盖）。只作为 warning，不阻断生成/修复/编辑流程。
+    """
+    coords_by_ref: dict[str, dict[str, str]] = {}
+    for ref, axis, expr in _SET_ATTR_COORD_RE.findall(script_text):
+        coords_by_ref.setdefault(ref, {})[axis] = re.sub(r"\s+", "", expr)
+
+    dynamic_groups: dict[tuple[str, str], set[str]] = {}
+    for ref, axes in coords_by_ref.items():
+        x_expr, y_expr = axes.get("x"), axes.get("y")
+        if x_expr is None or y_expr is None:
+            continue
+        dynamic_groups.setdefault((x_expr, y_expr), set()).add(ref)
+
+    for (x_expr, y_expr), refs in dynamic_groups.items():
+        if len(refs) > 1:
+            warnings.append(
+                _warning(
+                    "duplicate_label_position",
+                    "检测到多个元素通过相同坐标表达式设置位置（x="
+                    f"{x_expr}, y={y_expr}），可能导致文本标签互相重叠："
+                    f"{', '.join(sorted(refs))}",
+                )
+            )
+
+    static_groups: dict[tuple[str, str], set[str]] = {}
+    for text_el in parsed.find_all(["text", "tspan"]):
+        x, y = text_el.get("x"), text_el.get("y")
+        if x is None or y is None:
+            continue
+        label = text_el.get("id") or text_el.get("class") or text_el.get_text(strip=True)[:12] or "text"
+        static_groups.setdefault((str(x).strip(), str(y).strip()), set()).add(str(label))
+
+    for (x, y), labels in static_groups.items():
+        if len(labels) > 1:
+            warnings.append(
+                _warning(
+                    "duplicate_label_position",
+                    f"检测到多个静态文本标签使用完全相同坐标 (x={x}, y={y})，可能互相重叠："
+                    f"{', '.join(sorted(labels))}",
+                )
+            )
 
 
 def _check_widget_config(parsed: BeautifulSoup, errors: list[dict]) -> None:

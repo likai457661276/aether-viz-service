@@ -14,7 +14,10 @@ def test_html_generation_thinking_disabled_by_default() -> None:
     """
     settings = Settings(_env_file=None)
 
-    assert settings.openai_model == "deepseek-v4-flash"
+    assert settings.openai_plan_model == "deepseek-v4-flash"
+    assert settings.openai_html_model == "qwen3.7-plus"
+    assert settings.aetherviz_plan_max_tokens == 3072
+    assert settings.aetherviz_html_max_tokens == 12288
     assert settings.aetherviz_html_enable_thinking is False
     assert settings.aetherviz_html_reasoning_effort is None
 

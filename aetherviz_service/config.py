@@ -12,11 +12,14 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     openai_api_key: str | None = None
     openai_base_url: str | None = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-    openai_model: str = "deepseek-v4-flash"
+    openai_plan_model: str = "deepseek-v4-flash"
+    openai_html_model: str = "qwen3.7-plus"
     aetherviz_gsap_cdn_url: str = "https://cdn.jsdelivr.net/npm/gsap@3/dist/gsap.min.js"
     aetherviz_html_enable_thinking: bool = False
     aetherviz_html_reasoning_effort: str | None = None
+    aetherviz_html_max_tokens: int = 12288
     aetherviz_max_repair_attempts: int = 1
+    aetherviz_plan_max_tokens: int = 3072
     aetherviz_plan_timeout_seconds: int = 180
     aetherviz_plan_max_retries: int = 1
     aetherviz_html_timeout_seconds: int = 600

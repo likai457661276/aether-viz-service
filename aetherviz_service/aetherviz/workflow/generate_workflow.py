@@ -72,6 +72,8 @@ def _run_html_workflow(
                 if isinstance(item, HtmlStreamResult):
                     html, degraded = item.html, item.degraded
                     metadata["reasoning_elapsed_ms"] = item.reasoning_elapsed_ms
+                    metadata["first_chunk_elapsed_ms"] = item.first_chunk_elapsed_ms
+                    metadata["generation_elapsed_ms"] = item.generation_elapsed_ms
                     yield agent_sse_event(
                         "html.delta",
                         run_id=run_id,
@@ -82,6 +84,8 @@ def _run_html_workflow(
                             "chars": len(html),
                             "reasoning_active": False,
                             "reasoning_elapsed_ms": item.reasoning_elapsed_ms,
+                            "first_chunk_elapsed_ms": item.first_chunk_elapsed_ms,
+                            "generation_elapsed_ms": item.generation_elapsed_ms,
                         },
                         metadata=_metadata(metadata, started_at, stage="generate"),
                     )
@@ -169,6 +173,8 @@ def _run_html_workflow(
                 "subject": plan.get("subject"),
                 "elapsed_ms": int((time.monotonic() - started_at) * 1000),
                 "reasoning_elapsed_ms": metadata.get("reasoning_elapsed_ms", 0),
+                "first_chunk_elapsed_ms": metadata.get("first_chunk_elapsed_ms", 0),
+                "generation_elapsed_ms": metadata.get("generation_elapsed_ms", 0),
                 "generation_backend": "direct",
                 "bytes": len(html.encode("utf-8")),
                 "chars": len(html),

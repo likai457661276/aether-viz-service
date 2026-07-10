@@ -163,6 +163,9 @@ def test_plan_phase_streams_new_plan_events() -> None:
     assert plan["status"] == "draft"
     assert plan["interactive_type"] in {"simulation", "diagram", "game"}
     assert ready["metadata"]["context_status"]["status"] in {"normal", "compressed"}
+    assert ready["metadata"]["planning_elapsed_ms"] >= 0
+    assert ready["metadata"]["first_chunk_elapsed_ms"] >= 0
+    assert ready["metadata"]["total_tokens"] >= 0
 
 
 def test_revise_plan_streams_complete_revised_plan() -> None:
@@ -228,6 +231,8 @@ def test_generate_phase_streams_html_size_validates_in_memory_and_returns_html()
     assert done["data"]["metadata"]["attempts"] >= 1
     assert done["data"]["metadata"]["generation_backend"] == "direct"
     assert done["data"]["metadata"]["reasoning_elapsed_ms"] >= 0
+    assert done["data"]["metadata"]["first_chunk_elapsed_ms"] >= 0
+    assert done["data"]["metadata"]["generation_elapsed_ms"] >= 0
     assert done["data"]["metadata"]["bytes"] == len(done["data"]["html"].encode("utf-8"))
     assert done["data"]["metadata"]["chars"] == len(done["data"]["html"])
     assert done["metadata"]["stage"] == "done"
@@ -349,6 +354,59 @@ def test_plan_normalization_enforces_runtime_control_ids() -> None:
     assert control_ids == ["slider-a", "slider-b", "play-animation", "pause-animation", "reset-animation"]
 
 
+def test_plan_normalization_migrates_legacy_model_fields_and_clamps_presets() -> None:
+    from aetherviz_service.aetherviz.workflow.plan_contract import normalize_plan
+
+    raw_plan = {
+        "interactive_type": "simulation",
+        "title": "勾股定理探索",
+        "stage_layout": {"description": "主舞台居中，控制区和公式区位于舞台外。"},
+        "design_brief": {
+            "main_stage_objects": ["直角三角形", "三个边长正方形"],
+            "layout_coordinates": "三角形位于舞台中心",
+            "color_semantics": "三边使用不同颜色",
+            "dynamic_update_rules": "变量变化时同步更新图形和公式",
+            "default_preset": "a=3,b=4",
+            "acceptance_criteria": "公式与图形同步",
+        },
+        "interactive_spec": {
+            "type": "simulation",
+            "concept": "勾股定理",
+            "description": "调节两条直角边",
+            "variables": [
+                {"name": "a", "label": "直角边 a", "min": 1, "max": 12, "step": 1, "default": 3},
+                {"name": "b", "label": "直角边 b", "min": 1, "max": 12, "step": 1, "default": 4},
+            ],
+            "presets": [{"label": "越界预设", "a": 8, "b": 15}],
+            "observations": ["观察平方关系"],
+        },
+        "teaching_flow": [{"step": 1, "instruction": "拖动滑块观察三边变化"}],
+        "controls": [{"id": "a-slider", "label": "直角边 a", "type": "slider", "target_var": "a"}],
+        "widget_actions": [
+            {"action": "widget_setState", "params": {"a": 5, "b": 12}},
+            {"action": "widget_highlight", "params": {"elementId": "side-c"}},
+            {"action": "widget_annotation", "params": {"elementId": "square-c", "text": "斜边平方"}},
+            {"action": "widget_reveal", "params": {"elementId": "formula"}},
+        ],
+    }
+
+    normalized = normalize_plan(raw_plan, "勾股定理")
+
+    assert normalized["stage_layout"] == "主舞台居中，控制区和公式区位于舞台外。"
+    assert normalized["teaching_flow"][0]["caption"] == "拖动滑块观察三边变化"
+    assert normalized["controls"][0]["bind"] == "a"
+    assert normalized["interactive_spec"]["presets"][0]["values"] == {"a": 8, "b": 12}
+    assert normalized["widget_actions"][1]["target"] == "#side-c"
+    assert set(normalized["design_brief"]) == {
+        "layout",
+        "stage_objects",
+        "visual_rules",
+        "state_updates",
+        "default_preset",
+        "acceptance",
+    }
+
+
 def test_validation_report_rejects_inline_script_syntax_error() -> None:
     from aetherviz_service.aetherviz.tools.validation_report import build_validation_report
 
@@ -381,6 +439,42 @@ def test_validation_report_accepts_minimum_widget_runtime_contract() -> None:
 
     assert report["ok"] is True
     assert report["checks"]["widget_contract_checker"]["ok"] is True
+
+
+def test_widget_contract_warns_about_call_only_gsap_timeline() -> None:
+    from aetherviz_service.aetherviz.tools.widget_contract_checker import check_widget_runtime_contract
+
+    html = sample_html().replace(
+        "</head>",
+        '<script src="https://cdn.jsdelivr.net/npm/gsap@3/dist/gsap.min.js"></script></head>',
+    ).replace(
+        "const state = { progress: 0 };",
+        "const state = { progress: 0 }; const tl = gsap.timeline({paused:true}); "
+        "tl.call(() => updateVisualization()); tl.call(() => updateVisualization()); "
+        "if (!window.gsap) updateVisualization();",
+    )
+
+    report = check_widget_runtime_contract(html)
+
+    assert any(warning["type"] == "call_only_gsap_timeline" for warning in report["warnings"])
+
+
+def test_widget_contract_accepts_duration_tween_in_gsap_timeline() -> None:
+    from aetherviz_service.aetherviz.tools.widget_contract_checker import check_widget_runtime_contract
+
+    html = sample_html().replace(
+        "</head>",
+        '<script src="https://cdn.jsdelivr.net/npm/gsap@3/dist/gsap.min.js"></script></head>',
+    ).replace(
+        "const state = { progress: 0 };",
+        "const state = { progress: 0 }; const tl = gsap.timeline({paused:true}); "
+        "tl.to('#dot', {x: 20, duration: 0.6}).call(() => updateVisualization()); "
+        "if (!window.gsap) updateVisualization();",
+    )
+
+    report = check_widget_runtime_contract(html)
+
+    assert not any(warning["type"] == "call_only_gsap_timeline" for warning in report["warnings"])
 
 
 def test_generate_phase_triggers_repair_when_validation_fails(monkeypatch) -> None:
@@ -430,3 +524,182 @@ def test_generate_phase_triggers_repair_when_validation_fails(monkeypatch) -> No
     done = next(data for event, data in events if event == "html.done")
     assert done["data"]["metadata"]["repaired"] is True
     assert done["data"]["metadata"]["attempts"] >= 2
+
+
+def test_edit_html_stream_recovers_partial_output_after_generator_exit(monkeypatch) -> None:
+    from unittest.mock import MagicMock
+
+    from aetherviz_service.aetherviz.agents.html_agent import HtmlStreamResult
+    from aetherviz_service.aetherviz.workflow import edit_html_workflow
+
+    monkeypatch.setattr(settings, "openai_api_key", "test-key")
+
+    class GeneratorExitModel:
+        def stream(self, messages):
+            yield MagicMock(content=sample_html(), additional_kwargs={})
+            raise GeneratorExit()
+
+    monkeypatch.setattr(edit_html_workflow, "create_chat_model", lambda kind: GeneratorExitModel())
+
+    items = list(
+        edit_html_workflow._stream_edit_html(
+            topic="熵增演示",
+            message="把按钮改大",
+            current_html=sample_html(),
+            context=None,
+        )
+    )
+    result = next(item for item in items if isinstance(item, HtmlStreamResult))
+
+    assert result.degraded is True
+    assert "aetherviz-stage" in result.html
+
+
+def test_repair_stream_recovers_partial_output_after_generator_exit(monkeypatch) -> None:
+    from unittest.mock import MagicMock
+
+    from aetherviz_service.aetherviz.agents import repair_agent
+    from aetherviz_service.aetherviz.agents.repair_agent import RepairStreamResult
+
+    monkeypatch.setattr(settings, "openai_api_key", "test-key")
+
+    class GeneratorExitModel:
+        def stream(self, messages):
+            yield MagicMock(content=sample_html(), additional_kwargs={})
+            raise GeneratorExit()
+
+    monkeypatch.setattr(repair_agent, "create_chat_model", lambda kind: GeneratorExitModel())
+
+    items = list(
+        repair_agent.stream_repair_html(
+            topic="熵增演示",
+            plan=sample_plan("熵增演示"),
+            raw_html=sample_html(),
+            report={"ok": False, "errors": [], "warnings": []},
+        )
+    )
+    result = next(item for item in items if isinstance(item, RepairStreamResult))
+
+    assert result.degraded is True
+    assert "aetherviz-stage" in result.html
+
+
+def test_widget_contract_warns_about_duplicate_setattribute_label_positions() -> None:
+    from aetherviz_service.aetherviz.tools.widget_contract_checker import check_widget_runtime_contract
+
+    html = sample_html().replace(
+        "function updateVisualization(){",
+        "function updateVisualization(){\n"
+        "  els.lblA.setAttribute('x', -a/2);\n"
+        "  els.lblA.setAttribute('y', -a/2);\n"
+        "  els.txtAreaA.setAttribute('x', -a/2);\n"
+        "  els.txtAreaA.setAttribute('y', -a/2);\n",
+    )
+
+    report = check_widget_runtime_contract(html)
+
+    warnings = [warning for warning in report["warnings"] if warning["type"] == "duplicate_label_position"]
+    assert warnings
+    assert "els.lblA" in warnings[0]["message"]
+    assert "els.txtAreaA" in warnings[0]["message"]
+
+
+def test_widget_contract_accepts_distinct_setattribute_label_positions() -> None:
+    from aetherviz_service.aetherviz.tools.widget_contract_checker import check_widget_runtime_contract
+
+    html = sample_html().replace(
+        "function updateVisualization(){",
+        "function updateVisualization(){\n"
+        "  els.lblA.setAttribute('x', -a/2);\n"
+        "  els.lblA.setAttribute('y', -a/2);\n"
+        "  els.txtAreaA.setAttribute('x', -a/2 - 12);\n"
+        "  els.txtAreaA.setAttribute('y', -a/2 - 12);\n",
+    )
+
+    report = check_widget_runtime_contract(html)
+
+    assert not any(warning["type"] == "duplicate_label_position" for warning in report["warnings"])
+
+
+def test_widget_contract_warns_about_duplicate_static_text_positions() -> None:
+    from aetherviz_service.aetherviz.tools.widget_contract_checker import check_widget_runtime_contract
+
+    html = sample_html().replace(
+        '<circle id="dot" cx="20" cy="50" r="8"></circle>',
+        '<circle id="dot" cx="20" cy="50" r="8"></circle>'
+        '<text id="lbl-a" x="10" y="10">a</text>'
+        '<text id="area-a" x="10" y="10">a\u00b2</text>',
+    )
+
+    report = check_widget_runtime_contract(html)
+
+    assert any(warning["type"] == "duplicate_label_position" for warning in report["warnings"])
+
+
+def test_generation_and_edit_prompts_include_stage_centering_rules() -> None:
+    from aetherviz_service.aetherviz.agents.instructions import (
+        EDIT_HTML_SYSTEM_PROMPT,
+        SIMULATION_SYSTEM_PROMPT,
+        STAGE_CENTERING_AND_LABEL_PROMPT,
+    )
+
+    shared_rule_marker = STAGE_CENTERING_AND_LABEL_PROMPT.strip().splitlines()[-1]
+    for prompt in (SIMULATION_SYSTEM_PROMPT, EDIT_HTML_SYSTEM_PROMPT):
+        assert shared_rule_marker in prompt
+        assert "viewBox" in prompt
+
+
+def test_repair_prompt_is_error_directed_and_does_not_force_unrelated_layout_changes() -> None:
+    from aetherviz_service.aetherviz.agents.instructions import REPAIR_SYSTEM_PROMPT, build_repair_prompt
+
+    prompt = build_repair_prompt(
+        topic="勾股定理",
+        plan=sample_plan("勾股定理"),
+        raw_html="<!DOCTYPE html><html><body><button onclick=\"go()\">播放</button></body></html>",
+        error_detail='{"errors":[{"type":"inline_event"}]}',
+        source_label="确定性检查",
+    )
+
+    assert "未被错误点名" in prompt
+    assert "舞台居中目标" not in prompt
+    assert "只修复服务端列出的硬性错误" in REPAIR_SYSTEM_PROMPT
+
+
+def test_edit_html_prompt_has_quantified_convergence_guidance() -> None:
+    from aetherviz_service.aetherviz.agents.instructions import EDIT_HTML_SYSTEM_PROMPT
+
+    assert "70%" in EDIT_HTML_SYSTEM_PROMPT
+
+
+def test_build_edit_html_prompt_trims_plan_summary_to_whitelist() -> None:
+    from aetherviz_service.aetherviz.agents.instructions import build_edit_html_prompt
+
+    context = {
+        "plan_summary": {
+            "title": "勾股定理互动模拟",
+            "goal": "理解勾股定理",
+            "interactive_type": "simulation",
+            "design_brief": {"layout": "单屏"},
+            "interactive_spec": {"type": "simulation"},
+            "teaching_flow": [{"id": "step-1"}],
+            "widget_actions": [{"type": "widget_setState"}],
+            "scene_outline": {"id": "scene_1"},
+            "formulas": ["a^2+b^2=c^2"],
+        },
+        "selected_file": {"id": "html-1"},
+    }
+
+    prompt = build_edit_html_prompt(
+        topic="勾股定理",
+        instruction="居中问题",
+        current_html="<html></html>",
+        context=context,
+    )
+
+    assert '"title": "勾股定理互动模拟"' in prompt
+    assert '"design_brief"' in prompt
+    assert '"interactive_spec"' in prompt
+    assert '"teaching_flow"' not in prompt
+    assert '"widget_actions"' not in prompt
+    assert '"scene_outline"' not in prompt
+    assert '"formulas"' not in prompt

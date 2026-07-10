@@ -8,7 +8,6 @@ from pydantic import BaseModel, Field, model_validator
 
 from aetherviz_service.aetherviz.schemas.aetherviz import AetherVizPlan
 
-
 AetherVizPhase = Literal["plan", "revise_plan", "approve_plan", "generate", "edit_html"]
 
 
@@ -23,7 +22,7 @@ class GenerateAetherVizSpecRequest(BaseModel):
     current_html: str | None = None
 
     @model_validator(mode="after")
-    def validate_phase_payload(self) -> "GenerateAetherVizSpecRequest":
+    def validate_phase_payload(self) -> GenerateAetherVizSpecRequest:
         topic_required = self.phase in {"plan", "revise_plan"}
         if topic_required and not self.topic.strip():
             raise ValueError("topic 不能为空")

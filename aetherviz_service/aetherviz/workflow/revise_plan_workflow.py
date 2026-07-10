@@ -25,10 +25,18 @@ def run_revise_plan_workflow(
     )
     plan = None
     degraded = False
+    planning_metrics: dict[str, int] = {}
     for item in stream_revise_plan(topic, current_plan=current_plan, message=message, context=context):
         if isinstance(item, PlanningStreamResult):
             plan = item.plan
             degraded = item.degraded
+            planning_metrics = {
+                "planning_elapsed_ms": item.planning_elapsed_ms,
+                "first_chunk_elapsed_ms": item.first_chunk_elapsed_ms,
+                "input_tokens": item.input_tokens,
+                "output_tokens": item.output_tokens,
+                "total_tokens": item.total_tokens,
+            }
             continue
         yield agent_sse_event("plan.delta", run_id=run_id, phase="revise_plan", data=item)
     if plan is None:
@@ -38,7 +46,11 @@ def run_revise_plan_workflow(
         run_id=run_id,
         phase="revise_plan",
         data={"plan": plan, "status": "revised", "revision_summary": plan.get("revision_summary", "")},
-        metadata={"degraded": degraded, "context_status": plan.get("context_status", {"status": "normal"})},
+        metadata={
+            "degraded": degraded,
+            "context_status": plan.get("context_status", {"status": "normal"}),
+            **planning_metrics,
+        },
     )
     if degraded:
         yield agent_sse_event(

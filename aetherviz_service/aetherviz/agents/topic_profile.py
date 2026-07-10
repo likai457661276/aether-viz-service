@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import re
 
-
 DEFAULT_PRIMARY_COLOR = "#22D3EE"
 
 

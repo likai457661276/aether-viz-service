@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import re
 
-
 ALLOWED_EXTERNAL_URLS = {
     "https://cdn.tailwindcss.com",
     "https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css",

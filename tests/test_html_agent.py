@@ -4,11 +4,10 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from tests.test_aetherviz import sample_html
-
 from aetherviz_service.aetherviz.agents import html_agent
 from aetherviz_service.aetherviz.agents.repair_agent import deterministic_repair_html
 from aetherviz_service.aetherviz.tools.validation_report import build_validation_report
+from tests.test_aetherviz import sample_html, sample_plan
 
 SAMPLE_HTML = sample_html()
 from aetherviz_service.aetherviz.agents.html_agent import (
@@ -17,6 +16,7 @@ from aetherviz_service.aetherviz.agents.html_agent import (
     build_html_progress_payload,
     stream_generate_html,
 )
+from aetherviz_service.aetherviz.agents.instructions import build_interactive_generation_prompt
 
 
 def test_build_html_progress_payload_marks_active_step() -> None:
@@ -30,6 +30,19 @@ def test_build_html_progress_payload_marks_active_step() -> None:
     assert payload["active_step_index"] == 1
     assert payload["html_steps"][1]["status"] == "in_progress"
     assert payload["delta"].startswith("正在")
+
+
+def test_generation_prompt_compacts_plan_json_without_dropping_content() -> None:
+    plan = sample_plan("勾股定理")
+
+    prompt = build_interactive_generation_prompt("勾股定理", plan)
+
+    assert '"scene_outline":{"id":"scene-main","type":"interactive"' in prompt
+    assert '"type":"simulation","concept":"勾股定理"' in prompt
+    assert '"render_stack":"dom_svg","animation_runtime":"gsap"' in prompt
+    assert '\n  "id": "scene-main"' not in prompt
+    assert '"widgetOutline"' not in prompt
+    assert prompt.count('"interactive_spec"') == 1
 
 
 def test_deterministic_repair_inserts_body_close_before_html_close() -> None:
@@ -65,6 +78,22 @@ def test_deterministic_repair_restores_static_widget_contract() -> None:
     )
 
 
+def test_deterministic_repair_moves_inline_events_without_model_rewrite() -> None:
+    broken = SAMPLE_HTML.replace(
+        '<button id="play-animation">',
+        '<button id="play-animation" onclick="window.AetherVizRuntime.play()">',
+    )
+    report = build_validation_report(broken)
+
+    repaired = deterministic_repair_html(broken, report)
+    repaired_report = build_validation_report(repaired)
+
+    assert repaired_report["ok"] is True
+    assert "onclick=" not in repaired
+    assert "addEventListener(\"click\"" in repaired
+    assert "window.AetherVizRuntime.play()" in repaired
+
+
 def test_stream_generate_html_emits_progress_and_result_without_llm(monkeypatch) -> None:
     monkeypatch.setattr(html_agent, "has_primary_llm_config", lambda: False)
 
@@ -93,8 +122,11 @@ def test_stream_generate_html_collects_direct_model_output(monkeypatch) -> None:
     assert progress[-1]["bytes"] == len(SAMPLE_HTML.encode("utf-8"))
     assert progress[-1]["chars"] == len(SAMPLE_HTML)
     assert result.degraded is False
+    assert result.first_chunk_elapsed_ms >= 1
+    assert result.generation_elapsed_ms >= 0
     assert "aetherviz-stage" in result.html
     assert "play-animation" in result.html
+    assert any(item.get("first_chunk_elapsed_ms", 0) >= 1 for item in progress)
 
 
 def test_stream_generate_html_reports_reasoning_duration_without_content(monkeypatch) -> None:
@@ -144,6 +176,25 @@ def test_stream_generate_html_uses_valid_partial_output_after_stream_failure(mon
 
     monkeypatch.setattr(html_agent, "has_primary_llm_config", lambda: True)
     monkeypatch.setattr(html_agent, "create_chat_model", lambda kind: FailingModel())
+
+    result = next(
+        item
+        for item in stream_generate_html("测试主题", {"title": "测试", "goal": "目标", "interactive_type": "diagram"})
+        if isinstance(item, HtmlStreamResult)
+    )
+
+    assert result.degraded is True
+    assert "aetherviz-stage" in result.html
+
+
+def test_stream_generate_html_uses_valid_partial_output_after_generator_exit(monkeypatch) -> None:
+    class GeneratorExitModel:
+        def stream(self, messages):
+            yield MagicMock(content=SAMPLE_HTML, additional_kwargs={})
+            raise GeneratorExit()
+
+    monkeypatch.setattr(html_agent, "has_primary_llm_config", lambda: True)
+    monkeypatch.setattr(html_agent, "create_chat_model", lambda kind: GeneratorExitModel())
 
     result = next(
         item

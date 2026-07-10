@@ -24,7 +24,6 @@ SUBJECT_KEYWORDS = {
 VALID_INTERACTIVE_TYPES = {"simulation", "diagram", "game"}
 VALID_RENDER_STACKS = {"svg", "svg_canvas", "canvas_svg", "dom_svg"}
 VALID_ANIMATION_RUNTIMES = {"native", "gsap"}
-GSAP_CORE_CDN = get_gsap_core_cdn_url()
 REQUIRED_RUNTIME_CONTROLS = (
     {"id": "play-animation", "label": "播放", "type": "button", "action": "play"},
     {"id": "pause-animation", "label": "暂停", "type": "button", "action": "pause"},
@@ -35,29 +34,52 @@ SIMULATION_KEYWORDS = ["运动", "参数", "实验", "函数", "概率", "反应
 DIAGRAM_KEYWORDS = ["流程", "结构", "分类", "因果", "步骤", "阅读结构", "知识图谱", "体系", "过程"]
 GAME_KEYWORDS = ["练习", "闯关", "匹配", "排序", "挑战", "小游戏", "巩固", "得分"]
 
-PLANNING_SYSTEM_PROMPT_TEMPLATE = f"""你是资深互动教学课件规划师。
-为 12~18 岁学生设计一个单页 interactive widget 计划。
+PLANNING_SYSTEM_PROMPT_TEMPLATE = """你是互动教学课件规划器，为 12~18 岁学生设计单页 interactive widget。
 
-规划原则：
-- page_type 固定为 interactive。
-- interactive_type 只能是 simulation、diagram、game。
-- 输出必须同时具备两层结构：scene_outline 描述课堂场景，interactive_spec 描述可直接生成 HTML 的 WidgetConfig。
-- scene_outline 必须包含 id、type、title、description、keyPoints、order、widgetType、widgetOutline；widgetType 必须与 interactive_type 一致。
-- interactive_spec 是 WidgetOutline + WidgetConfig 的单页化核心，必须能直接嵌入 HTML 的 script#widget-config。
-- simulation: interactive_spec 必须写 type、concept、description、variables、presets、observations；变量 name 要可作为 slider id/data-var。
-- diagram: interactive_spec 必须写 type、concept、description、nodes、edges、reveal_order；nodes 每项必须有 id、label、details/explanation。
-- game: interactive_spec 必须写 type、concept、description、game_type、challenge、success_condition、feedback_rules、game_config；必须是操作型挑战，不是普通选择题堆叠。
-- teaching_flow 用 3~5 个教学节奏步骤描述观察、操作、归纳。
-- controls 保留 1~2 个真实影响学习的参数控件，并固定包含播放、暂停、重置按钮；三个按钮 id 必须分别为 play-animation、pause-animation、reset-animation。
-- runtime.render_stack 只能是 svg、svg_canvas、canvas_svg、dom_svg；runtime.animation_runtime 优先使用 gsap，只有纯 Canvas 高频粒子等必须逐帧绘制的场景才使用 native。
-- runtime.external_libraries 在 animation_runtime 为 gsap 时必须包含 {GSAP_CORE_CDN}。
-- stage_layout 必须说明目标区、主舞台、控制区和结论区如何在单屏内摆放。
-- stage_layout 必须明确公式、读数、caption 与控制面板不进入主舞台覆盖层；主舞台只放图形和短标签。
-- design_brief 必须写出主舞台对象、布局坐标/相对位置、颜色语义、动态更新规则、默认预设和验收标准。
-- widget_actions 必须给出 iframe action 示例，至少覆盖 widget_setState、widget_highlight、widget_annotation、widget_reveal。
+仅输出一个合法 JSON 对象，不输出 Markdown、解释、推理过程或未定义字段。
+只生成教学语义字段；page_type、widget_type、scene_outline、widget_outline、widget_actions、runtime、subject、primary_color 由服务端确定性补齐。
 
-只输出 JSON 对象，不输出 Markdown 或解释。
+JSON 顶层字段必须且只能包含：
+- interactive_type：固定为 {interactive_type}
+- title：不超过 24 个汉字
+- goal：一个可观察、可验证的学习目标
+- learner_level：简短学段
+- stage_layout：字符串，说明目标区、主舞台、控制区和结论区；公式、读数和控制面板不得覆盖主舞台
+- key_points：2~4 个字符串
+- design_brief：只含 layout、stage_objects、visual_rules、state_updates、default_preset、acceptance
+- interactive_spec：严格使用下方 {interactive_type} 规格
+- teaching_flow：3~4 项，每项只含 id、label、focus、caption
+- controls：只生成 1~2 个真实影响学习的控件，每项只含 id、label、type、bind；不要生成播放、暂停、重置按钮
+- formulas：0~3 个字符串
+
+一致性要求：
+- controls[].bind 必须等于 interactive_spec 中一个可调变量 name；无可调变量时 controls 输出空数组。
+- preset 的每个值必须落在对应变量 min/max 范围内。
+- 所有 id 使用小写英文、数字、连字符或下划线，引用必须存在。
+- design_brief 必须明确主舞台对象、相对位置、颜色语义、动态更新、默认状态和验收标准。
+
+{type_contract}
 """
+
+INTERACTIVE_TYPE_CONTRACTS = {
+    "simulation": """simulation 的 interactive_spec 只含：
+- type：固定 simulation
+- concept、description
+- variables：1~3 项；每项包含 name、label、min、max、step、default、unit，可额外包含 computed、expression
+- presets：1~3 项；每项使用 id、label、values，values 的 key 必须引用 variables.name
+- observations：2~4 个可观察现象""",
+    "diagram": """diagram 的 interactive_spec 只含：
+- type：固定 diagram
+- concept、description
+- nodes：3~7 项，每项只含 id、label、details、explanation
+- edges：每项只含 from、to，可选 label；from/to 必须引用 nodes.id
+- reveal_order：按揭示顺序列出全部 nodes.id""",
+    "game": """game 的 interactive_spec 只含：
+- type：固定 game
+- concept、description、game_type、challenge、success_condition
+- feedback_rules：2~4 个字符串
+- game_config：操作型挑战配置，必须包含 controls、fair_start、levels；不得退化为普通选择题堆叠""",
+}
 
 
 def detect_subject(topic: str) -> str:
@@ -100,26 +122,68 @@ def select_animation_runtime() -> str:
     return "gsap"
 
 
-def build_planning_prompt(topic: str, primary_color: str) -> tuple[str, str]:
-    subject = detect_subject(topic)
-    interactive_type = select_interactive_type(topic, subject)
+def build_planning_prompt(
+    topic: str,
+    primary_color: str,
+    *,
+    interactive_type_override: str | None = None,
+    subject_override: str | None = None,
+) -> tuple[str, str]:
+    subject = subject_override if subject_override in {*SUBJECT_KEYWORDS, "astronomy", "general"} else detect_subject(topic)
+    interactive_type = (
+        interactive_type_override
+        if interactive_type_override in VALID_INTERACTIVE_TYPES
+        else select_interactive_type(topic, subject)
+    )
     render_stack = select_render_stack(interactive_type, subject, topic)
     animation_runtime = select_animation_runtime()
-    user_prompt = f"""请为以下教学主题设计单页 interactive 课件计划。
+    system_prompt = PLANNING_SYSTEM_PROMPT_TEMPLATE.format(
+        interactive_type=interactive_type,
+        type_contract=INTERACTIVE_TYPE_CONTRACTS[interactive_type],
+    )
+    user_prompt = f"""生成以下主题的完整教学语义 JSON。
 
 主题：{topic}
 服务端学科识别：{subject}
-推荐互动类型：{interactive_type}
-推荐渲染栈：{render_stack}
-推荐动画运行时：{animation_runtime}
+固定互动类型：{interactive_type}
+服务端渲染栈：{render_stack}
+服务端动画运行时：{animation_runtime}
 主色调：{primary_color}
-
-必须输出完整 JSON，字段包括：
-page_type、interactive_type、widget_type、scene_outline、subject、title、goal、learner_level、stage_layout、
-key_points、design_brief、interactive_spec、widget_outline、widget_actions、teaching_flow、controls、formulas、runtime、primary_color。
-widget_type 必须与 interactive_type 相同；widget_outline 用于概括主舞台对象、状态机、可观察变化和必须响应的 action，不替代 interactive_spec。
 """
-    return PLANNING_SYSTEM_PROMPT_TEMPLATE, user_prompt
+    return system_prompt, user_prompt
+
+
+def select_revision_interactive_type(current_type: object, message: str, topic: str) -> str:
+    text = (message or "").lower()
+    for interactive_type, keywords in (
+        ("game", GAME_KEYWORDS),
+        ("diagram", DIAGRAM_KEYWORDS),
+        ("simulation", SIMULATION_KEYWORDS),
+    ):
+        if any(keyword in text for keyword in keywords):
+            return interactive_type
+    current = _safe_str(current_type)
+    if current in VALID_INTERACTIVE_TYPES:
+        return current
+    subject = detect_subject(topic)
+    return select_interactive_type(topic, subject)
+
+
+def compact_plan_for_revision(plan: dict[str, Any]) -> dict[str, Any]:
+    semantic_fields = (
+        "interactive_type",
+        "title",
+        "goal",
+        "learner_level",
+        "stage_layout",
+        "key_points",
+        "design_brief",
+        "interactive_spec",
+        "teaching_flow",
+        "controls",
+        "formulas",
+    )
+    return {field: plan[field] for field in semantic_fields if field in plan}
 
 
 def parse_planning_result(raw: str, topic: str = "", primary_color: str = DEFAULT_PRIMARY_COLOR) -> dict:
@@ -167,6 +231,14 @@ def normalize_plan(raw_plan: dict | None, topic: str, primary_color: str = DEFAU
     key_points = _string_list(raw.get("key_points") or raw.get("keyPoints"), baseline["key_points"], max_items=6, max_len=120)
     scene_outline = _normalize_scene_outline(raw.get("scene_outline"), baseline["scene_outline"], interactive_type, topic, key_points, widget_outline)
     design_brief = _normalize_design_brief(raw.get("design_brief"), baseline["design_brief"])
+    variable_names = {
+        _safe_str(variable.get("name"))
+        for variable in interactive_spec.get("variables", [])
+        if isinstance(variable, dict) and not variable.get("computed") and _safe_str(variable.get("name"))
+    }
+    title = (_safe_str(raw.get("title")) or baseline["title"])[:48]
+    if not isinstance(raw.get("scene_outline"), dict):
+        scene_outline["title"] = title
 
     return {
         "page_type": "interactive",
@@ -174,17 +246,17 @@ def normalize_plan(raw_plan: dict | None, topic: str, primary_color: str = DEFAU
         "widget_type": interactive_type,
         "scene_outline": scene_outline,
         "subject": subject,
-        "title": (_safe_str(raw.get("title")) or baseline["title"])[:48],
+        "title": title,
         "goal": (_safe_str(raw.get("goal")) or baseline["goal"])[:180],
         "learner_level": (_safe_str(raw.get("learner_level")) or "初中/高中")[:24],
-        "stage_layout": (_safe_str(raw.get("stage_layout")) or baseline["stage_layout"])[:220],
+        "stage_layout": _normalize_stage_layout(raw.get("stage_layout"), baseline["stage_layout"]),
         "key_points": key_points,
         "design_brief": design_brief,
         "interactive_spec": interactive_spec,
         "widget_outline": widget_outline,
         "widget_actions": _normalize_widget_actions(raw.get("widget_actions"), baseline["widget_actions"], interactive_spec, interactive_type),
         "teaching_flow": teaching_flow,
-        "controls": _normalize_controls(raw.get("controls"), baseline["controls"]),
+        "controls": _normalize_controls(raw.get("controls"), baseline["controls"], valid_bindings=variable_names),
         "formulas": _string_list(raw.get("formulas"), baseline["formulas"], max_items=5, max_len=100),
         "runtime": {
             "render_stack": render_stack,
@@ -300,18 +372,31 @@ def _normalize_interactive_spec(raw_spec: object, default: dict, interactive_typ
     spec.setdefault("concept", topic)
     spec.setdefault("description", default.get("description"))
     if interactive_type == "simulation":
-        variables = spec.get("variables")
-        spec["variables"] = variables if isinstance(variables, list) and variables else default.get("variables", [])
-        observations = spec.get("observations")
-        spec["observations"] = observations if isinstance(observations, list) and observations else default.get("observations", [])
-        presets = spec.get("presets")
-        spec["presets"] = presets if isinstance(presets, list) and presets else default.get("presets", [])
+        variables, bounds = _normalize_simulation_variables(spec.get("variables"), default.get("variables", []))
+        spec["variables"] = variables
+        spec["presets"] = _normalize_simulation_presets(spec.get("presets"), default.get("presets", []), bounds)
+        spec["observations"] = _string_list(
+            spec.get("observations"),
+            default.get("observations", []),
+            max_items=4,
+            max_len=140,
+        )
     elif interactive_type == "diagram":
         for field in ("nodes", "edges", "reveal_order"):
             value = spec.get(field)
             spec[field] = value if isinstance(value, list) and value else default.get(field, [])
         spec["nodes"] = [_normalize_diagram_node(node, index) for index, node in enumerate(spec["nodes"])]
-        spec["edges"] = [_normalize_diagram_edge(edge) for edge in spec["edges"]]
+        node_ids = [node["id"] for node in spec["nodes"]]
+        valid_node_ids = set(node_ids)
+        edges = [_normalize_diagram_edge(edge) for edge in spec["edges"]]
+        spec["edges"] = [
+            edge
+            for edge in edges
+            if edge["from"] in valid_node_ids and edge["to"] in valid_node_ids and edge["from"] != edge["to"]
+        ]
+        raw_reveal_order = [_safe_str(item) for item in spec["reveal_order"]]
+        reveal_order = list(dict.fromkeys(item for item in raw_reveal_order if item in valid_node_ids))
+        spec["reveal_order"] = [*reveal_order, *[node_id for node_id in node_ids if node_id not in reveal_order]]
     else:
         spec.setdefault("challenge", default.get("challenge"))
         spec.setdefault("success_condition", default.get("success_condition"))
@@ -320,6 +405,90 @@ def _normalize_interactive_spec(raw_spec: object, default: dict, interactive_typ
         rules = spec.get("feedback_rules")
         spec["feedback_rules"] = rules if isinstance(rules, list) and rules else default.get("feedback_rules", [])
     return spec
+
+
+def _normalize_simulation_variables(
+    raw_variables: object,
+    default: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], dict[str, tuple[float, float]]]:
+    source = raw_variables if isinstance(raw_variables, list) and raw_variables else default
+    variables: list[dict[str, Any]] = []
+    bounds: dict[str, tuple[float, float]] = {}
+    seen: set[str] = set()
+    for index, item in enumerate(source[:3]):
+        if not isinstance(item, dict):
+            continue
+        name = re.sub(r"[^a-zA-Z0-9_-]+", "-", _safe_str(item.get("name")) or f"variable-{index + 1}").strip("-")
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        variable: dict[str, Any] = {
+            "name": name,
+            "label": (_safe_str(item.get("label")) or name)[:32],
+        }
+        if bool(item.get("computed")):
+            variable["computed"] = True
+            expression = _safe_str(item.get("expression"))
+            if expression:
+                variable["expression"] = expression[:160]
+            variables.append(variable)
+            continue
+        minimum = _safe_number(item.get("min"), 0)
+        maximum = _safe_number(item.get("max"), max(minimum + 1, 10))
+        if maximum < minimum:
+            minimum, maximum = maximum, minimum
+        default_value = _clamp(_safe_number(item.get("default"), minimum), minimum, maximum)
+        step = _safe_number(item.get("step"), 1)
+        if step <= 0:
+            step = 1
+        variable.update(
+            {
+                "min": minimum,
+                "max": maximum,
+                "step": step,
+                "default": default_value,
+                "unit": _safe_str(item.get("unit"))[:16],
+            }
+        )
+        bounds[name] = (float(minimum), float(maximum))
+        variables.append(variable)
+    if variables:
+        return variables, bounds
+    return _normalize_simulation_variables(default, []) if default else ([], {})
+
+
+def _normalize_simulation_presets(
+    raw_presets: object,
+    default: list[dict[str, Any]],
+    bounds: dict[str, tuple[float, float]],
+) -> list[dict[str, Any]]:
+    source = raw_presets if isinstance(raw_presets, list) and raw_presets else default
+    presets: list[dict[str, Any]] = []
+    for index, item in enumerate(source[:3]):
+        if not isinstance(item, dict):
+            continue
+        raw_values = item.get("values") if isinstance(item.get("values"), dict) else item
+        values: dict[str, int | float] = {}
+        for name, (minimum, maximum) in bounds.items():
+            if name not in raw_values:
+                continue
+            value = _clamp(_safe_number(raw_values.get(name), minimum), minimum, maximum)
+            values[name] = value
+        if not values:
+            continue
+        preset_id = re.sub(
+            r"[^a-zA-Z0-9_-]+",
+            "-",
+            _safe_str(item.get("id")) or f"preset-{index + 1}",
+        ).strip("-")
+        presets.append(
+            {
+                "id": preset_id or f"preset-{index + 1}",
+                "label": (_safe_str(item.get("label")) or f"预设{index + 1}")[:32],
+                "values": values,
+            }
+        )
+    return presets
 
 
 def _normalize_widget_outline(raw_outline: object, interactive_spec: dict, interactive_type: str, topic: str) -> dict:
@@ -372,7 +541,11 @@ def _normalize_teaching_flow(raw_flow: object, default: list[dict]) -> list[dict
     for index, item in enumerate(source[:5]):
         if not isinstance(item, dict):
             continue
-        step_id = re.sub(r"[^a-zA-Z0-9_-]+", "-", (_safe_str(item.get("id")) or f"step-{index + 1}").lower()).strip("-")
+        step_id = re.sub(
+            r"[^a-zA-Z0-9_-]+",
+            "-",
+            (_safe_str(item.get("id") or item.get("step")) or f"step-{index + 1}").lower(),
+        ).strip("-")
         if step_id in seen:
             step_id = f"{step_id}-{index + 1}"
         seen.add(step_id)
@@ -380,14 +553,19 @@ def _normalize_teaching_flow(raw_flow: object, default: list[dict]) -> list[dict
             {
                 "id": step_id,
                 "label": (_safe_str(item.get("label")) or f"第{index + 1}步")[:32],
-                "focus": (_safe_str(item.get("focus")) or "观察核心变化")[:140],
-                "caption": (_safe_str(item.get("caption")) or "观察当前步骤的关键变化。")[:140],
+                "focus": (_safe_str(item.get("focus") or item.get("instruction")) or "观察核心变化")[:140],
+                "caption": (_safe_str(item.get("caption") or item.get("instruction")) or "观察当前步骤的关键变化。")[:140],
             }
         )
     return flow or list(default)
 
 
-def _normalize_controls(raw_controls: object, default: list[dict]) -> list[dict]:
+def _normalize_controls(
+    raw_controls: object,
+    default: list[dict],
+    *,
+    valid_bindings: set[str] | None = None,
+) -> list[dict]:
     source = raw_controls if isinstance(raw_controls, list) and raw_controls else default
     controls: list[dict] = []
     seen: set[str] = set()
@@ -406,18 +584,27 @@ def _normalize_controls(raw_controls: object, default: list[dict]) -> list[dict]
         if control_id in seen:
             control_id = f"{control_id}-{index + 1}"
         seen.add(control_id)
+        bind = _safe_str(item.get("bind") or item.get("target_var")) or None
+        if valid_bindings is not None and bind not in valid_bindings:
+            bind = None
         controls.append(
             {
                 "id": control_id[:40],
                 "label": (_safe_str(item.get("label")) or control_id)[:24],
                 "type": control_type,
-                "bind": _safe_str(item.get("bind")) or None,
+                "bind": bind,
                 "action": action or None,
             }
         )
         if len(controls) == 2:
             break
     return [*controls, *[dict(control) for control in REQUIRED_RUNTIME_CONTROLS]]
+
+
+def _normalize_stage_layout(value: object, default: str) -> str:
+    if isinstance(value, dict):
+        value = value.get("description") or value.get("layout")
+    return (_safe_str(value) or default)[:220]
 
 
 def _string_list(value: object, default: list[str], max_items: int, max_len: int = 60) -> list[str]:
@@ -440,6 +627,23 @@ def _normalize_external_libraries(value: object, animation_runtime: str) -> list
 
 def _safe_str(value: object) -> str:
     return str(value).strip() if value is not None else ""
+
+
+def _safe_number(value: object, default: int | float) -> int | float:
+    if isinstance(value, bool):
+        return default
+    if isinstance(value, (int, float)):
+        return value
+    try:
+        parsed = float(str(value))
+    except (TypeError, ValueError):
+        return default
+    return int(parsed) if parsed.is_integer() else parsed
+
+
+def _clamp(value: int | float, minimum: int | float, maximum: int | float) -> int | float:
+    clamped = min(max(float(value), float(minimum)), float(maximum))
+    return int(clamped) if clamped.is_integer() else clamped
 
 
 def _default_key_points(topic: str, interactive_type: str) -> list[str]:
@@ -494,6 +698,7 @@ def _default_design_brief(topic: str, interactive_type: str) -> dict[str, Any]:
         "stage_objects": ["main-visual", "control-panel", "caption", "formula"],
         "visual_rules": ["主舞台展示核心对象", "控制区只放真实影响学习的控件", "caption 随状态变化"],
         "state_updates": ["控件改变 widget state", "运行时同步图形、读数和说明"],
+        "default_preset": "默认状态直接展示一个可理解、可操作的典型案例。",
         "acceptance": ["默认状态可理解", "播放/暂停/重置可用", "支持四类 widget action"],
     }
 
@@ -501,10 +706,28 @@ def _default_design_brief(topic: str, interactive_type: str) -> dict[str, Any]:
 def _normalize_design_brief(raw_brief: object, default: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(raw_brief, dict):
         return dict(default)
-    brief = dict(default)
-    for key, value in raw_brief.items():
-        if isinstance(value, (str, int, float, bool, list, dict)):
-            brief[str(key)] = value
+    aliases = {
+        "layout": ("layout", "layout_coordinates"),
+        "stage_objects": ("stage_objects", "main_stage_objects"),
+        "visual_rules": ("visual_rules", "color_semantics"),
+        "state_updates": ("state_updates", "dynamic_update_rules"),
+        "default_preset": ("default_preset",),
+        "acceptance": ("acceptance", "acceptance_criteria"),
+    }
+    brief: dict[str, Any] = {}
+    for canonical, candidates in aliases.items():
+        value = next((raw_brief.get(candidate) for candidate in candidates if raw_brief.get(candidate) is not None), None)
+        if value is None:
+            value = default.get(canonical)
+        if canonical in {"stage_objects", "visual_rules", "state_updates", "acceptance"}:
+            if isinstance(value, list):
+                brief[canonical] = [str(item).strip()[:160] for item in value[:8] if str(item).strip()]
+            elif _safe_str(value):
+                brief[canonical] = [_safe_str(value)[:160]]
+            else:
+                brief[canonical] = list(default.get(canonical, []))
+        else:
+            brief[canonical] = _safe_str(value)[:240]
     return brief
 
 
@@ -529,7 +752,23 @@ def _normalize_widget_actions(
     interactive_type: str,
 ) -> list[dict[str, Any]]:
     source = raw_actions if isinstance(raw_actions, list) and raw_actions else default
-    actions = [dict(action) for action in source[:6] if isinstance(action, dict)]
+    actions: list[dict[str, Any]] = []
+    for item in source[:6]:
+        if not isinstance(item, dict):
+            continue
+        action_type = _safe_str(item.get("type") or item.get("action"))
+        params = item.get("params") if isinstance(item.get("params"), dict) else {}
+        action: dict[str, Any] = {"type": action_type}
+        if action_type == "widget_setState":
+            state = item.get("state") if isinstance(item.get("state"), dict) else params
+            action["state"] = dict(state)
+        else:
+            target = _safe_str(item.get("target") or params.get("elementId"))
+            if target and not target.startswith(("#", ".", "[")):
+                target = f"#{target}"
+            action["target"] = target or "[data-role='main-visual']"
+        action["content"] = _safe_str(item.get("content") or params.get("text"))[:160]
+        actions.append(action)
     found = {str(action.get("type") or "") for action in actions}
     required = {"widget_setState", "widget_highlight", "widget_annotation", "widget_reveal"}
     if not required.issubset(found):

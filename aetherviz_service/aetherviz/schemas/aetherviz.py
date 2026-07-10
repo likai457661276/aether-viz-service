@@ -4,7 +4,6 @@ from pydantic import BaseModel, Field
 
 from aetherviz_service.aetherviz.constants import get_gsap_core_cdn_url
 
-
 InteractiveType = Literal["simulation", "diagram", "game"]
 RenderStack = Literal["svg", "svg_canvas", "canvas_svg", "dom_svg"]
 AnimationRuntime = Literal["native", "gsap"]
