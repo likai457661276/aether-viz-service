@@ -190,7 +190,7 @@ def _attempt_repair_loop(
     started_at: float,
 ) -> Iterator[str]:
     repaired = False
-    deterministic_html = deterministic_repair_html(html, report)
+    deterministic_html = deterministic_repair_html(html, report, plan=plan)
     if deterministic_html != html:
         metadata["attempts"] += 1
         yield agent_sse_event(

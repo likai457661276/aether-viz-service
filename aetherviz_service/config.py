@@ -12,13 +12,7 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     openai_api_key: str | None = None
     openai_base_url: str | None = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-    planning_openai_api_key: str | None = None
-    planning_openai_base_url: str | None = None
-    planning_openai_model: str = "deepseek-v4-flash"
-    planning_reasoning_effort: str | None = "medium"
-    aetherviz_plan_model: str = "deepseek-v4-flash"
-    aetherviz_html_model: str = "deepseek-v4-flash"
-    aetherviz_repair_model: str = "qwen3.7-plus"
+    openai_model: str = "deepseek-v4-flash"
     aetherviz_gsap_cdn_url: str = "https://cdn.jsdelivr.net/npm/gsap@3/dist/gsap.min.js"
     aetherviz_html_enable_thinking: bool = False
     aetherviz_html_reasoning_effort: str | None = None

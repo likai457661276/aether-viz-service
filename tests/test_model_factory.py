@@ -4,6 +4,14 @@ from aetherviz_service.aetherviz.agents import model_factory
 from aetherviz_service.config import settings
 
 
+def test_planning_config_reuses_primary_api_key(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "openai_api_key", "")
+    assert model_factory.has_planning_llm_config() is False
+
+    monkeypatch.setattr(settings, "openai_api_key", "test-key")
+    assert model_factory.has_planning_llm_config() is True
+
+
 def test_html_model_kwargs_include_timeout_and_limited_retries(monkeypatch) -> None:
     monkeypatch.setattr(settings, "openai_api_key", "test-key")
     monkeypatch.setattr(settings, "openai_base_url", "https://example.invalid/v1")
@@ -24,6 +32,6 @@ def test_html_model_kwargs_enable_reasoning(monkeypatch) -> None:
 
     kwargs = model_factory._html_model_kwargs()
 
-    assert kwargs["model"] == settings.aetherviz_html_model
+    assert kwargs["model"] == settings.openai_model
     assert kwargs["extra_body"] == {"enable_thinking": True}
     assert kwargs["reasoning_effort"] == "medium"

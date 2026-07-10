@@ -25,6 +25,11 @@ VALID_INTERACTIVE_TYPES = {"simulation", "diagram", "game"}
 VALID_RENDER_STACKS = {"svg", "svg_canvas", "canvas_svg", "dom_svg"}
 VALID_ANIMATION_RUNTIMES = {"native", "gsap"}
 GSAP_CORE_CDN = get_gsap_core_cdn_url()
+REQUIRED_RUNTIME_CONTROLS = (
+    {"id": "play-animation", "label": "播放", "type": "button", "action": "play"},
+    {"id": "pause-animation", "label": "暂停", "type": "button", "action": "pause"},
+    {"id": "reset-animation", "label": "重置", "type": "button", "action": "reset"},
+)
 
 SIMULATION_KEYWORDS = ["运动", "参数", "实验", "函数", "概率", "反应速率", "电路", "轨迹", "速度", "采样"]
 DIAGRAM_KEYWORDS = ["流程", "结构", "分类", "因果", "步骤", "阅读结构", "知识图谱", "体系", "过程"]
@@ -43,7 +48,7 @@ PLANNING_SYSTEM_PROMPT_TEMPLATE = f"""你是资深互动教学课件规划师。
 - diagram: interactive_spec 必须写 type、concept、description、nodes、edges、reveal_order；nodes 每项必须有 id、label、details/explanation。
 - game: interactive_spec 必须写 type、concept、description、game_type、challenge、success_condition、feedback_rules、game_config；必须是操作型挑战，不是普通选择题堆叠。
 - teaching_flow 用 3~5 个教学节奏步骤描述观察、操作、归纳。
-- controls 只保留真实影响学习的控件，2~5 个。
+- controls 保留 1~2 个真实影响学习的参数控件，并固定包含播放、暂停、重置按钮；三个按钮 id 必须分别为 play-animation、pause-animation、reset-animation。
 - runtime.render_stack 只能是 svg、svg_canvas、canvas_svg、dom_svg；runtime.animation_runtime 优先使用 gsap，只有纯 Canvas 高频粒子等必须逐帧绘制的场景才使用 native。
 - runtime.external_libraries 在 animation_runtime 为 gsap 时必须包含 {GSAP_CORE_CDN}。
 - stage_layout 必须说明目标区、主舞台、控制区和结论区如何在单屏内摆放。
@@ -274,19 +279,16 @@ def _default_controls(interactive_type: str, topic: str = "") -> list[dict]:
     if interactive_type == "simulation":
         return [
             {"id": "parameter-slider", "label": "关键参数", "type": "slider", "bind": "parameter"},
-            {"id": "play-button", "label": "播放", "type": "button", "action": "play"},
-            {"id": "reset-button", "label": "重置", "type": "button", "action": "reset"},
+            *[dict(control) for control in REQUIRED_RUNTIME_CONTROLS],
         ]
     if interactive_type == "game":
         return [
             {"id": "start-button", "label": "开始挑战", "type": "button", "action": "start"},
-            {"id": "check-button", "label": "检查答案", "type": "button", "action": "check"},
-            {"id": "reset-button", "label": "重置", "type": "button", "action": "reset"},
+            *[dict(control) for control in REQUIRED_RUNTIME_CONTROLS],
         ]
     return [
         {"id": "next-button", "label": "下一步", "type": "button", "action": "next"},
-        {"id": "highlight-toggle", "label": "高亮重点", "type": "toggle", "action": "highlight"},
-        {"id": "reset-button", "label": "重置", "type": "button", "action": "reset"},
+        *[dict(control) for control in REQUIRED_RUNTIME_CONTROLS],
     ]
 
 
@@ -389,10 +391,15 @@ def _normalize_controls(raw_controls: object, default: list[dict]) -> list[dict]
     source = raw_controls if isinstance(raw_controls, list) and raw_controls else default
     controls: list[dict] = []
     seen: set[str] = set()
-    for index, item in enumerate(source[:5]):
+    lifecycle_actions = {"play", "pause", "reset"}
+    lifecycle_ids = {control["id"] for control in REQUIRED_RUNTIME_CONTROLS}
+    for index, item in enumerate(source):
         if not isinstance(item, dict):
             continue
+        action = _safe_str(item.get("action")).lower()
         control_id = re.sub(r"[^a-zA-Z0-9_-]+", "-", (_safe_str(item.get("id")) or f"control-{index + 1}").lower()).strip("-")
+        if action in lifecycle_actions or control_id in lifecycle_ids:
+            continue
         control_type = _safe_str(item.get("type")).lower()
         if control_type not in {"slider", "button", "speed", "toggle", "select"}:
             control_type = "button"
@@ -405,10 +412,12 @@ def _normalize_controls(raw_controls: object, default: list[dict]) -> list[dict]
                 "label": (_safe_str(item.get("label")) or control_id)[:24],
                 "type": control_type,
                 "bind": _safe_str(item.get("bind")) or None,
-                "action": _safe_str(item.get("action")) or None,
+                "action": action or None,
             }
         )
-    return controls or list(default)
+        if len(controls) == 2:
+            break
+    return [*controls, *[dict(control) for control in REQUIRED_RUNTIME_CONTROLS]]
 
 
 def _string_list(value: object, default: list[str], max_items: int, max_len: int = 60) -> list[str]:

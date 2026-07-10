@@ -8,6 +8,7 @@ from tests.test_aetherviz import sample_html
 
 from aetherviz_service.aetherviz.agents import html_agent
 from aetherviz_service.aetherviz.agents.repair_agent import deterministic_repair_html
+from aetherviz_service.aetherviz.tools.validation_report import build_validation_report
 
 SAMPLE_HTML = sample_html()
 from aetherviz_service.aetherviz.agents.html_agent import (
@@ -35,6 +36,33 @@ def test_deterministic_repair_inserts_body_close_before_html_close() -> None:
     repaired = deterministic_repair_html("<!DOCTYPE html><html><script>const ok = true;</script></html>")
 
     assert repaired.endswith("</body>\n</html>")
+
+
+def test_deterministic_repair_restores_static_widget_contract() -> None:
+    broken = SAMPLE_HTML.replace(
+        '<script type="application/json" id="widget-config">{"type":"simulation","concept":"熵增"}</script>',
+        "",
+    )
+    for control_id in ("play-animation", "pause-animation", "reset-animation"):
+        broken = broken.replace(f'<button id="{control_id}">', f'<button id="legacy-{control_id}">')
+    report = build_validation_report(broken)
+
+    repaired = deterministic_repair_html(
+        broken,
+        report,
+        plan={
+            "interactive_type": "simulation",
+            "interactive_spec": {"type": "simulation", "concept": "熵增"},
+        },
+    )
+    repaired_report = build_validation_report(repaired)
+
+    assert repaired_report["ok"] is True
+    assert '<script type="application/json" id="widget-config">' in repaired
+    assert all(
+        f'id="{control_id}"' in repaired
+        for control_id in ("play-animation", "pause-animation", "reset-animation")
+    )
 
 
 def test_stream_generate_html_emits_progress_and_result_without_llm(monkeypatch) -> None:

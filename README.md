@@ -46,33 +46,10 @@ uv sync --dev
 ```bash
 OPENAI_API_KEY="你的 OpenAI-compatible API Key"
 OPENAI_BASE_URL="https://dashscope.aliyuncs.com/compatible-mode/v1"
-PLANNING_OPENAI_MODEL="deepseek-v4-flash"
-PLANNING_REASONING_EFFORT="low"
-AETHERVIZ_PLAN_MODEL="deepseek-v4-flash"
-AETHERVIZ_HTML_MODEL="deepseek-v4-flash"
-AETHERVIZ_REPAIR_MODEL="qwen3.7-plus"
-AETHERVIZ_GSAP_CDN_URL="https://cdn.jsdelivr.net/npm/gsap@3/dist/gsap.min.js"
-AETHERVIZ_MAX_REPAIR_ATTEMPTS="1"
-AETHERVIZ_PLAN_TIMEOUT_SECONDS="180"
-AETHERVIZ_PLAN_MAX_RETRIES="1"
-AETHERVIZ_HTML_TIMEOUT_SECONDS="600"
-AETHERVIZ_HTML_MAX_RETRIES="1"
-AETHERVIZ_HTML_ENABLE_THINKING="false"
-# AETHERVIZ_HTML_REASONING_EFFORT="medium"
-AETHERVIZ_REPAIR_TIMEOUT_SECONDS="300"
-AETHERVIZ_REPAIR_MAX_RETRIES="1"
+OPENAI_MODEL="deepseek-v4-flash"
 ```
 
-`phase=plan` 和 `phase=revise_plan` 默认使用 `AETHERVIZ_PLAN_MODEL=deepseek-v4-flash`。初次 HTML 生成默认使用 `AETHERVIZ_HTML_MODEL=deepseek-v4-flash` 且默认关闭推理模式（`AETHERVIZ_HTML_ENABLE_THINKING=false`），模型修复默认使用 `AETHERVIZ_REPAIR_MODEL=qwen3.7-plus`；三者均通过 `langchain-openai.ChatOpenAI` 直接接入百炼 OpenAI-compatible endpoint。HTML 直出阶段的推理内容不会展示给用户，且推理与正文共享 completion token 预算，实测开启后会显著增加耗时并提高输出被截断的概率，因此默认关闭；如需实验性开启，可设置 `AETHERVIZ_HTML_ENABLE_THINKING=true` 并配置 `AETHERVIZ_HTML_REASONING_EFFORT`，此时 HTML 推理耗时通过 SSE 元数据返回，前端只展示时长，不展示模型推理原文。`AETHERVIZ_GSAP_CDN_URL` 配置生成物使用的 GSAP core HTTPS 地址，修改后需重启服务；该地址会同步进入计划、生成/编辑/修复提示词和安全白名单。各阶段 timeout 和 max retries 配置直接作用于模型 HTTP 请求。
-
-如教学方案生成需要单独的百炼业务空间或独立 Key，可额外设置：
-
-```bash
-PLANNING_OPENAI_API_KEY="你的教学方案模型 API Key"
-PLANNING_OPENAI_BASE_URL="https://{WorkspaceId}.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
-```
-
-`PLANNING_OPENAI_API_KEY` 和 `PLANNING_OPENAI_BASE_URL` 留空时会复用 `OPENAI_API_KEY` 和 `OPENAI_BASE_URL`。不要把真实 API Key 提交到仓库。
+规划、HTML 生成和模型修复统一复用这组服务配置。`OPENAI_BASE_URL` 默认使用百炼 OpenAI-compatible endpoint，`OPENAI_MODEL` 默认使用 `deepseek-v4-flash`，因此本地 `.env` 最少只需填写 `OPENAI_API_KEY`。阶段级温度、token、超时、重试及推理策略由服务内置默认值控制；HTML 直出默认关闭推理，避免增加耗时和截断概率。不要把真实 API Key 提交到仓库。
 
 ### LangSmith 可观测性
 
@@ -183,8 +160,9 @@ pnpm build
     ],
     "controls": [
       {"id": "speed-control", "label": "速度", "type": "slider", "bind": "speed"},
-      {"id": "replay-btn", "label": "演示一次", "type": "button", "action": "play"},
-      {"id": "reset-button", "label": "重置", "type": "button", "action": "reset"}
+      {"id": "play-animation", "label": "播放", "type": "button", "action": "play"},
+      {"id": "pause-animation", "label": "暂停", "type": "button", "action": "pause"},
+      {"id": "reset-animation", "label": "重置", "type": "button", "action": "reset"}
     ],
     "formulas": [],
     "runtime": {
@@ -284,12 +262,12 @@ HTML 文件编辑阶段请求示例：
 
 `/bingo-ai/generate-aetherviz-spec` 使用阶段化生成策略：
 
-1. `phase=plan` 由单次 LLM 规划（默认 `deepseek-v4-flash`，可通过 `PLANNING_REASONING_EFFORT` 开启推理模式）生成完整 `draft` 教案计划。
+1. `phase=plan` 由统一配置的模型执行单次规划，生成完整 `draft` 教案计划。
 2. `phase=revise_plan` 由规划模型接收 `current_plan + message`，重新生成完整 `revised` 计划，不返回局部 patch。
 3. `phase=approve_plan` 将计划状态置为 `approved`。
 4. `phase=generate` 由 `html_agent` 根据已确认计划生成完整自包含 HTML，并在 `html.delta` 中持续返回累计实际大小。
 5. `validation_report` 在内存中聚合 HTML parser、JS checker、安全检查、长度检查和 Widget 最小运行契约检查，验证 widget-config、主舞台、核心控件、runtime API、ready 标记和 iframe action listener。
-6. 检查失败时先执行确定性修复；仍失败时由 `repair_agent` 使用 `qwen3.7-plus` 定向修复，最多 1 次。内容与错误集合无变化时立即停止重试。
+6. 检查失败时先确定性补齐静态 `widget-config` 和播放/暂停/重置控件等基础契约；仍失败时由 `repair_agent` 使用统一配置的模型定向修复，最多 1 次。内容与错误集合无变化时立即停止重试。
 7. `phase=edit_html` 基于选中 HTML 全文生成新的 HTML 分支，不覆盖旧 HTML。
 8. 最终 HTML 仅通过 `html.done` 返回前端；服务端不保留 HTML 文件缓存或产物路径。
 

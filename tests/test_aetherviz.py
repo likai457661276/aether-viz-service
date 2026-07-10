@@ -17,7 +17,6 @@ AETHERVIZ_ENDPOINT = "/bingo-ai/generate-aetherviz-spec"
 @pytest.fixture(autouse=True)
 def disable_real_llm_calls(monkeypatch):
     monkeypatch.setattr(settings, "openai_api_key", None)
-    monkeypatch.setattr(settings, "planning_openai_api_key", None)
     monkeypatch.setattr(settings, "langsmith_tracing", False)
 
 
@@ -331,6 +330,23 @@ def test_plan_normalization_uses_configured_gsap_cdn(monkeypatch) -> None:
     normalized = normalize_plan(raw_plan, "熵增演示")
 
     assert normalized["runtime"]["external_libraries"] == [custom_url]
+
+
+def test_plan_normalization_enforces_runtime_control_ids() -> None:
+    from aetherviz_service.aetherviz.workflow.plan_contract import normalize_plan
+
+    raw_plan = sample_plan()
+    raw_plan["controls"] = [
+        {"id": "slider-a", "label": "直角边 a", "type": "slider", "bind": "a"},
+        {"id": "slider-b", "label": "直角边 b", "type": "slider", "bind": "b"},
+        {"id": "preset-selector", "label": "预设", "type": "select"},
+        {"id": "reset-btn", "label": "重置", "type": "button", "action": "reset"},
+    ]
+
+    normalized = normalize_plan(raw_plan, "勾股定理")
+    control_ids = [control["id"] for control in normalized["controls"]]
+
+    assert control_ids == ["slider-a", "slider-b", "play-animation", "pause-animation", "reset-animation"]
 
 
 def test_validation_report_rejects_inline_script_syntax_error() -> None:

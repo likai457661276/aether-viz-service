@@ -6,6 +6,7 @@ from typing import Any
 
 from aetherviz_service.config import settings
 
+
 def _blank_to_none(value: str | None) -> str | None:
     if value is None:
         return None
@@ -18,12 +19,12 @@ def has_primary_llm_config() -> bool:
 
 
 def has_planning_llm_config() -> bool:
-    return bool(_blank_to_none(settings.planning_openai_api_key) or _blank_to_none(settings.openai_api_key))
+    return has_primary_llm_config()
 
 
 def _html_model_kwargs() -> dict[str, Any]:
     kwargs: dict[str, Any] = {
-        "model": settings.aetherviz_html_model,
+        "model": settings.openai_model,
         "api_key": _blank_to_none(settings.openai_api_key),
         "base_url": _blank_to_none(settings.openai_base_url),
         "temperature": 0.2,
@@ -46,25 +47,23 @@ def create_chat_model(kind: str):
 
     if kind == "planning":
         planning_kwargs: dict[str, Any] = {
-            "model": settings.aetherviz_plan_model or settings.planning_openai_model,
-            "api_key": _blank_to_none(settings.planning_openai_api_key) or _blank_to_none(settings.openai_api_key),
-            "base_url": _blank_to_none(settings.planning_openai_base_url) or _blank_to_none(settings.openai_base_url),
+            "model": settings.openai_model,
+            "api_key": _blank_to_none(settings.openai_api_key),
+            "base_url": _blank_to_none(settings.openai_base_url),
             "temperature": 0.3,
             "max_tokens": 8192,
             "timeout": max(settings.aetherviz_plan_timeout_seconds, 1),
             "max_retries": max(settings.aetherviz_plan_max_retries, 0),
+            "reasoning_effort": "medium",
         }
-        reasoning_effort = _blank_to_none(settings.planning_reasoning_effort)
-        if reasoning_effort:
-            planning_kwargs["reasoning_effort"] = reasoning_effort
-            base_url = str(planning_kwargs.get("base_url") or "").lower()
-            if "dashscope" in base_url or "maas.aliyuncs.com" in base_url:
-                planning_kwargs["extra_body"] = {"enable_thinking": True}
+        base_url = str(planning_kwargs.get("base_url") or "").lower()
+        if "dashscope" in base_url or "maas.aliyuncs.com" in base_url:
+            planning_kwargs["extra_body"] = {"enable_thinking": True}
         return ChatOpenAI(**planning_kwargs)
     if kind == "html":
         return ChatOpenAI(**_html_model_kwargs())
     return ChatOpenAI(
-        model=settings.aetherviz_repair_model,
+        model=settings.openai_model,
         api_key=_blank_to_none(settings.openai_api_key),
         base_url=_blank_to_none(settings.openai_base_url),
         temperature=0.08,
