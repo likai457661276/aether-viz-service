@@ -9,12 +9,10 @@ from aetherviz_service.aetherviz.agents import planner_agent
 from aetherviz_service.aetherviz.agents.planner_agent import (
     PlanningStreamResult,
     build_planning_progress_payload,
-    extract_todos_from_stream_chunk,
     format_planning_progress_delta,
-    normalize_planning_steps,
     stream_create_plan,
 )
-from aetherviz_service.aetherviz.workflow.plan_contract import (
+from aetherviz_service.aetherviz.workflow.plan_detection import (
     build_planning_prompt,
     select_revision_interactive_type,
 )
@@ -27,22 +25,6 @@ SAMPLE_PLAN_JSON = (
 )
 
 
-def test_normalize_planning_steps_filters_invalid_entries() -> None:
-    steps = normalize_planning_steps(
-        [
-            {"content": "分析教学目标", "status": "in_progress"},
-            {"task": "设计互动规格", "status": "pending"},
-            {"content": "", "status": "pending"},
-            "invalid",
-        ]
-    )
-
-    assert steps == [
-        {"content": "分析教学目标", "status": "in_progress"},
-        {"content": "设计互动规格", "status": "pending"},
-    ]
-
-
 def test_format_planning_progress_delta_prefers_active_step() -> None:
     delta = format_planning_progress_delta(
         [
@@ -53,11 +35,6 @@ def test_format_planning_progress_delta_prefers_active_step() -> None:
     )
 
     assert delta == "正在设计互动规格…"
-
-
-def test_extract_todos_from_stream_chunk_reads_node_updates() -> None:
-    chunk = {"tools": {"todos": [{"content": "检查 JSON", "status": "completed"}]}}
-    assert extract_todos_from_stream_chunk(chunk) == [{"content": "检查 JSON", "status": "completed"}]
 
 
 def test_build_planning_progress_payload_includes_active_index() -> None:

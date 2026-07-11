@@ -4,6 +4,8 @@
 
 当前生成链路使用 LangChain `ChatOpenAI` 直接生成动态单页互动课件：先生成可确认的 `interactive` 教案计划，用户可多轮修订计划，确认后再生成自包含 HTML。HTML 只在请求内存中完成检查和修复，通过 SSE 返回前端渲染与会话缓存；后端不落盘缓存 HTML、修复稿或检查报告。检查覆盖 HTML parser、JS checker、安全、长度和低成本 Widget 运行契约；失败时先执行确定性修复，必要时最多调用一次修复模型。
 
+Docker 镜像内置 Node.js，仅用于对生成物的内联 JavaScript 执行 `node --check` 语法校验，保证 macOS 本地与 Linux 生产容器使用同等级检查。
+
 ## 目录结构
 
 ```text
@@ -50,10 +52,13 @@ OPENAI_PLAN_MODEL="deepseek-v4-flash"
 OPENAI_HTML_MODEL="qwen3.7-plus"
 AETHERVIZ_PLAN_MAX_TOKENS=3072
 AETHERVIZ_GSAP_CDN_URL="https://cdn.jsdelivr.net/npm/gsap@3/dist/gsap.min.js"
+AETHERVIZ_KATEX_ENABLED=true
+AETHERVIZ_KATEX_CSS_URL="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css"
+AETHERVIZ_KATEX_JS_URL="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"
 AETHERVIZ_HTML_MAX_TOKENS=12288
 ```
 
-规划阶段使用 `OPENAI_PLAN_MODEL`，HTML 生成、HTML 编辑和模型修复使用 `OPENAI_HTML_MODEL`。两类模型复用 `OPENAI_API_KEY` 与 `OPENAI_BASE_URL`；默认分别为 `deepseek-v4-flash` 和 `qwen3.7-plus`。`AETHERVIZ_PLAN_MAX_TOKENS` 控制计划 JSON 的最大输出 token，默认 3072；规划阶段固定关闭深度思考并启用 JSON Mode，以降低延迟和格式漂移。`AETHERVIZ_GSAP_CDN_URL` 用于统一切换生成提示、计划归一化和安全白名单中的 GSAP core UMD 地址，只接受不含凭据、query 或 fragment 的 HTTPS URL。`AETHERVIZ_HTML_MAX_TOKENS` 控制 HTML 生成、编辑和模型修复的最大输出 token，默认 12288。阶段级温度、超时及重试策略由服务内置默认值控制；HTML 直出默认关闭推理，避免增加耗时和截断概率。不要把真实 API Key 提交到仓库。
+规划阶段使用 `OPENAI_PLAN_MODEL`，HTML 生成、HTML 编辑和模型修复使用 `OPENAI_HTML_MODEL`。两类模型复用 `OPENAI_API_KEY` 与 `OPENAI_BASE_URL`；默认分别为 `deepseek-v4-flash` 和 `qwen3.7-plus`。`AETHERVIZ_PLAN_MAX_TOKENS` 控制计划 JSON 的最大输出 token，默认 3072；规划阶段固定关闭深度思考并启用 JSON Mode，以降低延迟和格式漂移。`AETHERVIZ_GSAP_CDN_URL` 统一配置 GSAP core UMD。KaTeX 仅在计划包含公式时按需加载固定 CSS/JS，且必须提供 `window.katex` 缺失时的纯文本降级。所有 CDN 地址只接受不含凭据、query 或 fragment 的 HTTPS URL；Tailwind、D3、KaTeX auto-render 和其他外部资源不在白名单中。`AETHERVIZ_HTML_MAX_TOKENS` 控制 HTML 生成、编辑和模型修复的最大输出 token，默认 12288。阶段级温度、超时及重试策略由服务内置默认值控制；HTML 直出默认关闭推理，避免增加耗时和截断概率。不要把真实 API Key 提交到仓库。
 
 ### LangSmith 可观测性
 
@@ -103,7 +108,7 @@ docker compose -f docker-compose.prod.yml up -d app
 - 前端不渲染课件内部 SVG、Canvas 或 DOM 互动逻辑。
 - 前端不把后端生成物依赖重新搬回 React 组件。
 - 前端只消费后端返回的自包含 HTML，并通过 iframe 隔离预览。
-- 前端不向生成物注入 GSAP、D3、KaTeX 或其他运行时依赖；后端返回的 HTML 可自带白名单 GSAP core CDN，并必须包含缺失 GSAP 时的 native fallback。
+- 前端不向生成物注入 GSAP、KaTeX 或其他运行时依赖；后端返回的 HTML 可自带白名单 GSAP core CDN，并在公式非空时自带固定版本 KaTeX CSS/JS。GSAP 必须有 native fallback，KaTeX 必须有纯文本 fallback。
 - 前端按 `phase=plan -> phase=revise_plan -> phase=approve_plan -> phase=generate -> phase=edit_html` 工作；未确认计划时 chat 只修订计划，不触发 HTML 生成。
 - `phase=edit_html` 发送修改意见、选中 HTML 文件全文 `current_html` 和摘要型 `context`，用于基于已有 HTML 生成新的 HTML 分支；后端返回 HTML 硬上限为 40000 字符，前端应保留完整返回内容作为后续 `current_html`。
 
@@ -228,7 +233,7 @@ HTML 文件编辑阶段请求示例：
 }
 ```
 
-`phase=edit_html` 必须携带选中的 HTML 文件全文。后端以该文件为修改基线，根据 `message` 生成新的完整 HTML，前端保存为新的时间线分支，不覆盖原文件。后端生成、编辑和修复的 HTML 目标控制在 36000 字符以内，硬上限为 40000 字符；超过硬上限会触发自动修复压缩，修复后仍超限则返回 SSE `error`。
+`phase=edit_html` 必须携带选中的 HTML 文件全文。后端以该文件为修改基线，根据 `message` 生成新的完整 HTML，前端保存为新的时间线分支，不覆盖原文件。后端生成、编辑和修复的 HTML 目标控制在 36000 字符以内，硬上限为 40000 字符；超过硬上限会触发自动修复压缩。模型原始输出缺少 `</html>` 时会标记为截断并强制进入一次模型修复，不会把自动闭合结果静默当成正常页面。
 
 响应类型为 `text/event-stream`。事件包括：
 
@@ -245,16 +250,16 @@ HTML 文件编辑阶段请求示例：
 - `validation.report`
 - `repair.started`
 - `repair.done`
-- `html.done`
-- `context.compressed`
+- `html.done`：返回完整 HTML；metadata 额外包含最终 `bytes`、`chars` 和 `truncated`
+- `context.compressed`：仅在传入规划上下文确实超过上限并被裁剪时发送
 - `error`：生成失败，包含用户可读 `message`、错误码 `code` 和调试用 `detail`。
 
 错误约定：
 
 - `400`：`phase=plan` 或 `phase=revise_plan` 时 `topic` 为空。
-- `400`：`phase=generate` 时缺少 `approved_plan`。
-- `400`：`phase=revise_plan` 时缺少 `current_plan` 或 `message`。
-- `400`：`phase=approve_plan` 时缺少 `plan`。
+- `400`：`phase=generate` 时缺少 `approved_plan`，或计划缺少 `interactive_type`、`subject`、`title`、`goal`。
+- `400`：`phase=revise_plan` 时缺少 `current_plan`、计划必要字段或 `message`。
+- `400`：`phase=approve_plan` 时缺少 `plan` 或计划必要字段。
 - `400`：`phase=edit_html` 时缺少 `message` 或 `current_html`。
 - SSE `error` 且 `code=validation_failed`：HTML 未通过基础文档结构、安全边界、长度上限或内联脚本语法检查，自动修复后仍失败。
 - SSE `error` 且 `code=invalid_phase`：请求了不支持的 `phase`。
@@ -289,7 +294,7 @@ HTML 文件编辑阶段请求示例：
 - 计划对象继续以 `page_type: "interactive"` 为主，保留 `interactive_type` 兼容前端；可补充 `widget_type` / `widget_outline`，但不得破坏现有前端字段。
 - 后端按 `simulation`、`diagram`、`game` 拆分独立 prompt、分型 widget-config 和开发期分型校验。
 - 计划对象必须包含 `scene_outline`、`widget_outline`、`design_brief` 和 `widget_actions`，作为后续 HTML 生成的唯一蓝图。
-- 旧版共享模块和兼容层已移除；计划契约在 `workflow/plan_contract.py`，直接模型 prompt 在 `agents/instructions.py`，HTML 输出边界与确定性检查在 `tools/`。
+- 旧版共享模块和兼容层已移除；学科与互动类型选择在 `workflow/plan_detection.py`，计划规范化在 `workflow/plan_contract.py`，直接模型 prompt 在 `agents/instructions.py`，确定性修复在 `tools/deterministic_repair.py`。
 - `html.done.metadata.generation_backend` 当前固定为 `direct`，用于前端和观测系统识别直接模型链路。
 - 前端可展示 `attempts`、`repaired`、`degraded`、`validation_warnings`、`context_status`、`bytes` 和 `chars`。
 - 计划中的 action 使用 `widget_setState`、`widget_highlight`、`widget_annotation`、`widget_reveal`；生成物 iframe 内部应兼容 `SET_WIDGET_STATE`、`HIGHLIGHT_ELEMENT`、`ANNOTATE_ELEMENT`、`REVEAL_ELEMENT` 消息。

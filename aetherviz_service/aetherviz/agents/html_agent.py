@@ -49,6 +49,7 @@ class HtmlGenerationError(Exception):
 class HtmlStreamResult:
     html: str
     degraded: bool
+    truncated: bool = False
     reasoning_elapsed_ms: int = 0
     first_chunk_elapsed_ms: int = 0
     generation_elapsed_ms: int = 0
@@ -129,22 +130,22 @@ def stream_generate_html(topic: str, plan: dict[str, Any]) -> Iterator[dict[str,
                 detail="html model did not produce HTML output",
             )
         generation_elapsed_ms = int((time.monotonic() - stream_started_at) * 1000)
+        truncated = "</html" not in raw_html.lower()
         parsed_html = sanitize_aetherviz_html(parse_interactive_html(raw_html))
         yield _completed_html_progress_payload(parsed_html)
         yield HtmlStreamResult(
             html=parsed_html,
             degraded=timed_out or degraded,
+            truncated=truncated,
             reasoning_elapsed_ms=reasoning_elapsed_ms,
             first_chunk_elapsed_ms=first_chunk_elapsed_ms,
             generation_elapsed_ms=generation_elapsed_ms,
         )
     except HtmlGenerationError:
         raise
-    except (Exception, GeneratorExit) as exc:
-        # GeneratorExit 通常来自内层 model.stream() 迭代器被外部（客户端断开、
-        # 底层连接中断）关闭并作为普通异常向上传播；此处仍处于本生成器的正常
-        # 执行路径中（不是本生成器自身被 close() 挂起），可以安全地继续 yield
-        # 已累积内容做降级兜底，避免整份产出被静默丢弃。
+    except GeneratorExit:
+        raise
+    except Exception as exc:
         logger.warning("html_agent failed: %s", exc)
         if raw_html.strip():
             try:
@@ -153,6 +154,7 @@ def stream_generate_html(topic: str, plan: dict[str, Any]) -> Iterator[dict[str,
                 yield HtmlStreamResult(
                     html=parsed_html,
                     degraded=True,
+                    truncated="</html" not in raw_html.lower(),
                     reasoning_elapsed_ms=reasoning_elapsed_ms,
                     first_chunk_elapsed_ms=first_chunk_elapsed_ms,
                     generation_elapsed_ms=int((time.monotonic() - reasoning_started_at) * 1000),
@@ -164,18 +166,6 @@ def stream_generate_html(topic: str, plan: dict[str, Any]) -> Iterator[dict[str,
             "HTML 生成失败，未获得可用页面",
             detail=str(exc),
         ) from exc
-
-
-def generate_html(topic: str, plan: dict[str, Any]) -> tuple[str, bool]:
-    if not has_primary_llm_config():
-        return _deterministic_html(topic, plan), True
-    result: HtmlStreamResult | None = None
-    for item in stream_generate_html(topic, plan):
-        if isinstance(item, HtmlStreamResult):
-            result = item
-    if result is None:
-        raise HtmlGenerationError("HTML 生成未返回结果")
-    return result.html, result.degraded
 
 
 def build_html_progress_payload(

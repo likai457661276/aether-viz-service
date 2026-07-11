@@ -434,6 +434,52 @@ def test_validation_report_rejects_missing_widget_runtime_contract() -> None:
     assert "missing_runtime" in error_types
 
 
+def test_widget_contract_warns_when_animation_value_is_rendered_without_formatting() -> None:
+    from aetherviz_service.aetherviz.tools.widget_contract_checker import check_widget_runtime_contract
+
+    risky_html = sample_html().replace(
+        "const state = { progress: 0 };",
+        "const state = { progress: 0 }; label.textContent = `value=${state.progress}`;",
+    )
+
+    report = check_widget_runtime_contract(risky_html)
+
+    assert any(warning["type"] == "unformatted_dynamic_value" for warning in report["warnings"])
+
+
+def test_widget_contract_accepts_explicitly_formatted_animation_value() -> None:
+    from aetherviz_service.aetherviz.tools.widget_contract_checker import check_widget_runtime_contract
+
+    safe_html = sample_html().replace(
+        "const state = { progress: 0 };",
+        "const state = { progress: 0 }; label.textContent = `value=${formatValue(state.progress)}`;",
+    )
+
+    report = check_widget_runtime_contract(safe_html)
+
+    assert not any(warning["type"] == "unformatted_dynamic_value" for warning in report["warnings"])
+
+
+def test_widget_contract_warns_about_hardcoded_formatter_step_and_raw_formula_state() -> None:
+    from aetherviz_service.aetherviz.tools.widget_contract_checker import check_widget_runtime_contract
+
+    risky_html = sample_html().replace(
+        "const state = { progress: 0 };",
+        "const state = { progress: 0 };\n"
+        "function formatValue(value, unit=''){ const step = 0.5; return (Math.round(value / step) * step).toFixed(1) + unit; }\n"
+        "function updateFormula(){ const latex = `x=${state.progress}`; caption.textContent = latex; }\n"
+        "hudA.textContent = state.progress.toFixed(1); hudB.textContent = state.progress.toFixed(1);",
+    )
+
+    report = check_widget_runtime_contract(risky_html)
+    warning_types = {warning["type"] for warning in report["warnings"]}
+
+    assert "unformatted_dynamic_value" in warning_types
+    assert "missing_numeric_descriptor" in warning_types
+    assert "hardcoded_numeric_step" in warning_types
+    assert "scattered_visible_precision" in warning_types
+
+
 def test_validation_report_accepts_minimum_widget_runtime_contract() -> None:
     from aetherviz_service.aetherviz.tools.validation_report import build_validation_report
 
@@ -528,10 +574,47 @@ def test_generate_phase_triggers_repair_when_validation_fails(monkeypatch) -> No
     assert done["data"]["metadata"]["attempts"] >= 2
 
 
-def test_edit_html_stream_recovers_partial_output_after_generator_exit(monkeypatch) -> None:
+def test_generate_phase_accepts_quality_repair_only_when_warning_is_reduced(monkeypatch) -> None:
+    from aetherviz_service.aetherviz.agents.html_agent import HtmlStreamResult
+    from aetherviz_service.aetherviz.agents.repair_agent import RepairStreamResult
+    from aetherviz_service.aetherviz.workflow import generate_workflow
+
+    risky_html = sample_html().replace(
+        "const state = { progress: 0 };",
+        "const state = { progress: 0 }; label.textContent = `value=${state.progress}`;",
+    )
+
+    def fake_stream(topic, plan):
+        yield HtmlStreamResult(html=risky_html, degraded=False)
+
+    def fake_repair_stream(**kwargs):
+        yield RepairStreamResult(html=sample_html(), degraded=False)
+
+    monkeypatch.setattr(settings, "aetherviz_max_repair_attempts", 1)
+    monkeypatch.setattr(generate_workflow, "stream_generate_html", fake_stream)
+    monkeypatch.setattr(generate_workflow, "stream_repair_html", fake_repair_stream)
+
+    response = client.post(
+        AETHERVIZ_ENDPOINT,
+        json={"topic": "变量变化", "phase": "generate", "approved_plan": sample_plan("变量变化")},
+    )
+
+    events = parse_sse_events(response)
+    quality_done = next(
+        data
+        for event, data in events
+        if event == "repair.done" and data["data"].get("strategy") == "quality-model"
+    )
+    done = next(data for event, data in events if event == "html.done")
+
+    assert quality_done["data"]["accepted"] is True
+    assert done["data"]["html"] == sample_html()
+    assert done["data"]["metadata"]["repaired"] is True
+
+
+def test_edit_html_stream_propagates_generator_exit(monkeypatch) -> None:
     from unittest.mock import MagicMock
 
-    from aetherviz_service.aetherviz.agents.html_agent import HtmlStreamResult
     from aetherviz_service.aetherviz.workflow import edit_html_workflow
 
     monkeypatch.setattr(settings, "openai_api_key", "test-key")
@@ -543,25 +626,21 @@ def test_edit_html_stream_recovers_partial_output_after_generator_exit(monkeypat
 
     monkeypatch.setattr(edit_html_workflow, "create_chat_model", lambda kind: GeneratorExitModel())
 
-    items = list(
-        edit_html_workflow._stream_edit_html(
-            topic="熵增演示",
-            message="把按钮改大",
-            current_html=sample_html(),
-            context=None,
+    with pytest.raises(GeneratorExit):
+        list(
+            edit_html_workflow._stream_edit_html(
+                topic="熵增演示",
+                message="把按钮改大",
+                current_html=sample_html(),
+                context=None,
+            )
         )
-    )
-    result = next(item for item in items if isinstance(item, HtmlStreamResult))
-
-    assert result.degraded is True
-    assert "aetherviz-stage" in result.html
 
 
-def test_repair_stream_recovers_partial_output_after_generator_exit(monkeypatch) -> None:
+def test_repair_stream_propagates_generator_exit(monkeypatch) -> None:
     from unittest.mock import MagicMock
 
     from aetherviz_service.aetherviz.agents import repair_agent
-    from aetherviz_service.aetherviz.agents.repair_agent import RepairStreamResult
 
     monkeypatch.setattr(settings, "openai_api_key", "test-key")
 
@@ -572,18 +651,15 @@ def test_repair_stream_recovers_partial_output_after_generator_exit(monkeypatch)
 
     monkeypatch.setattr(repair_agent, "create_chat_model", lambda kind: GeneratorExitModel())
 
-    items = list(
-        repair_agent.stream_repair_html(
-            topic="熵增演示",
-            plan=sample_plan("熵增演示"),
-            raw_html=sample_html(),
-            report={"ok": False, "errors": [], "warnings": []},
+    with pytest.raises(GeneratorExit):
+        list(
+            repair_agent.stream_repair_html(
+                topic="熵增演示",
+                plan=sample_plan("熵增演示"),
+                raw_html=sample_html(),
+                report={"ok": False, "errors": [], "warnings": []},
+            )
         )
-    )
-    result = next(item for item in items if isinstance(item, RepairStreamResult))
-
-    assert result.degraded is True
-    assert "aetherviz-stage" in result.html
 
 
 def test_widget_contract_warns_about_duplicate_setattribute_label_positions() -> None:
@@ -592,18 +668,18 @@ def test_widget_contract_warns_about_duplicate_setattribute_label_positions() ->
     html = sample_html().replace(
         "function updateVisualization(){",
         "function updateVisualization(){\n"
-        "  els.lblA.setAttribute('x', -a/2);\n"
-        "  els.lblA.setAttribute('y', -a/2);\n"
-        "  els.txtAreaA.setAttribute('x', -a/2);\n"
-        "  els.txtAreaA.setAttribute('y', -a/2);\n",
+        "  primaryLabel.setAttribute('x', state.offset);\n"
+        "  primaryLabel.setAttribute('y', state.position);\n"
+        "  secondaryLabel.setAttribute('x', state.offset);\n"
+        "  secondaryLabel.setAttribute('y', state.position);\n",
     )
 
     report = check_widget_runtime_contract(html)
 
     warnings = [warning for warning in report["warnings"] if warning["type"] == "duplicate_label_position"]
     assert warnings
-    assert "els.lblA" in warnings[0]["message"]
-    assert "els.txtAreaA" in warnings[0]["message"]
+    assert "primaryLabel" in warnings[0]["message"]
+    assert "secondaryLabel" in warnings[0]["message"]
 
 
 def test_widget_contract_accepts_distinct_setattribute_label_positions() -> None:
@@ -612,10 +688,10 @@ def test_widget_contract_accepts_distinct_setattribute_label_positions() -> None
     html = sample_html().replace(
         "function updateVisualization(){",
         "function updateVisualization(){\n"
-        "  els.lblA.setAttribute('x', -a/2);\n"
-        "  els.lblA.setAttribute('y', -a/2);\n"
-        "  els.txtAreaA.setAttribute('x', -a/2 - 12);\n"
-        "  els.txtAreaA.setAttribute('y', -a/2 - 12);\n",
+        "  primaryLabel.setAttribute('x', state.offset);\n"
+        "  primaryLabel.setAttribute('y', state.position);\n"
+        "  secondaryLabel.setAttribute('x', state.offset + labelGap);\n"
+        "  secondaryLabel.setAttribute('y', state.position + labelGap);\n",
     )
 
     report = check_widget_runtime_contract(html)
@@ -629,8 +705,8 @@ def test_widget_contract_warns_about_duplicate_static_text_positions() -> None:
     html = sample_html().replace(
         '<circle id="dot" cx="20" cy="50" r="8"></circle>',
         '<circle id="dot" cx="20" cy="50" r="8"></circle>'
-        '<text id="lbl-a" x="10" y="10">a</text>'
-        '<text id="area-a" x="10" y="10">a\u00b2</text>',
+        '<text id="primary-label" x="10" y="10">变量</text>'
+        '<text id="secondary-label" x="10" y="10">读数</text>',
     )
 
     report = check_widget_runtime_contract(html)
@@ -644,6 +720,8 @@ def test_generation_and_edit_prompts_include_stage_centering_rules() -> None:
         DIAGRAM_SYSTEM_PROMPT,
         EDIT_HTML_SYSTEM_PROMPT,
         GAME_SYSTEM_PROMPT,
+        GRAPHICS_CRAFT_PROMPT,
+        NUMERIC_PRESENTATION_PROMPT,
         SIMULATION_SYSTEM_PROMPT,
         STAGE_CENTERING_AND_LABEL_PROMPT,
         VISUAL_DESIGN_SYSTEM_PROMPT,
@@ -653,16 +731,52 @@ def test_generation_and_edit_prompts_include_stage_centering_rules() -> None:
     for prompt in (SIMULATION_SYSTEM_PROMPT, EDIT_HTML_SYSTEM_PROMPT):
         assert shared_rule_marker in prompt
         assert "viewBox" in prompt
+        assert "页面排版 token" in prompt
+        assert "getScreenCTM()" in prompt
+        assert "getBoundingClientRect" in prompt
+        assert "禁止按具体文本内容、元素 id 或单个初始状态打补丁" in prompt
         assert ADAPTIVE_LAYOUT_PROMPT.strip().splitlines()[-1] in prompt
         assert "ResizeObserver" in prompt
         assert "固定像素侧栏" in prompt
         assert VISUAL_DESIGN_SYSTEM_PROMPT.strip().splitlines()[-1] in prompt
         assert "清爽教学工作台" in prompt
         assert "#2d4f41" in prompt
+        assert NUMERIC_PRESENTATION_PROMPT.strip().splitlines()[-1] in prompt
+        assert GRAPHICS_CRAFT_PROMPT.strip().splitlines()[-1] in prompt
+        assert "连续计算状态与可见展示状态必须分离" in prompt
+        assert "共享边、连接点和轮廓" in prompt
+        assert "禁止按具体图形、路径 id、坐标或预设写特例" in prompt
 
     assert "浅色实验舞台" in SIMULATION_SYSTEM_PROMPT
     assert "关系画布" in DIAGRAM_SYSTEM_PROMPT
     assert "街机霓虹风" in GAME_SYSTEM_PROMPT
+
+
+def test_generation_prompt_has_explicit_svg_text_scale_acceptance() -> None:
+    from aetherviz_service.aetherviz.agents.instructions import build_interactive_generation_prompt
+
+    prompt = build_interactive_generation_prompt("参数关系", sample_plan("参数关系"))
+
+    assert "SVG 最终硬验收" in prompt
+    assert "数学/抽象 viewBox" in prompt
+    assert "getScreenCTM()" in prompt
+    assert "初始状态、参数范围边界和动画关键帧" in prompt
+    assert "禁止按主题、标签 id、具体坐标或单个预设写特例" in prompt
+
+
+def test_generation_prompt_uses_descriptor_driven_numbers_and_semantic_strokes() -> None:
+    from aetherviz_service.aetherviz.agents.instructions import (
+        SIMULATION_SYSTEM_PROMPT,
+        build_interactive_generation_prompt,
+    )
+
+    prompt = build_interactive_generation_prompt("变量关系", sample_plan("变量关系"))
+
+    assert "描述符驱动的统一格式化入口" in prompt
+    assert "语义化描边层级" in prompt
+    assert "共享边只绘制一次" in prompt
+    assert "默认最多" not in SIMULATION_SYSTEM_PROMPT
+    assert "散落的 `toFixed` 常量" in SIMULATION_SYSTEM_PROMPT
 
 
 def test_default_design_brief_matches_frontend_visual_language() -> None:
@@ -718,6 +832,7 @@ def test_widget_contract_accepts_dynamic_variable_svg_viewbox() -> None:
     ).replace(
         "function updateVisualization(){",
         "function updateVisualization(){ dot.setAttribute('x', state.progress); "
+        "const observer = new ResizeObserver(updateVisualization); observer.observe(document.getElementById('aetherviz-stage')); "
         "const box = dot.getBBox(); document.querySelector('svg').setAttribute('viewBox', `${box.x} ${box.y} ${box.width} ${box.height}`);",
     )
 
@@ -739,7 +854,7 @@ def test_repair_prompt_is_error_directed_and_does_not_force_unrelated_layout_cha
 
     assert "未被错误点名" in prompt
     assert "舞台居中目标" not in prompt
-    assert "只修复服务端列出的硬性错误" in REPAIR_SYSTEM_PROMPT
+    assert "硬性错误或明确标记为可修复的通用质量风险" in REPAIR_SYSTEM_PROMPT
 
 
 def test_edit_html_prompt_has_quantified_convergence_guidance() -> None:

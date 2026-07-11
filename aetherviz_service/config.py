@@ -6,15 +6,14 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     app_name: str = "AI互动实验"
-    app_env: str = "local"
-    app_host: str = "0.0.0.0"
-    app_port: int = 10095
-    log_level: str = "INFO"
     openai_api_key: str | None = None
     openai_base_url: str | None = "https://dashscope.aliyuncs.com/compatible-mode/v1"
     openai_plan_model: str = "deepseek-v4-flash"
     openai_html_model: str = "qwen3.7-plus"
     aetherviz_gsap_cdn_url: str = "https://cdn.jsdelivr.net/npm/gsap@3/dist/gsap.min.js"
+    aetherviz_katex_enabled: bool = True
+    aetherviz_katex_css_url: str = "https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css"
+    aetherviz_katex_js_url: str = "https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"
     aetherviz_html_enable_thinking: bool = False
     aetherviz_html_reasoning_effort: str | None = None
     aetherviz_html_max_tokens: int = 12288
@@ -32,15 +31,19 @@ class Settings(BaseSettings):
     langsmith_project: str | None = None
     langsmith_workspace_id: str | None = None
 
-    @field_validator("aetherviz_gsap_cdn_url")
+    @field_validator(
+        "aetherviz_gsap_cdn_url",
+        "aetherviz_katex_css_url",
+        "aetherviz_katex_js_url",
+    )
     @classmethod
-    def validate_gsap_cdn_url(cls, value: str) -> str:
+    def validate_cdn_url(cls, value: str) -> str:
         normalized = value.strip()
         parsed = urlsplit(normalized)
         if parsed.scheme.lower() != "https" or not parsed.netloc:
-            raise ValueError("AETHERVIZ_GSAP_CDN_URL 必须是有效的 HTTPS URL")
+            raise ValueError("AetherViz CDN 地址必须是有效的 HTTPS URL")
         if parsed.username or parsed.password or parsed.query or parsed.fragment:
-            raise ValueError("AETHERVIZ_GSAP_CDN_URL 不允许包含凭据、query 或 fragment")
+            raise ValueError("AetherViz CDN 地址不允许包含凭据、query 或 fragment")
         return normalized
 
     model_config = SettingsConfigDict(

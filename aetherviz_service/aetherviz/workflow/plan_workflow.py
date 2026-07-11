@@ -45,7 +45,7 @@ def run_plan_workflow(*, run_id: str, topic: str, context: dict[str, Any] | None
             **planning_metrics,
         },
     )
-    if degraded:
+    if plan.get("context_status", {}).get("status") == "compressed":
         yield agent_sse_event(
             "context.compressed",
             run_id=run_id,

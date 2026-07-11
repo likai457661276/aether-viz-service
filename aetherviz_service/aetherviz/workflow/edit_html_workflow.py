@@ -88,7 +88,7 @@ def _stream_edit_html(
         ]
     )
     try:
-        model = create_chat_model("repair")
+        model = create_chat_model("edit")
         messages = [SystemMessage(content=EDIT_HTML_SYSTEM_PROMPT), HumanMessage(content=prompt)]
         output_started = False
         for chunk in model.stream(messages):
@@ -129,17 +129,18 @@ def _stream_edit_html(
         yield HtmlStreamResult(
             html=edited_html,
             degraded=timed_out,
+            truncated="</html" not in raw_text.lower(),
         )
-    except (Exception, GeneratorExit) as exc:
-        # 同 html_agent：GeneratorExit 多数由内层 model.stream() 迭代器被中断后
-        # 作为普通异常传播而来，此处仍可安全兜底降级输出，不能只靠 except
-        # Exception（GeneratorExit 继承自 BaseException，不会被其捕获）。
+    except GeneratorExit:
+        raise
+    except Exception as exc:
         logger.warning("edit_html model failed: %s", exc)
         if raw_text.strip():
             try:
                 yield HtmlStreamResult(
                     html=sanitize_aetherviz_html(parse_interactive_html(raw_text)),
                     degraded=True,
+                    truncated="</html" not in raw_text.lower(),
                 )
                 return
             except Exception:
@@ -149,16 +150,6 @@ def _stream_edit_html(
             code="edit_failed",
             detail=str(exc),
         ) from exc
-
-
-def _edit_html(*, topic: str, message: str, current_html: str, context: dict[str, Any] | None) -> tuple[str, bool]:
-    result: HtmlStreamResult | None = None
-    for item in _stream_edit_html(topic=topic, message=message, current_html=current_html, context=context):
-        if isinstance(item, HtmlStreamResult):
-            result = item
-    if result is None:
-        return current_html, True
-    return result.html, result.degraded
 
 
 def _topic_from_context(context: dict[str, Any] | None) -> str:

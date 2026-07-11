@@ -7,6 +7,10 @@ ENV PYTHONUNBUFFERED=1
 ENV UV_PROJECT_ENVIRONMENT=/opt/venv
 ENV UV_LINK_MODE=copy
 
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
 RUN pip install --index-url https://mirrors.aliyun.com/pypi/simple/ --no-cache-dir uv
 
 COPY pyproject.toml uv.lock README.md ./

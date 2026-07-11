@@ -61,6 +61,12 @@ def create_chat_model(kind: str):
         return ChatOpenAI(**planning_kwargs)
     if kind == "html":
         return ChatOpenAI(**_html_model_kwargs())
+    if kind == "edit":
+        kwargs = _html_model_kwargs()
+        kwargs["temperature"] = 0.08
+        kwargs["extra_body"] = {"enable_thinking": False}
+        kwargs.pop("reasoning_effort", None)
+        return ChatOpenAI(**kwargs)
     return ChatOpenAI(
         model=settings.openai_html_model,
         api_key=_blank_to_none(settings.openai_api_key),

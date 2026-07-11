@@ -104,7 +104,7 @@ Widget 链路改造默认方向：
 - `simulation`、`diagram`、`game` 使用独立 prompt 和独立 widget-config 约束；分型完整性校验不作为生产硬拦截。
 - 生产生成链路只做基础结构、语法、安全和长度校验，避免因质量门过严阻断可继续通过 chat 改进的 HTML。
 - Widget 最小运行契约检查必须保持为低成本解析逻辑，覆盖 widget-config、主舞台、核心控件、runtime API、ready 标记和 iframe action listener；生产同步链路不引入浏览器 smoke test。
-- GSAP core 地址统一读取 `AETHERVIZ_GSAP_CDN_URL`，只接受 HTTPS；计划归一化、生成/编辑/修复提示词和安全白名单必须保持同源，禁止重新写死 CDN 地址。无论 CDN 地址如何配置，生成物都必须保留 `window.gsap` 缺失时的 native fallback。
+- GSAP core 地址统一读取 `AETHERVIZ_GSAP_CDN_URL`，只接受 HTTPS；KaTeX 通过 `AETHERVIZ_KATEX_*` 配置，仅在计划公式非空时按需加载固定 CSS/JS。计划归一化、生成/编辑/修复提示词和安全白名单必须保持同源，禁止重新写死 CDN 地址。Tailwind、D3、KaTeX auto-render 和其他外部资源不进入白名单。生成物必须保留 `window.gsap` 缺失时的 native fallback，以及 `window.katex` 缺失时的公式纯文本 fallback。
 - 生产链路不得重新引入通用 Agent harness、文件工具循环或子代理；初次生成和编辑使用直接模型流，修复优先走确定性处理，模型修复最多一次。
 - HTML 输出目标控制在 36000 字符以内，硬上限为 40000 字符；生成、编辑或修复结果超过硬上限时必须触发一次自动修复压缩，修复后仍超限则返回 SSE `error`。
 - `html.delta` 应持续携带累计 `bytes/chars`，供前端实时显示生成大小；`html.done` 返回完整 HTML 和最终大小。不得重新引入后端 HTML 文件缓存、产物路径或 `sandbox.written` 事件。

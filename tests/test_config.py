@@ -31,6 +31,15 @@ def test_gsap_cdn_url_accepts_https() -> None:
     assert settings.aetherviz_gsap_cdn_url == "https://assets.example.edu/vendor/gsap.min.js"
 
 
+def test_katex_cdn_urls_are_fixed_https_resources() -> None:
+    settings = Settings(_env_file=None)
+
+    assert settings.aetherviz_katex_enabled is True
+    assert settings.aetherviz_katex_css_url.startswith("https://")
+    assert settings.aetherviz_katex_js_url.startswith("https://")
+    assert "@" in settings.aetherviz_katex_css_url
+
+
 @pytest.mark.parametrize(
     "url",
     [

@@ -6,169 +6,26 @@ import json
 import re
 from typing import Any
 
-from aetherviz_service.aetherviz.constants import get_gsap_core_cdn_url
+from aetherviz_service.aetherviz.constants import get_gsap_core_cdn_url, get_katex_cdn_urls, is_katex_enabled
+from aetherviz_service.aetherviz.workflow.plan_detection import (
+    SUBJECT_KEYWORDS,
+    VALID_ANIMATION_RUNTIMES,
+    VALID_INTERACTIVE_TYPES,
+    VALID_RENDER_STACKS,
+    detect_subject,
+    select_animation_runtime,
+    select_interactive_type,
+    select_render_stack,
+)
 
 DEFAULT_PRIMARY_COLOR = "#22D3EE"
+HEX_COLOR_RE = re.compile(r"^#[0-9A-Fa-f]{6}$")
 
-SUBJECT_KEYWORDS = {
-    "math": ["数学", "几何", "函数", "方程", "概率", "统计", "面积", "体积", "坐标", "圆", "抛物线", "定理", "证明", "公式"],
-    "physics": ["物理", "运动", "速度", "加速度", "力", "能量", "电流", "电压", "波", "光", "抛体"],
-    "chemistry": ["化学", "反应", "分子", "原子", "离子", "酸", "碱", "盐", "溶液", "反应速率"],
-    "biology": ["生物", "细胞", "基因", "dna", "蛋白质", "光合", "呼吸", "生态", "遗传"],
-    "programming": ["算法", "排序", "递归", "树", "图", "状态机", "队列", "栈", "复杂度"],
-    "geography": ["地理", "大气", "地球", "经纬", "板块", "地震", "地形", "气候", "水文"],
-    "chinese": ["语文", "诗词", "文言", "古文", "修辞", "散文", "小说", "阅读结构"],
-    "english": ["英语", "english", "语法", "句型", "词汇", "时态", "从句", "grammar"],
-}
-
-VALID_INTERACTIVE_TYPES = {"simulation", "diagram", "game"}
-VALID_RENDER_STACKS = {"svg", "svg_canvas", "canvas_svg", "dom_svg"}
-VALID_ANIMATION_RUNTIMES = {"native", "gsap"}
 REQUIRED_RUNTIME_CONTROLS = (
     {"id": "play-animation", "label": "播放", "type": "button", "action": "play"},
     {"id": "pause-animation", "label": "暂停", "type": "button", "action": "pause"},
     {"id": "reset-animation", "label": "重置", "type": "button", "action": "reset"},
 )
-
-SIMULATION_KEYWORDS = ["运动", "参数", "实验", "函数", "概率", "反应速率", "电路", "轨迹", "速度", "采样"]
-DIAGRAM_KEYWORDS = ["流程", "结构", "分类", "因果", "步骤", "阅读结构", "知识图谱", "体系", "过程"]
-GAME_KEYWORDS = ["练习", "闯关", "匹配", "排序", "挑战", "小游戏", "巩固", "得分"]
-
-PLANNING_SYSTEM_PROMPT_TEMPLATE = """你是互动教学课件规划器，为 12~18 岁学生设计单页 interactive widget。
-
-仅输出一个合法 JSON 对象，不输出 Markdown、解释、推理过程或未定义字段。
-只生成教学语义字段；page_type、widget_type、scene_outline、widget_outline、widget_actions、runtime、subject、primary_color 由服务端确定性补齐。
-
-JSON 顶层字段必须且只能包含：
-- interactive_type：固定为 {interactive_type}
-- title：不超过 24 个汉字
-- goal：一个可观察、可验证的学习目标
-- learner_level：简短学段
-- stage_layout：字符串，说明目标区、主舞台、控制区和结论区的相对位置及空间不足时的堆叠/折叠方式；主舞台优先，公式、读数和控制面板不得覆盖或挤压主舞台；不要指定固定像素宽高
-- key_points：2~4 个字符串
-- design_brief：只含 layout、stage_objects、visual_rules、state_updates、default_preset、acceptance
-- interactive_spec：严格使用下方 {interactive_type} 规格
-- teaching_flow：3~4 项，每项只含 id、label、focus、caption
-- controls：只生成 1~2 个真实影响学习的控件，每项只含 id、label、type、bind；不要生成播放、暂停、重置按钮
-- formulas：0~3 个字符串
-
-一致性要求：
-- controls[].bind 必须等于 interactive_spec 中一个可调变量 name；无可调变量时 controls 输出空数组。
-- preset 的每个值必须落在对应变量 min/max 范围内。
-- 所有 id 使用小写英文、数字、连字符或下划线，引用必须存在。
-- design_brief 必须明确主舞台对象、相对位置、颜色语义、动态更新、默认状态和验收标准。
-- design_brief.visual_rules 必须区分浅色教学工作台 UI 与学科图形语义色：UI 保持白色/灰绿纸张感和绿色交互强调，饱和色只用于数据对象、关键节点、游戏反馈或当前状态；不得规划整页深色霓虹面板或卡片墙。
-
-{type_contract}
-"""
-
-INTERACTIVE_TYPE_CONTRACTS = {
-    "simulation": """simulation 的 interactive_spec 只含：
-- type：固定 simulation
-- concept、description
-- variables：1~3 项；每项包含 name、label、min、max、step、default、unit，可额外包含 computed、expression
-- presets：1~3 项；每项使用 id、label、values，values 的 key 必须引用 variables.name
-- observations：2~4 个可观察现象""",
-    "diagram": """diagram 的 interactive_spec 只含：
-- type：固定 diagram
-- concept、description
-- nodes：3~7 项，每项只含 id、label、details、explanation
-- edges：每项只含 from、to，可选 label；from/to 必须引用 nodes.id
-- reveal_order：按揭示顺序列出全部 nodes.id""",
-    "game": """game 的 interactive_spec 只含：
-- type：固定 game
-- concept、description、game_type、challenge、success_condition
-- feedback_rules：2~4 个字符串
-- game_config：操作型挑战配置，必须包含 controls、fair_start、levels；不得退化为普通选择题堆叠""",
-}
-
-
-def detect_subject(topic: str) -> str:
-    text = (topic or "").lower()
-    for subject in ("math", "chemistry", "biology", "geography", "physics", "programming", "chinese", "english"):
-        if any(keyword in text for keyword in SUBJECT_KEYWORDS[subject]):
-            return subject
-    return "general"
-
-
-def select_interactive_type(topic: str, subject: str) -> str:
-    text = (topic or "").lower()
-    if any(keyword in text for keyword in GAME_KEYWORDS):
-        return "game"
-    if any(keyword in text for keyword in DIAGRAM_KEYWORDS):
-        return "diagram"
-    if any(keyword in text for keyword in SIMULATION_KEYWORDS):
-        return "simulation"
-    if subject in {"chinese", "english", "geography", "programming"}:
-        return "diagram"
-    if subject in {"math", "physics", "chemistry", "biology"}:
-        return "simulation"
-    return "diagram"
-
-
-def select_render_stack(interactive_type: str, subject: str, topic: str) -> str:
-    text = (topic or "").lower()
-    if interactive_type == "simulation" and any(keyword in text for keyword in ("粒子", "扩散", "轨迹", "运动", "波", "碰撞")):
-        return "svg_canvas"
-    if interactive_type == "game":
-        return "dom_svg"
-    if interactive_type == "diagram":
-        return "dom_svg"
-    if subject == "math":
-        return "svg"
-    return "svg_canvas"
-
-
-def select_animation_runtime() -> str:
-    return "gsap"
-
-
-def build_planning_prompt(
-    topic: str,
-    primary_color: str,
-    *,
-    interactive_type_override: str | None = None,
-    subject_override: str | None = None,
-) -> tuple[str, str]:
-    subject = subject_override if subject_override in {*SUBJECT_KEYWORDS, "astronomy", "general"} else detect_subject(topic)
-    interactive_type = (
-        interactive_type_override
-        if interactive_type_override in VALID_INTERACTIVE_TYPES
-        else select_interactive_type(topic, subject)
-    )
-    render_stack = select_render_stack(interactive_type, subject, topic)
-    animation_runtime = select_animation_runtime()
-    system_prompt = PLANNING_SYSTEM_PROMPT_TEMPLATE.format(
-        interactive_type=interactive_type,
-        type_contract=INTERACTIVE_TYPE_CONTRACTS[interactive_type],
-    )
-    user_prompt = f"""生成以下主题的完整教学语义 JSON。
-
-主题：{topic}
-服务端学科识别：{subject}
-固定互动类型：{interactive_type}
-服务端渲染栈：{render_stack}
-服务端动画运行时：{animation_runtime}
-主色调：{primary_color}
-"""
-    return system_prompt, user_prompt
-
-
-def select_revision_interactive_type(current_type: object, message: str, topic: str) -> str:
-    text = (message or "").lower()
-    for interactive_type, keywords in (
-        ("game", GAME_KEYWORDS),
-        ("diagram", DIAGRAM_KEYWORDS),
-        ("simulation", SIMULATION_KEYWORDS),
-    ):
-        if any(keyword in text for keyword in keywords):
-            return interactive_type
-    current = _safe_str(current_type)
-    if current in VALID_INTERACTIVE_TYPES:
-        return current
-    subject = detect_subject(topic)
-    return select_interactive_type(topic, subject)
-
 
 def compact_plan_for_revision(plan: dict[str, Any]) -> dict[str, Any]:
     semantic_fields = (
@@ -208,6 +65,7 @@ def parse_planning_result(raw: str, topic: str = "", primary_color: str = DEFAUL
 
 def normalize_plan(raw_plan: dict | None, topic: str, primary_color: str = DEFAULT_PRIMARY_COLOR) -> dict:
     raw = raw_plan if isinstance(raw_plan, dict) else {}
+    primary_color = _normalize_primary_color(primary_color, DEFAULT_PRIMARY_COLOR)
     baseline = _default_plan(topic, primary_color)
 
     subject = _safe_str(raw.get("subject")) or baseline["subject"]
@@ -232,6 +90,7 @@ def normalize_plan(raw_plan: dict | None, topic: str, primary_color: str = DEFAU
     key_points = _string_list(raw.get("key_points") or raw.get("keyPoints"), baseline["key_points"], max_items=6, max_len=120)
     scene_outline = _normalize_scene_outline(raw.get("scene_outline"), baseline["scene_outline"], interactive_type, topic, key_points, widget_outline)
     design_brief = _normalize_design_brief(raw.get("design_brief"), baseline["design_brief"])
+    formulas = _string_list(raw.get("formulas"), baseline["formulas"], max_items=5, max_len=100)
     variable_names = {
         _safe_str(variable.get("name"))
         for variable in interactive_spec.get("variables", [])
@@ -258,13 +117,16 @@ def normalize_plan(raw_plan: dict | None, topic: str, primary_color: str = DEFAU
         "widget_actions": _normalize_widget_actions(raw.get("widget_actions"), baseline["widget_actions"], interactive_spec, interactive_type),
         "teaching_flow": teaching_flow,
         "controls": _normalize_controls(raw.get("controls"), baseline["controls"], valid_bindings=variable_names),
-        "formulas": _string_list(raw.get("formulas"), baseline["formulas"], max_items=5, max_len=100),
+        "formulas": formulas,
         "runtime": {
             "render_stack": render_stack,
             "animation_runtime": animation_runtime,
-            "external_libraries": _normalize_external_libraries(runtime_raw.get("external_libraries"), animation_runtime),
+            "external_libraries": _normalize_external_libraries(
+                animation_runtime,
+                include_katex=bool(formulas),
+            ),
         },
-        "primary_color": _safe_str(raw.get("primary_color")) or primary_color,
+        "primary_color": _normalize_primary_color(raw.get("primary_color"), primary_color),
     }
 
 
@@ -301,7 +163,10 @@ def _default_plan(topic: str, primary_color: str) -> dict:
         "runtime": {
             "render_stack": render_stack,
             "animation_runtime": animation_runtime,
-            "external_libraries": _normalize_external_libraries([], animation_runtime),
+            "external_libraries": _normalize_external_libraries(
+                animation_runtime,
+                include_katex=bool(_default_formulas(topic, subject)),
+            ),
         },
         "primary_color": primary_color,
     }
@@ -653,19 +518,22 @@ def _string_list(value: object, default: list[str], max_items: int, max_len: int
     return items[:max_items] or list(default[:max_items])
 
 
-def _normalize_external_libraries(value: object, animation_runtime: str) -> list[str]:
-    libraries = _string_list(value, [], max_items=3, max_len=120)
-    gsap_cdn_url = get_gsap_core_cdn_url()
-    libraries = [library for library in libraries if "gsap" not in library.lower() or library == gsap_cdn_url]
-    if animation_runtime == "gsap" and gsap_cdn_url not in libraries:
-        return [gsap_cdn_url, *libraries][:3]
-    if animation_runtime != "gsap":
-        return [library for library in libraries if "gsap" not in library.lower()]
+def _normalize_external_libraries(animation_runtime: str, *, include_katex: bool) -> list[str]:
+    libraries: list[str] = []
+    if animation_runtime == "gsap":
+        libraries.append(get_gsap_core_cdn_url())
+    if include_katex and is_katex_enabled():
+        libraries.extend(get_katex_cdn_urls())
     return libraries
 
 
 def _safe_str(value: object) -> str:
     return str(value).strip() if value is not None else ""
+
+
+def _normalize_primary_color(value: object, default: str) -> str:
+    normalized = _safe_str(value)
+    return normalized.upper() if HEX_COLOR_RE.fullmatch(normalized) else default.upper()
 
 
 def _safe_number(value: object, default: int | float) -> int | float:

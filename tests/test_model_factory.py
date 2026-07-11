@@ -56,12 +56,15 @@ def test_planning_and_html_models_are_configured_separately(monkeypatch) -> None
 
     model_factory.create_chat_model("planning")
     model_factory.create_chat_model("html")
+    model_factory.create_chat_model("edit")
     model_factory.create_chat_model("repair")
 
-    assert [kwargs["model"] for kwargs in captured] == ["plan-model", "html-model", "html-model"]
-    assert [kwargs["max_tokens"] for kwargs in captured] == [3072, 12288, 12288]
+    assert [kwargs["model"] for kwargs in captured] == ["plan-model", "html-model", "html-model", "html-model"]
+    assert [kwargs["max_tokens"] for kwargs in captured] == [3072, 12288, 12288, 12288]
     assert captured[0]["temperature"] == 0.1
     assert captured[0]["extra_body"] == {"enable_thinking": False}
     assert captured[0]["model_kwargs"] == {"response_format": {"type": "json_object"}}
     assert captured[0]["stream_usage"] is True
     assert "reasoning_effort" not in captured[0]
+    assert captured[2]["timeout"] == settings.aetherviz_html_timeout_seconds
+    assert captured[2]["extra_body"] == {"enable_thinking": False}

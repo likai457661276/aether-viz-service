@@ -52,7 +52,7 @@ def run_revise_plan_workflow(
             **planning_metrics,
         },
     )
-    if degraded:
+    if plan.get("context_status", {}).get("status") == "compressed":
         yield agent_sse_event(
             "context.compressed",
             run_id=run_id,

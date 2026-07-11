@@ -20,6 +20,18 @@ ALLOWED_WIDGET_TYPES = {"simulation", "diagram", "game"}
 _SET_ATTR_COORD_RE = re.compile(
     r"([A-Za-z_$][\w.$]*)\.setAttribute\(\s*['\"](x|y)['\"]\s*,\s*([^)]+?)\s*\)"
 )
+_VISIBLE_TEMPLATE_ASSIGNMENT_RE = re.compile(
+    r"\.(?:textContent|innerText|innerHTML)\s*=\s*`[^`]*\$\{\s*"
+    r"([A-Za-z_$][\w.$]*)\s*\}[^`]*`"
+)
+_VISIBLE_TEXT_NAME_RE = re.compile(
+    r"\b(?:latex|formula|caption|label|readout|display(?:Value|Text)?|hud(?:Value|Text)?)\b\s*=\s*`([^`]*)`",
+    re.IGNORECASE,
+)
+_RAW_TEMPLATE_VALUE_RE = re.compile(
+    r"\$\{\s*(?!formatValue\s*\(|formatDisplayValue\s*\(|display\b)"
+    r"((?:state|STATE|proxy|model|vars?)\.[A-Za-z_$][\w$]*)\s*\}"
+)
 
 
 def check_widget_runtime_contract(html: str, *, soup: BeautifulSoup | None = None) -> dict:
@@ -54,6 +66,7 @@ def check_widget_runtime_contract(html: str, *, soup: BeautifulSoup | None = Non
 
     _check_duplicate_label_positions(parsed, script_text, warnings)
     _check_layout_risks(parsed, script_text, warnings)
+    _check_unformatted_dynamic_numbers(script_text, warnings)
 
     external_gsap = any("gsap" in str(script.get("src") or "").lower() for script in parsed.find_all("script"))
     if external_gsap and not re.search(r"window\.gsap|typeof\s+gsap|typeof\s+window\.gsap", script_text):
@@ -66,6 +79,16 @@ def check_widget_runtime_contract(html: str, *, soup: BeautifulSoup | None = Non
             )
         )
 
+    external_katex = any(
+        "katex" in str(tag.get("src") or tag.get("href") or "").lower()
+        for tag in parsed.find_all(["script", "link"])
+    )
+    if external_katex and not re.search(r"window\.katex|typeof\s+katex|typeof\s+window\.katex", script_text):
+        warnings.append(_warning("missing_katex_fallback_guard", "加载 KaTeX，但未检测到 window.katex 守卫和纯文本 fallback"))
+    has_formula_region = parsed.select_one('[data-region="formula"], .formula, .katex-target') is not None
+    if external_katex and not has_formula_region:
+        warnings.append(_warning("unused_katex_runtime", "页面未检测到公式区域，不应加载 KaTeX"))
+
     return {
         "ok": not errors,
         "severity": "error" if errors else "warning" if warnings else "info",
@@ -73,6 +96,87 @@ def check_widget_runtime_contract(html: str, *, soup: BeautifulSoup | None = Non
         "errors": errors,
         "warnings": warnings,
     }
+
+
+def _check_unformatted_dynamic_numbers(script_text: str, warnings: list[dict]) -> None:
+    """Warn when a bare runtime value is interpolated into visible text.
+
+    Animation libraries commonly produce long binary floating-point intermediates.
+    Bare template interpolation leaks those values into labels, while an explicit
+    formatter (toFixed/Intl.NumberFormat/project helper) keeps rendering stable.
+    This remains a warning because a bare identifier can also hold non-numeric text.
+    """
+    bare_values = sorted(set(_VISIBLE_TEMPLATE_ASSIGNMENT_RE.findall(script_text)))
+    if not bare_values:
+        bare_values = []
+    named_visible_templates = _VISIBLE_TEXT_NAME_RE.findall(script_text)
+    raw_named_values = sorted(
+        {
+            value
+            for template in named_visible_templates
+            for value in _RAW_TEMPLATE_VALUE_RE.findall(template)
+        }
+    )
+    all_bare_values = sorted(set(bare_values) | set(raw_named_values))
+    if all_bare_values:
+        warnings.append(
+            _warning(
+                "unformatted_dynamic_value",
+                "检测到可见文本或公式直接插入未格式化的运行时值，动画插值可能显示过长小数；"
+                "请统一通过描述符驱动的 display state 输出："
+                + ", ".join(all_bare_values[:8]),
+            )
+        )
+
+    formatter = re.search(
+        r"function\s+(?:formatValue|formatDisplayValue)\s*\(\s*[^,)]*\s*(?:,\s*([^)=,]+))?",
+        script_text,
+    )
+    if formatter and not formatter.group(1):
+        warnings.append(
+            _warning(
+                "missing_numeric_descriptor",
+                "数值格式化函数没有 descriptor 参数，无法按不同变量步长、单位和派生量精度稳定展示。",
+            )
+        )
+    elif formatter:
+        descriptor_name = formatter.group(1).strip()
+        if not re.search(r"(?:descriptor|desc|meta|options?|config)", descriptor_name, re.IGNORECASE):
+            warnings.append(
+                _warning(
+                    "missing_numeric_descriptor",
+                    "数值格式化函数的第二参数不是描述符对象，可能把所有变量错误套用同一精度。",
+                )
+            )
+
+    formatter_body = re.search(
+        r"function\s+(?:formatValue|formatDisplayValue)\s*\([^)]*\)\s*\{([\s\S]{0,1200}?)\n?\}",
+        script_text,
+    )
+    if formatter_body and re.search(
+        r"\b(?:const|let|var)\s+step\s*=\s*\d+(?:\.\d+)?\s*;", formatter_body.group(1)
+    ):
+        warnings.append(
+            _warning(
+                "hardcoded_numeric_step",
+                "数值格式化函数内部写死统一 step，输入变量和派生量会被错误量化；应从 descriptor 读取。",
+            )
+        )
+
+    if re.search(r"function\s+(?:formatValue|formatDisplayValue)\b", script_text):
+        visible_precision_re = re.compile(
+            r"(?:textContent|innerText|innerHTML|createLabel|katex\.render|formula|latex|hud|caption|label|readout)"
+            r"[^;\n]{0,300}\.toFixed\s*\(",
+            re.IGNORECASE,
+        )
+        scattered_precision = len(visible_precision_re.findall(script_text))
+        if scattered_precision >= 2:
+            warnings.append(
+                _warning(
+                    "scattered_visible_precision",
+                    "已定义统一格式化函数，但仍检测到多处散落的 toFixed；公式、HUD 和标签可能绕过统一 display state。",
+                )
+            )
 
 
 def _check_layout_risks(parsed: BeautifulSoup, script_text: str, warnings: list[dict]) -> None:
@@ -115,14 +219,15 @@ def _check_layout_risks(parsed: BeautifulSoup, script_text: str, warnings: list[
     redraws_svg = bool(
         re.search(r"\.innerHTML\s*=|setAttribute\s*\(\s*['\"](?:d|points|x|y|cx|cy|r)['\"]", script_text)
     )
-    updates_viewbox = bool(
-        re.search(r"getBBox\s*\(|ResizeObserver\b|setAttribute\s*\(\s*['\"]viewBox['\"]", script_text)
-    )
-    if svg is not None and svg.get("viewbox") and has_variable_control and redraws_svg and not updates_viewbox:
+    measures_content_bounds = bool(re.search(r"getBBox\s*\(", script_text))
+    updates_viewbox = bool(re.search(r"setAttribute\s*\(\s*['\"]viewBox['\"]", script_text))
+    observes_stage_size = bool(re.search(r"ResizeObserver\b", script_text))
+    has_dynamic_fit = measures_content_bounds and updates_viewbox and observes_stage_size
+    if svg is not None and svg.get("viewbox") and has_variable_control and redraws_svg and not has_dynamic_fit:
         warnings.append(
             _warning(
                 "static_viewbox_for_variable_svg",
-                "可调参数会改变 SVG 图形，但未检测到基于内容包围盒或容器尺寸更新 viewBox 的逻辑，极值状态可能偏心或裁切。",
+                "可调参数会改变 SVG 图形，但未检测到 getBBox + 动态 viewBox + ResizeObserver 的完整居中适配路径，极值或动画状态可能偏心、裁切。",
             )
         )
 

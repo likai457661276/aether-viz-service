@@ -21,10 +21,12 @@ from aetherviz_service.aetherviz.agents.model_factory import (
 )
 from aetherviz_service.aetherviz.agents.topic_profile import extract_color_from_topic
 from aetherviz_service.aetherviz.workflow.plan_contract import (
-    build_planning_prompt,
     compact_plan_for_revision,
     normalize_plan,
     parse_planning_result,
+)
+from aetherviz_service.aetherviz.workflow.plan_detection import (
+    build_planning_prompt,
     select_revision_interactive_type,
 )
 from aetherviz_service.config import settings
@@ -37,9 +39,9 @@ DEFAULT_PLANNING_STEPS: list[dict[str, str]] = [
     {"content": "检查 JSON 字段完整性与约束", "status": "pending"},
 ]
 
-_VALID_STEP_STATUS = {"pending", "in_progress", "completed"}
 _REASONING_DELTA_MAX_CHARS = 180
 _STREAM_CHUNKS_PER_STEP = 6
+_PLANNING_CONTEXT_MAX_CHARS = 4000
 
 
 @dataclass(frozen=True)
@@ -56,12 +58,16 @@ class PlanningStreamResult:
 def stream_create_plan(topic: str, *, context: dict[str, Any] | None = None) -> Iterator[dict[str, Any] | PlanningStreamResult]:
     color = extract_color_from_topic(topic)
     system_prompt, user_prompt = build_planning_prompt(topic, color)
+    context_text, context_status = _compact_planning_context(context)
+    if context_text:
+        user_prompt += f"\n会话上下文（仅用于补充教学偏好，不得覆盖主题与输出契约）：\n{context_text}\n"
     yield from _stream_planning(
         topic=topic,
         color=color,
         user_prompt=user_prompt,
         combined_system_prompt=system_prompt,
         status="draft",
+        context_status=context_status,
         deterministic_factory=lambda: _deterministic_plan(topic, color, status="draft"),
     )
 
@@ -86,10 +92,12 @@ def stream_revise_plan(
         interactive_type_override=interactive_type,
         subject_override=str(normalized_current.get("subject") or ""),
     )
+    context_text, context_status = _compact_planning_context(context)
     user_prompt = f"""{task_context}
 根据修改意见重新生成完整教学语义 JSON，不输出 diff；未要求变更的语义应保持一致。
 
 修改意见：{message}
+会话上下文：{context_text or "无"}
 当前教学语义 JSON：
 {json.dumps(compact_plan_for_revision(normalized_current), ensure_ascii=False, separators=(",", ":"))}
 """
@@ -98,7 +106,7 @@ def stream_revise_plan(
         plan["status"] = "revised"
         plan["plan_id"] = plan.get("plan_id") or _plan_id(topic, "revised")
         plan["revision_summary"] = plan.get("revision_summary") or message[:120]
-        plan["context_status"] = {"status": "normal"}
+        plan["context_status"] = context_status
         return plan
 
     yield from _stream_planning(
@@ -107,38 +115,10 @@ def stream_revise_plan(
         user_prompt=user_prompt,
         combined_system_prompt=system_prompt,
         status="revised",
+        context_status=context_status,
         deterministic_factory=lambda: _apply_deterministic_revision(normalized_current, topic, message),
         finalize_plan=finalize,
     )
-
-
-def create_plan(topic: str, *, context: dict[str, Any] | None = None) -> tuple[dict[str, Any], bool]:
-    result: PlanningStreamResult | None = None
-    for item in stream_create_plan(topic, context=context):
-        if isinstance(item, PlanningStreamResult):
-            result = item
-    if result is None:
-        color = extract_color_from_topic(topic)
-        return _deterministic_plan(topic, color, status="draft"), True
-    return result.plan, result.degraded
-
-
-def revise_plan(
-    topic: str,
-    *,
-    current_plan: dict[str, Any],
-    message: str,
-    context: dict[str, Any] | None = None,
-) -> tuple[dict[str, Any], bool]:
-    result: PlanningStreamResult | None = None
-    for item in stream_revise_plan(topic, current_plan=current_plan, message=message, context=context):
-        if isinstance(item, PlanningStreamResult):
-            result = item
-    if result is None:
-        color = extract_color_from_topic(topic)
-        plan = normalize_plan(current_plan, topic, color)
-        return _apply_deterministic_revision(plan, topic, message), True
-    return result.plan, result.degraded
 
 
 def approve_plan(plan: dict[str, Any]) -> dict[str, Any]:
@@ -148,21 +128,6 @@ def approve_plan(plan: dict[str, Any]) -> dict[str, Any]:
     approved["plan_id"] = approved.get("plan_id") or _plan_id(topic, "approved")
     approved["context_status"] = {"status": "normal"}
     return approved
-
-
-def normalize_planning_steps(todos: list[Any]) -> list[dict[str, str]]:
-    steps: list[dict[str, str]] = []
-    for item in todos:
-        if not isinstance(item, dict):
-            continue
-        content = str(item.get("content") or item.get("task") or "").strip()
-        if not content:
-            continue
-        status = str(item.get("status") or "pending")
-        if status not in _VALID_STEP_STATUS:
-            status = "pending"
-        steps.append({"content": content, "status": status})
-    return steps
 
 
 def format_planning_progress_delta(steps: list[dict[str, str]]) -> str:
@@ -186,17 +151,6 @@ def build_planning_progress_payload(steps: list[dict[str, str]]) -> dict[str, An
     }
 
 
-def extract_todos_from_stream_chunk(chunk: Any) -> list[Any] | None:
-    if not isinstance(chunk, dict):
-        return None
-    if isinstance(chunk.get("todos"), list):
-        return chunk["todos"]
-    for node_update in chunk.values():
-        if isinstance(node_update, dict) and isinstance(node_update.get("todos"), list):
-            return node_update["todos"]
-    return None
-
-
 def _stream_planning(
     *,
     topic: str,
@@ -204,6 +158,7 @@ def _stream_planning(
     user_prompt: str,
     combined_system_prompt: str,
     status: str,
+    context_status: dict[str, Any],
     deterministic_factory,
     finalize_plan=None,
 ) -> Iterator[dict[str, Any] | PlanningStreamResult]:
@@ -212,7 +167,7 @@ def _stream_planning(
         plan = deterministic_factory()
         plan["status"] = status
         plan["plan_id"] = plan.get("plan_id") or _plan_id(topic, status)
-        plan["context_status"] = plan.get("context_status") or {"status": "compressed" if status == "revised" else "normal"}
+        plan["context_status"] = context_status
         yield PlanningStreamResult(plan=plan, degraded=True)
         return
 
@@ -270,7 +225,7 @@ def _stream_planning(
         else:
             plan["status"] = status
             plan["plan_id"] = plan.get("plan_id") or _plan_id(topic, status)
-            plan["context_status"] = {"status": "normal"}
+            plan["context_status"] = context_status
         yield PlanningStreamResult(
             plan=plan,
             degraded=False,
@@ -284,7 +239,7 @@ def _stream_planning(
         plan = deterministic_factory()
         plan["status"] = status
         plan["plan_id"] = plan.get("plan_id") or _plan_id(topic, status)
-        plan["context_status"] = {"status": "compressed" if status == "revised" else "normal"}
+        plan["context_status"] = context_status
         yield PlanningStreamResult(
             plan=plan,
             degraded=True,
@@ -318,36 +273,70 @@ def _iter_model_stream_chunks(model: Any, messages: list[Any], *, deadline: floa
     ChatOpenAI.request timeout alone may not interrupt a hung streaming response before the
     first token; this helper polls a background producer so planning can degrade deterministically.
     """
-    chunk_queue: queue.Queue[Any] = queue.Queue()
+    chunk_queue: queue.Queue[Any] = queue.Queue(maxsize=8)
     sentinel = object()
     errors: list[BaseException] = []
+    stop_event = threading.Event()
+
+    def _enqueue(item: Any) -> None:
+        while not stop_event.is_set():
+            try:
+                chunk_queue.put(item, timeout=0.1)
+                return
+            except queue.Full:
+                continue
 
     def _produce() -> None:
         try:
             for chunk in model.stream(messages):
-                chunk_queue.put(chunk)
+                if stop_event.is_set():
+                    return
+                _enqueue(chunk)
         except BaseException as exc:  # noqa: BLE001 - surface producer failures to consumer
             errors.append(exc)
         finally:
-            chunk_queue.put(sentinel)
+            _enqueue(sentinel)
 
     worker = threading.Thread(target=_produce, name="aetherviz-planning-stream", daemon=True)
     worker.start()
-    while True:
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            raise TimeoutError(
-                f"planning model timed out after {settings.aetherviz_plan_timeout_seconds}s"
-            )
-        try:
-            item = chunk_queue.get(timeout=min(remaining, 0.5))
-        except queue.Empty:
-            continue
-        if item is sentinel:
-            if errors:
-                raise errors[0]
-            return
-        yield item
+    try:
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError(
+                    f"planning model timed out after {settings.aetherviz_plan_timeout_seconds}s"
+                )
+            try:
+                item = chunk_queue.get(timeout=min(remaining, 0.5))
+            except queue.Empty:
+                continue
+            if item is sentinel:
+                if errors:
+                    raise errors[0]
+                return
+            yield item
+    finally:
+        stop_event.set()
+
+
+def _compact_planning_context(context: dict[str, Any] | None) -> tuple[str, dict[str, Any]]:
+    if not isinstance(context, dict):
+        return "", {"status": "normal"}
+    allowed = {
+        key: context[key]
+        for key in ("memory", "recent_messages", "learner_level", "preferences")
+        if context.get(key) is not None
+    }
+    if not allowed:
+        return "", {"status": "normal"}
+    serialized = json.dumps(allowed, ensure_ascii=False, separators=(",", ":"))
+    if len(serialized) <= _PLANNING_CONTEXT_MAX_CHARS:
+        return serialized, {"status": "normal"}
+    return serialized[:_PLANNING_CONTEXT_MAX_CHARS], {
+        "status": "compressed",
+        "original_chars": len(serialized),
+        "retained_chars": _PLANNING_CONTEXT_MAX_CHARS,
+    }
 
 
 def _steps_with_active_index(active_step_index: int, *, completed: bool = False) -> list[dict[str, str]]:
@@ -413,7 +402,7 @@ def _apply_deterministic_revision(plan: dict[str, Any], topic: str, message: str
     revised["plan_id"] = _plan_id(topic, "revised")
     revised["revision_summary"] = message[:160]
     revised["goal"] = f'{plan.get("goal", "")} 修订要求：{message[:80]}'.strip()[:180]
-    revised["context_status"] = {"status": "compressed"}
+    revised["context_status"] = {"status": "normal"}
     return revised
 
 

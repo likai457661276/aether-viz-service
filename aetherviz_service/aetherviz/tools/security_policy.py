@@ -1,21 +1,13 @@
-"""Security allowlists for generated AetherViz HTML."""
+"""Security allowlist for generated AetherViz HTML."""
 
 from __future__ import annotations
 
-import re
+from aetherviz_service.aetherviz.constants import get_gsap_core_cdn_url, get_katex_cdn_urls
+from aetherviz_service.config import settings
 
-ALLOWED_EXTERNAL_URLS = {
-    "https://cdn.tailwindcss.com",
-    "https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css",
-    "https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js",
-    "https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js",
-    "https://cdn.staticfile.net/KaTeX/0.16.9/katex.min.css",
-    "https://cdn.staticfile.net/KaTeX/0.16.9/katex.min.js",
-    "https://cdn.staticfile.net/KaTeX/0.16.9/contrib/auto-render.min.js",
-    "https://d3js.org/d3.v7.min.js",
-    "https://cdn.staticfile.net/d3/7.9.0/d3.min.js",
-}
 
-KATEX_URL_PATTERN = re.compile(
-    r"^https://(?:cdn\.jsdelivr\.net/npm/katex@[^/]+/dist|cdn\.staticfile\.net/KaTeX/[^/]+)/(katex\.min\.css|katex\.min\.js|contrib/auto-render\.min\.js)$"
-)
+def allowed_external_urls() -> set[str]:
+    urls = {get_gsap_core_cdn_url()}
+    if settings.aetherviz_katex_enabled:
+        urls.update(get_katex_cdn_urls())
+    return urls

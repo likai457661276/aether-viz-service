@@ -10,6 +10,7 @@ from typing import Any
 from aetherviz_service.aetherviz.api.sse import agent_error_event
 from aetherviz_service.aetherviz.workflow.edit_html_workflow import run_edit_html_workflow
 from aetherviz_service.aetherviz.workflow.generate_workflow import run_generate_workflow
+from aetherviz_service.aetherviz.workflow.plan_contract import normalize_plan
 from aetherviz_service.aetherviz.workflow.plan_workflow import run_approve_plan_workflow, run_plan_workflow
 from aetherviz_service.aetherviz.workflow.revise_plan_workflow import run_revise_plan_workflow
 
@@ -45,10 +46,12 @@ def agent_runtime_stream(
             yield from run_approve_plan_workflow(run_id=run_id, plan=plan or {})
             return
         if phase == "generate":
+            generation_topic = topic or str((approved_plan or {}).get("title") or "AI互动实验")
+            normalized_plan = normalize_plan(approved_plan, generation_topic)
             yield from run_generate_workflow(
                 run_id=run_id,
-                topic=topic or str((approved_plan or {}).get("title") or "AI互动实验"),
-                approved_plan=approved_plan or {},
+                topic=generation_topic,
+                approved_plan=normalized_plan,
             )
             return
         if phase == "edit_html":

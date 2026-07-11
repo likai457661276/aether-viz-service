@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
+import pytest
+
 from aetherviz_service.aetherviz.agents import html_agent
-from aetherviz_service.aetherviz.agents.repair_agent import deterministic_repair_html
+from aetherviz_service.aetherviz.tools.deterministic_repair import deterministic_repair_html
 from aetherviz_service.aetherviz.tools.validation_report import build_validation_report
 from tests.test_aetherviz import sample_html, sample_plan
 
@@ -43,6 +45,9 @@ def test_generation_prompt_compacts_plan_json_without_dropping_content() -> None
     assert '\n  "id": "scene-main"' not in prompt
     assert '"widgetOutline"' not in prompt
     assert prompt.count('"interactive_spec"') == 1
+    assert "连续计算状态与可见展示状态分离" in prompt
+    assert "描述符驱动的统一格式化入口" in prompt
+    assert "共享边只绘制一次" in prompt
 
 
 def test_deterministic_repair_inserts_body_close_before_html_close() -> None:
@@ -187,7 +192,7 @@ def test_stream_generate_html_uses_valid_partial_output_after_stream_failure(mon
     assert "aetherviz-stage" in result.html
 
 
-def test_stream_generate_html_uses_valid_partial_output_after_generator_exit(monkeypatch) -> None:
+def test_stream_generate_html_propagates_generator_exit(monkeypatch) -> None:
     class GeneratorExitModel:
         def stream(self, messages):
             yield MagicMock(content=SAMPLE_HTML, additional_kwargs={})
@@ -196,14 +201,23 @@ def test_stream_generate_html_uses_valid_partial_output_after_generator_exit(mon
     monkeypatch.setattr(html_agent, "has_primary_llm_config", lambda: True)
     monkeypatch.setattr(html_agent, "create_chat_model", lambda kind: GeneratorExitModel())
 
-    result = next(
-        item
-        for item in stream_generate_html("测试主题", {"title": "测试", "goal": "目标", "interactive_type": "diagram"})
-        if isinstance(item, HtmlStreamResult)
-    )
+    with pytest.raises(GeneratorExit):
+        list(stream_generate_html("测试主题", {"title": "测试", "goal": "目标", "interactive_type": "diagram"}))
 
-    assert result.degraded is True
-    assert "aetherviz-stage" in result.html
+
+def test_stream_generate_html_closes_without_yielding_after_generator_exit(monkeypatch) -> None:
+    class StreamingModel:
+        def stream(self, messages):
+            yield MagicMock(content=SAMPLE_HTML, additional_kwargs={})
+            yield MagicMock(content="", additional_kwargs={})
+
+    monkeypatch.setattr(html_agent, "has_primary_llm_config", lambda: True)
+    monkeypatch.setattr(html_agent, "create_chat_model", lambda kind: StreamingModel())
+
+    stream = stream_generate_html("测试主题", {"title": "测试", "goal": "目标", "interactive_type": "diagram"})
+    next(stream)
+    next(stream)
+    stream.close()
 
 
 def test_stream_generate_html_raises_on_complete_failure(monkeypatch) -> None:

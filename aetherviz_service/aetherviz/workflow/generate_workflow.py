@@ -3,18 +3,23 @@
 from __future__ import annotations
 
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from typing import Any
 
 from aetherviz_service.aetherviz.agents.html_agent import HtmlGenerationError, HtmlStreamResult, stream_generate_html
-from aetherviz_service.aetherviz.agents.repair_agent import (
-    RepairStreamResult,
-    deterministic_repair_html,
-    stream_repair_html,
-)
+from aetherviz_service.aetherviz.agents.repair_agent import RepairStreamResult, stream_repair_html
 from aetherviz_service.aetherviz.api.sse import agent_error_event, agent_sse_event
+from aetherviz_service.aetherviz.tools.deterministic_repair import deterministic_repair_html
 from aetherviz_service.aetherviz.tools.validation_report import build_validation_report
 from aetherviz_service.config import settings
+
+QUALITY_REPAIR_WARNING_TYPES = {
+    "unformatted_dynamic_value",
+    "missing_numeric_descriptor",
+    "hardcoded_numeric_step",
+    "scattered_visible_precision",
+    "static_viewbox_for_variable_svg",
+}
 
 
 def run_generate_workflow(
@@ -40,8 +45,7 @@ def _run_html_workflow(
     start_event: str,
     topic: str,
     plan: dict[str, Any],
-    html_factory=None,
-    html_stream_factory=None,
+    html_stream_factory: Callable[[], Iterator[dict[str, Any] | HtmlStreamResult]],
 ) -> Iterator[str]:
     started_at = time.monotonic()
     metadata = {
@@ -66,39 +70,38 @@ def _run_html_workflow(
     )
     html = None
     degraded = False
+    source_truncated = False
     try:
-        if html_stream_factory is not None:
-            for item in html_stream_factory():
-                if isinstance(item, HtmlStreamResult):
-                    html, degraded = item.html, item.degraded
-                    metadata["reasoning_elapsed_ms"] = item.reasoning_elapsed_ms
-                    metadata["first_chunk_elapsed_ms"] = item.first_chunk_elapsed_ms
-                    metadata["generation_elapsed_ms"] = item.generation_elapsed_ms
-                    yield agent_sse_event(
-                        "html.delta",
-                        run_id=run_id,
-                        phase=phase,
-                        data={
-                            "delta": "",
-                            "bytes": len(html.encode("utf-8")),
-                            "chars": len(html),
-                            "reasoning_active": False,
-                            "reasoning_elapsed_ms": item.reasoning_elapsed_ms,
-                            "first_chunk_elapsed_ms": item.first_chunk_elapsed_ms,
-                            "generation_elapsed_ms": item.generation_elapsed_ms,
-                        },
-                        metadata=_metadata(metadata, started_at, stage="generate"),
-                    )
-                    continue
+        for item in html_stream_factory():
+            if isinstance(item, HtmlStreamResult):
+                html, degraded = item.html, item.degraded
+                source_truncated = item.truncated
+                metadata["reasoning_elapsed_ms"] = item.reasoning_elapsed_ms
+                metadata["first_chunk_elapsed_ms"] = item.first_chunk_elapsed_ms
+                metadata["generation_elapsed_ms"] = item.generation_elapsed_ms
                 yield agent_sse_event(
                     "html.delta",
                     run_id=run_id,
                     phase=phase,
-                    data=item,
+                    data={
+                        "delta": "",
+                        "bytes": len(html.encode("utf-8")),
+                        "chars": len(html),
+                        "reasoning_active": False,
+                        "reasoning_elapsed_ms": item.reasoning_elapsed_ms,
+                        "first_chunk_elapsed_ms": item.first_chunk_elapsed_ms,
+                        "generation_elapsed_ms": item.generation_elapsed_ms,
+                    },
                     metadata=_metadata(metadata, started_at, stage="generate"),
                 )
-        else:
-            html, degraded = html_factory()
+                continue
+            yield agent_sse_event(
+                "html.delta",
+                run_id=run_id,
+                phase=phase,
+                data=item,
+                metadata=_metadata(metadata, started_at, stage="generate"),
+            )
     except HtmlGenerationError as exc:
         yield agent_error_event(
             run_id=run_id,
@@ -118,6 +121,7 @@ def _run_html_workflow(
         )
         return
     metadata["degraded"] = degraded
+    metadata["truncated"] = source_truncated
     yield agent_sse_event(
         "validation.started",
         run_id=run_id,
@@ -125,7 +129,7 @@ def _run_html_workflow(
         data={"bytes": len(html.encode("utf-8")), "chars": len(html)},
         metadata=_metadata(metadata, started_at, stage="validation"),
     )
-    report = _validate(html)
+    report = _validate(html, truncated=source_truncated)
     yield from _emit_validation_events(
         run_id=run_id,
         phase=phase,
@@ -135,6 +139,7 @@ def _run_html_workflow(
     )
 
     metadata["validation_warnings"] = [warning["message"] for warning in report.get("warnings", [])]
+    had_hard_errors = not report["ok"]
     if not report["ok"]:
         html, report, metadata["repaired"], metadata["degraded"] = yield from _attempt_repair_loop(
             run_id=run_id,
@@ -145,6 +150,7 @@ def _run_html_workflow(
             report=report,
             metadata=metadata,
             started_at=started_at,
+            source_truncated=source_truncated,
         )
         if not report["ok"]:
             yield agent_error_event(
@@ -156,6 +162,21 @@ def _run_html_workflow(
                 metadata=_metadata(metadata, started_at, stage="validation"),
             )
             return
+
+    if phase == "generate" and not had_hard_errors and _quality_warning_types(report):
+        html, report, quality_repaired, quality_degraded = yield from _attempt_quality_repair(
+            run_id=run_id,
+            phase=phase,
+            topic=topic,
+            plan=plan,
+            html=html,
+            report=report,
+            metadata=metadata,
+            started_at=started_at,
+        )
+        metadata["repaired"] = metadata["repaired"] or quality_repaired
+        metadata["degraded"] = metadata["degraded"] or quality_degraded
+        metadata["validation_warnings"] = [warning["message"] for warning in report.get("warnings", [])]
 
     yield agent_sse_event(
         "html.done",
@@ -176,12 +197,118 @@ def _run_html_workflow(
                 "first_chunk_elapsed_ms": metadata.get("first_chunk_elapsed_ms", 0),
                 "generation_elapsed_ms": metadata.get("generation_elapsed_ms", 0),
                 "generation_backend": "direct",
+                "truncated": metadata.get("truncated", False),
                 "bytes": len(html.encode("utf-8")),
                 "chars": len(html),
             },
         },
         metadata=_metadata(metadata, started_at, stage="done"),
     )
+
+
+def _attempt_quality_repair(
+    *,
+    run_id: str,
+    phase: str,
+    topic: str,
+    plan: dict[str, Any],
+    html: str,
+    report: dict[str, Any],
+    metadata: dict[str, Any],
+    started_at: float,
+) -> Iterator[str]:
+    """Try one non-blocking model repair for generic presentation risks.
+
+    Quality warnings never reject a usable document. The candidate is accepted only
+    when it remains valid and reduces the selected warning set; otherwise the
+    original HTML is returned unchanged.
+    """
+    if settings.aetherviz_max_repair_attempts <= 0:
+        return html, report, False, False
+
+    original_html = html
+    original_report = report
+    original_quality = _quality_warning_types(report)
+    quality_report = {
+        **report,
+        "summary": "发现可自动改进的通用展示质量风险",
+        "errors": [],
+        "warnings": [
+            warning
+            for warning in report.get("warnings", [])
+            if isinstance(warning, dict) and warning.get("type") in QUALITY_REPAIR_WARNING_TYPES
+        ],
+    }
+    metadata["attempts"] += 1
+    yield agent_sse_event(
+        "repair.started",
+        run_id=run_id,
+        phase=phase,
+        data={
+            "attempt": 1,
+            "strategy": "quality-model",
+            "summary": quality_report["summary"],
+            "warnings": quality_report["warnings"][:5],
+        },
+        metadata=_metadata(metadata, started_at, stage="repair"),
+    )
+
+    candidate = original_html
+    candidate_degraded = False
+    candidate_truncated = False
+    for item in stream_repair_html(
+        topic=topic,
+        plan=plan,
+        raw_html=original_html,
+        report=quality_report,
+    ):
+        if isinstance(item, RepairStreamResult):
+            candidate = item.html
+            candidate_degraded = item.degraded
+            candidate_truncated = item.truncated
+            continue
+        yield agent_sse_event(
+            "html.delta",
+            run_id=run_id,
+            phase=phase,
+            data=item,
+            metadata=_metadata(metadata, started_at, stage="repair"),
+        )
+
+    candidate_report = _validate(candidate, truncated=candidate_truncated)
+    candidate_quality = _quality_warning_types(candidate_report)
+    accepted = (
+        candidate != original_html
+        and candidate_report["ok"]
+        and len(candidate_quality) < len(original_quality)
+    )
+    if accepted:
+        html, report = candidate, candidate_report
+        yield from _emit_validation_events(
+            run_id=run_id,
+            phase=phase,
+            report=report,
+            metadata=metadata,
+            started_at=started_at,
+            stage="repair",
+        )
+    else:
+        html, report = original_html, original_report
+
+    yield agent_sse_event(
+        "repair.done",
+        run_id=run_id,
+        phase=phase,
+        data={
+            "attempt": 1,
+            "strategy": "quality-model",
+            "ok": accepted,
+            "accepted": accepted,
+            "remaining_warning_types": sorted(_quality_warning_types(report)),
+        },
+        metadata=_metadata(metadata, started_at, stage="repair"),
+    )
+    return html, report, accepted, candidate_degraded if accepted else False
 
 
 def _attempt_repair_loop(
@@ -194,6 +321,7 @@ def _attempt_repair_loop(
     report: dict[str, Any],
     metadata: dict[str, Any],
     started_at: float,
+    source_truncated: bool,
 ) -> Iterator[str]:
     repaired = False
     deterministic_html = deterministic_repair_html(html, report, plan=plan)
@@ -215,7 +343,7 @@ def _attempt_repair_loop(
             data={"delta": "", "bytes": len(html.encode("utf-8")), "chars": len(html)},
             metadata=_metadata(metadata, started_at, stage="repair"),
         )
-        report = _validate(html)
+        report = _validate(html, truncated=source_truncated)
         yield from _emit_validation_events(
             run_id=run_id,
             phase=phase,
@@ -254,6 +382,7 @@ def _attempt_repair_loop(
             metadata=_metadata(metadata, started_at, stage="repair"),
         )
         repair_degraded = False
+        repair_truncated = False
         for item in stream_repair_html(
             topic=topic,
             plan=plan,
@@ -262,6 +391,7 @@ def _attempt_repair_loop(
         ):
             if isinstance(item, RepairStreamResult):
                 html, repair_degraded = item.html, item.degraded
+                repair_truncated = item.truncated
                 continue
             yield agent_sse_event(
                 "html.delta",
@@ -271,8 +401,9 @@ def _attempt_repair_loop(
                 metadata=_metadata(metadata, started_at, stage="repair"),
             )
         metadata["degraded"] = metadata["degraded"] or repair_degraded
+        metadata["truncated"] = repair_truncated
         repaired = True
-        report = _validate(html)
+        report = _validate(html, truncated=repair_truncated)
         yield from _emit_validation_events(
             run_id=run_id,
             phase=phase,
@@ -306,6 +437,14 @@ def _error_signature(report: dict[str, Any]) -> tuple[str, ...]:
     )
 
 
+def _quality_warning_types(report: dict[str, Any]) -> set[str]:
+    return {
+        str(warning.get("type"))
+        for warning in report.get("warnings", [])
+        if isinstance(warning, dict) and warning.get("type") in QUALITY_REPAIR_WARNING_TYPES
+    }
+
+
 def _emit_validation_events(
     *,
     run_id: str,
@@ -332,8 +471,20 @@ def _emit_validation_events(
     )
 
 
-def _validate(html: str) -> dict[str, Any]:
-    return build_validation_report(html)
+def _validate(html: str, *, truncated: bool = False) -> dict[str, Any]:
+    report = build_validation_report(html)
+    if not truncated:
+        return report
+    error = {
+        "type": "truncated_model_output",
+        "message": "模型输出缺少原始 </html> 结束标签，自动闭合结果必须经过模型修复",
+        "line": None,
+    }
+    report["ok"] = False
+    report["severity"] = "error"
+    report["errors"] = [*report.get("errors", []), error]
+    report["summary"] = f"发现 {len(report['errors'])} 个硬性错误"
+    return report
 
 
 def _report_summary(report: dict[str, Any]) -> dict[str, Any]:
