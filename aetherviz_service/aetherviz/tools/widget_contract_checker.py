@@ -40,12 +40,23 @@ _STAGE_LOOKUP_RE = re.compile(
     r"(?:getElementById\(\s*['\"]aetherviz-stage['\"]\s*\)|"
     r"querySelector\(\s*['\"]#aetherviz-stage['\"]\s*\))"
 )
-_MAIN_VISUAL_LOOKUP_RE = re.compile(
-    r"(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:document|[A-Za-z_$][\w$]*)\."
-    r"querySelector\(\s*['\"]\[data-role=(?:\\?['\"])?main-visual(?:\\?['\"])?\]['\"]\s*\)"
+_JS_IDENTIFIER = r"[A-Za-z_$][\w$]*"
+_JS_MEMBER = rf"{_JS_IDENTIFIER}(?:\s*\.\s*{_JS_IDENTIFIER}|\s*\[\s*['\"]{_JS_IDENTIFIER}['\"]\s*\])*"
+_MAIN_VISUAL_QUERY = (
+    r"(?:document|" + _JS_MEMBER + r")\.querySelector\(\s*"
+    r"['\"]\[data-role=(?:\\?['\"])?main-visual(?:\\?['\"])?\]['\"]\s*\)"
+)
+_MAIN_VISUAL_ASSIGNMENT_RE = re.compile(
+    rf"(?:const|let|var)?\s*(?P<target>{_JS_MEMBER})\s*=\s*{_MAIN_VISUAL_QUERY}"
+)
+_OBJECT_DECLARATION_RE = re.compile(
+    rf"(?:const|let|var)\s+(?P<base>{_JS_IDENTIFIER})\s*=\s*\{{(?P<body>[\s\S]{{0,5000}}?)\}}\s*;"
+)
+_MAIN_VISUAL_OBJECT_PROPERTY_RE = re.compile(
+    rf"(?P<property>{_JS_IDENTIFIER}|['\"]{_JS_IDENTIFIER}['\"])\s*:\s*{_MAIN_VISUAL_QUERY}"
 )
 _VISUAL_CREATION_RE = re.compile(
-    r"(?:const|let|var)?\s*([A-Za-z_$][\w$]*)\s*=\s*document\.createElement(?:NS)?\("
+    rf"(?:const|let|var)?\s*(?P<target>{_JS_MEMBER})\s*=\s*document\.createElement(?:NS)?\("
     r"(?:\s*[^,]+,)?\s*['\"](svg|canvas)['\"]\s*\)",
     re.IGNORECASE,
 )
@@ -349,7 +360,7 @@ def _check_stage(
     if mount is not None:
         if mount.find() is not None or mount.get_text(strip=True):
             return
-        mount_names = set(_MAIN_VISUAL_LOOKUP_RE.findall(script_text))
+        mount_names = _find_main_visual_references(script_text)
         if _has_created_visual_appended_to(script_text, mount_names):
             return
         errors.append(
@@ -394,16 +405,49 @@ def _has_provable_dynamic_stage_visual(script_text: str) -> bool:
 
 
 def _has_created_visual_appended_to(script_text: str, target_names: set[str]) -> bool:
-    visual_names = {name for name, _ in _VISUAL_CREATION_RE.findall(script_text)}
+    visual_names = {
+        _normalize_reference(match.group("target"))
+        for match in _VISUAL_CREATION_RE.finditer(script_text)
+    }
     for target_name in target_names:
         for visual_name in visual_names:
             if re.search(
-                rf"\b{re.escape(target_name)}\.(?:appendChild|append|replaceChildren)\(\s*"
-                rf"{re.escape(visual_name)}\b",
+                rf"(?<![\w$]){_reference_pattern(target_name)}\s*\.\s*"
+                rf"(?:appendChild|append|replaceChildren)\(\s*{_reference_pattern(visual_name)}(?![\w$])",
                 script_text,
             ):
                 return True
     return False
+
+
+def _find_main_visual_references(script_text: str) -> set[str]:
+    """Return simple JS references that resolve to the static main-visual mount.
+
+    Besides direct variables, generated pages frequently cache DOM nodes inside a
+    plain object (for example ``const elements = { stage: querySelector(...) }``).
+    Recognizing that generic member path keeps this check data-flow based without
+    depending on a topic, identifier spelling, or visual coordinates.
+    """
+
+    references = {
+        _normalize_reference(match.group("target"))
+        for match in _MAIN_VISUAL_ASSIGNMENT_RE.finditer(script_text)
+    }
+    for declaration in _OBJECT_DECLARATION_RE.finditer(script_text):
+        base = declaration.group("base")
+        for prop_match in _MAIN_VISUAL_OBJECT_PROPERTY_RE.finditer(declaration.group("body")):
+            prop = prop_match.group("property").strip("'\"")
+            references.add(f"{base}.{prop}")
+    return references
+
+
+def _normalize_reference(reference: str) -> str:
+    normalized = re.sub(r"\s+", "", reference)
+    return re.sub(r"\[['\"]([A-Za-z_$][\w$]*)['\"]\]", r".\1", normalized)
+
+
+def _reference_pattern(reference: str) -> str:
+    return r"\s*\.\s*".join(re.escape(part) for part in reference.split("."))
 
 
 def _check_controls(parsed: BeautifulSoup, errors: list[dict]) -> None:

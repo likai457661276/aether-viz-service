@@ -548,6 +548,71 @@ def test_widget_contract_accepts_dynamic_visual_mounted_into_static_main_visual(
     assert not any(warning["type"] == "dynamic_stage_visual_legacy" for warning in report["warnings"])
 
 
+def test_widget_contract_accepts_visual_mounted_through_dom_cache_property() -> None:
+    from aetherviz_service.aetherviz.tools.widget_contract_checker import check_widget_runtime_contract
+
+    html = sample_html().replace(
+        '<svg viewBox="0 0 100 100"><circle id="dot" cx="20" cy="50" r="8"></circle></svg>',
+        '<div data-role="main-visual"></div>',
+    ).replace(
+        "const state = { progress: 0 };",
+        """const elements = {
+  stage: document.querySelector('[data-role="main-visual"]')
+};
+const visual = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+elements.stage.appendChild(visual);
+const state = { progress: 0 };""",
+    )
+
+    report = check_widget_runtime_contract(html)
+
+    assert report["ok"] is True
+    assert not any(error["type"] == "empty_main_visual_mount" for error in report["errors"])
+
+
+def test_widget_contract_accepts_member_references_for_mount_and_visual() -> None:
+    from aetherviz_service.aetherviz.tools.widget_contract_checker import check_widget_runtime_contract
+
+    html = sample_html().replace(
+        '<svg viewBox="0 0 100 100"><circle id="dot" cx="20" cy="50" r="8"></circle></svg>',
+        '<div data-role="main-visual"></div>',
+    ).replace(
+        "const state = { progress: 0 };",
+        """const elements = {};
+elements['stage'] = document.querySelector('[data-role="main-visual"]');
+elements.visual = document.createElement('canvas');
+elements.stage.replaceChildren(elements.visual);
+const state = { progress: 0 };""",
+    )
+
+    report = check_widget_runtime_contract(html)
+
+    assert report["ok"] is True
+
+
+def test_widget_contract_rejects_visual_appended_to_different_cache_property() -> None:
+    from aetherviz_service.aetherviz.tools.widget_contract_checker import check_widget_runtime_contract
+
+    html = sample_html().replace(
+        '<svg viewBox="0 0 100 100"><circle id="dot" cx="20" cy="50" r="8"></circle></svg>',
+        '<div data-role="main-visual"></div><div id="other"></div>',
+    ).replace(
+        "const state = { progress: 0 };",
+        """const elements = {
+  stage: document.querySelector('[data-role="main-visual"]'),
+  other: document.getElementById('other')
+};
+const visual = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+elements.other.appendChild(visual);
+const state = { progress: 0 };""",
+    )
+
+    report = check_widget_runtime_contract(html)
+
+    assert report["ok"] is False
+    assert any(error["type"] == "empty_main_visual_mount" for error in report["errors"])
+
+
 def test_widget_contract_warns_about_hardcoded_formatter_step_and_raw_formula_state() -> None:
     from aetherviz_service.aetherviz.tools.widget_contract_checker import check_widget_runtime_contract
 
