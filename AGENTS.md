@@ -1,201 +1,82 @@
 # AGENTS.md
 
-本文件定义 `aether-viz-service` 仓库当前分支的项目级代理协作规范。
+本文件定义 `aether-viz-service` 仓库长期稳定的项目边界、开发原则和安全约束，适用于仓库根目录及其所有子目录。
 
-适用范围：仓库根目录及其所有子目录。
+本文件不复制容易变化的接口字段、配置值、模型参数、目录清单或实现细节。具体行为以代码、schema、测试和 `README.md` 为准；用户明确指令优先于本文件。
 
-当用户指令与本文件冲突时，以用户指令为准。
+## 1. 项目边界
 
-## 1. 项目定位
+- 本项目是基于 Python 和 FastAPI 的 AI 互动教学可视化生成服务。
+- 核心能力是根据教学主题规划互动课件，并生成、编辑、检查和修复可独立运行的 HTML。
+- 保持单页互动课件和现有阶段化 API 工作流，不无故扩展为多场景课堂平台或通用 Agent 平台。
+- 不恢复已移除的静态知识点页面、静态 HTML 目录、后端产物缓存或无关业务，除非用户明确要求。
+- 前端负责会话交互、计划确认、产物管理和 iframe 隔离预览；后端负责计划、生成、编辑、校验、修复和最终 HTML 输出。
 
-这是一个基于 Python 3.12 的 FastAPI 服务，提供 AI互动实验互动教学可视化生成链路。
+## 2. 架构原则
 
-AI互动实验通过 `/generate-aetherviz-spec` 根据教学主题生成完整独立 HTML。服务采用同端 SSE 阶段化链路：`phase=plan` 由单次 LLM（可开推理模式）生成单页 `interactive` 教案计划；`phase=revise_plan` 基于 `current_plan + message` 重新生成完整计划；`phase=approve_plan` 标记计划确认；`phase=generate` 携带 `approved_plan` 由 `ChatOpenAI` 直接生成自包含互动 HTML；HTML 文件修改用 `phase=edit_html` 携带选中文件全文 `current_html` 和 `message`，并返回新的 HTML 分支。生成和编辑阶段按“直接模型 HTML -> 内存检查 -> 确定性修复 -> 最多一次模型修复 -> SSE 最终输出”执行；后端不缓存 HTML、修复稿或检查报告文件，前端负责持有、渲染和会话缓存完整 HTML。
+- 保持 HTTP/API、业务编排、模型调用、计划契约、校验工具和 schema 的职责分离。
+- 新能力优先放入现有 AI 互动实验模块，避免在包根目录堆积业务代码。
+- 工作流层负责编排，不堆积底层解析、检查或修复实现。
+- 模型调用保持直接、可追踪和有边界；不引入无必要的通用 Agent harness、文件工具循环、多 Agent 架构或额外框架。
+- 优先复用现有模块和契约，不为形式完整引入额外抽象。
+- 当前架构或目录职责发生变化时，应更新 README，而不是持续向本文件追加实现细节。
 
-项目已移除静态知识点命中、静态 HTML 文件目录和静态 HTML 返回接口。后续不要新增或恢复静态页面逻辑，除非用户明确要求。
+## 3. 计划与提示词原则
 
-后续不要新增或恢复非 AI互动实验功能，除非用户明确要求。
+- HTML 生成必须由规范化后的计划驱动，不重新依赖静态页面命中或预制知识点模板。
+- 提示词应保持通用、分层和可组合，优先围绕互动类型、学科类别、概念族、表征类型和教学模式组织。
+- 不得为单个知识点增加专用完整提示词、静态 HTML 模板、关键词特例或生成分支。
+- 新增分类必须能够覆盖一组可复用的教学主题，并通过测试说明其路由和降级行为。
+- 知识画像是生成路由提示，不应被视为学科事实来源；低置信度或未命中时必须有通用降级路径。
+- 计划归一化、生成提示、编辑提示、修复逻辑和运行时契约应保持语义一致，避免同一规则在多处独立写死。
 
-代码主目录：
+## 4. HTML 生成与校验原则
 
-- `aetherviz_service/`：应用主代码。
-- `aetherviz_service/aetherviz/`：AI互动实验核心业务模块。
-- `tests/`：测试。
-- `README.md`：对外说明与本地运行文档。
-- `pyproject.toml`：依赖、构建与测试配置。
-- `Dockerfile`：容器镜像构建定义。
-- `docker-compose.dev.yml`：开发环境容器编排。
-- `docker-compose.prod.yml`：生产环境容器编排。
+- 最终 HTML 应自包含、可解析、可运行，并满足项目定义的安全、结构、长度和 iframe 运行契约。
+- 后端不持久化 HTML、修复稿或检查报告；完整产物通过既有响应链路交给前端持有。
+- 生成和编辑优先直接使用模型输出，随后执行内存校验和必要修复；修复次数与硬限制以代码和配置为准。
+- 确定性的结构、安全、语法和硬限制问题可以阻断输出。
+- 学科语义、视觉质量、表征匹配等启发式检查默认只产生 warning，不应因不确定判断阻断可继续编辑的产物。
+- 生产同步链路保持低成本，不引入浏览器 smoke test；需要浏览器或模型评估的质量判断应放入离线验证流程。
+- 外部资源、安全白名单、fallback 和输出限制必须从统一配置或常量读取，不在提示词、校验器和修复器中分别写死。
 
-### 关联前端项目
+## 5. 前后端协作
 
-- 前端项目路径：`/Users/likai/Documents/workspace/bingo-aetherviz`。
-- 前端项目名称：`bingo-aetherviz` / `AI动态课件`。
-- 前端技术栈：Vite + React + TypeScript；包管理器、Node 和 pnpm 版本以后端联调时该前端仓库 `package.json` 中的 `packageManager` 与 `volta` 字段为准。
-- 前端职责：负责 chat 工作区、计划确认、SSE 事件消费、多个 HTML 产物管理、iframe `srcDoc` 预览和运行时错误桥接。
-- 后端职责：负责互动 widget 计划、HTML 生成、HTML 文件编辑、自动修复、基础结构安全校验、HTML 长度控制和最终自包含 HTML 输出。
-- 职责边界：前端不渲染课件内部 SVG/Canvas/DOM 逻辑，不把后端生成物依赖搬回 React 组件；前端只消费后端返回的自包含 HTML，并在 iframe 中隔离预览。
-- 联调约定：后端默认运行在 `http://localhost:10095`；前端可通过 `VITE_API_BASE_URL` 或 Vite proxy 指向该后端。
-- 接口协作：前端按 `phase=plan -> phase=revise_plan -> phase=approve_plan -> phase=generate -> html.done` 流程工作；后续修改仅走 `phase=edit_html`，发送选中 HTML 文件全文 `current_html`、修改意见 `message` 和摘要型 `context`，用于生成新的 HTML 分支，不覆盖旧 HTML。
-- 改造边界：本项目采用 Widget 链路级对齐，保留当前 FastAPI 单页 SSE 接口，不迁移外部系统的 Next.js、多场景课堂、LangGraph 或多 Agent 应用架构。
-- 后端修改计划字段、SSE 事件、`metadata` 或 iframe action 契约时，必须同步检查前端 `src/types/aetherviz.ts`、`src/api/aetherviz.ts`、计划展示组件和 iframe 预览组件。
+- 关联前端通常位于相邻仓库 `../bingo-aetherviz`；不要依赖某台机器的绝对路径。
+- 修改计划字段、API 请求响应、SSE 事件、metadata 或 iframe action 契约时，必须检查关联前端类型、API 消费和相关展示逻辑。
+- 未经用户要求，不把课件内部 SVG、Canvas、DOM 或模型生成逻辑迁移到前端组件。
+- 接口契约变化应保持兼容或明确记录迁移方式，并同步更新相关文档和测试。
 
-## 2. 运行环境
+## 6. 修改纪律
 
-在本仓库内执行任务时，默认按以下环境理解：
+- 先理解现有调用链、契约和测试，再执行修改。
+- 优先小步、可审查的改动，不顺手重构无关模块。
+- 保留用户已有未提交改动，不覆盖、不回滚、不使用破坏性 Git 命令。
+- 文档任务保持在文档范围内，不隐式修改运行行为。
+- 新增或修改业务逻辑时应补充相应测试；无法补测时需说明原因和风险。
+- 修改接口、配置、启动方式、关键架构或生成链路时，应同步更新 README 或相关文档。
 
-- 操作系统：macOS
-- Shell：`zsh`
-- Python：`3.12`
-- 依赖管理：`uv`
-- 本地默认运行方式：Docker
+## 7. 开发与验证
 
-若任务涉及跨平台兼容性、容器行为或 CI 环境，不得直接假设本地行为等同于 Linux 容器行为，需单独说明。
+- 默认开发环境为 macOS、Python 3.12 和 `uv`；容器与 CI 行为按其实际 Linux 环境单独验证。
+- Python 依赖和工具命令以 `pyproject.toml` 为准，默认使用 `uv`，不使用 `pip install` 替代项目依赖流程。
+- 验证范围应与改动风险匹配：先运行最小相关测试，再根据影响范围执行完整测试、lint 或容器验证。
+- 涉及前后端契约时，应至少完成后端契约测试和前端静态兼容性检查。
+- 无法执行的验证必须在结果中明确说明，不得把未运行的检查描述为已通过。
 
-## 3. 工作方式
+## 8. 安全与禁止事项
 
-所有任务遵循以下状态流转：
+- 不提交或输出真实密钥、令牌、证书、私钥和敏感环境变量。
+- 示例配置只使用占位值，真实凭据保留在受控的本地或外部密钥存储中。
+- 不修改系统级环境、全局工具、权限或安全设置，除非用户明确授权。
+- 不安装或卸载全局依赖，不执行大范围删除或破坏性仓库操作。
+- 不主动升级大版本依赖，不改变环境变量命名、错误语义或公共接口，除非任务需要并完成兼容性检查。
 
-`INIT -> ANALYSIS -> EXECUTION -> COMPLETED`
+## 9. 结果说明
 
-若遇到阻塞，可进入：
+完成产生文件或行为变化的任务后，简要说明：
 
-- `FAILED`：已尝试执行，但因错误未完成。
-- `ABORTED`：缺少关键条件、继续执行风险过高，主动停止。
-
-执行要求：
-
-1. 先分析再执行，不要跳过上下文确认。
-2. 优先做小步、可审查的修改。
-3. 非必要不扩大改动面，不顺手重构无关代码。
-4. 如果发现用户已有未提交改动，默认保留，不得覆盖或回滚。
-
-## 4. 目录职责约定
-
-### `aetherviz_service/`
-
-- `main.py` 负责 FastAPI 应用装配，只挂载 AI互动实验路由。
-- `config.py` 负责配置读取与集中管理。
-- 大模型调用由 `aetherviz/agents/model_factory.py` 通过 `langchain-openai.ChatOpenAI` 接入 OpenAI-compatible endpoint。
-
-### `aetherviz_service/aetherviz/`
-
-AI互动实验是独立子模块，负责互动教学可视化生成链路。新增 AI互动实验相关能力时，优先放入此目录，不在 `aetherviz_service/` 根目录新增平铺业务文件。
-
-- `api/` 负责 HTTP 入参、phase schema、新版 SSE 事件结构、错误响应和路由定义。
-- `agents/` 负责阶段分发、单次 LLM 规划、HTML 直接生成、模型修复、模型工厂和提示词。
-- `workflow/` 负责 `plan`、`revise_plan`、`approve_plan`、`generate`、`edit_html` 阶段编排，不直接堆积底层校验逻辑。
-- `tools/` 负责 HTML parser、JS checker、安全检查、长度检查、Widget 最小运行契约检查和结构化 `validation_report`。
-- `workflow/plan_contract.py` 负责计划契约规范化、内置学科识别、互动类型识别、渲染栈规划、计划 JSON 解析和无模型配置时的最小可运行计划。
-- `agents/instructions.py` 负责直接模型 system prompt 和任务 prompt 构建。
-- `agents/topic_profile.py` 负责从教学主题中提取生成主色。
-- `tools/` 内部负责 HTML 提取、清理、parser、JS checker、安全检查、长度检查和结构化 `validation_report`；不得依赖旧版共享 validator。
-- `schemas/` 负责 AI互动实验专属请求响应模型定义。
-
-主题色约定：
-
-- 当前接口请求体只包含 `topic`；主题色从 `topic` 中的 `#RRGGBB` 或中文颜色词提取，未提取到时使用默认色。
-- 主题色只作为动态计划和生成提示的输入，不保留静态 HTML 主题色覆盖层。
-
-Widget 链路改造默认方向：
-
-- 保留 `POST /generate-aetherviz-spec`，不新增静态 HTML 接口。
-- 计划对象继续以 `page_type: "interactive"` 为主，保留 `interactive_type` 兼容前端；必须补充 `scene_outline`、`widget_outline`、`design_brief` 和 `widget_actions`，但不得破坏现有前端字段。
-- `simulation`、`diagram`、`game` 使用独立 prompt 和独立 widget-config 约束；分型完整性校验不作为生产硬拦截。
-- 生产生成链路只做基础结构、语法、安全和长度校验，避免因质量门过严阻断可继续通过 chat 改进的 HTML。
-- Widget 最小运行契约检查必须保持为低成本解析逻辑，覆盖 widget-config、主舞台、核心控件、runtime API、ready 标记和 iframe action listener；生产同步链路不引入浏览器 smoke test。
-- GSAP core 地址统一读取 `AETHERVIZ_GSAP_CDN_URL`，只接受 HTTPS；KaTeX 通过 `AETHERVIZ_KATEX_*` 配置，仅在计划公式非空时按需加载固定 CSS/JS。计划归一化、生成/编辑/修复提示词和安全白名单必须保持同源，禁止重新写死 CDN 地址。Tailwind、D3、KaTeX auto-render 和其他外部资源不进入白名单。生成物必须保留 `window.gsap` 缺失时的 native fallback，以及 `window.katex` 缺失时的公式纯文本 fallback。
-- 生产链路不得重新引入通用 Agent harness、文件工具循环或子代理；初次生成和编辑使用直接模型流，修复优先走确定性处理，模型修复最多一次。
-- HTML 输出目标控制在 36000 字符以内，硬上限为 40000 字符；生成、编辑或修复结果超过硬上限时必须触发一次自动修复压缩，修复后仍超限则返回 SSE `error`。
-- `html.delta` 应持续携带累计 `bytes/chars`，供前端实时显示生成大小；`html.done` 返回完整 HTML 和最终大小。不得重新引入后端 HTML 文件缓存、产物路径或 `sandbox.written` 事件。
-- 前端展示 `attempts`、`repaired`、`degraded`、`validation_warnings`、`generation_backend`、`context_status`、`bytes` 和 `chars`。计划中的 action 使用 `widget_setState`、`widget_highlight`、`widget_annotation`、`widget_reveal`；生成物 iframe 内部应兼容 `SET_WIDGET_STATE`、`HIGHLIGHT_ELEMENT`、`ANNOTATE_ELEMENT`、`REVEAL_ELEMENT` 消息。
-
-### `tests/`
-
-- 测试文件命名以 `test_*.py` 为准。
-- AI互动实验相关测试优先放在 `tests/test_aetherviz.py`。
-- 新增或修改业务逻辑时，优先补充对应测试。
-- 若无法补测，需在结果说明中明确原因和风险。
-
-## 5. 开发约束
-
-### Python 与依赖
-
-- 使用 `uv` 执行安装、运行和测试，不要改用 `pip install` 作为默认路径。
-- 依赖声明以 `pyproject.toml` 为准。
-- `uv` 默认使用 `pyproject.toml` 中配置的阿里云 PyPI 源。
-- 非用户明确要求，不主动升级大版本依赖。
-- Docker 相关改动优先保持 `Dockerfile`、`docker-compose.dev.yml`、`docker-compose.prod.yml` 一致。
-
-### 代码改动
-
-- 保持现有分层：路由层、AI互动实验业务层、schema 层、模型调用与配置职责分离。
-- 优先复用现有 AI互动实验模块，不重复创建相近职责的新文件。
-- 不为“看起来更完整”而引入额外抽象。
-- 除非任务明确要求，不新增非 AI互动实验接口，不修改环境变量命名或错误语义。
-
-### 配置与密钥
-
-- 严禁把真实密钥写入仓库文件。
-- `.env.example` 只放示例占位值，不放真实凭据。
-
-## 6. 常用命令
-
-优先使用以下命令：
-
-```bash
-docker compose -f docker-compose.dev.yml up app
-docker compose -f docker-compose.dev.yml run --rm test
-docker compose -f docker-compose.prod.yml up -d app
-uv sync --dev
-uv run pytest
-uv run uvicorn aetherviz_service.main:app --reload --port 10095
-```
-
-AI互动实验常用验证命令：
-
-```bash
-uv run pytest tests/test_aetherviz.py
-```
-
-## 7. 文档与接口变更
-
-出现以下情况时，应同步更新 `README.md` 或相关文档：
-
-- 新增、删除或修改 HTTP 接口。
-- 修改环境变量。
-- 修改本地启动方式。
-- 修改结构目录或关键约定。
-- 修改 AI互动实验生成链路、主题色提取、确定性降级路径或开发命令。
-- 修改 Docker 启动方式。
-
-若改动只涉及内部实现且外部行为不变，可不更新 README，但应确保命名与代码可读性足够清晰。
-
-## 8. 测试与验证
-
-默认验证策略：
-
-1. 能跑测试时，优先运行最小必要测试。
-2. 若修改影响接口或配置流程，优先补充或运行对应测试。
-3. 若环境限制导致无法执行验证，必须明确说明未验证项。
-
-## 9. 禁止事项
-
-除非用户明确要求，否则不要执行以下操作：
-
-- 新增或恢复非 AI互动实验功能。
-- 恢复静态知识点命中或静态 HTML 文件目录。
-- 修改系统级环境配置。
-- 安装或卸载全局工具。
-- 重写无关模块。
-- 提交真实密钥、证书或令牌。
-- 使用破坏性 git 命令回滚用户现有改动。
-
-## 10. 结果说明要求
-
-完成任务后，应尽量说明：
-
-- 改了什么。
-- 为什么这么改。
-- 如何验证。
-- 是否存在未覆盖风险。
+- 修改内容。
+- 涉及文件。
+- 已执行的验证。
+- 已知风险或未完成项。
