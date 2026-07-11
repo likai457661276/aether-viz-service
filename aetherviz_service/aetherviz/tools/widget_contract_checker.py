@@ -21,8 +21,7 @@ _SET_ATTR_COORD_RE = re.compile(
     r"([A-Za-z_$][\w.$]*)\.setAttribute\(\s*['\"](x|y)['\"]\s*,\s*([^)]+?)\s*\)"
 )
 _VISIBLE_TEMPLATE_ASSIGNMENT_RE = re.compile(
-    r"\.(?:textContent|innerText|innerHTML)\s*=\s*`[^`]*\$\{\s*"
-    r"([A-Za-z_$][\w.$]*)\s*\}[^`]*`"
+    r"\.(?:textContent|innerText|innerHTML)\s*=\s*`([^`]*)`"
 )
 _VISIBLE_TEXT_NAME_RE = re.compile(
     r"\b(?:latex|formula|caption|label|readout|display(?:Value|Text)?|hud(?:Value|Text)?)\b\s*=\s*`([^`]*)`",
@@ -32,6 +31,24 @@ _RAW_TEMPLATE_VALUE_RE = re.compile(
     r"\$\{\s*(?!formatValue\s*\(|formatDisplayValue\s*\(|display\b)"
     r"((?:state|STATE|proxy|model|vars?)\.[A-Za-z_$][\w$]*)\s*\}"
 )
+_RAW_VISIBLE_ASSIGNMENT_RE = re.compile(
+    r"\.(?:textContent|innerText|innerHTML)\s*=\s*"
+    r"((?:state|STATE|proxy|model|vars?)\.[A-Za-z_$][\w$]*)\s*;"
+)
+_STAGE_LOOKUP_RE = re.compile(
+    r"(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*document\."
+    r"(?:getElementById\(\s*['\"]aetherviz-stage['\"]\s*\)|"
+    r"querySelector\(\s*['\"]#aetherviz-stage['\"]\s*\))"
+)
+_MAIN_VISUAL_LOOKUP_RE = re.compile(
+    r"(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:document|[A-Za-z_$][\w$]*)\."
+    r"querySelector\(\s*['\"]\[data-role=(?:\\?['\"])?main-visual(?:\\?['\"])?\]['\"]\s*\)"
+)
+_VISUAL_CREATION_RE = re.compile(
+    r"(?:const|let|var)?\s*([A-Za-z_$][\w$]*)\s*=\s*document\.createElement(?:NS)?\("
+    r"(?:\s*[^,]+,)?\s*['\"](svg|canvas)['\"]\s*\)",
+    re.IGNORECASE,
+)
 
 
 def check_widget_runtime_contract(html: str, *, soup: BeautifulSoup | None = None) -> dict:
@@ -39,15 +56,14 @@ def check_widget_runtime_contract(html: str, *, soup: BeautifulSoup | None = Non
     errors: list[dict] = []
     warnings: list[dict] = []
 
-    _check_widget_config(parsed, errors)
-    _check_stage(parsed, errors)
-    _check_controls(parsed, errors)
-
     script_text = "\n".join(
         script.get_text("\n", strip=False)
         for script in parsed.find_all("script")
         if not script.get("src") and str(script.get("type", "")).lower() != "application/json"
     )
+    _check_widget_config(parsed, errors)
+    _check_stage(parsed, script_text, errors, warnings)
+    _check_controls(parsed, errors)
     if not re.search(r"\bAetherVizRuntime\s*=", script_text):
         errors.append(_error("missing_runtime", "缺少 window.AetherVizRuntime 运行时对象"))
     else:
@@ -106,18 +122,19 @@ def _check_unformatted_dynamic_numbers(script_text: str, warnings: list[dict]) -
     formatter (toFixed/Intl.NumberFormat/project helper) keeps rendering stable.
     This remains a warning because a bare identifier can also hold non-numeric text.
     """
-    bare_values = sorted(set(_VISIBLE_TEMPLATE_ASSIGNMENT_RE.findall(script_text)))
-    if not bare_values:
-        bare_values = []
-    named_visible_templates = _VISIBLE_TEXT_NAME_RE.findall(script_text)
-    raw_named_values = sorted(
+    visible_templates = [
+        *_VISIBLE_TEMPLATE_ASSIGNMENT_RE.findall(script_text),
+        *_VISIBLE_TEXT_NAME_RE.findall(script_text),
+    ]
+    raw_template_values = sorted(
         {
             value
-            for template in named_visible_templates
+            for template in visible_templates
             for value in _RAW_TEMPLATE_VALUE_RE.findall(template)
         }
     )
-    all_bare_values = sorted(set(bare_values) | set(raw_named_values))
+    raw_assignments = _RAW_VISIBLE_ASSIGNMENT_RE.findall(script_text)
+    all_bare_values = sorted(set(raw_template_values) | set(raw_assignments))
     if all_bare_values:
         warnings.append(
             _warning(
@@ -310,13 +327,83 @@ def _check_widget_config(parsed: BeautifulSoup, errors: list[dict]) -> None:
         errors.append(_error("invalid_widget_type", "widget-config.type 必须是 simulation、diagram 或 game"))
 
 
-def _check_stage(parsed: BeautifulSoup, errors: list[dict]) -> None:
+def _check_stage(
+    parsed: BeautifulSoup,
+    script_text: str,
+    errors: list[dict],
+    warnings: list[dict],
+) -> None:
     stage = parsed.find(id="aetherviz-stage")
     if stage is None:
-        errors.append(_error("missing_stage", "缺少 #aetherviz-stage 主舞台"))
+        errors.append(
+            _error(
+                "missing_stage",
+                "缺少 #aetherviz-stage 主舞台",
+                expected={"selector": "#aetherviz-stage", "phase": "static_dom"},
+            )
+        )
         return
-    if stage.find(["svg", "canvas"]) is None and stage.select_one("[data-role='main-visual']") is None:
-        errors.append(_error("missing_stage_visual", "主舞台缺少 SVG、Canvas 或 main-visual 主体"))
+    if stage.find(["svg", "canvas"]) is not None:
+        return
+    mount = stage.select_one("[data-role='main-visual']")
+    if mount is not None:
+        if mount.find() is not None or mount.get_text(strip=True):
+            return
+        mount_names = set(_MAIN_VISUAL_LOOKUP_RE.findall(script_text))
+        if _has_created_visual_appended_to(script_text, mount_names):
+            return
+        errors.append(
+            _error(
+                "empty_main_visual_mount",
+                "main-visual 挂载节点为空，且未检测到脚本向该节点挂载可视化",
+                expected={
+                    "scope": "#aetherviz-stage [data-role='main-visual']",
+                    "phase": "static_dom_or_provable_runtime_mount",
+                    "content": "non-empty DOM visual or appended svg/canvas",
+                },
+            )
+        )
+        return
+    if _has_provable_dynamic_stage_visual(script_text):
+        warnings.append(
+            _warning(
+                "dynamic_stage_visual_legacy",
+                "主视觉由脚本直接挂载到舞台；建议保留静态 [data-role='main-visual'] 挂载节点以统一生成和校验契约。",
+            )
+        )
+        return
+    errors.append(
+        _error(
+            "missing_stage_visual",
+            "主舞台缺少可验证的 SVG、Canvas 或 main-visual 主体",
+            expected={
+                "scope": "#aetherviz-stage",
+                "selector": "svg, canvas, [data-role='main-visual']",
+                "phase": "static_dom",
+                "dynamic_fallback": "create svg/canvas and append it to #aetherviz-stage",
+            },
+        )
+    )
+
+
+def _has_provable_dynamic_stage_visual(script_text: str) -> bool:
+    """Recognize a small, topic-agnostic create-and-mount visual data flow."""
+
+    stage_names = set(_STAGE_LOOKUP_RE.findall(script_text))
+    return _has_created_visual_appended_to(script_text, stage_names)
+
+
+def _has_created_visual_appended_to(script_text: str, target_names: set[str]) -> bool:
+    visual_names = {name for name, _ in _VISUAL_CREATION_RE.findall(script_text)}
+    for target_name in target_names:
+        for visual_name in visual_names:
+            if re.search(
+                rf"\b{re.escape(target_name)}\.(?:appendChild|append|replaceChildren)\(\s*"
+                rf"{re.escape(visual_name)}\b",
+                script_text,
+            ):
+                return True
+    return False
 
 
 def _check_controls(parsed: BeautifulSoup, errors: list[dict]) -> None:
@@ -325,8 +412,8 @@ def _check_controls(parsed: BeautifulSoup, errors: list[dict]) -> None:
             errors.append(_error("missing_control", f"缺少核心控件 #{control_id}"))
 
 
-def _error(error_type: str, message: str) -> dict:
-    return {"type": error_type, "message": message, "line": None}
+def _error(error_type: str, message: str, **details: object) -> dict:
+    return {"type": error_type, "message": message, "line": None, **details}
 
 
 def _warning(warning_type: str, message: str) -> dict:

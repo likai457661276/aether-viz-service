@@ -71,7 +71,7 @@ LANGSMITH_API_KEY="你的 LangSmith API Key"
 LANGSMITH_PROJECT="aetherviz-direct-html"
 ```
 
-`LANGSMITH_TRACING=false` 或未配置 `LANGSMITH_API_KEY` 时不会上报 trace。组织级 API Key 如需指定工作区，可额外设置 `LANGSMITH_WORKSPACE_ID`。Trace 会在应用启动时写入进程环境变量，LangChain 的模型调用会自动出现在 LangSmith 项目面板中。
+`LANGSMITH_TRACING=false` 或未配置 `LANGSMITH_API_KEY` 时不会上报 trace。组织级 API Key 如需指定工作区，可额外设置 `LANGSMITH_WORKSPACE_ID`。生成阶段以 `aetherviz.generate_workflow` 作为根 trace，HTML 生成、确定性校验、确定性修复、模型修复和最终校验作为子 run；metadata 记录 `run_id`、phase、互动类型、错误/警告类型、修复是否接受、耗时及最终大小。工作流 trace 只保存摘要，不重复保存完整 SSE HTML；模型子 run 仍由 LangChain 自动采集。
 
 ## 启动服务
 
@@ -275,8 +275,8 @@ HTML 文件编辑阶段请求示例：
 2. `phase=revise_plan` 由规划模型接收 `current_plan + message`，重新生成完整 `revised` 计划，不返回局部 patch。
 3. `phase=approve_plan` 将计划状态置为 `approved`。
 4. `phase=generate` 由 `html_agent` 根据已确认计划生成完整自包含 HTML，并在 `html.delta` 中持续返回累计实际大小。
-5. `validation_report` 在内存中聚合 HTML parser、JS checker、安全检查、长度检查和 Widget 最小运行契约检查，验证 widget-config、主舞台、核心控件、runtime API、ready 标记和 iframe action listener。
-6. 检查失败时先确定性补齐静态 `widget-config` 和播放/暂停/重置控件等基础契约；仍失败时由 `repair_agent` 使用统一配置的模型定向修复，最多 1 次。内容与错误集合无变化时立即停止重试。
+5. `validation_report` 在内存中聚合 HTML parser、JS checker、安全检查、长度检查和 Widget 最小运行契约检查，验证 widget-config、主舞台、核心控件、runtime API、ready 标记和 iframe action listener。`#aetherviz-stage` 应静态包含 SVG、Canvas 或 `[data-role="main-visual"]` 挂载节点；为兼容旧产物，检查器也接受能够静态证明已创建并挂载到舞台的运行时 SVG/Canvas，并返回迁移 warning。结构错误包含机器可读的 `expected` 验收条件。
+6. 检查失败时先确定性补齐静态 `widget-config` 和播放/暂停/重置控件等基础契约；仍失败时由 `repair_agent` 使用统一配置的模型定向修复，最多 1 次。若修复后硬错误签名不变，候选稿不会被接受，工作流恢复修复前 HTML、标记 `stalled` 并立即停止，避免无效完整重写。
 7. `phase=edit_html` 基于选中 HTML 全文生成新的 HTML 分支，不覆盖旧 HTML。
 8. 最终 HTML 仅通过 `html.done` 返回前端；服务端不保留 HTML 文件缓存或产物路径。
 

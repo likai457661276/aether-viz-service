@@ -460,6 +460,94 @@ def test_widget_contract_accepts_explicitly_formatted_animation_value() -> None:
     assert not any(warning["type"] == "unformatted_dynamic_value" for warning in report["warnings"])
 
 
+def test_widget_contract_ignores_text_and_preformatted_template_values() -> None:
+    from aetherviz_service.aetherviz.tools.widget_contract_checker import check_widget_runtime_contract
+
+    safe_html = sample_html().replace(
+        "const state = { progress: 0 };",
+        "const state = { progress: 0 }; const e = {message: '错误'}; "
+        "const step = {caption: '观察'}; const formattedValue = formatValue(state.progress, descriptor); "
+        "caption.textContent = `${e.message} ${step.caption} ${formattedValue}`;",
+    )
+
+    report = check_widget_runtime_contract(safe_html)
+
+    assert not any(warning["type"] == "unformatted_dynamic_value" for warning in report["warnings"])
+
+
+def test_widget_contract_accepts_provable_dynamic_stage_visual_as_legacy() -> None:
+    from aetherviz_service.aetherviz.tools.widget_contract_checker import check_widget_runtime_contract
+
+    html = sample_html().replace(
+        '<svg viewBox="0 0 100 100"><circle id="dot" cx="20" cy="50" r="8"></circle></svg>',
+        "",
+    ).replace(
+        "const state = { progress: 0 };",
+        "const state = { progress: 0 };\n"
+        "const stage = document.getElementById('aetherviz-stage');\n"
+        "const visual = document.createElementNS('http://www.w3.org/2000/svg', 'svg');\n"
+        "stage.appendChild(visual);",
+    )
+
+    report = check_widget_runtime_contract(html)
+
+    assert report["ok"] is True
+    assert any(warning["type"] == "dynamic_stage_visual_legacy" for warning in report["warnings"])
+
+
+def test_widget_contract_rejects_unmounted_dynamic_visual_with_acceptance_contract() -> None:
+    from aetherviz_service.aetherviz.tools.widget_contract_checker import check_widget_runtime_contract
+
+    html = sample_html().replace(
+        '<svg viewBox="0 0 100 100"><circle id="dot" cx="20" cy="50" r="8"></circle></svg>',
+        "",
+    ).replace(
+        "const state = { progress: 0 };",
+        "const state = { progress: 0 };\n"
+        "const visual = document.createElementNS('http://www.w3.org/2000/svg', 'svg');",
+    )
+
+    report = check_widget_runtime_contract(html)
+    error = next(item for item in report["errors"] if item["type"] == "missing_stage_visual")
+
+    assert report["ok"] is False
+    assert error["expected"]["phase"] == "static_dom"
+    assert "[data-role='main-visual']" in error["expected"]["selector"]
+
+
+def test_widget_contract_accepts_static_main_visual_mount() -> None:
+    from aetherviz_service.aetherviz.tools.widget_contract_checker import check_widget_runtime_contract
+
+    html = sample_html().replace(
+        '<svg viewBox="0 0 100 100"><circle id="dot" cx="20" cy="50" r="8"></circle></svg>',
+        '<div data-role="main-visual"><div class="visual-node"></div></div>',
+    )
+
+    report = check_widget_runtime_contract(html)
+
+    assert not any(error["type"] == "missing_stage_visual" for error in report["errors"])
+
+
+def test_widget_contract_accepts_dynamic_visual_mounted_into_static_main_visual() -> None:
+    from aetherviz_service.aetherviz.tools.widget_contract_checker import check_widget_runtime_contract
+
+    html = sample_html().replace(
+        '<svg viewBox="0 0 100 100"><circle id="dot" cx="20" cy="50" r="8"></circle></svg>',
+        '<div data-role="main-visual"></div>',
+    ).replace(
+        "const state = { progress: 0 };",
+        "const state = { progress: 0 };\n"
+        "const mount = document.querySelector('[data-role=\"main-visual\"]');\n"
+        "const visual = document.createElementNS('http://www.w3.org/2000/svg', 'svg');\n"
+        "mount.appendChild(visual);",
+    )
+
+    report = check_widget_runtime_contract(html)
+
+    assert report["ok"] is True
+    assert not any(warning["type"] == "dynamic_stage_visual_legacy" for warning in report["warnings"])
+
+
 def test_widget_contract_warns_about_hardcoded_formatter_step_and_raw_formula_state() -> None:
     from aetherviz_service.aetherviz.tools.widget_contract_checker import check_widget_runtime_contract
 
@@ -582,6 +670,57 @@ def test_generate_phase_triggers_repair_when_validation_fails(monkeypatch) -> No
     assert repair_done["data"]["chars"] == len(sample_html())
     assert done["data"]["metadata"]["repaired"] is True
     assert done["data"]["metadata"]["attempts"] >= 2
+
+
+def test_generate_phase_rejects_stalled_model_repair_and_preserves_previous_html(monkeypatch) -> None:
+    from aetherviz_service.aetherviz.agents.html_agent import HtmlStreamResult
+    from aetherviz_service.aetherviz.agents.repair_agent import RepairStreamResult
+    from aetherviz_service.aetherviz.workflow import generate_workflow
+
+    missing_visual = sample_html().replace(
+        '<svg viewBox="0 0 100 100"><circle id="dot" cx="20" cy="50" r="8"></circle></svg>',
+        "",
+    )
+    unrelated_candidate = missing_visual.replace(
+        '<main id="aetherviz-stage">',
+        '<main id="aetherviz-stage" data-unrelated="changed">',
+    )
+    repair_calls = 0
+    repair_source = ""
+
+    def fake_stream(topic, plan):
+        yield HtmlStreamResult(html=missing_visual, degraded=False)
+
+    def fake_repair_stream(**kwargs):
+        nonlocal repair_calls, repair_source
+        repair_calls += 1
+        repair_source = kwargs["raw_html"]
+        yield RepairStreamResult(html=unrelated_candidate, degraded=False)
+
+    monkeypatch.setattr(settings, "aetherviz_max_repair_attempts", 1)
+    monkeypatch.setattr(generate_workflow, "stream_generate_html", fake_stream)
+    monkeypatch.setattr(generate_workflow, "stream_repair_html", fake_repair_stream)
+
+    response = client.post(
+        AETHERVIZ_ENDPOINT,
+        json={"topic": "变量变化", "phase": "generate", "approved_plan": sample_plan("变量变化")},
+    )
+
+    events = parse_sse_events(response)
+    model_done = next(
+        data
+        for event, data in events
+        if event == "repair.done" and data["data"].get("strategy") == "model"
+    )
+    error = next(data for event, data in events if event == "error")
+
+    assert repair_calls == 1
+    assert model_done["data"]["accepted"] is False
+    assert model_done["data"]["stalled"] is True
+    assert model_done["data"]["remaining_error_types"] == ["missing_stage_visual"]
+    assert model_done["data"]["chars"] == len(repair_source)
+    assert error["data"]["code"] == "validation_failed"
+    assert not any(event == "html.done" for event, _ in events)
 
 
 def test_generate_phase_accepts_quality_repair_only_when_warning_is_reduced(monkeypatch) -> None:

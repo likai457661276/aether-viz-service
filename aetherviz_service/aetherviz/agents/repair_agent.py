@@ -10,6 +10,8 @@ from dataclasses import dataclass
 from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
+from langsmith import traceable
+from langsmith.run_helpers import get_current_run_tree
 
 from aetherviz_service.aetherviz.agents.html_agent import (
     HTML_SIZE_EVENT_INTERVAL_BYTES,
@@ -42,6 +44,44 @@ class RepairStreamResult:
 
 
 def stream_repair_html(
+    *,
+    topic: str,
+    plan: dict[str, Any],
+    raw_html: str,
+    report: dict[str, Any],
+) -> Iterator[dict[str, Any] | RepairStreamResult]:
+    runner = (
+        _traced_stream_repair_html
+        if settings.langsmith_tracing and get_current_run_tree() is not None
+        else _stream_repair_html_impl
+    )
+    yield from runner(topic=topic, plan=plan, raw_html=raw_html, report=report)
+
+
+@traceable(
+    name="aetherviz.model_repair",
+    run_type="chain",
+    metadata={"component": "aetherviz", "stage": "model_repair"},
+    process_inputs=lambda inputs: {
+        "topic": inputs.get("topic"),
+        "interactive_type": (inputs.get("plan") or {}).get("interactive_type"),
+        "source_chars": len(inputs.get("raw_html") or ""),
+        "error_types": [error.get("type") for error in (inputs.get("report") or {}).get("errors", [])],
+        "warning_types": [warning.get("type") for warning in (inputs.get("report") or {}).get("warnings", [])],
+    },
+    reduce_fn=lambda items: _summarize_repair_stream(items),
+)
+def _traced_stream_repair_html(
+    *,
+    topic: str,
+    plan: dict[str, Any],
+    raw_html: str,
+    report: dict[str, Any],
+) -> Iterator[dict[str, Any] | RepairStreamResult]:
+    yield from _stream_repair_html_impl(topic=topic, plan=plan, raw_html=raw_html, report=report)
+
+
+def _stream_repair_html_impl(
     *,
     topic: str,
     plan: dict[str, Any],
@@ -140,6 +180,20 @@ def stream_repair_html(
             degraded=True,
             truncated=_report_has_truncation(report),
         )
+
+
+def _summarize_repair_stream(items: list[dict[str, Any] | RepairStreamResult]) -> dict[str, Any]:
+    result = next((item for item in reversed(items) if isinstance(item, RepairStreamResult)), None)
+    if result is None:
+        return {"completed": False, "progress_events": sum(isinstance(item, dict) for item in items)}
+    return {
+        "completed": True,
+        "chars": len(result.html),
+        "bytes": len(result.html.encode("utf-8")),
+        "degraded": result.degraded,
+        "truncated": result.truncated,
+        "progress_events": sum(isinstance(item, dict) for item in items),
+    }
 
 
 def _report_has_truncation(report: dict[str, Any]) -> bool:

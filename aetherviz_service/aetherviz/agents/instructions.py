@@ -21,6 +21,7 @@ WIDGET_CORE_PROMPT = """互动 widget 核心契约：
 - widget-config 必须承载本页核心互动配置：simulation 写 concept/description/variables/presets；diagram 写 nodes/edges/revealOrder；game 写 gameType/description/gameConfig/successCondition/feedbackRules。
 - 必须实现 `window.addEventListener("message", ...)`，至少处理 SET_WIDGET_STATE、HIGHLIGHT_ELEMENT、ANNOTATE_ELEMENT、REVEAL_ELEMENT 四类 iframe-local widget action。
 - 变量控件 ID 使用 `{variable_name}-slider` 或 `data-var="{variable_name}"`；按钮 ID 使用 `{action}-btn` 或计划中的稳定 id；可被高亮/标注的元素必须有 id 或 data-role。
+- `#aetherviz-stage` 必须在静态 HTML 中直接包含主 SVG、Canvas 或 `[data-role="main-visual"]` 挂载节点。若 SVG/Canvas 由 JavaScript 创建，必须追加到这个静态 main-visual 节点内且不得删除或替换挂载节点；禁止只留下空舞台并依赖运行时注入。
 - 主舞台、控制面板、说明、公式和 HUD 必须是分区布局；控制面板不能覆盖 Canvas/SVG，移动端使用堆叠、抽屉或可折叠布局。
 - 计算对象位置时必须预留 TOP_MARGIN/BOTTOM_MARGIN 或等价安全区，不能把对象画到控制区、HUD、caption、公式区下面。
 - 舞台内只放短标签和图形标注；公式、读数、caption、推导步骤放独立面板。禁止把公式/读数渲染成主舞台超大文本；SVG text 的屏幕视觉字号必须继承页面正文/辅助文字的排版层级，不得因坐标系缩放显著大于舞台外同级文字。
@@ -201,7 +202,7 @@ def build_repair_prompt(
     return f"""修复以下{source_label}失败的 HTML。
 上下文：{_compact_json({"topic": topic, "goal": plan.get("goal", ""), "interactive_type": plan.get("interactive_type", "")})}
 检查问题：{error_detail}
-执行原则：逐项修复错误；未被错误点名的布局、坐标、动画、文案和交互保持不变。
+执行原则：逐项修复错误并满足每个错误中的 expected 验收条件；expected.phase=static_dom 表示对应结构必须直接出现在输出 HTML，而不能只在 JavaScript 运行后创建。未被错误点名的布局、坐标、动画、文案和交互保持不变。
 原始 HTML：
 {raw_html}
 只输出修复后的完整 HTML。"""
@@ -321,7 +322,7 @@ def build_interactive_generation_prompt(topic: str, plan: dict) -> str:
 渲染建议：{render_stack_hint}
 公式运行时：{formula_runtime_hint}
 类型验收：{type_hint}
-关键落地：widget-config 原样承载 interactive_spec 且 type={interactive_type}；四类 message action 必须作用于真实元素；教学流程完整可见并同步当前步骤；控件绑定真实功能；首屏不依赖异步资源。
+关键落地：widget-config 原样承载 interactive_spec 且 type={interactive_type}；#aetherviz-stage 的静态 HTML 必须直接包含 SVG、Canvas 或 data-role="main-visual" 挂载节点；四类 message action 必须作用于真实元素；教学流程完整可见并同步当前步骤；控件绑定真实功能；首屏不依赖异步资源。
 生成前执行通用一致性自检：连续计算状态与可见展示状态分离，所有动态数值均走描述符驱动的统一格式化入口；参数、preset、timeline、reset 和 message action 共用同一渲染路径；图形使用语义化描边层级，共享边只绘制一次；SVG/Canvas 在参数全范围和动画关键帧下保持线宽稳定、连接平滑、视觉重心稳定且标签不重叠。
 SVG 最终硬验收：若使用数学/抽象 viewBox，SVG text 必须根据页面排版 token 与 getScreenCTM() 实际缩放统一换算，不能假定 CSS 字号等于屏幕字号；检查全部标签在初始状态、参数范围边界和动画关键帧下均不越界、不异常放大且不重叠。修复必须作用于通用布局/渲染路径，禁止按主题、标签 id、具体坐标或单个预设写特例。
 只输出完整 HTML。"""

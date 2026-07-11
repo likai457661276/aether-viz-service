@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import json
 import time
 from collections.abc import Callable, Iterator
 from typing import Any
+
+from langsmith import traceable
+from langsmith.run_helpers import get_current_run_tree
 
 from aetherviz_service.aetherviz.agents.html_agent import HtmlGenerationError, HtmlStreamResult, stream_generate_html
 from aetherviz_service.aetherviz.agents.repair_agent import RepairStreamResult, stream_repair_html
@@ -23,6 +27,50 @@ QUALITY_REPAIR_WARNING_TYPES = {
 
 
 def run_generate_workflow(
+    *,
+    run_id: str,
+    topic: str,
+    approved_plan: dict[str, Any],
+) -> Iterator[str]:
+    tracing_enabled = settings.langsmith_tracing and bool((settings.langsmith_api_key or "").strip())
+    runner = _traced_run_generate_workflow if tracing_enabled else _run_generate_workflow_impl
+    extra = {
+        "metadata": {
+            "component": "aetherviz",
+            "phase": "generate",
+            "run_id": run_id,
+            "interactive_type": approved_plan.get("interactive_type"),
+            "subject": approved_plan.get("subject"),
+        }
+    }
+    if runner is _traced_run_generate_workflow:
+        yield from runner(run_id=run_id, topic=topic, approved_plan=approved_plan, langsmith_extra=extra)
+        return
+    yield from runner(run_id=run_id, topic=topic, approved_plan=approved_plan)
+
+
+@traceable(
+    name="aetherviz.generate_workflow",
+    run_type="chain",
+    metadata={"component": "aetherviz", "phase": "generate"},
+    process_inputs=lambda inputs: {
+        "run_id": inputs.get("run_id"),
+        "topic": inputs.get("topic"),
+        "interactive_type": (inputs.get("approved_plan") or {}).get("interactive_type"),
+        "subject": (inputs.get("approved_plan") or {}).get("subject"),
+    },
+    reduce_fn=lambda chunks: _summarize_sse_trace(chunks),
+)
+def _traced_run_generate_workflow(
+    *,
+    run_id: str,
+    topic: str,
+    approved_plan: dict[str, Any],
+) -> Iterator[str]:
+    yield from _run_generate_workflow_impl(run_id=run_id, topic=topic, approved_plan=approved_plan)
+
+
+def _run_generate_workflow_impl(
     *,
     run_id: str,
     topic: str,
@@ -345,7 +393,7 @@ def _attempt_repair_loop(
     source_truncated: bool,
 ) -> Iterator[str]:
     repaired = False
-    deterministic_html = deterministic_repair_html(html, report, plan=plan)
+    deterministic_html = _run_deterministic_repair(html, report, plan)
     if deterministic_html != html:
         metadata["attempts"] += 1
         yield agent_sse_event(
@@ -393,8 +441,12 @@ def _attempt_repair_loop(
 
     max_attempts = min(max(settings.aetherviz_max_repair_attempts, 0), 1)
     for attempt in range(max_attempts):
+        had_prior_repair = repaired
         previous_html = html
+        previous_report = report
         previous_errors = _error_signature(report)
+        previous_degraded = metadata["degraded"]
+        previous_truncated = metadata.get("truncated", False)
         metadata["attempts"] += 1
         attempt_number = attempt + 1 + int(repaired)
         yield agent_sse_event(
@@ -452,6 +504,20 @@ def _attempt_repair_loop(
             stage="repair",
         )
         metadata["validation_warnings"] = [warning["message"] for warning in report.get("warnings", [])]
+        stalled = not report["ok"] and _error_signature(report) == previous_errors
+        accepted = not stalled
+        candidate_error_types = list(_error_signature(report))
+        if stalled:
+            html = previous_html
+            report = previous_report
+            repaired = had_prior_repair
+            metadata["degraded"] = previous_degraded
+            metadata["truncated"] = previous_truncated
+            metadata["validation_warnings"] = [
+                warning["message"] for warning in report.get("warnings", [])
+            ]
+            metadata["repair_stalled"] = True
+            metadata["repair_stalled_error_types"] = candidate_error_types
         yield agent_sse_event(
             "repair.done",
             run_id=run_id,
@@ -460,6 +526,9 @@ def _attempt_repair_loop(
                 "attempt": attempt_number,
                 "strategy": "model",
                 "ok": report["ok"],
+                "accepted": accepted,
+                "stalled": stalled,
+                "remaining_error_types": candidate_error_types,
                 "summary": report.get("summary"),
                 "bytes": len(html.encode("utf-8")),
                 "chars": len(html),
@@ -468,7 +537,7 @@ def _attempt_repair_loop(
         )
         if report["ok"]:
             break
-        if html == previous_html or _error_signature(report) == previous_errors:
+        if stalled or html == previous_html:
             break
     return html, report, repaired, metadata["degraded"]
 
@@ -518,6 +587,37 @@ def _emit_validation_events(
 
 
 def _validate(html: str, *, truncated: bool = False) -> dict[str, Any]:
+    runner = (
+        _traced_validate
+        if settings.langsmith_tracing and get_current_run_tree() is not None
+        else _validate_impl
+    )
+    return runner(html, truncated=truncated)
+
+
+@traceable(
+    name="aetherviz.validation",
+    run_type="tool",
+    metadata={"component": "aetherviz", "stage": "validation"},
+    process_inputs=lambda inputs: {
+        "chars": len(inputs.get("html") or ""),
+        "bytes": len((inputs.get("html") or "").encode("utf-8")),
+        "truncated": inputs.get("truncated", False),
+    },
+    process_outputs=lambda report: {
+        "ok": report.get("ok"),
+        "summary": report.get("summary"),
+        "error_types": list(_error_signature(report)),
+        "warning_types": sorted(
+            str(item.get("type")) for item in report.get("warnings", []) if isinstance(item, dict)
+        ),
+    },
+)
+def _traced_validate(html: str, *, truncated: bool = False) -> dict[str, Any]:
+    return _validate_impl(html, truncated=truncated)
+
+
+def _validate_impl(html: str, *, truncated: bool = False) -> dict[str, Any]:
     report = build_validation_report(html)
     if not truncated:
         return report
@@ -531,6 +631,80 @@ def _validate(html: str, *, truncated: bool = False) -> dict[str, Any]:
     report["errors"] = [*report.get("errors", []), error]
     report["summary"] = f"发现 {len(report['errors'])} 个硬性错误"
     return report
+
+
+def _run_deterministic_repair(html: str, report: dict[str, Any], plan: dict[str, Any]) -> str:
+    runner = (
+        _traced_deterministic_repair
+        if settings.langsmith_tracing and get_current_run_tree() is not None
+        else deterministic_repair_html
+    )
+    return runner(html, report, plan=plan)
+
+
+@traceable(
+    name="aetherviz.deterministic_repair",
+    run_type="tool",
+    metadata={"component": "aetherviz", "stage": "deterministic_repair"},
+    process_inputs=lambda inputs: {
+        "source_chars": len(inputs.get("html") or ""),
+        "error_types": [item.get("type") for item in (inputs.get("report") or {}).get("errors", [])],
+    },
+    process_outputs=lambda output: {"chars": len(output), "bytes": len(output.encode("utf-8"))},
+)
+def _traced_deterministic_repair(
+    html: str,
+    report: dict[str, Any],
+    *,
+    plan: dict[str, Any],
+) -> str:
+    return deterministic_repair_html(html, report, plan=plan)
+
+
+def _summarize_sse_trace(chunks: list[str]) -> dict[str, Any]:
+    events: list[str] = []
+    repairs: list[dict[str, Any]] = []
+    final: dict[str, Any] = {}
+    for chunk in chunks:
+        event = next((line[7:] for line in chunk.splitlines() if line.startswith("event: ")), "")
+        if event:
+            events.append(event)
+        data_line = next((line[6:] for line in chunk.splitlines() if line.startswith("data: ")), "")
+        if event in {"repair.done", "html.done", "error"} and data_line:
+            try:
+                payload = json.loads(data_line)
+            except ValueError:
+                continue
+            if event == "repair.done":
+                repair_data = payload.get("data") or {}
+                repairs.append(
+                    {
+                        key: repair_data.get(key)
+                        for key in (
+                            "strategy",
+                            "ok",
+                            "accepted",
+                            "stalled",
+                            "remaining_error_types",
+                            "chars",
+                            "bytes",
+                        )
+                        if key in repair_data
+                    }
+                )
+            elif event == "html.done":
+                done_data = payload.get("data") or {}
+                final = {"event": event, **(done_data.get("metadata") or {})}
+            else:
+                error_data = payload.get("data") or {}
+                final = {
+                    "event": event,
+                    "code": error_data.get("code"),
+                    "message": error_data.get("message"),
+                    "detail": error_data.get("detail"),
+                    "metadata": payload.get("metadata") or {},
+                }
+    return {"event_count": len(events), "events": events, "repairs": repairs, "final": final}
 
 
 def _report_summary(report: dict[str, Any]) -> dict[str, Any]:

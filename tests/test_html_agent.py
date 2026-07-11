@@ -48,6 +48,8 @@ def test_generation_prompt_compacts_plan_json_without_dropping_content() -> None
     assert "连续计算状态与可见展示状态分离" in prompt
     assert "描述符驱动的统一格式化入口" in prompt
     assert "共享边只绘制一次" in prompt
+    assert "静态 HTML" in prompt
+    assert 'data-role="main-visual"' in prompt
 
 
 def test_deterministic_repair_inserts_body_close_before_html_close() -> None:

@@ -11,6 +11,8 @@ from dataclasses import dataclass
 from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
+from langsmith import traceable
+from langsmith.run_helpers import get_current_run_tree
 
 from aetherviz_service.aetherviz.agents.instructions import (
     build_interactive_generation_prompt,
@@ -56,6 +58,33 @@ class HtmlStreamResult:
 
 
 def stream_generate_html(topic: str, plan: dict[str, Any]) -> Iterator[dict[str, Any] | HtmlStreamResult]:
+    runner = (
+        _traced_stream_generate_html
+        if settings.langsmith_tracing and get_current_run_tree() is not None
+        else _stream_generate_html_impl
+    )
+    yield from runner(topic, plan)
+
+
+@traceable(
+    name="aetherviz.html_generation",
+    run_type="chain",
+    metadata={"component": "aetherviz", "stage": "html_generation"},
+    process_inputs=lambda inputs: {
+        "topic": inputs.get("topic"),
+        "interactive_type": (inputs.get("plan") or {}).get("interactive_type"),
+        "subject": (inputs.get("plan") or {}).get("subject"),
+    },
+    reduce_fn=lambda items: _summarize_html_stream(items),
+)
+def _traced_stream_generate_html(
+    topic: str,
+    plan: dict[str, Any],
+) -> Iterator[dict[str, Any] | HtmlStreamResult]:
+    yield from _stream_generate_html_impl(topic, plan)
+
+
+def _stream_generate_html_impl(topic: str, plan: dict[str, Any]) -> Iterator[dict[str, Any] | HtmlStreamResult]:
     if not has_primary_llm_config():
         yield from _iter_deterministic_html_progress()
         yield HtmlStreamResult(html=_deterministic_html(topic, plan), degraded=True)
@@ -166,6 +195,23 @@ def stream_generate_html(topic: str, plan: dict[str, Any]) -> Iterator[dict[str,
             "HTML 生成失败，未获得可用页面",
             detail=str(exc),
         ) from exc
+
+
+def _summarize_html_stream(items: list[dict[str, Any] | HtmlStreamResult]) -> dict[str, Any]:
+    result = next((item for item in reversed(items) if isinstance(item, HtmlStreamResult)), None)
+    if result is None:
+        return {"completed": False, "progress_events": sum(isinstance(item, dict) for item in items)}
+    return {
+        "completed": True,
+        "chars": len(result.html),
+        "bytes": len(result.html.encode("utf-8")),
+        "degraded": result.degraded,
+        "truncated": result.truncated,
+        "reasoning_elapsed_ms": result.reasoning_elapsed_ms,
+        "first_chunk_elapsed_ms": result.first_chunk_elapsed_ms,
+        "generation_elapsed_ms": result.generation_elapsed_ms,
+        "progress_events": sum(isinstance(item, dict) for item in items),
+    }
 
 
 def build_html_progress_payload(
