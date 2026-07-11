@@ -266,6 +266,17 @@ def _attempt_quality_repair(
             candidate = item.html
             candidate_degraded = item.degraded
             candidate_truncated = item.truncated
+            yield agent_sse_event(
+                "html.delta",
+                run_id=run_id,
+                phase=phase,
+                data={
+                    "delta": "",
+                    "bytes": len(candidate.encode("utf-8")),
+                    "chars": len(candidate),
+                },
+                metadata=_metadata(metadata, started_at, stage="repair"),
+            )
             continue
         yield agent_sse_event(
             "html.delta",
@@ -296,6 +307,14 @@ def _attempt_quality_repair(
         html, report = original_html, original_report
 
     yield agent_sse_event(
+        "html.delta",
+        run_id=run_id,
+        phase=phase,
+        data={"delta": "", "bytes": len(html.encode("utf-8")), "chars": len(html)},
+        metadata=_metadata(metadata, started_at, stage="repair"),
+    )
+
+    yield agent_sse_event(
         "repair.done",
         run_id=run_id,
         phase=phase,
@@ -305,6 +324,8 @@ def _attempt_quality_repair(
             "ok": accepted,
             "accepted": accepted,
             "remaining_warning_types": sorted(_quality_warning_types(report)),
+            "bytes": len(html.encode("utf-8")),
+            "chars": len(html),
         },
         metadata=_metadata(metadata, started_at, stage="repair"),
     )
@@ -357,7 +378,14 @@ def _attempt_repair_loop(
             "repair.done",
             run_id=run_id,
             phase=phase,
-            data={"attempt": 1, "strategy": "deterministic", "ok": report["ok"], "summary": report.get("summary")},
+            data={
+                "attempt": 1,
+                "strategy": "deterministic",
+                "ok": report["ok"],
+                "summary": report.get("summary"),
+                "bytes": len(html.encode("utf-8")),
+                "chars": len(html),
+            },
             metadata=_metadata(metadata, started_at, stage="repair"),
         )
         if report["ok"]:
@@ -392,6 +420,17 @@ def _attempt_repair_loop(
             if isinstance(item, RepairStreamResult):
                 html, repair_degraded = item.html, item.degraded
                 repair_truncated = item.truncated
+                yield agent_sse_event(
+                    "html.delta",
+                    run_id=run_id,
+                    phase=phase,
+                    data={
+                        "delta": "",
+                        "bytes": len(html.encode("utf-8")),
+                        "chars": len(html),
+                    },
+                    metadata=_metadata(metadata, started_at, stage="repair"),
+                )
                 continue
             yield agent_sse_event(
                 "html.delta",
@@ -417,7 +456,14 @@ def _attempt_repair_loop(
             "repair.done",
             run_id=run_id,
             phase=phase,
-            data={"attempt": attempt_number, "strategy": "model", "ok": report["ok"], "summary": report.get("summary")},
+            data={
+                "attempt": attempt_number,
+                "strategy": "model",
+                "ok": report["ok"],
+                "summary": report.get("summary"),
+                "bytes": len(html.encode("utf-8")),
+                "chars": len(html),
+            },
             metadata=_metadata(metadata, started_at, stage="repair"),
         )
         if report["ok"]:

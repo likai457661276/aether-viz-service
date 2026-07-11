@@ -569,7 +569,17 @@ def test_generate_phase_triggers_repair_when_validation_fails(monkeypatch) -> No
     assert "repair.started" in names
     assert "repair.done" in names
     assert "html.done" in names
+    repair_size_events = [
+        data["data"]
+        for event, data in events
+        if event == "html.delta" and data["data"].get("bytes") and data["metadata"].get("stage") == "repair"
+    ]
+    repair_done = [data for event, data in events if event == "repair.done"][-1]
     done = next(data for event, data in events if event == "html.done")
+    assert repair_size_events[-1]["bytes"] == len(sample_html().encode("utf-8"))
+    assert repair_size_events[-1]["chars"] == len(sample_html())
+    assert repair_done["data"]["bytes"] == len(sample_html().encode("utf-8"))
+    assert repair_done["data"]["chars"] == len(sample_html())
     assert done["data"]["metadata"]["repaired"] is True
     assert done["data"]["metadata"]["attempts"] >= 2
 
@@ -608,6 +618,8 @@ def test_generate_phase_accepts_quality_repair_only_when_warning_is_reduced(monk
     done = next(data for event, data in events if event == "html.done")
 
     assert quality_done["data"]["accepted"] is True
+    assert quality_done["data"]["bytes"] == len(sample_html().encode("utf-8"))
+    assert quality_done["data"]["chars"] == len(sample_html())
     assert done["data"]["html"] == sample_html()
     assert done["data"]["metadata"]["repaired"] is True
 

@@ -249,7 +249,7 @@ HTML 文件编辑阶段请求示例：
 - `validation.started`
 - `validation.report`
 - `repair.started`
-- `repair.done`
+- `repair.done`：修复结束状态，`data` 同时返回修复后最终 `bytes` 和 `chars`
 - `html.done`：返回完整 HTML；metadata 额外包含最终 `bytes`、`chars` 和 `truncated`
 - `context.compressed`：仅在传入规划上下文确实超过上限并被裁剪时发送
 - `error`：生成失败，包含用户可读 `message`、错误码 `code` 和调试用 `detail`。
