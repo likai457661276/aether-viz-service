@@ -2,7 +2,7 @@
 
 `AI互动实验` 是一个基于 Python 3.12 和 FastAPI 的后端服务，用于根据教学主题生成完整、可直接打开的互动教学 HTML。
 
-当前生成链路使用 LangChain `ChatOpenAI` 直接生成动态单页互动课件：先生成可确认的 `interactive` 教案计划，用户可多轮修订计划，确认后再生成自包含 HTML。HTML 只在请求内存中完成检查和修复，通过 SSE 返回前端渲染与会话缓存；后端不落盘缓存 HTML、修复稿或检查报告。检查覆盖 HTML parser、JS checker、安全、长度和低成本 Widget 运行契约；失败时先执行确定性修复，必要时最多调用一次修复模型。
+当前生成链路使用 LangChain `ChatOpenAI` 直接生成动态单页互动课件：先生成可确认的 `interactive` 教案计划，用户可多轮修订计划，确认后再生成自包含 HTML。服务端根据主题生成通用 `knowledge_profile`（学科、概念族、表征类型、教学模式），再组合互动类型、学科组和表征提示词；计划通过 `discipline_spec` 描述对象、关系、不变量、边界情况和多重表征，不为单独知识点维护硬编码模板。HTML 只在请求内存中完成检查和修复，通过 SSE 返回前端渲染与会话缓存；后端不落盘缓存 HTML、修复稿或检查报告。检查覆盖 HTML parser、JS checker、安全、长度、低成本 Widget 运行契约和非阻断的学科语义对齐；失败时先执行确定性修复，必要时最多调用一次修复模型。
 
 Docker 镜像内置 Node.js，仅用于对生成物的内联 JavaScript 执行 `node --check` 语法校验，保证 macOS 本地与 Linux 生产容器使用同等级检查。
 
@@ -275,7 +275,7 @@ HTML 文件编辑阶段请求示例：
 2. `phase=revise_plan` 由规划模型接收 `current_plan + message`，重新生成完整 `revised` 计划，不返回局部 patch。
 3. `phase=approve_plan` 将计划状态置为 `approved`。
 4. `phase=generate` 由 `html_agent` 根据已确认计划生成完整自包含 HTML，并在 `html.delta` 中持续返回累计实际大小。
-5. `validation_report` 在内存中聚合 HTML parser、JS checker、安全检查、长度检查和 Widget 最小运行契约检查，验证 widget-config、主舞台、核心控件、runtime API、ready 标记和 iframe action listener。`#aetherviz-stage` 应静态包含 SVG、Canvas 或 `[data-role="main-visual"]` 挂载节点；为兼容旧产物，检查器也接受能够静态证明已创建并挂载到舞台的运行时 SVG/Canvas，并返回迁移 warning。结构错误包含机器可读的 `expected` 验收条件。
+5. `validation_report` 在内存中聚合 HTML parser、JS checker、安全检查、长度检查、Widget 最小运行契约和 `discipline_consistency_checker`。后者根据 `knowledge_profile` 与 `discipline_spec` 检查计划表征和生成物是否对齐，仅产生 warning，不因启发式语义判断阻断生产输出。Widget 检查验证 widget-config、主舞台、核心控件、runtime API、ready 标记和 iframe action listener。`#aetherviz-stage` 应静态包含 SVG、Canvas 或 `[data-role="main-visual"]` 挂载节点；为兼容旧产物，检查器也接受能够静态证明已创建并挂载到舞台的运行时 SVG/Canvas，并返回迁移 warning。结构错误包含机器可读的 `expected` 验收条件。
 6. 检查失败时先确定性补齐静态 `widget-config` 和播放/暂停/重置控件等基础契约；仍失败时由 `repair_agent` 使用统一配置的模型定向修复，最多 1 次。若修复后硬错误签名不变，候选稿不会被接受，工作流恢复修复前 HTML、标记 `stalled` 并立即停止，避免无效完整重写。
 7. `phase=edit_html` 基于选中 HTML 全文生成新的 HTML 分支，不覆盖旧 HTML。
 8. 最终 HTML 仅通过 `html.done` 返回前端；服务端不保留 HTML 文件缓存或产物路径。
@@ -293,7 +293,7 @@ HTML 文件编辑阶段请求示例：
 - 保留现有公共接口 `POST /bingo-ai/generate-aetherviz-spec`，不新增静态 HTML 接口。
 - 计划对象继续以 `page_type: "interactive"` 为主，保留 `interactive_type` 兼容前端；可补充 `widget_type` / `widget_outline`，但不得破坏现有前端字段。
 - 后端按 `simulation`、`diagram`、`game` 拆分独立 prompt、分型 widget-config 和开发期分型校验。
-- 计划对象必须包含 `scene_outline`、`widget_outline`、`design_brief` 和 `widget_actions`，作为后续 HTML 生成的唯一蓝图。
+- 计划对象必须包含 `scene_outline`、`widget_outline`、`design_brief`、`widget_actions`、`knowledge_profile` 和 `discipline_spec`，作为后续 HTML 生成的唯一蓝图。知识画像只路由到通用概念族、表征和教学模式，不包含具体知识点专用模板。
 - 旧版共享模块和兼容层已移除；学科与互动类型选择在 `workflow/plan_detection.py`，计划规范化在 `workflow/plan_contract.py`，直接模型 prompt 在 `agents/instructions.py`，确定性修复在 `tools/deterministic_repair.py`。
 - `html.done.metadata.generation_backend` 当前固定为 `direct`，用于前端和观测系统识别直接模型链路。
 - 前端可展示 `attempts`、`repaired`、`degraded`、`validation_warnings`、`context_status`、`bytes` 和 `chars`。

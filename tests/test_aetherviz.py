@@ -1111,3 +1111,62 @@ def test_build_edit_html_prompt_trims_plan_summary_to_whitelist() -> None:
     assert '"widget_actions"' not in prompt
     assert '"scene_outline"' not in prompt
     assert '"formulas"' not in prompt
+
+
+def test_knowledge_profile_routes_reusable_math_representations() -> None:
+    from aetherviz_service.aetherviz.workflow.knowledge_profile import build_knowledge_profile
+
+    function_profile = build_knowledge_profile("研究导数与函数图像的变化关系")
+    geometry_profile = build_knowledge_profile("通过动态构造理解几何定理证明")
+
+    assert function_profile["subject"] == "math"
+    assert function_profile["concept_family"] in {"function", "calculus"}
+    assert function_profile["representation_type"] == "coordinate_graph"
+    assert geometry_profile["concept_family"] == "geometry"
+    assert geometry_profile["representation_type"] == "geometric_construction"
+    assert geometry_profile["pedagogy_pattern"] == "proof_animation"
+
+
+def test_normalized_plan_contains_generic_knowledge_contract() -> None:
+    from aetherviz_service.aetherviz.workflow.plan_contract import normalize_plan
+
+    plan = normalize_plan({}, "导数的几何意义")
+
+    assert plan["subject"] == "math"
+    assert plan["knowledge_profile"]["concept_family"] == "calculus"
+    assert set(plan["discipline_spec"]) == {
+        "entities",
+        "relations",
+        "invariants",
+        "boundary_cases",
+        "representations",
+    }
+
+
+def test_html_prompt_composes_subject_and_representation_modules() -> None:
+    from aetherviz_service.aetherviz.agents.instructions import (
+        build_interactive_generation_prompt,
+        system_prompt_for_interactive_type,
+    )
+    from aetherviz_service.aetherviz.workflow.plan_contract import normalize_plan
+
+    plan = normalize_plan({}, "函数图像与参数变化")
+    system_prompt = system_prompt_for_interactive_type(plan)
+    generation_prompt = build_interactive_generation_prompt("函数图像与参数变化", plan)
+
+    assert "数学语义补充" in system_prompt
+    assert "坐标图表征" in system_prompt
+    assert '"knowledge_profile"' in generation_prompt
+    assert '"discipline_spec"' in generation_prompt
+    assert '"subject":"math"' in generation_prompt
+
+
+def test_discipline_consistency_checker_reports_non_blocking_representation_risk() -> None:
+    from aetherviz_service.aetherviz.tools.discipline_consistency_checker import check_discipline_consistency
+    from aetherviz_service.aetherviz.workflow.plan_contract import normalize_plan
+
+    plan = normalize_plan({}, "函数图像与参数变化")
+    report = check_discipline_consistency("<!DOCTYPE html><html><body><main></main></body></html>", plan=plan)
+
+    assert report["ok"] is True
+    assert any(warning["type"] == "representation_mismatch" for warning in report["warnings"])

@@ -177,7 +177,7 @@ def _run_html_workflow(
         data={"bytes": len(html.encode("utf-8")), "chars": len(html)},
         metadata=_metadata(metadata, started_at, stage="validation"),
     )
-    report = _validate(html, truncated=source_truncated)
+    report = _validate(html, truncated=source_truncated, plan=plan)
     yield from _emit_validation_events(
         run_id=run_id,
         phase=phase,
@@ -334,7 +334,7 @@ def _attempt_quality_repair(
             metadata=_metadata(metadata, started_at, stage="repair"),
         )
 
-    candidate_report = _validate(candidate, truncated=candidate_truncated)
+    candidate_report = _validate(candidate, truncated=candidate_truncated, plan=plan)
     candidate_quality = _quality_warning_types(candidate_report)
     accepted = (
         candidate != original_html
@@ -412,7 +412,7 @@ def _attempt_repair_loop(
             data={"delta": "", "bytes": len(html.encode("utf-8")), "chars": len(html)},
             metadata=_metadata(metadata, started_at, stage="repair"),
         )
-        report = _validate(html, truncated=source_truncated)
+        report = _validate(html, truncated=source_truncated, plan=plan)
         yield from _emit_validation_events(
             run_id=run_id,
             phase=phase,
@@ -494,7 +494,7 @@ def _attempt_repair_loop(
         metadata["degraded"] = metadata["degraded"] or repair_degraded
         metadata["truncated"] = repair_truncated
         repaired = True
-        report = _validate(html, truncated=repair_truncated)
+        report = _validate(html, truncated=repair_truncated, plan=plan)
         yield from _emit_validation_events(
             run_id=run_id,
             phase=phase,
@@ -586,13 +586,13 @@ def _emit_validation_events(
     )
 
 
-def _validate(html: str, *, truncated: bool = False) -> dict[str, Any]:
+def _validate(html: str, *, truncated: bool = False, plan: dict[str, Any] | None = None) -> dict[str, Any]:
     runner = (
         _traced_validate
         if settings.langsmith_tracing and get_current_run_tree() is not None
         else _validate_impl
     )
-    return runner(html, truncated=truncated)
+    return runner(html, truncated=truncated, plan=plan)
 
 
 @traceable(
@@ -613,12 +613,12 @@ def _validate(html: str, *, truncated: bool = False) -> dict[str, Any]:
         ),
     },
 )
-def _traced_validate(html: str, *, truncated: bool = False) -> dict[str, Any]:
-    return _validate_impl(html, truncated=truncated)
+def _traced_validate(html: str, *, truncated: bool = False, plan: dict[str, Any] | None = None) -> dict[str, Any]:
+    return _validate_impl(html, truncated=truncated, plan=plan)
 
 
-def _validate_impl(html: str, *, truncated: bool = False) -> dict[str, Any]:
-    report = build_validation_report(html)
+def _validate_impl(html: str, *, truncated: bool = False, plan: dict[str, Any] | None = None) -> dict[str, Any]:
+    report = build_validation_report(html, plan=plan)
     if not truncated:
         return report
     error = {

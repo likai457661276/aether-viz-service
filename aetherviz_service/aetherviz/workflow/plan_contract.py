@@ -7,6 +7,10 @@ import re
 from typing import Any
 
 from aetherviz_service.aetherviz.constants import get_gsap_core_cdn_url, get_katex_cdn_urls, is_katex_enabled
+from aetherviz_service.aetherviz.workflow.knowledge_profile import (
+    build_knowledge_profile,
+    normalize_knowledge_profile,
+)
 from aetherviz_service.aetherviz.workflow.plan_detection import (
     SUBJECT_KEYWORDS,
     VALID_ANIMATION_RUNTIMES,
@@ -40,6 +44,7 @@ def compact_plan_for_revision(plan: dict[str, Any]) -> dict[str, Any]:
         "teaching_flow",
         "controls",
         "formulas",
+        "discipline_spec",
     )
     return {field: plan[field] for field in semantic_fields if field in plan}
 
@@ -71,6 +76,7 @@ def normalize_plan(raw_plan: dict | None, topic: str, primary_color: str = DEFAU
     subject = _safe_str(raw.get("subject")) or baseline["subject"]
     if subject not in {*SUBJECT_KEYWORDS.keys(), "astronomy", "general"}:
         subject = baseline["subject"]
+    knowledge_profile = normalize_knowledge_profile(raw.get("knowledge_profile"), topic, subject)
 
     interactive_type = _safe_str(raw.get("interactive_type")) or baseline["interactive_type"]
     if interactive_type not in VALID_INTERACTIVE_TYPES:
@@ -106,6 +112,7 @@ def normalize_plan(raw_plan: dict | None, topic: str, primary_color: str = DEFAU
         "widget_type": interactive_type,
         "scene_outline": scene_outline,
         "subject": subject,
+        "knowledge_profile": knowledge_profile,
         "title": title,
         "goal": (_safe_str(raw.get("goal")) or baseline["goal"])[:180],
         "learner_level": (_safe_str(raw.get("learner_level")) or "初中/高中")[:24],
@@ -118,6 +125,7 @@ def normalize_plan(raw_plan: dict | None, topic: str, primary_color: str = DEFAU
         "teaching_flow": teaching_flow,
         "controls": _normalize_controls(raw.get("controls"), baseline["controls"], valid_bindings=variable_names),
         "formulas": formulas,
+        "discipline_spec": _normalize_discipline_spec(raw.get("discipline_spec"), baseline["discipline_spec"]),
         "runtime": {
             "render_stack": render_stack,
             "animation_runtime": animation_runtime,
@@ -138,12 +146,14 @@ def _default_plan(topic: str, primary_color: str) -> dict:
     interactive_spec = _default_interactive_spec(topic, interactive_type)
     key_points = _default_key_points(topic, interactive_type)
     widget_outline = _normalize_widget_outline(None, interactive_spec, interactive_type, topic)
+    knowledge_profile = build_knowledge_profile(topic, subject=subject)
     return {
         "page_type": "interactive",
         "interactive_type": interactive_type,
         "widget_type": interactive_type,
         "scene_outline": _default_scene_outline(topic, interactive_type, key_points, widget_outline),
         "subject": subject,
+        "knowledge_profile": knowledge_profile,
         "title": f"{topic}互动课件",
         "goal": f'通过单页互动操作理解"{topic}"的关键概念和变化规律。',
         "learner_level": "初中/高中",
@@ -160,6 +170,7 @@ def _default_plan(topic: str, primary_color: str) -> dict:
         ],
         "controls": _default_controls(interactive_type, topic),
         "formulas": _default_formulas(topic, subject),
+        "discipline_spec": _default_discipline_spec(topic, knowledge_profile),
         "runtime": {
             "render_stack": render_stack,
             "animation_runtime": animation_runtime,
@@ -640,6 +651,25 @@ def _normalize_design_brief(raw_brief: object, default: dict[str, Any]) -> dict[
         else:
             brief[canonical] = _safe_str(value)[:240]
     return brief
+
+
+def _default_discipline_spec(topic: str, profile: dict[str, Any]) -> dict[str, list[str]]:
+    """Provide a small semantic scaffold without encoding a concrete lesson answer."""
+    return {
+        "entities": [f"{topic}中的核心对象与可观察状态"],
+        "relations": ["对象、变量、图形与结论必须由同一状态模型关联"],
+        "invariants": ["交互过程中保持学科定义、单位、依赖关系和关键约束成立"],
+        "boundary_cases": ["覆盖默认状态、参数边界和至少一个有教学意义的特殊状态"],
+        "representations": [str(profile.get("representation_type") or "dynamic_model"), "文字解释与视觉状态同步"],
+    }
+
+
+def _normalize_discipline_spec(raw_spec: object, default: dict[str, list[str]]) -> dict[str, list[str]]:
+    source = raw_spec if isinstance(raw_spec, dict) else {}
+    result: dict[str, list[str]] = {}
+    for field in ("entities", "relations", "invariants", "boundary_cases", "representations"):
+        result[field] = _string_list(source.get(field), default.get(field, []), max_items=6, max_len=160)
+    return result
 
 
 def _default_widget_actions(interactive_spec: dict, interactive_type: str) -> list[dict[str, Any]]:

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 SUBJECT_KEYWORDS = {
-    "math": ["数学", "几何", "函数", "方程", "概率", "统计", "面积", "体积", "坐标", "圆", "抛物线", "定理", "证明", "公式"],
+    "math": ["数学", "几何", "函数", "方程", "概率", "统计", "面积", "体积", "坐标", "圆", "抛物线", "定理", "证明", "公式", "导数", "极限", "积分", "向量", "矩阵", "数列", "集合", "逻辑", "不等式", "三角", "排列", "组合"],
     "physics": ["物理", "运动", "速度", "加速度", "力", "能量", "电流", "电压", "波", "光", "抛体"],
     "chemistry": ["化学", "反应", "分子", "原子", "离子", "酸", "碱", "盐", "溶液", "反应速率"],
     "biology": ["生物", "细胞", "基因", "dna", "蛋白质", "光合", "呼吸", "生态", "遗传"],
@@ -24,7 +24,7 @@ GAME_KEYWORDS = ["练习", "闯关", "匹配", "排序", "挑战", "小游戏", 
 PLANNING_SYSTEM_PROMPT_TEMPLATE = """你是互动教学课件规划器，为 12~18 岁学生设计单页 interactive widget。
 
 仅输出一个合法 JSON 对象，不输出 Markdown、解释、推理过程或未定义字段。
-只生成教学语义字段；page_type、widget_type、scene_outline、widget_outline、widget_actions、runtime、subject、primary_color 由服务端确定性补齐。
+只生成教学语义字段；page_type、widget_type、scene_outline、widget_outline、widget_actions、runtime、subject、knowledge_profile、primary_color 由服务端确定性补齐。
 
 JSON 顶层字段必须且只能包含：
 - interactive_type：固定为 {interactive_type}
@@ -38,6 +38,7 @@ JSON 顶层字段必须且只能包含：
 - teaching_flow：3~4 项，每项只含 id、label、focus、caption
 - controls：只生成 1~2 个真实影响学习的控件，每项只含 id、label、type、bind；不要生成播放、暂停、重置按钮
 - formulas：0~3 个字符串
+- discipline_spec：只含 entities、relations、invariants、boundary_cases、representations；每项均为字符串数组，用通用学科语义描述实现所需对象、关系、不变量、边界/特殊情况和多重表征，不写 HTML/CSS/JS
 
 一致性要求：
 - controls[].bind 必须等于 interactive_spec 中一个可调变量 name；无可调变量时 controls 输出空数组。
@@ -72,9 +73,13 @@ INTERACTIVE_TYPE_CONTRACTS = {
 
 def detect_subject(topic: str) -> str:
     text = (topic or "").lower()
-    for subject in ("math", "chemistry", "biology", "geography", "physics", "programming", "chinese", "english"):
-        if any(keyword in text for keyword in SUBJECT_KEYWORDS[subject]):
-            return subject
+    scores = {
+        subject: sum(1 for keyword in keywords if keyword in text)
+        for subject, keywords in SUBJECT_KEYWORDS.items()
+    }
+    best_score = max(scores.values(), default=0)
+    if best_score:
+        return max(scores, key=scores.get)
     return "general"
 
 
@@ -115,10 +120,13 @@ def build_planning_prompt(
     interactive_type_override: str | None = None,
     subject_override: str | None = None,
 ) -> tuple[str, str]:
+    from aetherviz_service.aetherviz.workflow.knowledge_profile import build_knowledge_profile
+
     subject = subject_override if subject_override in {*SUBJECT_KEYWORDS, "astronomy", "general"} else detect_subject(topic)
     interactive_type = interactive_type_override if interactive_type_override in VALID_INTERACTIVE_TYPES else select_interactive_type(topic, subject)
     render_stack = select_render_stack(interactive_type, subject, topic)
     animation_runtime = select_animation_runtime()
+    knowledge_profile = build_knowledge_profile(topic, subject=subject)
     system_prompt = PLANNING_SYSTEM_PROMPT_TEMPLATE.format(
         interactive_type=interactive_type,
         type_contract=INTERACTIVE_TYPE_CONTRACTS[interactive_type],
@@ -130,6 +138,7 @@ def build_planning_prompt(
 固定互动类型：{interactive_type}
 服务端渲染栈：{render_stack}
 服务端动画运行时：{animation_runtime}
+服务端知识画像：{knowledge_profile}
 主色调：{primary_color}
 """
     return system_prompt, user_prompt

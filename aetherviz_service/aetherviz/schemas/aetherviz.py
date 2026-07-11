@@ -36,6 +36,7 @@ class AetherVizPlan(BaseModel):
     widget_type: InteractiveType | None = None
     scene_outline: dict[str, Any] | None = None
     subject: str
+    knowledge_profile: dict[str, Any] = Field(default_factory=dict)
     title: str
     goal: str
     learner_level: str | None = None
@@ -48,6 +49,6 @@ class AetherVizPlan(BaseModel):
     teaching_flow: list[AetherVizTeachingFlowStep] = Field(default_factory=list)
     controls: list[AetherVizPlanControl] = Field(default_factory=list)
     formulas: list[str] = Field(default_factory=list)
+    discipline_spec: dict[str, list[str]] = Field(default_factory=dict)
     runtime: AetherVizRuntime = Field(default_factory=AetherVizRuntime)
     primary_color: str = "#22D3EE"
-

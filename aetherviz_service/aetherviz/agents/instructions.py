@@ -143,6 +143,31 @@ game 补充要求：
 - UI 保持教学产品而非街机霓虹风：挑战区占主位，分数/进度/生命等 HUD 紧凑集中；可操作对象具有清晰 hover/selected/correct/incorrect 状态，反馈解释紧邻操作结果但不遮挡舞台。
 """
 
+SUBJECT_PROMPT_MODULES = {
+    "math": """数学语义补充：
+- 公式、图形、读数、结论和控件必须来自同一个数学状态模型；禁止用手写视觉结果冒充计算结果。
+- 明确输入量、派生量、定义域/有效范围、单位或无量纲语义；参数边界与特殊状态必须可观察且保持定义成立。
+- 几何对象复用统一点集与约束计算，保持共线、平行、垂直、等长等计划声明的不变量；函数图形使用统一坐标变换和公式采样。
+- 推导或证明必须区分可视操作、数学关系和结论依据，不以动画效果替代逻辑关系。""",
+    "stem": """科学与工程语义补充：
+- 可视对象、参数、单位、派生量和结论必须来自同一状态模型，并保持计划声明的守恒、约束或因果关系。
+- 区分概念模型与真实尺度；不得虚构测量数据，边界状态和异常状态需要清晰解释。""",
+    "language_humanities": """语言与人文语义补充：
+- 节点、关系、证据和解释必须对应计划中的语义结构；视觉层级不能替代文本证据或因果依据。
+- 逐步揭示应保持上下文连续，避免把复杂关系退化为无关联卡片。""",
+}
+
+REPRESENTATION_PROMPT_MODULES = {
+    "coordinate_graph": "坐标图表征：使用唯一 data-to-screen 坐标变换；坐标轴、曲线、关键点、切线/辅助线与读数同步更新，并覆盖可见定义域边界。",
+    "geometric_construction": "几何构造表征：点、边、角、辅助线和度量来自统一几何模型；拖动或动画后重算依赖对象，不能以固定坐标伪造约束。",
+    "symbolic_derivation": "符号推导表征：每一步同时展示变换前后表达式、使用的关系和成立条件；视觉过渡不能跳过关键逻辑步骤。",
+    "data_chart": "数据图表征：样本、聚合值、图形标记和结论共用同一数据源；区分样本结果、统计量和理论预期。",
+    "process_model": "过程模型表征：状态、转换条件、方向和当前步骤必须显式对应，重置与分支切换后保持因果链一致。",
+    "object_motion": "对象运动表征：位置、速度/进度、轨迹和读数由统一时间状态计算，动画时间线不能与业务状态脱节。",
+    "relation_network": "关系网络表征：节点和连线必须来自计划关系，方向、层级和当前焦点清晰，详情集中在单一说明区。",
+    "discrete_manipulation": "离散操作表征：可操作对象、合法动作、状态转换、成功条件和反馈均由同一离散状态机驱动。",
+}
+
 REPAIR_SYSTEM_PROMPT = f"""你是 HTML 最小变更修复器。
 只输出完整 <!DOCTYPE html>...</html>，不输出 Markdown、解释或 reasoning。
 以输入 HTML 为唯一基线，只修复服务端列出的硬性错误或明确标记为可修复的通用质量风险；禁止顺带重做布局、坐标、文案、配色、动画或教学结构。
@@ -184,11 +209,29 @@ def _compact_json(value: object) -> str:
 
 
 def system_prompt_for_interactive_type(plan: dict) -> str:
-    return {
+    base = {
         "simulation": SIMULATION_SYSTEM_PROMPT,
         "diagram": DIAGRAM_SYSTEM_PROMPT,
         "game": GAME_SYSTEM_PROMPT,
     }.get(str(plan.get("interactive_type")), INTERACTIVE_HTML_SYSTEM_PROMPT)
+    subject = str(plan.get("subject") or "general")
+    subject_group = (
+        "math"
+        if subject == "math"
+        else "stem"
+        if subject in {"physics", "chemistry", "biology", "programming", "astronomy"}
+        else "language_humanities"
+        if subject in {"chinese", "english", "geography"}
+        else ""
+    )
+    profile = plan.get("knowledge_profile") if isinstance(plan.get("knowledge_profile"), dict) else {}
+    representation = str(profile.get("representation_type") or "")
+    modules = [base]
+    if subject_group:
+        modules.append(SUBJECT_PROMPT_MODULES[subject_group])
+    if representation in REPRESENTATION_PROMPT_MODULES:
+        modules.append(REPRESENTATION_PROMPT_MODULES[representation])
+    return "\n\n".join(modules)
 
 
 def build_repair_prompt(
@@ -302,6 +345,8 @@ def build_interactive_generation_prompt(topic: str, plan: dict) -> str:
         "title": plan["title"],
         "goal": plan["goal"],
         "interactive_type": interactive_type,
+        "subject": plan.get("subject", "general"),
+        "knowledge_profile": plan.get("knowledge_profile", {}),
         "primary_color": plan.get("primary_color", "#22D3EE"),
         "scene_outline": scene_outline,
         "stage_layout": plan.get(
@@ -315,6 +360,7 @@ def build_interactive_generation_prompt(topic: str, plan: dict) -> str:
         "teaching_flow": teaching_flow,
         "controls": plan.get("controls", []),
         "formulas": formulas,
+        "discipline_spec": plan.get("discipline_spec", {}),
         "widget_actions": widget_actions,
     }
     return f"""按 system 约束，将下列确认蓝图生成一个独立互动教学 HTML。
