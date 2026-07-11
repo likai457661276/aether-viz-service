@@ -354,7 +354,7 @@ def test_plan_normalization_enforces_runtime_control_ids() -> None:
     assert control_ids == ["slider-a", "slider-b", "play-animation", "pause-animation", "reset-animation"]
 
 
-def test_plan_normalization_migrates_legacy_model_fields_and_clamps_presets() -> None:
+def test_plan_normalization_migrates_fields_and_expands_bounds_for_presets() -> None:
     from aetherviz_service.aetherviz.workflow.plan_contract import normalize_plan
 
     raw_plan = {
@@ -395,7 +395,9 @@ def test_plan_normalization_migrates_legacy_model_fields_and_clamps_presets() ->
     assert normalized["stage_layout"] == "主舞台居中，控制区和公式区位于舞台外。"
     assert normalized["teaching_flow"][0]["caption"] == "拖动滑块观察三边变化"
     assert normalized["controls"][0]["bind"] == "a"
-    assert normalized["interactive_spec"]["presets"][0]["values"] == {"a": 8, "b": 12}
+    assert normalized["interactive_spec"]["presets"][0]["values"] == {"a": 8, "b": 15}
+    variables = {item["name"]: item for item in normalized["interactive_spec"]["variables"]}
+    assert variables["b"]["max"] == 15
     assert normalized["widget_actions"][1]["target"] == "#side-c"
     assert set(normalized["design_brief"]) == {
         "layout",
@@ -638,15 +640,90 @@ def test_widget_contract_warns_about_duplicate_static_text_positions() -> None:
 
 def test_generation_and_edit_prompts_include_stage_centering_rules() -> None:
     from aetherviz_service.aetherviz.agents.instructions import (
+        ADAPTIVE_LAYOUT_PROMPT,
+        DIAGRAM_SYSTEM_PROMPT,
         EDIT_HTML_SYSTEM_PROMPT,
+        GAME_SYSTEM_PROMPT,
         SIMULATION_SYSTEM_PROMPT,
         STAGE_CENTERING_AND_LABEL_PROMPT,
+        VISUAL_DESIGN_SYSTEM_PROMPT,
     )
 
     shared_rule_marker = STAGE_CENTERING_AND_LABEL_PROMPT.strip().splitlines()[-1]
     for prompt in (SIMULATION_SYSTEM_PROMPT, EDIT_HTML_SYSTEM_PROMPT):
         assert shared_rule_marker in prompt
         assert "viewBox" in prompt
+        assert ADAPTIVE_LAYOUT_PROMPT.strip().splitlines()[-1] in prompt
+        assert "ResizeObserver" in prompt
+        assert "固定像素侧栏" in prompt
+        assert VISUAL_DESIGN_SYSTEM_PROMPT.strip().splitlines()[-1] in prompt
+        assert "清爽教学工作台" in prompt
+        assert "#2d4f41" in prompt
+
+    assert "浅色实验舞台" in SIMULATION_SYSTEM_PROMPT
+    assert "关系画布" in DIAGRAM_SYSTEM_PROMPT
+    assert "街机霓虹风" in GAME_SYSTEM_PROMPT
+
+
+def test_default_design_brief_matches_frontend_visual_language() -> None:
+    from aetherviz_service.aetherviz.workflow.plan_contract import normalize_plan
+
+    normalized = normalize_plan({}, "勾股定理")
+    visual_rules = " ".join(normalized["design_brief"]["visual_rules"])
+
+    assert "浅色教学工作台" in visual_rules
+    assert "灰绿背景" in visual_rules
+    assert "主题主色只用于" in visual_rules
+
+
+def test_widget_contract_warns_about_fixed_sidebars_and_missing_stage_guards() -> None:
+    from aetherviz_service.aetherviz.tools.widget_contract_checker import check_widget_runtime_contract
+
+    html = sample_html().replace(
+        "body{margin:0}",
+        ".app-shell{display:grid;grid-template-columns:280px 1fr 280px}body{margin:0}",
+    )
+
+    report = check_widget_runtime_contract(html)
+    warning_types = {warning["type"] for warning in report["warnings"]}
+
+    assert "fixed_sidebar_layout" in warning_types
+    assert "missing_stage_shrink_guard" in warning_types
+    assert report["ok"] is True
+
+
+def test_widget_contract_warns_when_variable_svg_keeps_static_viewbox() -> None:
+    from aetherviz_service.aetherviz.tools.widget_contract_checker import check_widget_runtime_contract
+
+    html = sample_html().replace(
+        '<button id="play-animation">播放</button>',
+        '<input type="range" id="parameter-slider"><button id="play-animation">播放</button>',
+    ).replace(
+        "function updateVisualization(){",
+        "function updateVisualization(){ dot.setAttribute('x', state.progress);",
+    )
+
+    report = check_widget_runtime_contract(html)
+
+    assert any(warning["type"] == "static_viewbox_for_variable_svg" for warning in report["warnings"])
+    assert report["ok"] is True
+
+
+def test_widget_contract_accepts_dynamic_variable_svg_viewbox() -> None:
+    from aetherviz_service.aetherviz.tools.widget_contract_checker import check_widget_runtime_contract
+
+    html = sample_html().replace(
+        '<button id="play-animation">播放</button>',
+        '<input type="range" id="parameter-slider"><button id="play-animation">播放</button>',
+    ).replace(
+        "function updateVisualization(){",
+        "function updateVisualization(){ dot.setAttribute('x', state.progress); "
+        "const box = dot.getBBox(); document.querySelector('svg').setAttribute('viewBox', `${box.x} ${box.y} ${box.width} ${box.height}`);",
+    )
+
+    report = check_widget_runtime_contract(html)
+
+    assert not any(warning["type"] == "static_viewbox_for_variable_svg" for warning in report["warnings"])
 
 
 def test_repair_prompt_is_error_directed_and_does_not_force_unrelated_layout_changes() -> None:

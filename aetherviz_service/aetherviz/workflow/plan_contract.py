@@ -44,7 +44,7 @@ JSON 顶层字段必须且只能包含：
 - title：不超过 24 个汉字
 - goal：一个可观察、可验证的学习目标
 - learner_level：简短学段
-- stage_layout：字符串，说明目标区、主舞台、控制区和结论区；公式、读数和控制面板不得覆盖主舞台
+- stage_layout：字符串，说明目标区、主舞台、控制区和结论区的相对位置及空间不足时的堆叠/折叠方式；主舞台优先，公式、读数和控制面板不得覆盖或挤压主舞台；不要指定固定像素宽高
 - key_points：2~4 个字符串
 - design_brief：只含 layout、stage_objects、visual_rules、state_updates、default_preset、acceptance
 - interactive_spec：严格使用下方 {interactive_type} 规格
@@ -57,6 +57,7 @@ JSON 顶层字段必须且只能包含：
 - preset 的每个值必须落在对应变量 min/max 范围内。
 - 所有 id 使用小写英文、数字、连字符或下划线，引用必须存在。
 - design_brief 必须明确主舞台对象、相对位置、颜色语义、动态更新、默认状态和验收标准。
+- design_brief.visual_rules 必须区分浅色教学工作台 UI 与学科图形语义色：UI 保持白色/灰绿纸张感和绿色交互强调，饱和色只用于数据对象、关键节点、游戏反馈或当前状态；不得规划整页深色霓虹面板或卡片墙。
 
 {type_contract}
 """
@@ -373,6 +374,7 @@ def _normalize_interactive_spec(raw_spec: object, default: dict, interactive_typ
     spec.setdefault("description", default.get("description"))
     if interactive_type == "simulation":
         variables, bounds = _normalize_simulation_variables(spec.get("variables"), default.get("variables", []))
+        bounds = _expand_simulation_bounds_for_presets(variables, bounds, spec.get("presets"))
         spec["variables"] = variables
         spec["presets"] = _normalize_simulation_presets(spec.get("presets"), default.get("presets", []), bounds)
         spec["observations"] = _string_list(
@@ -489,6 +491,43 @@ def _normalize_simulation_presets(
             }
         )
     return presets
+
+
+def _expand_simulation_bounds_for_presets(
+    variables: list[dict[str, Any]],
+    bounds: dict[str, tuple[float, float]],
+    raw_presets: object,
+) -> dict[str, tuple[float, float]]:
+    """Keep variable ranges and preset values semantically consistent.
+
+    Planner output can occasionally contain a meaningful preset just outside the
+    declared slider range. Expanding the corresponding range preserves the preset
+    atomically; silently clamping only its value would leave labels, observations,
+    and formulas describing a different state.
+    """
+    if not isinstance(raw_presets, list):
+        return bounds
+
+    expanded = dict(bounds)
+    for item in raw_presets[:3]:
+        if not isinstance(item, dict):
+            continue
+        raw_values = item.get("values") if isinstance(item.get("values"), dict) else item
+        for name, (minimum, maximum) in tuple(expanded.items()):
+            if name not in raw_values:
+                continue
+            value = _safe_number(raw_values.get(name), minimum)
+            expanded[name] = (min(minimum, value), max(maximum, value))
+
+    for variable in variables:
+        name = _safe_str(variable.get("name"))
+        if name not in expanded or variable.get("computed"):
+            continue
+        minimum, maximum = expanded[name]
+        variable["min"] = minimum
+        variable["max"] = maximum
+        variable["default"] = _clamp(_safe_number(variable.get("default"), minimum), minimum, maximum)
+    return expanded
 
 
 def _normalize_widget_outline(raw_outline: object, interactive_spec: dict, interactive_type: str, topic: str) -> dict:
@@ -694,9 +733,13 @@ def _normalize_scene_outline(
 
 def _default_design_brief(topic: str, interactive_type: str) -> dict[str, Any]:
     return {
-        "layout": "单屏分区布局，主舞台、控制区、caption 和公式区互不遮挡。",
+        "layout": "舞台优先的单屏自适应分区；宽屏可并排，空间不足时辅助区堆叠或折叠，且不挤压主舞台。",
         "stage_objects": ["main-visual", "control-panel", "caption", "formula"],
-        "visual_rules": ["主舞台展示核心对象", "控制区只放真实影响学习的控件", "caption 随状态变化"],
+        "visual_rules": [
+            "采用与前端一致的浅色教学工作台，白色纸张舞台、灰绿背景、深绿标题和绿色交互强调",
+            "主题主色只用于主视觉对象、数据系列或少量互动强调，不铺满面板",
+            "主舞台展示核心对象，控制区只放真实影响学习的控件，caption 随状态变化",
+        ],
         "state_updates": ["控件改变 widget state", "运行时同步图形、读数和说明"],
         "default_preset": "默认状态直接展示一个可理解、可操作的典型案例。",
         "acceptance": ["默认状态可理解", "播放/暂停/重置可用", "支持四类 widget action"],

@@ -53,6 +53,7 @@ def check_widget_runtime_contract(html: str, *, soup: BeautifulSoup | None = Non
             warnings.append(_warning("missing_widget_action", f"未显式处理 widget action：{action}"))
 
     _check_duplicate_label_positions(parsed, script_text, warnings)
+    _check_layout_risks(parsed, script_text, warnings)
 
     external_gsap = any("gsap" in str(script.get("src") or "").lower() for script in parsed.find_all("script"))
     if external_gsap and not re.search(r"window\.gsap|typeof\s+gsap|typeof\s+window\.gsap", script_text):
@@ -72,6 +73,58 @@ def check_widget_runtime_contract(html: str, *, soup: BeautifulSoup | None = Non
         "errors": errors,
         "warnings": warnings,
     }
+
+
+def _check_layout_risks(parsed: BeautifulSoup, script_text: str, warnings: list[dict]) -> None:
+    """Detect common responsive-layout risks without rendering the page.
+
+    These checks deliberately remain warnings: they are cheap production signals
+    and must not trigger the model repair loop or reject otherwise usable HTML.
+    """
+    style_text = "\n".join(style.get_text("\n", strip=False) for style in parsed.find_all("style"))
+
+    for match in re.finditer(r"grid-template-columns\s*:\s*([^;}]+)", style_text, re.IGNORECASE):
+        columns = match.group(1)
+        fixed_px_columns = re.findall(r"(?:^|\s)\d+(?:\.\d+)?px(?=\s|$)", columns)
+        if len(fixed_px_columns) >= 2 and re.search(r"\b(?:\d+(?:\.\d+)?fr|minmax\s*\()", columns):
+            warnings.append(
+                _warning(
+                    "fixed_sidebar_layout",
+                    "检测到两个以上固定像素列夹住弹性列，窄 iframe 中可能挤压主舞台；应使用自适应列或在空间不足时堆叠辅助区。",
+                )
+            )
+            break
+
+    uses_grid_shell = bool(re.search(r"grid-template-(?:columns|rows)\s*:", style_text, re.IGNORECASE))
+    stage_blocks = re.findall(r"[^{}]*#aetherviz-stage[^{}]*\{([^{}]*)\}", style_text, re.IGNORECASE)
+    stage_css = "\n".join(stage_blocks)
+    if uses_grid_shell and stage_css:
+        has_min_width_guard = bool(re.search(r"min-width\s*:\s*0(?:px|rem|em|%)?\b", stage_css, re.IGNORECASE))
+        has_min_height_guard = bool(re.search(r"min-height\s*:\s*0(?:px|rem|em|%)?\b", stage_css, re.IGNORECASE))
+        if not (has_min_width_guard and has_min_height_guard):
+            warnings.append(
+                _warning(
+                    "missing_stage_shrink_guard",
+                    "Grid/Flex 主舞台未同时声明 min-width:0 和 min-height:0，内容可能撑开网格并造成裁切。",
+                )
+            )
+
+    stage = parsed.find(id="aetherviz-stage")
+    svg = stage.find("svg") if stage is not None else None
+    has_variable_control = parsed.find("input", attrs={"type": re.compile(r"^range$", re.IGNORECASE)}) is not None
+    redraws_svg = bool(
+        re.search(r"\.innerHTML\s*=|setAttribute\s*\(\s*['\"](?:d|points|x|y|cx|cy|r)['\"]", script_text)
+    )
+    updates_viewbox = bool(
+        re.search(r"getBBox\s*\(|ResizeObserver\b|setAttribute\s*\(\s*['\"]viewBox['\"]", script_text)
+    )
+    if svg is not None and svg.get("viewbox") and has_variable_control and redraws_svg and not updates_viewbox:
+        warnings.append(
+            _warning(
+                "static_viewbox_for_variable_svg",
+                "可调参数会改变 SVG 图形，但未检测到基于内容包围盒或容器尺寸更新 viewBox 的逻辑，极值状态可能偏心或裁切。",
+            )
+        )
 
 
 def _has_call_only_gsap_timeline(script_text: str) -> bool:
