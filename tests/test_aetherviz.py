@@ -662,6 +662,27 @@ def test_server_layout_contract_replaces_model_shell_and_is_idempotent() -> None
     assert parsed.body["data-layout-contract"] == "math-shell-v1"
 
 
+def test_server_range_contract_owns_track_progress_and_touch_target() -> None:
+    from bs4 import BeautifulSoup
+
+    from aetherviz_service.aetherviz.tools.layout_contract import assemble_layout_contract
+
+    source = sample_html().replace(
+        '<button id="play-animation">播放</button>',
+        '<input type="range" id="speed-slider" min="-5" max="5" value="0">'
+        '<button id="play-animation">播放</button>',
+    )
+    assembled = assemble_layout_contract(source, sample_plan())
+    parsed = BeautifulSoup(assembled, "html.parser")
+    contract_css = parsed.select_one('style[data-aetherviz-layout-contract="math-shell-v1"]')
+
+    assert contract_css is not None
+    assert "--av-range-progress" in contract_css.get_text()
+    assert "linear-gradient(to right" in contract_css.get_text()
+    assert "input:not([type=\"range\"])" in contract_css.get_text()
+    assert len(parsed.select('script[data-aetherviz-control-contract="range-v1"]')) == 1
+
+
 def test_layout_contract_checker_rejects_unassembled_model_html() -> None:
     from aetherviz_service.aetherviz.tools.layout_contract_checker import check_layout_contract
 

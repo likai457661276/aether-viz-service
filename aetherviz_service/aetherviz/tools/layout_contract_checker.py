@@ -31,6 +31,10 @@ def check_layout_contract(html: str, *, soup: BeautifulSoup | None = None) -> di
     styles = parsed.select(f'style[data-aetherviz-layout-contract="{LAYOUT_CONTRACT_VERSION}"]')
     if len(styles) != 1:
         errors.append(_error("invalid_layout_styles", "服务端布局样式必须且只能出现一次"))
+    if parsed.select_one('input[type="range"]') is not None:
+        control_contracts = parsed.select('script[data-aetherviz-control-contract="range-v1"]')
+        if len(control_contracts) != 1:
+            errors.append(_error("invalid_range_control_contract", "range 控件必须由服务端 range-v1 契约统一接管"))
     return {
         "ok": not errors,
         "severity": "error" if errors else "info",

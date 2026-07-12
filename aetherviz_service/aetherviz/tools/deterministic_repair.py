@@ -62,7 +62,13 @@ def deterministic_repair_html(
         repaired = _insert_svg_scale_guard(repaired)
     if "missing_stage_shrink_guard" in warning_types:
         repaired = _insert_stage_shrink_guard(repaired)
-    if error_types & {"missing_layout_contract", "missing_layout_shell", "invalid_layout_slot", "invalid_layout_styles"}:
+    if error_types & {
+        "missing_layout_contract",
+        "missing_layout_shell",
+        "invalid_layout_slot",
+        "invalid_layout_styles",
+        "invalid_range_control_contract",
+    }:
         from aetherviz_service.aetherviz.tools.layout_contract import assemble_layout_contract
 
         repaired = assemble_layout_contract(repaired, plan)

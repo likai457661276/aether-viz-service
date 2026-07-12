@@ -275,7 +275,7 @@ HTML 文件编辑阶段请求示例：
 2. `phase=revise_plan` 由规划模型接收 `current_plan + message`，重新生成完整 `revised` 计划，不返回局部 patch。
 3. `phase=approve_plan` 将计划状态置为 `approved`。
 4. `phase=generate` 由 `html_agent` 根据已确认计划生成完整自包含 HTML，并在 `html.delta` 中持续返回累计实际大小。
-5. 模型输出先经过 `math-shell-v1` 服务端装配器：只保留并归位主舞台、业务控件、公式、旁白、教学流程、依赖和运行时脚本；模型生成的外层布局不会进入最终 HTML。宽屏使用舞台与检查器并排，紧凑和移动端切换为纵向堆叠，页面滚动、内部滚动、舞台最小尺寸和首屏信息预算由契约统一管理。
+5. 模型输出先经过 `math-shell-v1` 服务端装配器：只保留并归位主舞台、业务控件、公式、旁白、教学流程、依赖和运行时脚本；模型生成的外层布局不会进入最终 HTML。宽屏使用舞台与检查器并排，紧凑和移动端切换为纵向堆叠，页面滚动、内部滚动、舞台最小尺寸和首屏信息预算由契约统一管理。标准 `input[type=range]` 由 `range-v1` 控件契约接管，按实时 `min/max/value` 计算轨道进度，并统一触摸区域、thumb、焦点态和跨浏览器样式。
 6. `validation_report` 在内存中聚合布局契约、HTML parser、JS checker、安全检查、长度检查、Widget 最小运行契约和 `discipline_consistency_checker`。布局契约检查会阻断缺失、重复或版本错误的服务端槽位。学科一致性检查根据 `knowledge_profile` 与 `discipline_spec` 检查计划表征和生成物是否对齐，仅产生 warning，不因启发式语义判断阻断生产输出。Widget 检查验证 widget-config、主舞台、核心控件、runtime API、ready 标记和 iframe action listener。结构错误包含机器可读的 `expected` 验收条件。
 7. 检查失败时先确定性补齐静态 `widget-config` 和播放/暂停/重置控件等基础契约；仍失败时由 `repair_agent` 使用统一配置的模型定向修复，最多 1 次。若修复后硬错误签名不变，候选稿不会被接受，工作流恢复修复前 HTML、标记 `stalled` 并立即停止，避免无效完整重写。
 8. 生成、编辑和模型修复的候选结果都会重新经过同一个服务端布局装配器，`phase=edit_html` 不能改变布局外壳，只能修改数学内容、业务交互与槽位优先级；结果仍生成新 HTML 分支，不覆盖旧 HTML。
