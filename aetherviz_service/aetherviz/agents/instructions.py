@@ -38,6 +38,8 @@ NUMERIC_PRESENTATION_PROMPT = """动态数值展示规则：
 - GSAP 动画优先 tween 独立 progress/proxy，再由统一 render 函数计算连续几何状态和格式化展示状态；若直接 tween 业务状态，onUpdate 仍必须先量化/格式化可见值。slider 的内部 value 可保持连续，但旁边读数、图形标签、公式和无障碍文本必须显示同一个格式化结果。
 - 公式/KaTeX 字符串也属于可见文本：`${state.x}`、字符串拼接和散落的 `.toFixed()` 都不允许直接进入公式、标签或 HUD。先生成 `display = deriveDisplayState(state, displayDescriptors)`，所有可见区域只读取 display；连续 state 只用于几何计算。动画过程中，离散输入读数应吸附到 descriptor.step，不能展示 tween 产生的 4.00337 之类中间噪声。
 - 参数输入、preset、timeline、reset、message action 和 native fallback 必须复用 `state -> render -> format` 路径。输出前逐一审查所有可见文本写入点，任何路径都不得绕过统一格式化入口。
+- 同一状态值只允许有一个显示出口；若 SVG 内标签与面板读数展示同一变量，两处必须都在 render 更新路径中读取同一 display state，禁止定义后不更新的静态标签。
+- 布局稳定性：数值读数容器使用 `font-variant-numeric: tabular-nums` 或固定最小宽度，数字位数变化不得改变容器尺寸；可滚动容器声明 `scrollbar-gutter: stable`；KaTeX/公式只在显示字符串变化时重渲染（缓存上次字符串比较后再调用 render），公式容器保留固定高度，禁止在动画每帧重排版公式。
 """
 
 GRAPHICS_CRAFT_PROMPT = """图形绘制与线条品质规则：
@@ -50,8 +52,10 @@ GRAPHICS_CRAFT_PROMPT = """图形绘制与线条品质规则：
 """
 
 STAGE_CENTERING_AND_LABEL_PROMPT = """舞台居中与标签防重叠规则：
-- #aetherviz-stage 内主 SVG/Canvas 必须在舞台可视区域水平和垂直居中。SVG 把会随状态变化的图形、短标签和标注全部放入同一个 `visual-root` 组，HUD/公式留在组外；每次 render 完成后读取 visual-root 的 getBBox（或用同一几何模型计算完整 bounds），按容器宽高比在四周扩展相对安全边距，再更新 viewBox，并使用 preserveAspectRatio="xMidYMid meet"。初始化、滑块、preset、timeline onUpdate、reset、message action 和 ResizeObserver 必须全部经过这条 `render -> fitStage` 路径；禁止只监听 window.resize，也禁止用固定 ORIGIN/SCALE + 固定 viewBox 承载范围会变化的主体。
-- fitStage 必须以完整包围盒中心 `cx/cy` 为中心扩展视域，而不是只改 width/height 或用左上角对齐；安全边距按包围盒或容器比例计算，不能针对某个主题、坐标、预设写常量补丁。若动画高频更新，可用 requestAnimationFrame 合并测量，但最终关键帧必须重新适配。
+- #aetherviz-stage 内主 SVG/Canvas 必须在舞台可视区域水平和垂直居中，使用 preserveAspectRatio="xMidYMid meet"。viewBox 策略按内容包络是否可预知二选一，禁止混用：
+  - 包络可预知（变量有 min/max、动画关键帧已知、图形只更新既有元素属性）时，按全部变量极值和关键帧推算 worst-case 包围盒，加上相对安全边距后写成一个固定 viewBox；运行时不得重拟合 viewBox，动画帧内只更新图形属性。这是默认且优先的方案。
+  - 包络不可预知（运行时增删图形节点、内容随数据生成）时，把随状态变化的图形、短标签和标注放入同一个 `visual-root` 组（HUD/公式留在组外），在结构变化和容器 resize 后读取 getBBox（或几何模型 bounds），以包围盒中心扩展相对安全边距后更新 viewBox。
+- 动态 fit 路径必须稳定：viewBox 只允许在初始化、结构变化和容器 resize 后更新，禁止在 timeline onUpdate 或 requestAnimationFrame 渲染循环里每帧重拟合；ResizeObserver 回调必须经 requestAnimationFrame 调度，并比较新旧 viewBox 值、无变化时跳过写入，避免 ResizeObserver loop 警告和画面缩放跳动。安全边距按包围盒或容器比例计算，不能针对某个主题、坐标、预设写常量补丁。
 - SVG 的 `<text>` 会随 viewBox 一起缩放，任何 CSS 长度都不能被假定为最终屏幕字号。不得把页面正文的 CSS 字号直接写入数学/抽象坐标系中的 SVG text；标签字号必须由当前页面排版 token 和 SVG 的实际屏幕变换共同决定。
 - SVG 标签必须采用通用策略：优先让 viewBox 与容器 CSS 像素坐标一致；若保留抽象坐标，则在初始化、viewBox 更新和容器 resize 后读取 `getScreenCTM()` 的实际缩放比例，把页面标签字号 token 反算为 SVG 用户单位。也可使用不随 SVG 缩放的 HTML 覆盖层。不要根据某个主题、某组 viewBox 数值或某个标签 id 写特例；图形轮廓优先使用 vector-effect="non-scaling-stroke"。
 - 同一视觉元素上不同用途的文本标签（例如变量名标签与其对应的数值/面积/单位标签）禁止使用完全相同的 x/y 坐标。逐一核对模板初始坐标和所有 `setAttribute('x'/'y', ...)` 更新表达式，至少错开一个屏幕字号高度；不能只让其中一个状态暂时错开。
@@ -173,7 +177,7 @@ REPAIR_SYSTEM_PROMPT = f"""你是 HTML 最小变更修复器。
 只输出完整 <!DOCTYPE html>...</html>，不输出 Markdown、解释或 reasoning。
 以输入 HTML 为唯一基线，只修复服务端列出的硬性错误或明确标记为可修复的通用质量风险；禁止顺带重做布局、坐标、文案、配色、动画或教学结构。
 保留原有 DOM 顺序、CSS、SVG/Canvas 坐标、控件和业务逻辑；没有对应错误时不得改动。
-若风险是动态数值格式，建立描述符驱动的唯一 display state，清除所有可见文本中的裸状态值和散落精度处理；若风险是可变 SVG 偏心/裁切，建立 visual-root 动态 bounds + 居中 fitStage，并让所有状态入口与 ResizeObserver 复用。修复必须通用于参数范围和动画关键帧，不按知识点、文本、元素 id、具体坐标或预设写特例。
+若风险是动态数值格式，建立描述符驱动的唯一 display state，清除所有可见文本中的裸状态值和散落精度处理。若风险是 SVG 偏心/裁切：内容包络可由变量 min/max 和动画关键帧推知时，改为一个覆盖 worst-case 包络的固定 viewBox，并删除多余的运行时重拟合；仅当运行时增删图形节点导致包络不可预知时，才保留 visual-root getBBox + 居中 fitStage，且 viewBox 只在结构变化和容器 resize 后更新、ResizeObserver 回调经 requestAnimationFrame 调度并在值未变化时跳过写入。禁止在动画帧内重写 viewBox。修复必须通用于参数范围和动画关键帧，不按知识点、文本、元素 id、具体坐标或预设写特例。
 若必须补代码，复用现有函数和状态，不引入新框架、外部接口或 GSAP 插件。
 输出必须可解析、可运行且不超过 {HTML_OUTPUT_HARD_LIMIT_CHARS} 字符。
 """

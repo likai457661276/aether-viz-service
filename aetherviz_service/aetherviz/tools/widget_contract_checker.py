@@ -336,20 +336,118 @@ def _check_layout_risks(parsed: BeautifulSoup, script_text: str, warnings: list[
     stage = parsed.find(id="aetherviz-stage")
     svg = stage.find("svg") if stage is not None else None
     has_variable_control = parsed.find("input", attrs={"type": re.compile(r"^range$", re.IGNORECASE)}) is not None
-    redraws_svg = bool(
-        re.search(r"\.innerHTML\s*=|setAttribute\s*\(\s*['\"](?:d|points|x|y|cx|cy|r)['\"]", script_text)
+    # Structural mutation means the content envelope cannot be known from the
+    # authored markup, so a fixed viewBox may crop unseen content. Attribute-only
+    # redraws of pre-declared elements stay within a designable worst-case
+    # envelope and a static viewBox is the *preferred* stable solution there.
+    mutates_svg_structure = bool(
+        re.search(
+            r"createElementNS\s*\(|"
+            r"(?:svg|stage|visual|root|group|layer|chart|scene)[\w.$]*\.innerHTML\s*=|"
+            r"insertAdjacentHTML\s*\(",
+            script_text,
+            re.IGNORECASE,
+        )
     )
     measures_content_bounds = bool(re.search(r"getBBox\s*\(", script_text))
     updates_viewbox = bool(re.search(r"setAttribute\s*\(\s*['\"]viewBox['\"]", script_text))
-    observes_stage_size = bool(re.search(r"ResizeObserver\b", script_text))
-    has_dynamic_fit = measures_content_bounds and updates_viewbox and observes_stage_size
-    if svg is not None and svg.get("viewbox") and has_variable_control and redraws_svg and not has_dynamic_fit:
+    has_dynamic_fit = measures_content_bounds and updates_viewbox
+    if svg is not None and svg.get("viewbox") and has_variable_control and mutates_svg_structure and not has_dynamic_fit:
         warnings.append(
             _warning(
                 "static_viewbox_for_variable_svg",
-                "可调参数会改变 SVG 图形，但未检测到 getBBox + 动态 viewBox + ResizeObserver 的完整居中适配路径，极值或动画状态可能偏心、裁切。",
+                "脚本会向 SVG 动态增删图形节点，内容包络无法在编写时确定；固定 viewBox 可能裁切内容。"
+                "应在结构变化后按 getBBox（或几何模型）重算 viewBox；若图形只更新既有元素属性，"
+                "则应改为按变量 min/max 与动画关键帧预留 worst-case 包络的静态 viewBox，不做运行时重拟合。",
             )
         )
+
+    _check_dynamic_viewbox_stability(script_text, warnings)
+
+
+def _check_dynamic_viewbox_stability(script_text: str, warnings: list[dict]) -> None:
+    """Warn about dynamic-viewBox patterns that cause visible jitter.
+
+    Refitting the viewBox per animation frame, or writing it synchronously
+    inside a ResizeObserver callback without a change guard, produces scale
+    jumps and the benign-but-noisy "ResizeObserver loop" browser warning.
+    These stay warnings: the output remains usable, but repair guidance should
+    steer toward a static worst-case envelope or a guarded refit path.
+    """
+    updates_viewbox = bool(re.search(r"setAttribute\s*\(\s*['\"]viewBox['\"]", script_text))
+    if not updates_viewbox:
+        return
+
+    fit_fn_names = set(
+        re.findall(
+            r"(?:function\s+([A-Za-z_$][\w$]*)\s*\([^)]*\)|"
+            r"(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:function\s*\([^)]*\)|\([^)]*\)\s*=>))"
+            r"\s*\{[^{}]*(?:\{[^{}]*\}[^{}]*)*?setAttribute\s*\(\s*['\"]viewBox['\"]",
+            script_text,
+        )
+    )
+    fit_fn_names = {name for pair in fit_fn_names for name in pair if name}
+
+    for match in re.finditer(r"onUpdate\s*[:=]\s*(?:function\s*\([^)]*\)|\([^)]*\)\s*=>)\s*\{", script_text):
+        body = _extract_balanced_block(script_text, match.end() - 1)
+        if body is None:
+            continue
+        writes_directly = "viewBox" in body
+        calls_fit = any(re.search(rf"\b{re.escape(name)}\s*\(", body) for name in fit_fn_names)
+        if writes_directly or calls_fit:
+            warnings.append(
+                _warning(
+                    "per_frame_viewbox_refit",
+                    "动画 onUpdate 回调内每帧重写 viewBox，内容包络随状态微变会导致画面缩放抖动；"
+                    "viewBox 应只在初始化、结构变化或容器 resize 时更新，动画帧内只更新图形属性。",
+                )
+            )
+            break
+
+    observes_stage_size = bool(re.search(r"ResizeObserver\b", script_text))
+    if observes_stage_size:
+        has_raf_guard = bool(re.search(r"requestAnimationFrame\s*\(", script_text))
+        has_change_guard = bool(
+            re.search(
+                r"getAttribute\s*\(\s*['\"]viewBox['\"]|"
+                r"\b(?:last|prev|previous|current)[\w$]*[Vv]iew[Bb]ox\b",
+                script_text,
+            )
+        )
+        if not (has_raf_guard and has_change_guard):
+            warnings.append(
+                _warning(
+                    "unguarded_resize_viewbox_write",
+                    "ResizeObserver 回调路径会写 viewBox，但缺少 requestAnimationFrame 调度或新旧值比较守卫，"
+                    "可能触发 ResizeObserver loop 警告并造成宽度/缩放跳动；值未变化时应跳过写入。",
+                )
+            )
+
+
+def _extract_balanced_block(text: str, open_brace_index: int) -> str | None:
+    if open_brace_index >= len(text) or text[open_brace_index] != "{":
+        return None
+    depth = 0
+    quote: str | None = None
+    index = open_brace_index
+    while index < len(text):
+        char = text[index]
+        if quote is not None:
+            if char == "\\":
+                index += 2
+                continue
+            if char == quote:
+                quote = None
+        elif char in "'\"`":
+            quote = char
+        elif char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return text[open_brace_index + 1 : index]
+        index += 1
+    return None
 
 
 def _has_call_only_gsap_timeline(script_text: str) -> bool:

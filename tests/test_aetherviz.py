@@ -1022,7 +1022,8 @@ def test_widget_contract_warns_about_fixed_sidebars_and_missing_stage_guards() -
     assert report["ok"] is True
 
 
-def test_widget_contract_warns_when_variable_svg_keeps_static_viewbox() -> None:
+def test_widget_contract_accepts_static_viewbox_for_attribute_only_redraw() -> None:
+    """Attribute-only updates stay within a designable envelope: static viewBox is preferred."""
     from aetherviz_service.aetherviz.tools.widget_contract_checker import check_widget_runtime_contract
 
     html = sample_html().replace(
@@ -1035,11 +1036,11 @@ def test_widget_contract_warns_when_variable_svg_keeps_static_viewbox() -> None:
 
     report = check_widget_runtime_contract(html)
 
-    assert any(warning["type"] == "static_viewbox_for_variable_svg" for warning in report["warnings"])
+    assert not any(warning["type"] == "static_viewbox_for_variable_svg" for warning in report["warnings"])
     assert report["ok"] is True
 
 
-def test_widget_contract_accepts_dynamic_variable_svg_viewbox() -> None:
+def test_widget_contract_warns_when_structural_svg_mutation_keeps_static_viewbox() -> None:
     from aetherviz_service.aetherviz.tools.widget_contract_checker import check_widget_runtime_contract
 
     html = sample_html().replace(
@@ -1047,14 +1048,89 @@ def test_widget_contract_accepts_dynamic_variable_svg_viewbox() -> None:
         '<input type="range" id="parameter-slider"><button id="play-animation">播放</button>',
     ).replace(
         "function updateVisualization(){",
-        "function updateVisualization(){ dot.setAttribute('x', state.progress); "
-        "const observer = new ResizeObserver(updateVisualization); observer.observe(document.getElementById('aetherviz-stage')); "
+        "function updateVisualization(){ "
+        "const marker = document.createElementNS('http://www.w3.org/2000/svg', 'circle'); "
+        "document.querySelector('svg').appendChild(marker);",
+    )
+
+    report = check_widget_runtime_contract(html)
+
+    assert any(warning["type"] == "static_viewbox_for_variable_svg" for warning in report["warnings"])
+    assert report["ok"] is True
+
+
+def test_widget_contract_accepts_dynamic_viewbox_after_structural_mutation() -> None:
+    from aetherviz_service.aetherviz.tools.widget_contract_checker import check_widget_runtime_contract
+
+    html = sample_html().replace(
+        '<button id="play-animation">播放</button>',
+        '<input type="range" id="parameter-slider"><button id="play-animation">播放</button>',
+    ).replace(
+        "function updateVisualization(){",
+        "function updateVisualization(){ "
+        "const marker = document.createElementNS('http://www.w3.org/2000/svg', 'circle'); "
+        "document.querySelector('svg').appendChild(marker); "
         "const box = dot.getBBox(); document.querySelector('svg').setAttribute('viewBox', `${box.x} ${box.y} ${box.width} ${box.height}`);",
     )
 
     report = check_widget_runtime_contract(html)
 
     assert not any(warning["type"] == "static_viewbox_for_variable_svg" for warning in report["warnings"])
+
+
+def test_widget_contract_warns_about_per_frame_viewbox_refit() -> None:
+    from aetherviz_service.aetherviz.tools.widget_contract_checker import check_widget_runtime_contract
+
+    html = sample_html().replace(
+        "function play(){ updateVisualization(); }",
+        "function fitStage(){ const box = dot.getBBox(); "
+        "document.querySelector('svg').setAttribute('viewBox', `${box.x} ${box.y} ${box.width} ${box.height}`); }\n"
+        "const timeline = gsap.timeline({ onUpdate: () => { updateVisualization(); fitStage(); } });\n"
+        "function play(){ updateVisualization(); }",
+    )
+
+    report = check_widget_runtime_contract(html)
+
+    assert any(warning["type"] == "per_frame_viewbox_refit" for warning in report["warnings"])
+    assert report["ok"] is True
+
+
+def test_widget_contract_warns_about_unguarded_resizeobserver_viewbox_write() -> None:
+    from aetherviz_service.aetherviz.tools.widget_contract_checker import check_widget_runtime_contract
+
+    html = sample_html().replace(
+        "function play(){ updateVisualization(); }",
+        "function fitStage(){ const box = dot.getBBox(); "
+        "document.querySelector('svg').setAttribute('viewBox', `${box.x} ${box.y} ${box.width} ${box.height}`); }\n"
+        "new ResizeObserver(fitStage).observe(document.getElementById('aetherviz-stage'));\n"
+        "function play(){ updateVisualization(); }",
+    )
+
+    report = check_widget_runtime_contract(html)
+
+    assert any(warning["type"] == "unguarded_resize_viewbox_write" for warning in report["warnings"])
+    assert report["ok"] is True
+
+
+def test_widget_contract_accepts_guarded_resizeobserver_viewbox_write() -> None:
+    from aetherviz_service.aetherviz.tools.widget_contract_checker import check_widget_runtime_contract
+
+    html = sample_html().replace(
+        "function play(){ updateVisualization(); }",
+        "function fitStage(){ const box = dot.getBBox(); "
+        "const next = `${box.x} ${box.y} ${box.width} ${box.height}`; "
+        "const svg = document.querySelector('svg'); "
+        "if (svg.getAttribute('viewBox') === next) return; "
+        "svg.setAttribute('viewBox', next); }\n"
+        "new ResizeObserver(() => requestAnimationFrame(fitStage)).observe(document.getElementById('aetherviz-stage'));\n"
+        "function play(){ updateVisualization(); }",
+    )
+
+    report = check_widget_runtime_contract(html)
+
+    warning_types = {warning["type"] for warning in report["warnings"]}
+    assert "unguarded_resize_viewbox_write" not in warning_types
+    assert "per_frame_viewbox_refit" not in warning_types
 
 
 def test_repair_prompt_is_error_directed_and_does_not_force_unrelated_layout_changes() -> None:
