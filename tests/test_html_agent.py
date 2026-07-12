@@ -78,7 +78,9 @@ def test_deterministic_repair_restores_static_widget_contract() -> None:
     repaired_report = build_validation_report(repaired)
 
     assert repaired_report["ok"] is True
-    assert '<script type="application/json" id="widget-config">' in repaired
+    from bs4 import BeautifulSoup
+
+    assert BeautifulSoup(repaired, "html.parser").select_one("#widget-config[type='application/json']") is not None
     assert all(
         f'id="{control_id}"' in repaired
         for control_id in ("play-animation", "pause-animation", "reset-animation")

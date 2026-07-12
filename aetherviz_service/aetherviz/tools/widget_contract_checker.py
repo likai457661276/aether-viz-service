@@ -94,6 +94,7 @@ def check_widget_runtime_contract(html: str, *, soup: BeautifulSoup | None = Non
     _check_append_child_arguments(script_text, errors)
     _check_duplicate_label_positions(parsed, script_text, warnings)
     _check_layout_risks(parsed, script_text, warnings)
+    _check_svg_unit_system(parsed, script_text, warnings)
     _check_unformatted_dynamic_numbers(script_text, warnings)
 
     external_gsap = any("gsap" in str(script.get("src") or "").lower() for script in parsed.find_all("script"))
@@ -124,6 +125,105 @@ def check_widget_runtime_contract(html: str, *, soup: BeautifulSoup | None = Non
         "errors": errors,
         "warnings": warnings,
     }
+
+
+_NUMERIC_CONST_RE = re.compile(
+    r"\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(-?\d+(?:\.\d+)?)\s*;"
+)
+_VIEWBOX_LITERAL_RE = re.compile(
+    r"(?:viewBox\s*=\s*['\"]|setAttribute\(\s*['\"]viewBox['\"]\s*,\s*['\"])([^'\"]+)"
+)
+
+
+def _viewbox_short_sides(parsed: BeautifulSoup, script_text: str) -> list[float]:
+    """Return statically provable SVG viewBox short sides.
+
+    Besides literal markup/JS values, support the common generic form
+    ```${-SIZE/2} ${-SIZE/2} ${SIZE} ${SIZE}```. This is deliberately a small
+    expression recognizer rather than a JavaScript evaluator.
+    """
+    values: list[float] = []
+    for svg in parsed.find_all("svg"):
+        raw = str(svg.get("viewbox") or "")
+        numbers = re.findall(r"-?\d+(?:\.\d+)?", raw)
+        if len(numbers) == 4:
+            width, height = abs(float(numbers[2])), abs(float(numbers[3]))
+            if width and height:
+                values.append(min(width, height))
+    for raw in _VIEWBOX_LITERAL_RE.findall(script_text):
+        numbers = re.findall(r"-?\d+(?:\.\d+)?", raw)
+        if len(numbers) == 4:
+            width, height = abs(float(numbers[2])), abs(float(numbers[3]))
+            if width and height:
+                values.append(min(width, height))
+    constants = {name: abs(float(value)) for name, value in _NUMERIC_CONST_RE.findall(script_text)}
+    for template in re.findall(
+        r"setAttribute\(\s*['\"]viewBox['\"]\s*,\s*`([^`]+)`\s*\)", script_text
+    ):
+        expressions = re.findall(r"\$\{\s*([^}]+)\s*\}", template)
+        if len(expressions) != 4:
+            continue
+        resolved: list[float] = []
+        for expression in expressions:
+            match = re.fullmatch(r"(-)?([A-Za-z_$][\w$]*)(?:\s*/\s*(\d+(?:\.\d+)?))?", expression.strip())
+            if not match or match.group(2) not in constants:
+                break
+            value = constants[match.group(2)] / float(match.group(3) or 1)
+            resolved.append(-value if match.group(1) else value)
+        if len(resolved) == 4 and resolved[2] and resolved[3]:
+            values.append(min(abs(resolved[2]), abs(resolved[3])))
+    return values
+
+
+def _check_svg_unit_system(parsed: BeautifulSoup, script_text: str, warnings: list[dict]) -> None:
+    """Detect mixed screen-pixel and abstract SVG user-unit styling.
+
+    The check is topic-independent and remains non-blocking because static CSS
+    cannot prove the final browser geometry in every generated document.
+    """
+    if parsed.select_one('script[data-aetherviz-scale-guard="true"]') is not None:
+        return
+    short_sides = _viewbox_short_sides(parsed, script_text)
+    if not short_sides or min(short_sides) > 100:
+        return
+    style_text = "\n".join(style.get_text("\n", strip=False) for style in parsed.find_all("style"))
+    svg_rules = [
+        (selector, declarations)
+        for selector, declarations in re.findall(r"([^{}]+)\{([^{}]*)\}", style_text)
+        if re.search(r"(?:svg|text|axis|grid|curve|line|path|vertex|label|tick)", selector, re.IGNORECASE)
+    ]
+    text_px = any(
+        re.search(r"(?:text|label|tick)", selector, re.IGNORECASE)
+        and re.search(r"font-size\s*:\s*(?:[1-9]\d*(?:\.\d+)?)px", declarations, re.IGNORECASE)
+        for selector, declarations in svg_rules
+    )
+    scaling_stroke = any(
+        re.search(r"stroke-width\s*:\s*(\d+(?:\.\d+)?)\s*(?:;|$)", declarations, re.IGNORECASE)
+        and not re.search(r"vector-effect\s*:\s*non-scaling-stroke", declarations, re.IGNORECASE)
+        for _, declarations in svg_rules
+    )
+    if text_px:
+        warnings.append(
+            _warning(
+                "abstract_svg_text_scale_risk",
+                "检测到小范围抽象 viewBox 与 SVG px 字号混用；文字会随坐标系缩放而异常放大。"
+                "应使用 getScreenCTM() 反算用户单位字号，或改用 CSS 像素对齐 viewBox。",
+            )
+        )
+    if scaling_stroke:
+        warnings.append(
+            _warning(
+                "abstract_svg_stroke_scale_risk",
+                "检测到小范围抽象 viewBox 中存在未使用 non-scaling-stroke 的描边；轴线、网格或轮廓可能异常粗大。",
+            )
+        )
+    if text_px and scaling_stroke:
+        warnings.append(
+            _warning(
+                "mixed_svg_unit_system",
+                "SVG 同时混用屏幕像素排版与抽象用户单位描边，视觉尺度在不同 iframe 尺寸下不稳定。",
+            )
+        )
 
 
 _APPEND_CHILD_OPEN_RE = re.compile(r"\.appendChild\s*\(")

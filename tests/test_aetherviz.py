@@ -634,12 +634,44 @@ def test_widget_contract_warns_about_hardcoded_formatter_step_and_raw_formula_st
 
 
 def test_validation_report_accepts_minimum_widget_runtime_contract() -> None:
+    from aetherviz_service.aetherviz.tools.layout_contract import assemble_layout_contract
     from aetherviz_service.aetherviz.tools.validation_report import build_validation_report
 
-    report = build_validation_report(sample_html())
+    report = build_validation_report(assemble_layout_contract(sample_html(), sample_plan()))
 
     assert report["ok"] is True
-    assert report["checks"]["widget_contract_checker"]["ok"] is True
+
+
+def test_server_layout_contract_replaces_model_shell_and_is_idempotent() -> None:
+    from bs4 import BeautifulSoup
+
+    from aetherviz_service.aetherviz.tools.layout_contract import assemble_layout_contract
+
+    raw = sample_html().replace("<body>", '<body><div class="model-grid">').replace(
+        "</body>", "</div></body>"
+    )
+    once = assemble_layout_contract(raw, sample_plan("函数变化"))
+    twice = assemble_layout_contract(once, sample_plan("函数变化"))
+    parsed = BeautifulSoup(twice, "html.parser")
+
+    assert parsed.select_one(".model-grid") is None
+    assert len(parsed.select("#aetherviz-app-shell")) == 1
+    assert len(parsed.select('[data-layout-slot="stage"]')) == 1
+    assert len(parsed.select('[data-layout-slot="primary-controls"]')) == 1
+    assert len(parsed.select('style[data-aetherviz-layout-contract="math-shell-v1"]')) == 1
+    assert parsed.body["data-layout-contract"] == "math-shell-v1"
+
+
+def test_layout_contract_checker_rejects_unassembled_model_html() -> None:
+    from aetherviz_service.aetherviz.tools.layout_contract_checker import check_layout_contract
+
+    report = check_layout_contract("<!DOCTYPE html><html><body><div id='aetherviz-stage'></div></body></html>")
+
+    assert report["ok"] is False
+    assert {error["type"] for error in report["errors"]} >= {
+        "missing_layout_contract",
+        "missing_layout_shell",
+    }
 
 
 def test_widget_contract_warns_about_call_only_gsap_timeline() -> None:
@@ -729,10 +761,10 @@ def test_generate_phase_triggers_repair_when_validation_fails(monkeypatch) -> No
     ]
     repair_done = [data for event, data in events if event == "repair.done"][-1]
     done = next(data for event, data in events if event == "html.done")
-    assert repair_size_events[-1]["bytes"] == len(sample_html().encode("utf-8"))
-    assert repair_size_events[-1]["chars"] == len(sample_html())
-    assert repair_done["data"]["bytes"] == len(sample_html().encode("utf-8"))
-    assert repair_done["data"]["chars"] == len(sample_html())
+    assert repair_size_events[-1]["bytes"] == done["data"]["metadata"]["bytes"]
+    assert repair_size_events[-1]["chars"] == done["data"]["metadata"]["chars"]
+    assert repair_done["data"]["bytes"] == done["data"]["metadata"]["bytes"]
+    assert repair_done["data"]["chars"] == done["data"]["metadata"]["chars"]
     assert done["data"]["metadata"]["repaired"] is True
     assert done["data"]["metadata"]["attempts"] >= 2
 
@@ -822,10 +854,49 @@ def test_generate_phase_accepts_quality_repair_only_when_warning_is_reduced(monk
     done = next(data for event, data in events if event == "html.done")
 
     assert quality_done["data"]["accepted"] is True
-    assert quality_done["data"]["bytes"] == len(sample_html().encode("utf-8"))
-    assert quality_done["data"]["chars"] == len(sample_html())
-    assert done["data"]["html"] == sample_html()
+    assert quality_done["data"]["bytes"] == done["data"]["metadata"]["bytes"]
+    assert quality_done["data"]["chars"] == done["data"]["metadata"]["chars"]
+    assert 'data-layout-contract="math-shell-v1"' in done["data"]["html"]
+    assert "label.textContent = `value=${state.progress}`" not in done["data"]["html"]
     assert done["data"]["metadata"]["repaired"] is True
+
+
+def test_generate_phase_runs_quality_repair_after_hard_error_is_repaired(monkeypatch) -> None:
+    from aetherviz_service.aetherviz.agents.html_agent import HtmlStreamResult
+    from aetherviz_service.aetherviz.workflow import generate_workflow
+
+    risky_html = sample_html().replace(
+        "body{margin:0}",
+        ".app-shell{display:grid;grid-template-columns:1fr 320px}body{margin:0}"
+        ".axis-line{stroke:#333;stroke-width:1.5}.label-text{font-size:12px}",
+    ).replace(
+        '<svg viewBox="0 0 100 100">',
+        '<svg viewBox="-6 -6 12 12"><line class="axis-line"></line><text class="label-text">x</text>',
+    ).replace(
+        '<button id="play-animation">播放</button>',
+        '<button id="play-animation" onclick="window.AetherVizRuntime.play()">播放</button>',
+    )
+
+    def fake_stream(topic, plan):
+        yield HtmlStreamResult(html=risky_html, degraded=False)
+
+    monkeypatch.setattr(settings, "aetherviz_max_repair_attempts", 1)
+    monkeypatch.setattr(generate_workflow, "stream_generate_html", fake_stream)
+
+    response = client.post(
+        AETHERVIZ_ENDPOINT,
+        json={"topic": "变量变化", "phase": "generate", "approved_plan": sample_plan("变量变化")},
+    )
+    events = parse_sse_events(response)
+    strategies = [
+        data["data"].get("strategy")
+        for event, data in events
+        if event == "repair.done"
+    ]
+    done = next(data for event, data in events if event == "html.done")
+
+    assert strategies == ["deterministic", "quality-deterministic"]
+    assert 'data-aetherviz-scale-guard="true"' in done["data"]["html"]
 
 
 def test_edit_html_stream_propagates_generator_exit(monkeypatch) -> None:
@@ -938,6 +1009,7 @@ def test_generation_and_edit_prompts_include_stage_centering_rules() -> None:
         GAME_SYSTEM_PROMPT,
         GRAPHICS_CRAFT_PROMPT,
         NUMERIC_PRESENTATION_PROMPT,
+        SERVER_LAYOUT_CONTRACT_PROMPT,
         SIMULATION_SYSTEM_PROMPT,
         STAGE_CENTERING_AND_LABEL_PROMPT,
         VISUAL_DESIGN_SYSTEM_PROMPT,
@@ -951,9 +1023,10 @@ def test_generation_and_edit_prompts_include_stage_centering_rules() -> None:
         assert "getScreenCTM()" in prompt
         assert "getBoundingClientRect" in prompt
         assert "禁止按具体文本内容、元素 id 或单个初始状态打补丁" in prompt
-        assert ADAPTIVE_LAYOUT_PROMPT.strip().splitlines()[-1] in prompt
+        assert SERVER_LAYOUT_CONTRACT_PROMPT.strip().splitlines()[-1] in prompt
+        assert ADAPTIVE_LAYOUT_PROMPT.strip().splitlines()[-1] not in prompt
         assert "ResizeObserver" in prompt
-        assert "固定像素侧栏" in prompt
+        assert "不得创作外层 app shell" in prompt
         assert VISUAL_DESIGN_SYSTEM_PROMPT.strip().splitlines()[-1] in prompt
         assert "清爽教学工作台" in prompt
         assert "#2d4f41" in prompt
@@ -1020,6 +1093,79 @@ def test_widget_contract_warns_about_fixed_sidebars_and_missing_stage_guards() -
     assert "fixed_sidebar_layout" in warning_types
     assert "missing_stage_shrink_guard" in warning_types
     assert report["ok"] is True
+
+
+def test_widget_contract_warns_about_mixed_abstract_svg_units() -> None:
+    from aetherviz_service.aetherviz.tools.widget_contract_checker import check_widget_runtime_contract
+
+    html = sample_html().replace(
+        "body{margin:0}",
+        "body{margin:0}.axis-line{stroke:#333;stroke-width:1.5}.label-text{font-size:12px}",
+    ).replace(
+        '<svg viewBox="0 0 100 100">',
+        '<svg viewBox="-6 -6 12 12"><line class="axis-line" x1="-6" y1="0" x2="6" y2="0"></line>'
+        '<text class="label-text">x</text>',
+    )
+    from aetherviz_service.aetherviz.tools.layout_contract import assemble_layout_contract
+
+    html = assemble_layout_contract(html, sample_plan())
+
+    report = check_widget_runtime_contract(html)
+    warning_types = {warning["type"] for warning in report["warnings"]}
+
+    assert {"abstract_svg_text_scale_risk", "abstract_svg_stroke_scale_risk", "mixed_svg_unit_system"} <= warning_types
+    assert report["ok"] is True
+
+
+def test_deterministic_quality_repair_adds_generic_svg_guard_under_server_layout() -> None:
+    from aetherviz_service.aetherviz.tools.deterministic_repair import deterministic_repair_html
+    from aetherviz_service.aetherviz.tools.validation_report import build_validation_report
+
+    html = sample_html().replace(
+        "body{margin:0}",
+        ".app-shell{display:grid;grid-template-columns:1fr 320px}body{margin:0}"
+        ".axis-line{stroke:#333;stroke-width:1.5}.label-text{font-size:12px}",
+    ).replace(
+        '<svg viewBox="0 0 100 100">',
+        '<svg viewBox="-6 -6 12 12"><line class="axis-line"></line><text class="label-text">x</text>',
+    )
+    from aetherviz_service.aetherviz.tools.layout_contract import assemble_layout_contract
+
+    html = assemble_layout_contract(html, sample_plan())
+    report = build_validation_report(html)
+    repaired = deterministic_repair_html(html, report)
+    repaired_report = build_validation_report(repaired)
+    warning_types = {warning["type"] for warning in repaired_report["warnings"]}
+
+    assert 'data-aetherviz-scale-guard="true"' in repaired
+    assert 'data-aetherviz-layout-contract="math-shell-v1"' in repaired
+    assert 'data-aetherviz-layout-guard="true"' not in repaired
+    assert "abstract_svg_text_scale_risk" not in warning_types
+    assert "abstract_svg_stroke_scale_risk" not in warning_types
+    assert "missing_stage_shrink_guard" not in warning_types
+
+
+def test_discipline_checker_accepts_runtime_svg_mounted_in_stage() -> None:
+    from aetherviz_service.aetherviz.tools.discipline_consistency_checker import check_discipline_consistency
+
+    html = sample_html().replace(
+        '<svg viewBox="0 0 100 100"><circle id="dot" cx="20" cy="50" r="8"></circle></svg>',
+        '<div data-role="main-visual"></div>',
+    ).replace(
+        "function updateVisualization(){",
+        "const mount=document.querySelector('[data-role=\"main-visual\"]');"
+        "const runtimeSvg=document.createElementNS('http://www.w3.org/2000/svg','svg');"
+        "mount.appendChild(runtimeSvg);function updateVisualization(){",
+    )
+    report = check_discipline_consistency(
+        html,
+        plan={
+            "knowledge_profile": {"representation_type": "coordinate_graph"},
+            "discipline_spec": {"entities": ["变量"]},
+        },
+    )
+
+    assert not any(warning["type"] == "representation_mismatch" for warning in report["warnings"])
 
 
 def test_widget_contract_accepts_static_viewbox_for_attribute_only_redraw() -> None:

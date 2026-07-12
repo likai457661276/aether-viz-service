@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from bs4 import BeautifulSoup
@@ -24,9 +25,16 @@ def check_discipline_consistency(
     if not any(discipline_spec.get(field) for field in ("entities", "relations", "invariants", "boundary_cases", "representations")):
         warnings.append(_warning("missing_discipline_spec", "计划缺少通用学科语义规格，生成结果难以进行语义对齐检查"))
 
-    if representation in {"coordinate_graph", "geometric_construction"} and parsed.find("svg") is None:
+    script_text = "\n".join(
+        script.get_text("\n", strip=False)
+        for script in parsed.find_all("script")
+        if not script.get("src") and str(script.get("type", "")).lower() != "application/json"
+    )
+    has_svg = parsed.find("svg") is not None or _has_runtime_stage_visual(script_text, "svg")
+    has_canvas = parsed.find("canvas") is not None or _has_runtime_stage_visual(script_text, "canvas")
+    if representation in {"coordinate_graph", "geometric_construction"} and not has_svg:
         warnings.append(_warning("representation_mismatch", f"计划要求 {representation} 表征，但主页面未检测到 SVG 几何/坐标画布"))
-    if representation == "data_chart" and parsed.find(["svg", "canvas"]) is None:
+    if representation == "data_chart" and not (has_svg or has_canvas):
         warnings.append(_warning("representation_mismatch", "计划要求数据图表表征，但未检测到 SVG 或 Canvas"))
     if representation == "symbolic_derivation" and parsed.select_one('[data-region="formula"]') is None:
         warnings.append(_warning("missing_symbolic_region", "计划要求符号推导表征，但未检测到独立公式/推导区域"))
@@ -40,6 +48,21 @@ def check_discipline_consistency(
     if boundary_cases and plan.get("interactive_type") == "simulation" and not interactive_spec.get("presets"):
         warnings.append(_warning("missing_boundary_preset", "计划声明了边界/特殊状态，但 simulation 未提供可到达的 preset"))
     return _report(warnings)
+
+
+def _has_runtime_stage_visual(script_text: str, kind: str) -> bool:
+    creates = bool(
+        re.search(
+            rf"createElement(?:NS)?\([^)]*['\"]{re.escape(kind)}['\"]\s*\)",
+            script_text,
+            re.IGNORECASE,
+        )
+    )
+    has_stage_mount = bool(
+        re.search(r"aetherviz-stage|\[data-role=(?:\\?['\"])?main-visual", script_text, re.IGNORECASE)
+    )
+    appends_visual = bool(re.search(r"appendChild\s*\(", script_text))
+    return creates and has_stage_mount and appends_visual
 
 
 def _warning(kind: str, message: str) -> dict[str, Any]:

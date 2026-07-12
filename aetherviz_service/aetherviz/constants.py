@@ -2,7 +2,8 @@
 
 from aetherviz_service.config import settings
 
-HTML_OUTPUT_TARGET_CHARS = 36000
+# 为服务端布局骨架和确定性运行时 guard 预留最终输出空间。
+HTML_OUTPUT_TARGET_CHARS = 32000
 HTML_OUTPUT_HARD_LIMIT_CHARS = 40000
 
 

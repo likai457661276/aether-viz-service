@@ -2,7 +2,7 @@
 
 `AI互动实验` 是一个基于 Python 3.12 和 FastAPI 的后端服务，用于根据教学主题生成完整、可直接打开的互动教学 HTML。
 
-当前生成链路使用 LangChain `ChatOpenAI` 直接生成动态单页互动课件：先生成可确认的 `interactive` 教案计划，用户可多轮修订计划，确认后再生成自包含 HTML。服务端根据主题生成通用 `knowledge_profile`（学科、概念族、表征类型、教学模式），再组合互动类型、学科组和表征提示词；计划通过 `discipline_spec` 描述对象、关系、不变量、边界情况和多重表征，不为单独知识点维护硬编码模板。HTML 只在请求内存中完成检查和修复，通过 SSE 返回前端渲染与会话缓存；后端不落盘缓存 HTML、修复稿或检查报告。检查覆盖 HTML parser、JS checker、安全、长度、低成本 Widget 运行契约和非阻断的学科语义对齐；失败时先执行确定性修复，必要时最多调用一次修复模型。
+当前生成链路使用 LangChain `ChatOpenAI` 生成动态单页互动课件：先生成可确认的 `interactive` 教案计划，用户可多轮修订计划，确认后模型生成数学主视觉、业务控件、公式、旁白、教学流程和运行时。服务端随后按版本化 `math-shell-v1` 布局契约确定性重建页面骨架、响应式断点、区域顺序和滚动归属，模型不再创作最终页面布局。服务端根据主题生成通用 `knowledge_profile`（学科、概念族、表征类型、教学模式），再组合互动类型、学科组和表征提示词；计划通过 `discipline_spec` 描述对象、关系、不变量、边界情况和多重表征，不为单独知识点维护硬编码模板。HTML 只在请求内存中完成装配、检查和修复，通过 SSE 返回前端渲染与会话缓存；后端不落盘缓存 HTML、修复稿或检查报告。
 
 Docker 镜像内置 Node.js，仅用于对生成物的内联 JavaScript 执行 `node --check` 语法校验，保证 macOS 本地与 Linux 生产容器使用同等级检查。
 
@@ -233,7 +233,7 @@ HTML 文件编辑阶段请求示例：
 }
 ```
 
-`phase=edit_html` 必须携带选中的 HTML 文件全文。后端以该文件为修改基线，根据 `message` 生成新的完整 HTML，前端保存为新的时间线分支，不覆盖原文件。后端生成、编辑和修复的 HTML 目标控制在 36000 字符以内，硬上限为 40000 字符；超过硬上限会触发自动修复压缩。模型原始输出缺少 `</html>` 时会标记为截断并强制进入一次模型修复，不会把自动闭合结果静默当成正常页面。
+`phase=edit_html` 必须携带选中的 HTML 文件全文。后端以该文件为修改基线，根据 `message` 生成新的完整 HTML，前端保存为新的时间线分支，不覆盖原文件。模型生成、编辑和修复的业务 HTML 目标控制在 32000 字符以内，为服务端布局骨架和确定性运行时 guard 预留空间；最终 HTML 硬上限为 40000 字符，超过硬上限会触发自动修复压缩。模型原始输出缺少 `</html>` 时会标记为截断并强制进入一次模型修复，不会把自动闭合结果静默当成正常页面。
 
 响应类型为 `text/event-stream`。事件包括：
 
@@ -275,12 +275,34 @@ HTML 文件编辑阶段请求示例：
 2. `phase=revise_plan` 由规划模型接收 `current_plan + message`，重新生成完整 `revised` 计划，不返回局部 patch。
 3. `phase=approve_plan` 将计划状态置为 `approved`。
 4. `phase=generate` 由 `html_agent` 根据已确认计划生成完整自包含 HTML，并在 `html.delta` 中持续返回累计实际大小。
-5. `validation_report` 在内存中聚合 HTML parser、JS checker、安全检查、长度检查、Widget 最小运行契约和 `discipline_consistency_checker`。后者根据 `knowledge_profile` 与 `discipline_spec` 检查计划表征和生成物是否对齐，仅产生 warning，不因启发式语义判断阻断生产输出。Widget 检查验证 widget-config、主舞台、核心控件、runtime API、ready 标记和 iframe action listener。`#aetherviz-stage` 应静态包含 SVG、Canvas 或 `[data-role="main-visual"]` 挂载节点；为兼容旧产物，检查器也接受能够静态证明已创建并挂载到舞台的运行时 SVG/Canvas，并返回迁移 warning。结构错误包含机器可读的 `expected` 验收条件。
-6. 检查失败时先确定性补齐静态 `widget-config` 和播放/暂停/重置控件等基础契约；仍失败时由 `repair_agent` 使用统一配置的模型定向修复，最多 1 次。若修复后硬错误签名不变，候选稿不会被接受，工作流恢复修复前 HTML、标记 `stalled` 并立即停止，避免无效完整重写。
-7. `phase=edit_html` 基于选中 HTML 全文生成新的 HTML 分支，不覆盖旧 HTML。
-8. 最终 HTML 仅通过 `html.done` 返回前端；服务端不保留 HTML 文件缓存或产物路径。
+5. 模型输出先经过 `math-shell-v1` 服务端装配器：只保留并归位主舞台、业务控件、公式、旁白、教学流程、依赖和运行时脚本；模型生成的外层布局不会进入最终 HTML。宽屏使用舞台与检查器并排，紧凑和移动端切换为纵向堆叠，页面滚动、内部滚动、舞台最小尺寸和首屏信息预算由契约统一管理。
+6. `validation_report` 在内存中聚合布局契约、HTML parser、JS checker、安全检查、长度检查、Widget 最小运行契约和 `discipline_consistency_checker`。布局契约检查会阻断缺失、重复或版本错误的服务端槽位。学科一致性检查根据 `knowledge_profile` 与 `discipline_spec` 检查计划表征和生成物是否对齐，仅产生 warning，不因启发式语义判断阻断生产输出。Widget 检查验证 widget-config、主舞台、核心控件、runtime API、ready 标记和 iframe action listener。结构错误包含机器可读的 `expected` 验收条件。
+7. 检查失败时先确定性补齐静态 `widget-config` 和播放/暂停/重置控件等基础契约；仍失败时由 `repair_agent` 使用统一配置的模型定向修复，最多 1 次。若修复后硬错误签名不变，候选稿不会被接受，工作流恢复修复前 HTML、标记 `stalled` 并立即停止，避免无效完整重写。
+8. 生成、编辑和模型修复的候选结果都会重新经过同一个服务端布局装配器，`phase=edit_html` 不能改变布局外壳，只能修改数学内容、业务交互与槽位优先级；结果仍生成新 HTML 分支，不覆盖旧 HTML。
+9. 最终 HTML 仅通过 `html.done` 返回前端；服务端不保留 HTML 文件缓存或产物路径。
 
 生产同步链路不启动服务端浏览器。真实运行时错误由前端 iframe bridge 捕获，用户可发起一次定向 `phase=edit_html` 修复并生成新分支。
+
+### 离线视觉稳定性验证
+
+生成链路会静态检查抽象 SVG viewBox 与屏幕像素字号、缩放描边的混用风险，并按需注入通用 SVG 尺度 guard；布局稳定性由 `math-shell-v1` 契约直接保证。硬错误完成确定性修复后仍会继续质量修复。动态创建并挂载到 `#aetherviz-stage` 或 `main-visual` 的 SVG/Canvas 也会参与表征一致性判断。
+
+开发环境可在 960×540、1280×720 和 390×844 三种视口运行浏览器回归：
+
+```bash
+uv run playwright install chromium
+uv run python scripts/visual_regression.py /path/to/generated.html --report /tmp/visual-report.json
+```
+
+脚本检查舞台裁切、有效面积、滚动容器、标签重叠、最大标签高度、最大屏幕描边宽度和运行时错误，并输出对应截图。该脚本只用于离线验证，不进入生产同步链路。
+
+可从 `langsmith trace get --full --format json --output ...` 的真实导出构建本地单步评估数据集：
+
+```bash
+uv run python scripts/build_visual_dataset.py /tmp/trace.json --output /tmp/aetherviz-visual-dataset.json
+```
+
+`scripts/langsmith_visual_evaluators.py` 提供视觉总通过、舞台可见性和 SVG 尺度三个单指标确定性 evaluator，可用于 LangSmith 本地实验或按需上传；脚本默认不修改远端数据集和 evaluator。
 
 主题色从 `topic` 中的 `#RRGGBB` 或中文颜色词提取，未提取到时使用默认色 `#22D3EE`。
 

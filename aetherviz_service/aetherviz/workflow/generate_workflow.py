@@ -14,6 +14,10 @@ from aetherviz_service.aetherviz.agents.html_agent import HtmlGenerationError, H
 from aetherviz_service.aetherviz.agents.repair_agent import RepairStreamResult, stream_repair_html
 from aetherviz_service.aetherviz.api.sse import agent_error_event, agent_sse_event
 from aetherviz_service.aetherviz.tools.deterministic_repair import deterministic_repair_html
+from aetherviz_service.aetherviz.tools.layout_contract import (
+    LAYOUT_CONTRACT_VERSION,
+    assemble_layout_contract,
+)
 from aetherviz_service.aetherviz.tools.validation_report import build_validation_report
 from aetherviz_service.config import settings
 
@@ -23,6 +27,10 @@ QUALITY_REPAIR_WARNING_TYPES = {
     "hardcoded_numeric_step",
     "scattered_visible_precision",
     "static_viewbox_for_variable_svg",
+    "abstract_svg_text_scale_risk",
+    "abstract_svg_stroke_scale_risk",
+    "mixed_svg_unit_system",
+    "missing_stage_shrink_guard",
 }
 
 
@@ -122,7 +130,7 @@ def _run_html_workflow(
     try:
         for item in html_stream_factory():
             if isinstance(item, HtmlStreamResult):
-                html, degraded = item.html, item.degraded
+                html, degraded = assemble_layout_contract(item.html, plan), item.degraded
                 source_truncated = item.truncated
                 metadata["reasoning_elapsed_ms"] = item.reasoning_elapsed_ms
                 metadata["first_chunk_elapsed_ms"] = item.first_chunk_elapsed_ms
@@ -187,7 +195,6 @@ def _run_html_workflow(
     )
 
     metadata["validation_warnings"] = [warning["message"] for warning in report.get("warnings", [])]
-    had_hard_errors = not report["ok"]
     if not report["ok"]:
         html, report, metadata["repaired"], metadata["degraded"] = yield from _attempt_repair_loop(
             run_id=run_id,
@@ -211,7 +218,7 @@ def _run_html_workflow(
             )
             return
 
-    if phase == "generate" and not had_hard_errors and _quality_warning_types(report):
+    if phase == "generate" and report["ok"] and _quality_warning_types(report):
         html, report, quality_repaired, quality_degraded = yield from _attempt_quality_repair(
             run_id=run_id,
             phase=phase,
@@ -245,6 +252,7 @@ def _run_html_workflow(
                 "first_chunk_elapsed_ms": metadata.get("first_chunk_elapsed_ms", 0),
                 "generation_elapsed_ms": metadata.get("generation_elapsed_ms", 0),
                 "generation_backend": "direct",
+                "layout_contract_version": LAYOUT_CONTRACT_VERSION,
                 "truncated": metadata.get("truncated", False),
                 "bytes": len(html.encode("utf-8")),
                 "chars": len(html),
@@ -287,6 +295,56 @@ def _attempt_quality_repair(
             if isinstance(warning, dict) and warning.get("type") in QUALITY_REPAIR_WARNING_TYPES
         ],
     }
+    deterministic_candidate = assemble_layout_contract(
+        deterministic_repair_html(original_html, quality_report, plan=plan), plan
+    )
+    if deterministic_candidate != original_html:
+        deterministic_report = _validate(deterministic_candidate, plan=plan)
+        deterministic_quality = _quality_warning_types(deterministic_report)
+        if deterministic_report["ok"] and len(deterministic_quality) < len(original_quality):
+            metadata["attempts"] += 1
+            yield agent_sse_event(
+                "repair.started",
+                run_id=run_id,
+                phase=phase,
+                data={"attempt": 1, "strategy": "quality-deterministic", "warnings": quality_report["warnings"][:5]},
+                metadata=_metadata(metadata, started_at, stage="repair"),
+            )
+            yield agent_sse_event(
+                "html.delta",
+                run_id=run_id,
+                phase=phase,
+                data={
+                    "delta": "",
+                    "bytes": len(deterministic_candidate.encode("utf-8")),
+                    "chars": len(deterministic_candidate),
+                },
+                metadata=_metadata(metadata, started_at, stage="repair"),
+            )
+            yield from _emit_validation_events(
+                run_id=run_id,
+                phase=phase,
+                report=deterministic_report,
+                metadata=metadata,
+                started_at=started_at,
+                stage="repair",
+            )
+            yield agent_sse_event(
+                "repair.done",
+                run_id=run_id,
+                phase=phase,
+                data={
+                    "attempt": 1,
+                    "strategy": "quality-deterministic",
+                    "ok": True,
+                    "accepted": True,
+                    "remaining_warning_types": sorted(deterministic_quality),
+                    "bytes": len(deterministic_candidate.encode("utf-8")),
+                    "chars": len(deterministic_candidate),
+                },
+                metadata=_metadata(metadata, started_at, stage="repair"),
+            )
+            return deterministic_candidate, deterministic_report, True, False
     metadata["attempts"] += 1
     yield agent_sse_event(
         "repair.started",
@@ -311,7 +369,7 @@ def _attempt_quality_repair(
         report=quality_report,
     ):
         if isinstance(item, RepairStreamResult):
-            candidate = item.html
+            candidate = assemble_layout_contract(item.html, plan)
             candidate_degraded = item.degraded
             candidate_truncated = item.truncated
             yield agent_sse_event(
@@ -470,7 +528,7 @@ def _attempt_repair_loop(
             report=report,
         ):
             if isinstance(item, RepairStreamResult):
-                html, repair_degraded = item.html, item.degraded
+                html, repair_degraded = assemble_layout_contract(item.html, plan), item.degraded
                 repair_truncated = item.truncated
                 yield agent_sse_event(
                     "html.delta",
@@ -639,7 +697,7 @@ def _run_deterministic_repair(html: str, report: dict[str, Any], plan: dict[str,
         if settings.langsmith_tracing and get_current_run_tree() is not None
         else deterministic_repair_html
     )
-    return runner(html, report, plan=plan)
+    return assemble_layout_contract(runner(html, report, plan=plan), plan)
 
 
 @traceable(

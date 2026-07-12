@@ -9,6 +9,7 @@ from bs4 import BeautifulSoup
 from aetherviz_service.aetherviz.tools.discipline_consistency_checker import check_discipline_consistency
 from aetherviz_service.aetherviz.tools.html_parser import check_html_structure
 from aetherviz_service.aetherviz.tools.js_checker import check_inline_javascript
+from aetherviz_service.aetherviz.tools.layout_contract_checker import check_layout_contract
 from aetherviz_service.aetherviz.tools.length_checker import check_length
 from aetherviz_service.aetherviz.tools.security_checker import check_security
 from aetherviz_service.aetherviz.tools.widget_contract_checker import check_widget_runtime_contract
@@ -36,6 +37,7 @@ def build_validation_report(
 def run_validation_checks(html: str, *, plan: dict[str, Any] | None = None) -> dict[str, dict[str, Any]]:
     parsed = BeautifulSoup(html or "", "html.parser")
     return {
+        "layout_contract": check_layout_contract(html, soup=parsed),
         "length_checker": check_length(html),
         "html_parser": check_html_structure(html, soup=parsed),
         "js_checker": check_inline_javascript(html, soup=parsed),
