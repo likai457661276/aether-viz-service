@@ -95,6 +95,66 @@ def test_widget_contract_warns_when_katex_has_no_fallback(monkeypatch) -> None:
     assert any(warning["type"] == "missing_katex_fallback_guard" for warning in report["warnings"])
 
 
+def test_widget_contract_rejects_non_node_append_child() -> None:
+    html = sample_html().replace(
+        "window.__AETHERVIZ_RUNTIME_READY__ = true;",
+        'document.getElementById("aetherviz-stage").appendChild(caption.textContent = "x");\n'
+        "window.__AETHERVIZ_RUNTIME_READY__ = true;",
+    )
+
+    report = check_widget_runtime_contract(html)
+
+    assert any(error["type"] == "non_node_append_child" for error in report["errors"])
+
+
+def test_widget_contract_accepts_node_append_child() -> None:
+    html = sample_html().replace(
+        "window.__AETHERVIZ_RUNTIME_READY__ = true;",
+        "const wrap = document.createElement('div');\n"
+        "wrap.appendChild(dot);\n"
+        "wrap.appendChild(el = document.createElement('span'));\n"
+        "window.__AETHERVIZ_RUNTIME_READY__ = true;",
+    )
+
+    report = check_widget_runtime_contract(html)
+
+    assert not any(error["type"] == "non_node_append_child" for error in report["errors"])
+
+
+def test_deterministic_repair_injects_missing_runtime_methods() -> None:
+    html = sample_html().replace(
+        "window.AetherVizRuntime = { play, pause, reset, update: updateVisualization, getState: () => state };",
+        "window.AetherVizRuntime = { play, pause, reset };",
+    )
+    report = check_widget_runtime_contract(html)
+    assert any(error["type"] == "missing_runtime_method" for error in report["errors"])
+
+    repaired = deterministic_repair_html(html, {"errors": report["errors"]}, plan=sample_plan())
+    repaired_report = check_widget_runtime_contract(repaired)
+
+    assert not any(
+        error["type"] in {"missing_runtime", "missing_runtime_method"}
+        for error in repaired_report["errors"]
+    )
+    assert 'if(typeof r.getState!=="function")' in repaired
+
+
+def test_deterministic_repair_rewrites_assignment_append_child() -> None:
+    html = sample_html().replace(
+        "window.__AETHERVIZ_RUNTIME_READY__ = true;",
+        'document.getElementById("aetherviz-stage").appendChild(caption.textContent = "x");\n'
+        "window.__AETHERVIZ_RUNTIME_READY__ = true;",
+    )
+    report = check_widget_runtime_contract(html)
+    assert any(error["type"] == "non_node_append_child" for error in report["errors"])
+
+    repaired = deterministic_repair_html(html, {"errors": report["errors"]}, plan=sample_plan())
+    repaired_report = check_widget_runtime_contract(repaired)
+
+    assert 'appendChild(Object.assign(caption,{textContent:"x"}))' in repaired
+    assert not any(error["type"] == "non_node_append_child" for error in repaired_report["errors"])
+
+
 def test_planning_context_is_included_and_reports_compression(monkeypatch) -> None:
     captured_messages = []
     plan_json = (

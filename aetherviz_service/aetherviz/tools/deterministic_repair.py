@@ -7,6 +7,8 @@ import json
 import re
 from typing import Any
 
+from aetherviz_service.aetherviz.tools.widget_contract_checker import REQUIRED_RUNTIME_METHODS
+
 
 def deterministic_repair_html(
     html: str,
@@ -36,10 +38,59 @@ def deterministic_repair_html(
         repaired = _insert_runtime_controls(repaired)
     if "inline_event" in error_types:
         repaired = _move_inline_events_to_listeners(repaired)
+    if error_types & {"missing_runtime", "missing_runtime_method"}:
+        repaired = _ensure_runtime_methods(repaired)
+    if "non_node_append_child" in error_types:
+        repaired = _rewrite_assignment_append_child(repaired)
     if "html_length_hard_limit" in error_types:
         repaired = re.sub(r"<!--(?!\[if)[\s\S]*?-->", "", repaired, flags=re.IGNORECASE)
         repaired = re.sub(r">\s+<", "><", repaired)
     return repaired
+
+
+def _ensure_runtime_methods(html: str) -> str:
+    """Guarantee window.AetherVizRuntime exists with all contract methods.
+
+    Existing methods are preserved; only missing ones get safe fallbacks so the
+    iframe control protocol never crashes on a partially implemented runtime.
+    """
+    fallbacks = {
+        method: "function(){return {};}" if method == "getState" else "function(){}"
+        for method in REQUIRED_RUNTIME_METHODS
+    }
+    patches = "".join(
+        f'if(typeof r.{method}!=="function")r.{method}={fallback};'
+        for method, fallback in fallbacks.items()
+    )
+    script = (
+        "<script>(function(){var r=window.AetherVizRuntime="
+        "window.AetherVizRuntime||{};" + patches + "})();</script>\n"
+    )
+    body_close = re.search(r"</body\s*>", html, re.IGNORECASE)
+    insert_at = body_close.start() if body_close else len(html)
+    return html[:insert_at] + script + html[insert_at:]
+
+
+_ASSIGNMENT_APPEND_RE = re.compile(
+    r"\.appendChild\(\s*(?P<obj>[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*(?:\([^()]*\))?"
+    r"(?:\.[A-Za-z_$][\w$]*)*)\.(?P<prop>[A-Za-z_$][\w$]*)\s*=\s*"
+    r"(?P<value>\"(?:[^\"\\]|\\.)*\"|'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\.)*`|[\d.]+)\s*\)"
+)
+
+
+def _rewrite_assignment_append_child(html: str) -> str:
+    """Rewrite `x.appendChild(el.prop = literal)` into a Node-returning form.
+
+    Assignment expressions evaluate to the assigned literal (not the element),
+    so the original code throws at runtime. `Object.assign` returns the target
+    element, which keeps behavior while satisfying appendChild's Node contract.
+    """
+
+    def rewrite(match: re.Match[str]) -> str:
+        obj, prop, value = match.group("obj"), match.group("prop"), match.group("value")
+        return f".appendChild(Object.assign({obj},{{{prop}:{value}}}))"
+
+    return _ASSIGNMENT_APPEND_RE.sub(rewrite, html)
 
 
 def _move_inline_events_to_listeners(html: str) -> str:

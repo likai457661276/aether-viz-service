@@ -91,6 +91,7 @@ def check_widget_runtime_contract(html: str, *, soup: BeautifulSoup | None = Non
         if action not in script_text:
             warnings.append(_warning("missing_widget_action", f"未显式处理 widget action：{action}"))
 
+    _check_append_child_arguments(script_text, errors)
     _check_duplicate_label_positions(parsed, script_text, warnings)
     _check_layout_risks(parsed, script_text, warnings)
     _check_unformatted_dynamic_numbers(script_text, warnings)
@@ -123,6 +124,97 @@ def check_widget_runtime_contract(html: str, *, soup: BeautifulSoup | None = Non
         "errors": errors,
         "warnings": warnings,
     }
+
+
+_APPEND_CHILD_OPEN_RE = re.compile(r"\.appendChild\s*\(")
+_LITERAL_START_RE = re.compile(r"^['\"`\d]")
+_TOP_LEVEL_ASSIGN_RE = re.compile(r"(?<![=!<>+\-*/%&|^])=(?![=>])")
+
+
+def _check_append_child_arguments(script_text: str, errors: list[dict]) -> None:
+    """Reject appendChild calls whose argument cannot evaluate to a Node.
+
+    Assignment expressions evaluate to the assigned value; when that value is a
+    string/number/template literal (e.g. `parent.appendChild(el.textContent = "x")`)
+    the call throws `parameter 1 is not of type 'Node'` at runtime. Static
+    validators cannot execute JS, but this expression shape is deterministically
+    broken regardless of topic, so it is treated as a hard error.
+    """
+    for match in _APPEND_CHILD_OPEN_RE.finditer(script_text):
+        argument = _extract_balanced_argument(script_text, match.end())
+        if argument is None:
+            continue
+        stripped = argument.strip()
+        if not stripped:
+            continue
+        broken = False
+        if _LITERAL_START_RE.match(stripped):
+            broken = True
+        else:
+            assign = _find_top_level_assignment(stripped)
+            if assign is not None:
+                rhs = stripped[assign + 1 :].strip()
+                if _LITERAL_START_RE.match(rhs):
+                    broken = True
+        if broken:
+            snippet = re.sub(r"\s+", " ", stripped)[:120]
+            errors.append(
+                _error(
+                    "non_node_append_child",
+                    f"appendChild 参数表达式求值结果不是 Node，运行时必然抛错：appendChild({snippet})",
+                )
+            )
+
+
+def _extract_balanced_argument(text: str, start: int) -> str | None:
+    depth = 1
+    quote: str | None = None
+    index = start
+    while index < len(text):
+        char = text[index]
+        if quote is not None:
+            if char == "\\":
+                index += 2
+                continue
+            if char == quote:
+                quote = None
+        elif char in "'\"`":
+            quote = char
+        elif char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth == 0:
+                return text[start:index]
+        index += 1
+    return None
+
+
+def _find_top_level_assignment(argument: str) -> int | None:
+    depth = 0
+    quote: str | None = None
+    index = 0
+    while index < len(argument):
+        char = argument[index]
+        if quote is not None:
+            if char == "\\":
+                index += 2
+                continue
+            if char == quote:
+                quote = None
+        elif char in "'\"`":
+            quote = char
+        elif char in "([{":
+            depth += 1
+        elif char in ")]}":
+            depth -= 1
+        elif char == "=" and depth == 0:
+            prev_char = argument[index - 1] if index else ""
+            next_char = argument[index + 1] if index + 1 < len(argument) else ""
+            if prev_char not in "=!<>+-*/%&|^" and next_char not in "=>":
+                return index
+        index += 1
+    return None
 
 
 def _check_unformatted_dynamic_numbers(script_text: str, warnings: list[dict]) -> None:
