@@ -9,7 +9,7 @@ from pathlib import Path
 
 from playwright.sync_api import sync_playwright
 
-VIEWPORTS = ((960, 540), (1280, 720), (390, 844))
+VIEWPORTS = ((959, 900), (960, 540), (1280, 720), (912, 1180), (390, 844))
 
 METRICS_JS = r"""
 () => {
@@ -41,6 +41,22 @@ METRICS_JS = r"""
     const scale = ctm ? Math.sqrt(Math.abs(ctm.a * ctm.d - ctm.b * ctm.c)) : 1;
     return Math.max(n, getComputedStyle(el).vectorEffect === 'non-scaling-stroke' ? width : width * scale);
   }, 0);
+  const topLevelSlots = ['.av-header', '#aetherviz-stage', '.av-status', '.av-inspector']
+    .map((selector) => document.querySelector(selector)).filter(Boolean);
+  let slotOverlapCount = 0;
+  for (let i = 0; i < topLevelSlots.length; i++) for (let j = i + 1; j < topLevelSlots.length; j++) {
+    const a = topLevelSlots[i].getBoundingClientRect(), b = topLevelSlots[j].getBoundingClientRect();
+    if (Math.min(a.right,b.right)-Math.max(a.left,b.left) > 2 && Math.min(a.bottom,b.bottom)-Math.max(a.top,b.top) > 2) slotOverlapCount++;
+  }
+  const ranges = [...document.querySelectorAll('#aetherviz-app-shell input[type="range"]')];
+  const invalidRanges = ranges.filter((el) => {
+    const r = el.getBoundingClientRect();
+    const owner = el.closest('.av-primary-controls,.av-secondary-controls');
+    if (!owner) return true;
+    const o = owner.getBoundingClientRect();
+    const contained = r.left >= o.left - 1 && r.right <= o.right + 1 && r.top >= o.top - 1 && r.bottom <= o.bottom + 1;
+    return !contained || r.height < 44 || r.height > 64;
+  });
   return {
     stage_area_ratio: viewportArea ? stageRect.width * stageRect.height / viewportArea : 0,
     stage_clipped: stageRect.left < -1 || stageRect.top < -1 || stageRect.right > innerWidth + 1 || stageRect.bottom > innerHeight + 1,
@@ -49,6 +65,9 @@ METRICS_JS = r"""
     label_overlap_count: labelOverlaps,
     max_label_height_px: maxLabelPx,
     max_stroke_width_px: maxStrokePx,
+    slot_overlap_count: slotOverlapCount,
+    invalid_range_count: invalidRanges.length,
+    range_heights_px: ranges.map((el) => el.getBoundingClientRect().height),
     runtime_ready: window.__AETHERVIZ_RUNTIME_READY__ === true,
     runtime_error: String(window.__AETHERVIZ_RUNTIME_ERROR__ || '')
   };
@@ -70,7 +89,9 @@ RUNTIME_SNAPSHOT_JS = r"""
   try { if (canvas) canvasSample = canvas.toDataURL().slice(-256); } catch (_) {}
   let state = {};
   try { state = runtime && runtime.getState ? runtime.getState() : {}; } catch (error) { state = {error: String(error)}; }
-  return {node_count: nodes.length, visual_signature: visual + canvasSample, state};
+  const controls = [...document.querySelectorAll('#aetherviz-app-shell input,select')]
+    .map((el) => [el.id || el.getAttribute('data-var') || el.name, el.value, el.checked].join('|'));
+  return {node_count: nodes.length, visual_signature: visual + canvasSample, state, controls};
 }
 """
 
@@ -84,6 +105,8 @@ def _runtime_behavior(page) -> dict:
     page.wait_for_timeout(350)
     playing = page.evaluate(RUNTIME_SNAPSHOT_JS)
     page.evaluate("() => window.AetherVizRuntime.pause()")
+    page.wait_for_timeout(40)
+    paused_start = page.evaluate(RUNTIME_SNAPSHOT_JS)
     page.wait_for_timeout(180)
     paused = page.evaluate(RUNTIME_SNAPSHOT_JS)
     page.evaluate("() => window.AetherVizRuntime.reset()")
@@ -108,15 +131,51 @@ def _runtime_behavior(page) -> dict:
     )
     page.wait_for_timeout(80)
     after_parameter = page.evaluate(RUNTIME_SNAPSHOT_JS)
+    page.evaluate("() => window.AetherVizRuntime.reset()")
+    page.wait_for_timeout(80)
+    parameter_reset = page.evaluate(RUNTIME_SNAPSHOT_JS)
+    page.evaluate(
+        """() => {
+          const runtime=window.AetherVizRuntime;
+          if (typeof runtime.setSpeed === 'function') runtime.setSpeed(20);
+          runtime.play();
+        }"""
+    )
+    page.wait_for_timeout(800)
+    completed = page.evaluate(RUNTIME_SNAPSHOT_JS)
+    completed_state = completed["state"] if isinstance(completed["state"], dict) else {}
+    completed_progress = completed_state.get("progress")
+    completion_reached = isinstance(completed_progress, (int, float)) and completed_progress >= 0.98
+    page.evaluate(
+        """() => {
+          const runtime=window.AetherVizRuntime;
+          if (typeof runtime.setSpeed === 'function') runtime.setSpeed(1);
+          runtime.play();
+        }"""
+    )
+    page.wait_for_timeout(80)
+    replaying = page.evaluate(RUNTIME_SNAPSHOT_JS)
     return {
         "runtime_present": True,
         "animation_visible_change": playing["visual_signature"] != initial["visual_signature"],
-        "pause_stable": paused["visual_signature"] == playing["visual_signature"],
+        "pause_stable": paused["visual_signature"] == paused_start["visual_signature"],
         "reset_consistent": reset["visual_signature"] == initial["visual_signature"],
         "node_count_stable": repeated["node_count"] == reset["node_count"],
         "parameter_control_present": parameter_changed,
         "parameter_visual_sync": not parameter_changed
         or after_parameter["visual_signature"] != before_parameter["visual_signature"],
+        "parameter_reset_consistent": not parameter_changed
+        or (
+            parameter_reset["visual_signature"] == initial["visual_signature"]
+            and parameter_reset["state"] == initial["state"]
+            and parameter_reset["controls"] == initial["controls"]
+        ),
+        "completion_visible_change": not completion_reached
+        or completed["visual_signature"] != initial["visual_signature"],
+        "completion_state_stable": not completion_reached
+        or completed_state.get("isPlaying") is not True,
+        "replay_after_completion": not completion_reached
+        or replaying["visual_signature"] != completed["visual_signature"],
         "snapshots": {"initial": initial, "playing": playing, "paused": paused, "reset": reset},
     }
 
@@ -151,6 +210,8 @@ def evaluate_html(html_path: Path, output_dir: Path) -> dict:
         and item["stage_area_ratio"] >= (0.18 if item["width"] >= 900 else 0.12)
         and item["max_label_height_px"] <= 48
         and item["max_stroke_width_px"] <= 12
+        and item["slot_overlap_count"] == 0
+        and item["invalid_range_count"] == 0
         and not item["runtime_error"]
         and item["runtime_ready"]
         and item["behavior"].get("animation_visible_change", False)
@@ -158,6 +219,10 @@ def evaluate_html(html_path: Path, output_dir: Path) -> dict:
         and item["behavior"].get("reset_consistent", False)
         and item["behavior"].get("node_count_stable", False)
         and item["behavior"].get("parameter_visual_sync", False)
+        and item["behavior"].get("parameter_reset_consistent", False)
+        and item["behavior"].get("completion_visible_change", False)
+        and item["behavior"].get("completion_state_stable", False)
+        and item["behavior"].get("replay_after_completion", False)
         for item in results
     ) and fallback_metrics.get("runtime_ready") and fallback_metrics["behavior"].get("animation_visible_change", False)
     return {

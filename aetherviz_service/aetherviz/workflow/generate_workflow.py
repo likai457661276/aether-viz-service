@@ -32,6 +32,7 @@ QUALITY_REPAIR_WARNING_TYPES = {
     "abstract_svg_stroke_scale_risk",
     "mixed_svg_unit_system",
     "missing_stage_shrink_guard",
+    "missing_animation_controller_fallback",
 }
 
 

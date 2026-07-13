@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from bs4 import BeautifulSoup
 
-from aetherviz_service.aetherviz.tools.layout_contract import LAYOUT_CONTRACT_VERSION
+from aetherviz_service.aetherviz.tools.layout_contract import (
+    LAYOUT_CONTRACT_VERSION,
+    business_css_ownership_violations,
+)
 
 
 def check_layout_contract(html: str, *, soup: BeautifulSoup | None = None) -> dict:
@@ -35,6 +38,19 @@ def check_layout_contract(html: str, *, soup: BeautifulSoup | None = None) -> di
         control_contracts = parsed.select('script[data-aetherviz-control-contract="range-v1"]')
         if len(control_contracts) != 1:
             errors.append(_error("invalid_range_control_contract", "range 控件必须由服务端 range-v1 契约统一接管"))
+    forbidden_selectors = {
+        selector
+        for style in parsed.find_all("style")
+        if not style.get("data-aetherviz-layout-contract")
+        for selector in business_css_ownership_violations(style.get_text("\n", strip=False))
+    }
+    if forbidden_selectors:
+        errors.append(
+            _error(
+                "forbidden_business_layout_css",
+                "业务 CSS 试图控制服务端布局或 range 外观：" + ", ".join(sorted(forbidden_selectors)[:5]),
+            )
+        )
     return {
         "ok": not errors,
         "severity": "error" if errors else "info",

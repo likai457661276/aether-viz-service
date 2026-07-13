@@ -254,3 +254,39 @@ def test_animation_lifecycle_allows_attribute_only_frame_updates() -> None:
     report = check_animation_lifecycle(html)
 
     assert report["ok"] is True
+
+
+def test_widget_contract_detects_direct_gsap_without_business_fallback_after_assembly() -> None:
+    html = sample_html().replace(
+        "</head>",
+        '<script src="https://cdn.jsdelivr.net/npm/gsap@3/dist/gsap.min.js"></script></head>',
+    ).replace(
+        "function updateVisualization(){",
+        "const timeline=gsap.timeline({paused:true}); timeline.to('#dot',{x:20,duration:1});\n"
+        "function updateVisualization(){",
+    )
+
+    report = check_widget_runtime_contract(assemble_layout_contract(html, sample_plan()))
+
+    assert any(
+        warning["type"] == "missing_animation_controller_fallback"
+        for warning in report["warnings"]
+    )
+
+
+def test_widget_contract_accepts_shared_animation_controller_fallback() -> None:
+    html = sample_html().replace(
+        "</head>",
+        '<script src="https://cdn.jsdelivr.net/npm/gsap@3/dist/gsap.min.js"></script></head>',
+    ).replace(
+        "function updateVisualization(){",
+        "const controller=window.AetherVizAnimationController.create({duration:1,update:()=>applyView()});\n"
+        "function applyView(){}\nfunction updateVisualization(){",
+    )
+
+    report = check_widget_runtime_contract(assemble_layout_contract(html, sample_plan()))
+
+    assert not any(
+        warning["type"] == "missing_animation_controller_fallback"
+        for warning in report["warnings"]
+    )

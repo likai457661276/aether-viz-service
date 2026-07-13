@@ -11,21 +11,35 @@ from bs4 import BeautifulSoup, Tag
 
 LAYOUT_CONTRACT_VERSION = "math-shell-v1"
 
+_BUSINESS_STYLE_MARKER = "data-aetherviz-business-style"
+_CSS_RULE_RE = re.compile(r"(?P<selectors>[^{}]+)\{(?P<body>[^{}]*)\}")
+_RANGE_SELECTOR_RE = re.compile(r"input\s*\[\s*type\s*=\s*['\"]?range['\"]?\s*\]", re.IGNORECASE)
+_SERVER_SELECTOR_RE = re.compile(
+    r"(?:^|[\s>+~,:])(?:html|body)(?:$|[\s>+~.#[:])|"
+    r"#aetherviz-app-shell\b|\.av-[A-Za-z0-9_-]*\b|"
+    r"^\s*#aetherviz-stage(?:\[[^\]]+\])?\s*$|"
+    r"^\s*\.control-panel\s*$|"
+    r"^\s*\[data-region\s*=\s*['\"]?(?:stage|controls|caption|formula|teaching-flow)['\"]?\]"
+    r"(?:\.[A-Za-z0-9_-]+)*\s*$",
+    re.IGNORECASE,
+)
+
 LAYOUT_CONTRACT_CSS = r"""
 <style data-aetherviz-layout-contract="math-shell-v1">
 :root{--av-brand:#2d4f41;--av-brand-strong:#1d3a2f;--av-accent:#10b981;--av-soft:#ecfdf5;--av-canvas:#f6f8f5;--av-paper:#fff;--av-text:#1e332b;--av-muted:#52665e;--av-border:rgba(45,79,65,.14);--av-gap:clamp(10px,1.5vw,18px);--av-radius:14px}
 html,body{width:100%;height:100%;margin:0;overflow:hidden}body{font-family:PingFang SC,Microsoft YaHei,Noto Sans SC,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:var(--av-canvas);color:var(--av-text)}
 #aetherviz-app-shell{height:100dvh;box-sizing:border-box;display:grid;grid-template-columns:minmax(0,1fr) clamp(260px,28vw,360px);grid-template-rows:auto minmax(0,1fr) auto;grid-template-areas:"header header" "stage inspector" "status inspector";gap:var(--av-gap);padding:clamp(12px,2vw,24px);overflow:hidden}
-#aetherviz-app-shell>*{min-width:0;min-height:0}.av-header{grid-area:header;display:flex;align-items:flex-start;justify-content:space-between;gap:16px}.av-title{margin:0;font-size:clamp(20px,2.4vw,30px);line-height:1.2;color:var(--av-brand-strong)}.av-goal{margin:6px 0 0;color:var(--av-muted);font-size:14px;line-height:1.45}.av-objectives{max-width:min(46vw,620px);font-size:13px;color:var(--av-muted)}.av-objectives ul{display:flex;gap:8px 18px;flex-wrap:wrap;margin:0;padding-left:18px}
+#aetherviz-app-shell *,#aetherviz-app-shell *::before,#aetherviz-app-shell *::after{box-sizing:border-box}#aetherviz-app-shell>*{min-width:0;min-height:0}.av-header{grid-area:header;display:flex;align-items:flex-start;justify-content:space-between;gap:16px}.av-title{margin:0;font-size:clamp(20px,2.4vw,30px);line-height:1.2;color:var(--av-brand-strong)}.av-goal{margin:6px 0 0;color:var(--av-muted);font-size:14px;line-height:1.45}.av-objectives{max-width:min(46vw,620px);font-size:13px;color:var(--av-muted)}.av-objectives ul{display:flex;gap:8px 18px;flex-wrap:wrap;margin:0;padding-left:18px}
 #aetherviz-stage{grid-area:stage;position:relative;display:grid;place-items:center;min-width:0;min-height:260px;overflow:hidden;background:var(--av-paper);border:1px solid var(--av-border);border-radius:var(--av-radius);box-shadow:0 8px 28px rgba(29,58,47,.07)}#aetherviz-stage>[data-role="main-visual"],#aetherviz-stage>svg,#aetherviz-stage>canvas{display:block;max-width:100%;max-height:100%;width:100%;height:100%;min-width:0;min-height:0}#aetherviz-stage svg{overflow:visible}#aetherviz-stage canvas{object-fit:contain}
-.av-inspector{grid-area:inspector;display:grid;grid-template-rows:auto auto minmax(0,1fr);gap:12px;overflow:hidden}.av-panel{box-sizing:border-box;background:var(--av-paper);border:1px solid var(--av-border);border-radius:var(--av-radius);padding:14px;min-width:0}.av-primary-controls{overflow:auto;scrollbar-gutter:stable}.av-primary-controls .control-panel,.av-primary-controls>[data-region="controls"]{display:flex;flex-wrap:wrap;align-items:center;gap:10px}.av-primary-controls .control-group{flex:1 1 180px;min-width:min(180px,100%)}.av-primary-controls .action-buttons{display:flex;flex:1 1 100%;flex-wrap:wrap;gap:8px;min-width:0}.av-primary-controls button,.av-primary-controls input:not([type="range"]),.av-primary-controls select{min-height:44px;font:inherit}.av-primary-controls button,.av-secondary-controls button{white-space:nowrap;word-break:keep-all}.av-primary-controls .action-buttons button{flex:1 0 auto}.av-details{overflow:auto;scrollbar-gutter:stable}.av-details:empty{display:none}.av-details>[data-region="teaching-flow"]{margin-top:12px}
-.av-primary-controls input[type="range"],.av-secondary-controls input[type="range"]{-webkit-appearance:none;appearance:none;box-sizing:border-box;display:block;width:100%;min-width:120px;height:44px;min-height:44px;margin:0;padding:0;background:transparent;border:0;outline:0;cursor:pointer;flex:1;--av-range-progress:50%}
+.av-inspector{grid-area:inspector;display:grid;grid-template-rows:auto auto minmax(0,1fr);gap:12px;overflow:hidden}.av-panel{box-sizing:border-box;background:var(--av-paper);border:1px solid var(--av-border);border-radius:var(--av-radius);padding:14px;min-width:0}.av-primary-controls{overflow:auto;scrollbar-gutter:stable}.av-primary-controls>.control-panel,.av-primary-controls>[data-region="controls"]{display:flex;flex-flow:row wrap;align-items:flex-start;align-content:flex-start;gap:10px;width:100%;height:auto;min-height:0;max-height:none;margin:0;padding:0;border:0;border-radius:0;background:transparent;box-shadow:none;overflow:visible}.av-primary-controls .control-group,.av-primary-controls [data-control-group]{display:grid;grid-template-rows:auto 44px;align-items:start;gap:6px;flex:1 1 180px;min-width:min(180px,100%);height:auto;min-height:0}.av-primary-controls .action-buttons,.av-primary-controls .btn-group{display:flex;flex:1 1 100%;flex-flow:row wrap;align-items:center;gap:8px;min-width:0;height:auto;margin:0}.av-primary-controls button,.av-primary-controls input:not([type="range"]),.av-primary-controls select{min-height:44px;font:inherit}.av-primary-controls button,.av-secondary-controls button{white-space:nowrap;word-break:keep-all}.av-primary-controls .action-buttons button,.av-primary-controls .btn-group button{flex:1 0 auto}.av-details{overflow:auto;scrollbar-gutter:stable}.av-details:empty{display:none}.av-details>[data-region="teaching-flow"]{margin-top:12px}
+.av-primary-controls input[type="range"],.av-secondary-controls input[type="range"]{-webkit-appearance:none;appearance:none;box-sizing:border-box;display:block;width:100%;min-width:120px;max-height:44px;height:44px;min-height:44px;margin:0;padding:0;background:transparent;border:0;outline:0;cursor:pointer;flex:0 0 44px;align-self:start;--av-range-progress:50%}
 .av-primary-controls input[type="range"]::-webkit-slider-runnable-track,.av-secondary-controls input[type="range"]::-webkit-slider-runnable-track{height:6px;border:0;border-radius:999px;background:linear-gradient(to right,var(--av-accent) 0,var(--av-accent) var(--av-range-progress),#dfe8e4 var(--av-range-progress),#dfe8e4 100%)}
 .av-primary-controls input[type="range"]::-webkit-slider-thumb,.av-secondary-controls input[type="range"]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:24px;height:24px;margin-top:-9px;border:2px solid var(--av-paper);border-radius:50%;background:var(--av-accent);box-shadow:0 1px 4px rgba(29,58,47,.28)}
 .av-primary-controls input[type="range"]::-moz-range-track,.av-secondary-controls input[type="range"]::-moz-range-track{height:6px;border:0;border-radius:999px;background:#dfe8e4}.av-primary-controls input[type="range"]::-moz-range-progress,.av-secondary-controls input[type="range"]::-moz-range-progress{height:6px;border-radius:999px;background:var(--av-accent)}.av-primary-controls input[type="range"]::-moz-range-thumb,.av-secondary-controls input[type="range"]::-moz-range-thumb{width:20px;height:20px;border:2px solid var(--av-paper);border-radius:50%;background:var(--av-accent);box-shadow:0 1px 4px rgba(29,58,47,.28)}
 .av-primary-controls input[type="range"]:focus-visible,.av-secondary-controls input[type="range"]:focus-visible{outline:2px solid color-mix(in srgb,var(--av-accent) 45%,transparent);outline-offset:2px}.av-primary-controls input[type="range"]:disabled,.av-secondary-controls input[type="range"]:disabled{cursor:not-allowed;opacity:.55}
 .av-status{grid-area:status;display:grid;grid-template-columns:minmax(0,1fr) minmax(180px,.7fr);gap:var(--av-gap);align-items:stretch}.av-caption,.av-formula{min-width:0;overflow:auto;scrollbar-gutter:stable}.av-caption{font-size:14px;line-height:1.55}.av-formula{font-variant-numeric:tabular-nums;white-space:normal}.av-empty{color:var(--av-muted);font-size:13px}
-@media(max-width:959px){#aetherviz-app-shell{grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(240px,1fr) auto auto;grid-template-areas:"header" "stage" "status" "inspector";overflow:auto}.av-header{display:block}.av-objectives{max-width:none;margin-top:8px}.av-inspector{display:block;overflow:visible}.av-inspector>.av-panel{margin-top:10px}.av-details{max-height:32dvh}.av-primary-controls{overflow:visible}}
+@media(min-width:960px) and (max-height:620px){#aetherviz-stage{min-height:0}.av-status{max-height:32dvh}.av-caption,.av-formula{max-height:32dvh}}
+@media(max-width:959px){#aetherviz-app-shell{grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(260px,1fr) auto auto;grid-template-areas:"header" "stage" "status" "inspector";overflow:auto}.av-header{display:block}.av-objectives{max-width:none;margin-top:8px}.av-inspector{display:block;overflow:visible}.av-inspector>.av-panel{margin-top:10px}.av-details{max-height:32dvh}.av-primary-controls{overflow:visible}.av-primary-controls>.control-panel,.av-primary-controls>[data-region="controls"]{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:start}.av-primary-controls .action-buttons,.av-primary-controls .btn-group{grid-column:1/-1}.av-primary-controls input[type="range"]{width:100%;min-width:0}}
 @media(max-width:599px){#aetherviz-app-shell{height:100dvh;padding:10px;gap:10px;grid-template-rows:auto clamp(240px,45dvh,420px) auto auto}.av-goal{display:none}.av-objectives li:nth-child(n+3){display:none}.av-status{grid-template-columns:minmax(0,1fr)}.av-formula{max-height:92px}.av-primary-controls .control-panel,.av-primary-controls>[data-region="controls"]{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.av-primary-controls input[type="range"]{width:100%;min-width:0}.av-details{max-height:28dvh}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}}
 </style>
@@ -47,7 +61,7 @@ function create(opts){opts=opts||{};var duration=Math.max(Number(opts.duration)|
 function apply(value){progress=Math.max(0,Math.min(1,Number(value)||0));update(progress);}
 function stopNative(){if(raf)cancelAnimationFrame(raf);raf=0;}
 function nativeFrame(now){if(!playing)return;if(!start)start=now-progress*duration*1000/speed;apply((now-start)*speed/(duration*1000));if(progress>=1){playing=false;raf=0;return;}raf=requestAnimationFrame(nativeFrame);}
-function play(){if(playing)return;playing=true;if(window.gsap){if(!tween)tween=window.gsap.to({p:progress},{p:1,duration:duration*(1-progress),ease:opts.ease||'none',onUpdate:function(){apply(this.targets()[0].p);},onComplete:function(){playing=false;tween=null;}});else tween.play();}else{start=0;raf=requestAnimationFrame(nativeFrame);}}
+function play(){if(playing)return;if(progress>=1)apply(0);playing=true;if(window.gsap){if(tween){tween.kill();tween=null;}tween=window.gsap.to({p:progress},{p:1,duration:duration*(1-progress),ease:opts.ease||'none',onUpdate:function(){apply(this.targets()[0].p);},onComplete:function(){playing=false;tween=null;}});tween.timeScale(speed);}else{start=0;raf=requestAnimationFrame(nativeFrame);}}
 function pause(){playing=false;if(tween)tween.pause();stopNative();}
 function reset(){pause();if(tween){tween.kill();tween=null;}start=0;apply(0);}
 function setSpeed(value){speed=Math.max(Number(value)||1,.01);if(tween)tween.timeScale(speed);if(playing&&!window.gsap){stopNative();start=0;raf=requestAnimationFrame(nativeFrame);}}
@@ -79,7 +93,9 @@ def assemble_layout_contract(html: str, plan: dict[str, Any] | None = None) -> s
     for style in soup.find_all("style"):
         # Business styles may describe slot contents, but cannot use !important
         # to outrank the server-owned shell injected at the end of <head>.
-        style.string = re.sub(r"\s*!\s*important\b", "", style.get_text(), flags=re.IGNORECASE)
+        css = re.sub(r"\s*!\s*important\b", "", style.get_text(), flags=re.IGNORECASE)
+        style.string = sanitize_business_css(css)
+        style[_BUSINESS_STYLE_MARKER] = "true"
 
     scripts = [node.extract() for node in list(soup.body.find_all("script"))]
     stage = _extract_first(soup.body, "#aetherviz-stage")
@@ -152,16 +168,74 @@ def assemble_layout_contract(html: str, plan: dict[str, Any] | None = None) -> s
     soup.body.clear()
     soup.body["data-layout-contract"] = LAYOUT_CONTRACT_VERSION
     soup.body.append(shell_root)
-    for script in scripts:
-        soup.body.append(script)
     control_script = BeautifulSoup(CONTROL_CONTRACT_SCRIPT, "html.parser").script
     if control_script is not None:
         soup.body.append(control_script)
     animation_script = BeautifulSoup(ANIMATION_CONTRACT_SCRIPT, "html.parser").script
     if animation_script is not None:
         soup.body.append(animation_script)
+    for script in scripts:
+        soup.body.append(script)
     soup.head.append(BeautifulSoup(LAYOUT_CONTRACT_CSS, "html.parser").style)
     return "<!DOCTYPE html>\n" + str(soup.html)
+
+
+def business_css_ownership_violations(css: str) -> list[str]:
+    """Return business selectors that attempt to own server layout or range chrome."""
+    violations: list[str] = []
+    for match in _CSS_RULE_RE.finditer(css or ""):
+        selectors = match.group("selectors").strip()
+        if selectors.startswith("@"):
+            continue
+        for selector in selectors.split(","):
+            normalized = selector.strip()
+            if normalized == ":root" and all(
+                not declaration.strip() or declaration.strip().startswith("--")
+                for declaration in match.group("body").split(";")
+            ):
+                continue
+            if _is_server_owned_selector(normalized):
+                violations.append(normalized)
+    return violations
+
+
+def sanitize_business_css(css: str) -> str:
+    """Remove server-owned selectors while preserving topic-independent visual styles."""
+
+    def rewrite(match: re.Match[str]) -> str:
+        selectors = match.group("selectors")
+        body = match.group("body")
+        stripped = selectors.strip()
+        if stripped.startswith("@"):
+            return match.group(0)
+        kept: list[str] = []
+        for selector in selectors.split(","):
+            normalized = selector.strip()
+            if normalized == ":root":
+                custom_properties = ";".join(
+                    declaration.strip()
+                    for declaration in body.split(";")
+                    if declaration.strip().startswith("--")
+                )
+                if custom_properties:
+                    kept.append(":root")
+                    body = custom_properties + ";"
+                continue
+            if not _is_server_owned_selector(normalized):
+                kept.append(normalized)
+        if not kept:
+            return ""
+        return f"{','.join(kept)}{{{body}}}"
+
+    return _CSS_RULE_RE.sub(rewrite, css or "")
+
+
+def _is_server_owned_selector(selector: str) -> bool:
+    return bool(selector) and bool(
+        selector == ":root"
+        or _RANGE_SELECTOR_RE.search(selector)
+        or _SERVER_SELECTOR_RE.search(selector)
+    )
 
 
 def _extract_first(root: Tag, selector: str) -> Tag | None:

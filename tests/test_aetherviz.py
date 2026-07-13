@@ -683,6 +683,56 @@ def test_server_range_contract_owns_track_progress_and_touch_target() -> None:
     assert len(parsed.select('script[data-aetherviz-control-contract="range-v1"]')) == 1
 
 
+def test_server_layout_contract_sanitizes_model_owned_layout_and_range_css() -> None:
+    from bs4 import BeautifulSoup
+
+    from aetherviz_service.aetherviz.tools.layout_contract import assemble_layout_contract
+
+    source = sample_html().replace(
+        "body{margin:0}",
+        ":root{--topic-color:#123456;color:red}body{margin:0}"
+        "#aetherviz-stage{min-height:500px}"
+        '[data-region="controls"]{display:flex;flex-direction:column;height:500px}'
+        'input[type="range"]{height:6px;flex:1}'
+        'input[type="range"]::-webkit-slider-thumb{height:20px}'
+        ".control-label{color:var(--topic-color)}",
+    )
+    parsed = BeautifulSoup(assemble_layout_contract(source, sample_plan()), "html.parser")
+    business_css = parsed.select_one('style[data-aetherviz-business-style="true"]')
+    contract_css = parsed.select_one('style[data-aetherviz-layout-contract="math-shell-v1"]')
+
+    assert business_css is not None
+    assert contract_css is not None
+    css = business_css.get_text()
+    assert "--topic-color:#123456" in css
+    assert ".control-label" in css
+    assert "body{" not in css
+    assert "#aetherviz-stage{" not in css
+    assert '[data-region="controls"]' not in css
+    assert 'input[type="range"]' not in css
+    assert "flex:0 0 44px" in contract_css.get_text()
+    assert "minmax(260px,1fr)" in contract_css.get_text()
+
+
+def test_server_animation_controller_precedes_business_scripts_and_replays() -> None:
+    from bs4 import BeautifulSoup
+
+    from aetherviz_service.aetherviz.tools.layout_contract import assemble_layout_contract
+
+    parsed = BeautifulSoup(assemble_layout_contract(sample_html(), sample_plan()), "html.parser")
+    scripts = parsed.body.find_all("script")
+    controller_index = next(
+        index for index, script in enumerate(scripts) if script.get("data-aetherviz-animation-contract") == "controller-v1"
+    )
+    business_index = next(index for index, script in enumerate(scripts) if "AetherVizRuntime" in script.get_text())
+    controller_source = scripts[controller_index].get_text()
+
+    assert controller_index < business_index
+    assert "if(progress>=1)apply(0)" in controller_source
+    assert "requestAnimationFrame(nativeFrame)" in controller_source
+    assert "tween.timeScale(speed)" in controller_source
+
+
 def test_layout_contract_checker_rejects_unassembled_model_html() -> None:
     from aetherviz_service.aetherviz.tools.layout_contract_checker import check_layout_contract
 
@@ -1107,9 +1157,12 @@ def test_generation_and_edit_prompts_include_stage_centering_rules() -> None:
         assert GRAPHICS_CRAFT_PROMPT.strip().splitlines()[-1] in prompt
         assert "连续计算状态与可见展示状态必须分离" in prompt
         assert "共享边、连接点和轮廓" in prompt
+        assert "统一局部坐标系" in prompt
+        assert "AetherVizAnimationController.create" in prompt
         assert "禁止按具体图形、路径 id、坐标或预设写特例" in prompt
 
     assert "浅色实验舞台" in SIMULATION_SYSTEM_PROMPT
+    assert "widget-config.variables[].default" in SIMULATION_SYSTEM_PROMPT
     assert "关系画布" in DIAGRAM_SYSTEM_PROMPT
     assert "街机霓虹风" in GAME_SYSTEM_PROMPT
 

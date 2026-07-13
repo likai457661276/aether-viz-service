@@ -275,7 +275,7 @@ HTML 文件编辑阶段请求示例：
 2. `phase=revise_plan` 由规划模型接收 `current_plan + message`，重新生成完整 `revised` 计划，不返回局部 patch。
 3. `phase=approve_plan` 将计划状态置为 `approved`。
 4. `phase=generate` 由 `html_agent` 根据已确认计划生成完整自包含 HTML，并在 `html.delta` 中持续返回累计实际大小。
-5. 模型业务 HTML 先执行 32000/40000 字符约束，再经过 `math-shell-v1` 服务端装配器；模型外层布局不会进入最终 HTML。标准 range 由 `range-v1` 接管，`controller-v1` 提供 GSAP/RAF 共用动画控制接口。最终装配只执行 64000 字符异常膨胀检查。
+5. 模型业务 HTML 先执行 32000/40000 字符约束，再经过 `math-shell-v1` 服务端装配器；模型外层布局不会进入最终 HTML。装配器会过滤业务 CSS 中的页面级、布局槽位根节点和 range 外观规则，标准 range 由 `range-v1` 独占尺寸与渲染，`controller-v1` 在业务脚本执行前提供 GSAP/RAF 共用动画控制接口。最终装配只执行 64000 字符异常膨胀检查。
 6. `validation_report` 聚合布局、HTML、JavaScript、安全、分阶段长度、Widget、动画生命周期和学科一致性检查。动画检查会阻断 timeline/RAF 逐帧回调调用结构性 DOM/SVG 重建函数，并提示未清理的节点注册表；学科启发式检查仍只产生 warning。
 7. 检查失败时先确定性修复业务 HTML；仍失败时由 `repair_agent` 使用未装配的业务 HTML 定向修复，最多 1 次。错误签名不变时恢复修复前版本并停止；硬错误修复成功后直接交付，不再追加完整质量模型重写。
 8. 生成、编辑和模型修复的候选结果都会重新经过同一个服务端布局装配器，`phase=edit_html` 不能改变布局外壳，只能修改数学内容、业务交互与槽位优先级；结果仍生成新 HTML 分支，不覆盖旧 HTML。
@@ -287,14 +287,14 @@ HTML 文件编辑阶段请求示例：
 
 生成链路会静态检查抽象 SVG viewBox、屏幕像素字号、缩放描边和动画渲染生命周期。结构创建应位于 `buildScene`，逐帧回调只通过 `deriveView/applyView` 更新既有节点；节点数量变化时需清空注册表并重建 timeline。
 
-开发环境可在 960×540、1280×720 和 390×844 三种视口运行浏览器回归：
+开发环境会在 959×900、960×540、1280×720、912×1180 和 390×844 视口运行浏览器回归，覆盖响应式断点两侧及平板尺寸：
 
 ```bash
 uv run playwright install chromium
 uv run python scripts/visual_regression.py /path/to/generated.html --report /tmp/visual-report.json
 ```
 
-脚本除视觉布局外，还检查播放后的可见变化、暂停稳定性、重置一致性、参数与视觉同步、重复播放节点数稳定性，并通过阻断 GSAP CDN 验证 native fallback。该脚本只用于离线验证，不进入生产同步链路。
+脚本除视觉布局外，还检查槽位重叠、range 的 44~64px 命中高度和槽位内包含关系、播放后的可见变化、暂停稳定性、参数修改后的完整重置、完成状态与再次播放、重复播放节点数稳定性，并通过阻断 GSAP CDN 验证 native fallback。该脚本只用于离线验证，不进入生产同步链路。
 
 可从 `langsmith trace get --full --format json --output ...` 的真实导出构建本地单步评估数据集：
 
