@@ -8,7 +8,9 @@ from fastapi.testclient import TestClient
 
 from aetherviz_service.aetherviz.agents import planner_agent, repair_agent
 from aetherviz_service.aetherviz.agents.planner_agent import PlanningStreamResult, stream_create_plan
+from aetherviz_service.aetherviz.tools.animation_lifecycle_checker import check_animation_lifecycle
 from aetherviz_service.aetherviz.tools.deterministic_repair import deterministic_repair_html
+from aetherviz_service.aetherviz.tools.layout_contract import assemble_layout_contract
 from aetherviz_service.aetherviz.tools.security_checker import check_security
 from aetherviz_service.aetherviz.tools.widget_contract_checker import check_widget_runtime_contract
 from aetherviz_service.aetherviz.workflow.generate_workflow import _validate
@@ -213,3 +215,42 @@ def test_model_free_repair_preserves_truncation_marker(monkeypatch) -> None:
     )
 
     assert result.truncated is True
+
+
+def test_model_length_ignores_server_assembly_overhead() -> None:
+    business_html = sample_html().replace("</style>", f"/*{'x' * 36000}*/</style>")
+    assembled_html = assemble_layout_contract(business_html, sample_plan())
+
+    report = _validate(assembled_html, plan=sample_plan(), model_html=business_html)
+
+    assert len(business_html) < 40000
+    assert len(assembled_html) > 40000
+    assert report["ok"] is True
+    assert not any(error["type"] == "html_length_hard_limit" for error in report["errors"])
+
+
+def test_animation_lifecycle_rejects_structural_render_from_timeline_update() -> None:
+    html = sample_html().replace(
+        "function updateVisualization(){",
+        "function render(){ stage.innerHTML=''; const node=document.createElementNS('svg','path'); stage.appendChild(node); }\n"
+        "const timeline=gsap.timeline({onUpdate:()=>{ render(); }});\n"
+        "function updateVisualization(){",
+    )
+
+    report = check_animation_lifecycle(html)
+
+    assert report["ok"] is False
+    assert any(error["type"] == "structural_render_inside_animation_frame" for error in report["errors"])
+
+
+def test_animation_lifecycle_allows_attribute_only_frame_updates() -> None:
+    html = sample_html().replace(
+        "function updateVisualization(){",
+        "function applyView(){ dot.setAttribute('cx', String(state.progress)); }\n"
+        "const timeline=gsap.timeline({onUpdate:()=>{ applyView(); }});\n"
+        "function updateVisualization(){",
+    )
+
+    report = check_animation_lifecycle(html)
+
+    assert report["ok"] is True

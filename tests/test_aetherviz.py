@@ -836,7 +836,8 @@ def test_generate_phase_rejects_stalled_model_repair_and_preserves_previous_html
     assert model_done["data"]["accepted"] is False
     assert model_done["data"]["stalled"] is True
     assert model_done["data"]["remaining_error_types"] == ["missing_stage_visual"]
-    assert model_done["data"]["chars"] == len(repair_source)
+    assert model_done["data"]["model_chars"] == len(repair_source)
+    assert model_done["data"]["chars"] > model_done["data"]["model_chars"]
     assert error["data"]["code"] == "validation_failed"
     assert not any(event == "html.done" for event, _ in events)
 
@@ -933,7 +934,7 @@ def test_generate_phase_accepts_generic_svg_centering_repair_with_dynamic_labels
     assert done["data"]["metadata"]["repaired"] is True
 
 
-def test_generate_phase_runs_quality_repair_after_hard_error_is_repaired(monkeypatch) -> None:
+def test_generate_phase_skips_quality_repair_after_hard_error_is_repaired(monkeypatch) -> None:
     from aetherviz_service.aetherviz.agents.html_agent import HtmlStreamResult
     from aetherviz_service.aetherviz.workflow import generate_workflow
 
@@ -967,8 +968,8 @@ def test_generate_phase_runs_quality_repair_after_hard_error_is_repaired(monkeyp
     ]
     done = next(data for event, data in events if event == "html.done")
 
-    assert strategies == ["deterministic", "quality-deterministic"]
-    assert 'data-aetherviz-scale-guard="true"' in done["data"]["html"]
+    assert strategies == ["deterministic"]
+    assert 'data-aetherviz-scale-guard="true"' not in done["data"]["html"]
 
 
 def test_edit_html_stream_propagates_generator_exit(monkeypatch) -> None:

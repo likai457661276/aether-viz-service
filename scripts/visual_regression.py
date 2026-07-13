@@ -55,6 +55,71 @@ METRICS_JS = r"""
 }
 """
 
+RUNTIME_SNAPSHOT_JS = r"""
+() => {
+  const stage = document.querySelector('#aetherviz-stage');
+  const runtime = window.AetherVizRuntime;
+  const nodes = stage ? [...stage.querySelectorAll('*')] : [];
+  const visual = nodes.map((el) => [
+    el.tagName, el.id, el.getAttribute('transform'), el.getAttribute('d'),
+    el.getAttribute('cx'), el.getAttribute('cy'), el.getAttribute('x'), el.getAttribute('y'),
+    el.getAttribute('fill'), el.getAttribute('stroke'), el.textContent
+  ].join('|')).join('\n');
+  const canvas = stage && stage.querySelector('canvas');
+  let canvasSample = '';
+  try { if (canvas) canvasSample = canvas.toDataURL().slice(-256); } catch (_) {}
+  let state = {};
+  try { state = runtime && runtime.getState ? runtime.getState() : {}; } catch (error) { state = {error: String(error)}; }
+  return {node_count: nodes.length, visual_signature: visual + canvasSample, state};
+}
+"""
+
+
+def _runtime_behavior(page) -> dict:
+    initial = page.evaluate(RUNTIME_SNAPSHOT_JS)
+    has_runtime = page.evaluate("() => Boolean(window.AetherVizRuntime)")
+    if not has_runtime:
+        return {"runtime_present": False}
+    page.evaluate("() => window.AetherVizRuntime.play()")
+    page.wait_for_timeout(350)
+    playing = page.evaluate(RUNTIME_SNAPSHOT_JS)
+    page.evaluate("() => window.AetherVizRuntime.pause()")
+    page.wait_for_timeout(180)
+    paused = page.evaluate(RUNTIME_SNAPSHOT_JS)
+    page.evaluate("() => window.AetherVizRuntime.reset()")
+    page.wait_for_timeout(80)
+    reset = page.evaluate(RUNTIME_SNAPSHOT_JS)
+    for _ in range(2):
+        page.evaluate("() => { window.AetherVizRuntime.reset(); window.AetherVizRuntime.play(); }")
+        page.wait_for_timeout(80)
+        page.evaluate("() => window.AetherVizRuntime.pause()")
+    repeated = page.evaluate(RUNTIME_SNAPSHOT_JS)
+    before_parameter = reset
+    parameter_changed = page.evaluate(
+        """() => {
+          const input = document.querySelector('#aetherviz-app-shell input[type="range"]');
+          if (!input) return false;
+          const min = Number(input.min || 0), max = Number(input.max || 100);
+          input.value = String(Number(input.value) === max ? min : max);
+          input.dispatchEvent(new Event('input', {bubbles: true}));
+          input.dispatchEvent(new Event('change', {bubbles: true}));
+          return true;
+        }"""
+    )
+    page.wait_for_timeout(80)
+    after_parameter = page.evaluate(RUNTIME_SNAPSHOT_JS)
+    return {
+        "runtime_present": True,
+        "animation_visible_change": playing["visual_signature"] != initial["visual_signature"],
+        "pause_stable": paused["visual_signature"] == playing["visual_signature"],
+        "reset_consistent": reset["visual_signature"] == initial["visual_signature"],
+        "node_count_stable": repeated["node_count"] == reset["node_count"],
+        "parameter_control_present": parameter_changed,
+        "parameter_visual_sync": not parameter_changed
+        or after_parameter["visual_signature"] != before_parameter["visual_signature"],
+        "snapshots": {"initial": initial, "playing": playing, "paused": paused, "reset": reset},
+    }
+
 
 def evaluate_html(html_path: Path, output_dir: Path) -> dict:
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -66,11 +131,19 @@ def evaluate_html(html_path: Path, output_dir: Path) -> dict:
             page.goto(html_path.resolve().as_uri(), wait_until="load")
             page.wait_for_timeout(500)
             metrics = page.evaluate(METRICS_JS)
+            metrics["behavior"] = _runtime_behavior(page)
             screenshot = output_dir / f"{html_path.stem}-{width}x{height}.png"
             page.screenshot(path=str(screenshot), full_page=False)
             metrics.update({"width": width, "height": height, "screenshot": str(screenshot)})
             results.append(metrics)
             page.close()
+        fallback_page = browser.new_page(viewport={"width": VIEWPORTS[0][0], "height": VIEWPORTS[0][1]})
+        fallback_page.route("**/*gsap*", lambda route: route.abort())
+        fallback_page.goto(html_path.resolve().as_uri(), wait_until="load")
+        fallback_page.wait_for_timeout(500)
+        fallback_metrics = fallback_page.evaluate(METRICS_JS)
+        fallback_metrics["behavior"] = _runtime_behavior(fallback_page)
+        fallback_page.close()
         browser.close()
     passed = all(
         not item.get("error")
@@ -79,9 +152,20 @@ def evaluate_html(html_path: Path, output_dir: Path) -> dict:
         and item["max_label_height_px"] <= 48
         and item["max_stroke_width_px"] <= 12
         and not item["runtime_error"]
+        and item["runtime_ready"]
+        and item["behavior"].get("animation_visible_change", False)
+        and item["behavior"].get("pause_stable", False)
+        and item["behavior"].get("reset_consistent", False)
+        and item["behavior"].get("node_count_stable", False)
+        and item["behavior"].get("parameter_visual_sync", False)
         for item in results
-    )
-    return {"html": str(html_path), "passed": passed, "viewports": results}
+    ) and fallback_metrics.get("runtime_ready") and fallback_metrics["behavior"].get("animation_visible_change", False)
+    return {
+        "html": str(html_path),
+        "passed": passed,
+        "viewports": results,
+        "gsap_fallback": fallback_metrics,
+    }
 
 
 def main() -> int:

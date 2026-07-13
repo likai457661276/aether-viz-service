@@ -42,6 +42,19 @@ if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',
 window.AetherVizControlContract={sync:sync,syncAll:syncAll,version:'range-v1'};
 })();</script>'''
 
+ANIMATION_CONTRACT_SCRIPT = r'''<script data-aetherviz-animation-contract="controller-v1">(function(){
+function create(opts){opts=opts||{};var duration=Math.max(Number(opts.duration)||1,.001),update=typeof opts.update==='function'?opts.update:function(){},progress=0,speed=1,playing=false,raf=0,start=0,tween=null;
+function apply(value){progress=Math.max(0,Math.min(1,Number(value)||0));update(progress);}
+function stopNative(){if(raf)cancelAnimationFrame(raf);raf=0;}
+function nativeFrame(now){if(!playing)return;if(!start)start=now-progress*duration*1000/speed;apply((now-start)*speed/(duration*1000));if(progress>=1){playing=false;raf=0;return;}raf=requestAnimationFrame(nativeFrame);}
+function play(){if(playing)return;playing=true;if(window.gsap){if(!tween)tween=window.gsap.to({p:progress},{p:1,duration:duration*(1-progress),ease:opts.ease||'none',onUpdate:function(){apply(this.targets()[0].p);},onComplete:function(){playing=false;tween=null;}});else tween.play();}else{start=0;raf=requestAnimationFrame(nativeFrame);}}
+function pause(){playing=false;if(tween)tween.pause();stopNative();}
+function reset(){pause();if(tween){tween.kill();tween=null;}start=0;apply(0);}
+function setSpeed(value){speed=Math.max(Number(value)||1,.01);if(tween)tween.timeScale(speed);if(playing&&!window.gsap){stopNative();start=0;raf=requestAnimationFrame(nativeFrame);}}
+return{play:play,pause:pause,reset:reset,restart:function(){reset();play();},setSpeed:setSpeed,getProgress:function(){return progress;},setProgress:apply};}
+window.AetherVizAnimationController={create:create,version:'controller-v1'};
+})();</script>'''
+
 
 def assemble_layout_contract(html: str, plan: dict[str, Any] | None = None) -> str:
     """Rebuild the body into the canonical shell while preserving business content.
@@ -60,7 +73,7 @@ def assemble_layout_contract(html: str, plan: dict[str, Any] | None = None) -> s
 
     for old in soup.select(
         '[data-aetherviz-layout-contract], [data-aetherviz-layout-guard="true"], '
-        '[data-aetherviz-control-contract]'
+        '[data-aetherviz-control-contract], [data-aetherviz-animation-contract]'
     ):
         old.decompose()
     for style in soup.find_all("style"):
@@ -144,6 +157,9 @@ def assemble_layout_contract(html: str, plan: dict[str, Any] | None = None) -> s
     control_script = BeautifulSoup(CONTROL_CONTRACT_SCRIPT, "html.parser").script
     if control_script is not None:
         soup.body.append(control_script)
+    animation_script = BeautifulSoup(ANIMATION_CONTRACT_SCRIPT, "html.parser").script
+    if animation_script is not None:
+        soup.body.append(animation_script)
     soup.head.append(BeautifulSoup(LAYOUT_CONTRACT_CSS, "html.parser").style)
     return "<!DOCTYPE html>\n" + str(soup.html)
 

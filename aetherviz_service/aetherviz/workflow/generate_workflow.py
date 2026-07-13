@@ -125,13 +125,15 @@ def _run_html_workflow(
         },
         metadata=_metadata(metadata, started_at, stage="generate"),
     )
+    business_html = None
     html = None
     degraded = False
     source_truncated = False
     try:
         for item in html_stream_factory():
             if isinstance(item, HtmlStreamResult):
-                html, degraded = assemble_layout_contract(item.html, plan), item.degraded
+                business_html, degraded = item.html, item.degraded
+                html = assemble_layout_contract(business_html, plan)
                 source_truncated = item.truncated
                 metadata["reasoning_elapsed_ms"] = item.reasoning_elapsed_ms
                 metadata["first_chunk_elapsed_ms"] = item.first_chunk_elapsed_ms
@@ -169,7 +171,7 @@ def _run_html_workflow(
             metadata=_metadata(metadata, started_at, stage="generate"),
         )
         return
-    if html is None:
+    if html is None or business_html is None:
         yield agent_error_event(
             run_id=run_id,
             phase=phase,
@@ -186,7 +188,7 @@ def _run_html_workflow(
         data={"bytes": len(html.encode("utf-8")), "chars": len(html)},
         metadata=_metadata(metadata, started_at, stage="validation"),
     )
-    report = _validate(html, truncated=source_truncated, plan=plan)
+    report = _validate(html, truncated=source_truncated, plan=plan, model_html=business_html)
     yield from _emit_validation_events(
         run_id=run_id,
         phase=phase,
@@ -197,17 +199,18 @@ def _run_html_workflow(
 
     metadata["validation_warnings"] = [warning["message"] for warning in report.get("warnings", [])]
     if not report["ok"]:
-        html, report, metadata["repaired"], metadata["degraded"] = yield from _attempt_repair_loop(
+        business_html, report, metadata["repaired"], metadata["degraded"] = yield from _attempt_repair_loop(
             run_id=run_id,
             phase=phase,
             topic=topic,
             plan=plan,
-            html=html,
+            html=business_html,
             report=report,
             metadata=metadata,
             started_at=started_at,
             source_truncated=source_truncated,
         )
+        html = assemble_layout_contract(business_html, plan)
         if not report["ok"]:
             yield agent_error_event(
                 run_id=run_id,
@@ -219,17 +222,23 @@ def _run_html_workflow(
             )
             return
 
-    if phase == "generate" and report["ok"] and _quality_warning_types(report):
-        html, report, quality_repaired, quality_degraded = yield from _attempt_quality_repair(
+    if (
+        phase == "generate"
+        and report["ok"]
+        and not metadata["repaired"]
+        and _quality_warning_types(report)
+    ):
+        business_html, report, quality_repaired, quality_degraded = yield from _attempt_quality_repair(
             run_id=run_id,
             phase=phase,
             topic=topic,
             plan=plan,
-            html=html,
+            html=business_html,
             report=report,
             metadata=metadata,
             started_at=started_at,
         )
+        html = assemble_layout_contract(business_html, plan)
         metadata["repaired"] = metadata["repaired"] or quality_repaired
         metadata["degraded"] = metadata["degraded"] or quality_degraded
         metadata["validation_warnings"] = [warning["message"] for warning in report.get("warnings", [])]
@@ -257,6 +266,10 @@ def _run_html_workflow(
                 "truncated": metadata.get("truncated", False),
                 "bytes": len(html.encode("utf-8")),
                 "chars": len(html),
+                "model_chars": len(business_html),
+                "assembled_chars": len(html),
+                "assembly_overhead_chars": len(html) - len(business_html),
+                "assembly_count": 1,
             },
         },
         metadata=_metadata(metadata, started_at, stage="done"),
@@ -296,11 +309,10 @@ def _attempt_quality_repair(
             if isinstance(warning, dict) and warning.get("type") in QUALITY_REPAIR_WARNING_TYPES
         ],
     }
-    deterministic_candidate = assemble_layout_contract(
-        deterministic_repair_html(original_html, quality_report, plan=plan), plan
-    )
+    deterministic_candidate = deterministic_repair_html(original_html, quality_report, plan=plan)
     if deterministic_candidate != original_html:
-        deterministic_report = _validate(deterministic_candidate, plan=plan)
+        assembled_candidate = assemble_layout_contract(deterministic_candidate, plan)
+        deterministic_report = _validate(assembled_candidate, plan=plan, model_html=deterministic_candidate)
         deterministic_quality = _quality_warning_types(deterministic_report)
         if deterministic_report["ok"] and len(deterministic_quality) < len(original_quality):
             metadata["attempts"] += 1
@@ -317,8 +329,8 @@ def _attempt_quality_repair(
                 phase=phase,
                 data={
                     "delta": "",
-                    "bytes": len(deterministic_candidate.encode("utf-8")),
-                    "chars": len(deterministic_candidate),
+                    "bytes": len(assembled_candidate.encode("utf-8")),
+                    "chars": len(assembled_candidate),
                 },
                 metadata=_metadata(metadata, started_at, stage="repair"),
             )
@@ -340,8 +352,8 @@ def _attempt_quality_repair(
                     "ok": True,
                     "accepted": True,
                     "remaining_warning_types": sorted(deterministic_quality),
-                    "bytes": len(deterministic_candidate.encode("utf-8")),
-                    "chars": len(deterministic_candidate),
+                    "bytes": len(assembled_candidate.encode("utf-8")),
+                    "chars": len(assembled_candidate),
                 },
                 metadata=_metadata(metadata, started_at, stage="repair"),
             )
@@ -370,17 +382,18 @@ def _attempt_quality_repair(
         report=quality_report,
     ):
         if isinstance(item, RepairStreamResult):
-            candidate = assemble_layout_contract(item.html, plan)
+            candidate = item.html
             candidate_degraded = item.degraded
             candidate_truncated = item.truncated
+            assembled_candidate = assemble_layout_contract(candidate, plan)
             yield agent_sse_event(
                 "html.delta",
                 run_id=run_id,
                 phase=phase,
                 data={
                     "delta": "",
-                    "bytes": len(candidate.encode("utf-8")),
-                    "chars": len(candidate),
+                    "bytes": len(assembled_candidate.encode("utf-8")),
+                    "chars": len(assembled_candidate),
                 },
                 metadata=_metadata(metadata, started_at, stage="repair"),
             )
@@ -393,7 +406,13 @@ def _attempt_quality_repair(
             metadata=_metadata(metadata, started_at, stage="repair"),
         )
 
-    candidate_report = _validate(candidate, truncated=candidate_truncated, plan=plan)
+    assembled_candidate = assemble_layout_contract(candidate, plan)
+    candidate_report = _validate(
+        assembled_candidate,
+        truncated=candidate_truncated,
+        plan=plan,
+        model_html=candidate,
+    )
     candidate_quality = _quality_warning_types(candidate_report)
     accepted = (
         candidate != original_html
@@ -417,7 +436,11 @@ def _attempt_quality_repair(
         "html.delta",
         run_id=run_id,
         phase=phase,
-        data={"delta": "", "bytes": len(html.encode("utf-8")), "chars": len(html)},
+        data={
+            "delta": "",
+            "bytes": len(assemble_layout_contract(html, plan).encode("utf-8")),
+            "chars": len(assemble_layout_contract(html, plan)),
+        },
         metadata=_metadata(metadata, started_at, stage="repair"),
     )
 
@@ -431,8 +454,8 @@ def _attempt_quality_repair(
             "ok": accepted,
             "accepted": accepted,
             "remaining_warning_types": sorted(_quality_warning_types(report)),
-            "bytes": len(html.encode("utf-8")),
-            "chars": len(html),
+            "bytes": len(assemble_layout_contract(html, plan).encode("utf-8")),
+            "chars": len(assemble_layout_contract(html, plan)),
         },
         metadata=_metadata(metadata, started_at, stage="repair"),
     )
@@ -463,15 +486,16 @@ def _attempt_repair_loop(
             metadata=_metadata(metadata, started_at, stage="repair"),
         )
         html = deterministic_html
+        assembled_html = assemble_layout_contract(html, plan)
         repaired = True
         yield agent_sse_event(
             "html.delta",
             run_id=run_id,
             phase=phase,
-            data={"delta": "", "bytes": len(html.encode("utf-8")), "chars": len(html)},
+            data={"delta": "", "bytes": len(assembled_html.encode("utf-8")), "chars": len(assembled_html)},
             metadata=_metadata(metadata, started_at, stage="repair"),
         )
-        report = _validate(html, truncated=source_truncated, plan=plan)
+        report = _validate(assembled_html, truncated=source_truncated, plan=plan, model_html=html)
         yield from _emit_validation_events(
             run_id=run_id,
             phase=phase,
@@ -490,8 +514,8 @@ def _attempt_repair_loop(
                 "strategy": "deterministic",
                 "ok": report["ok"],
                 "summary": report.get("summary"),
-                "bytes": len(html.encode("utf-8")),
-                "chars": len(html),
+                "bytes": len(assembled_html.encode("utf-8")),
+                "chars": len(assembled_html),
             },
             metadata=_metadata(metadata, started_at, stage="repair"),
         )
@@ -529,16 +553,17 @@ def _attempt_repair_loop(
             report=report,
         ):
             if isinstance(item, RepairStreamResult):
-                html, repair_degraded = assemble_layout_contract(item.html, plan), item.degraded
+                html, repair_degraded = item.html, item.degraded
                 repair_truncated = item.truncated
+                assembled_html = assemble_layout_contract(html, plan)
                 yield agent_sse_event(
                     "html.delta",
                     run_id=run_id,
                     phase=phase,
                     data={
                         "delta": "",
-                        "bytes": len(html.encode("utf-8")),
-                        "chars": len(html),
+                        "bytes": len(assembled_html.encode("utf-8")),
+                        "chars": len(assembled_html),
                     },
                     metadata=_metadata(metadata, started_at, stage="repair"),
                 )
@@ -553,7 +578,8 @@ def _attempt_repair_loop(
         metadata["degraded"] = metadata["degraded"] or repair_degraded
         metadata["truncated"] = repair_truncated
         repaired = True
-        report = _validate(html, truncated=repair_truncated, plan=plan)
+        assembled_html = assemble_layout_contract(html, plan)
+        report = _validate(assembled_html, truncated=repair_truncated, plan=plan, model_html=html)
         yield from _emit_validation_events(
             run_id=run_id,
             phase=phase,
@@ -589,8 +615,9 @@ def _attempt_repair_loop(
                 "stalled": stalled,
                 "remaining_error_types": candidate_error_types,
                 "summary": report.get("summary"),
-                "bytes": len(html.encode("utf-8")),
-                "chars": len(html),
+                "bytes": len(assemble_layout_contract(html, plan).encode("utf-8")),
+                "chars": len(assemble_layout_contract(html, plan)),
+                "model_chars": len(html),
             },
             metadata=_metadata(metadata, started_at, stage="repair"),
         )
@@ -645,13 +672,19 @@ def _emit_validation_events(
     )
 
 
-def _validate(html: str, *, truncated: bool = False, plan: dict[str, Any] | None = None) -> dict[str, Any]:
+def _validate(
+    html: str,
+    *,
+    truncated: bool = False,
+    plan: dict[str, Any] | None = None,
+    model_html: str | None = None,
+) -> dict[str, Any]:
     runner = (
         _traced_validate
         if settings.langsmith_tracing and get_current_run_tree() is not None
         else _validate_impl
     )
-    return runner(html, truncated=truncated, plan=plan)
+    return runner(html, truncated=truncated, plan=plan, model_html=model_html)
 
 
 @traceable(
@@ -661,6 +694,8 @@ def _validate(html: str, *, truncated: bool = False, plan: dict[str, Any] | None
     process_inputs=lambda inputs: {
         "chars": len(inputs.get("html") or ""),
         "bytes": len((inputs.get("html") or "").encode("utf-8")),
+        "model_chars": len(inputs.get("model_html") or inputs.get("html") or ""),
+        "assembled_chars": len(inputs.get("html") or ""),
         "truncated": inputs.get("truncated", False),
     },
     process_outputs=lambda report: {
@@ -672,12 +707,24 @@ def _validate(html: str, *, truncated: bool = False, plan: dict[str, Any] | None
         ),
     },
 )
-def _traced_validate(html: str, *, truncated: bool = False, plan: dict[str, Any] | None = None) -> dict[str, Any]:
-    return _validate_impl(html, truncated=truncated, plan=plan)
+def _traced_validate(
+    html: str,
+    *,
+    truncated: bool = False,
+    plan: dict[str, Any] | None = None,
+    model_html: str | None = None,
+) -> dict[str, Any]:
+    return _validate_impl(html, truncated=truncated, plan=plan, model_html=model_html)
 
 
-def _validate_impl(html: str, *, truncated: bool = False, plan: dict[str, Any] | None = None) -> dict[str, Any]:
-    report = build_validation_report(html, plan=plan)
+def _validate_impl(
+    html: str,
+    *,
+    truncated: bool = False,
+    plan: dict[str, Any] | None = None,
+    model_html: str | None = None,
+) -> dict[str, Any]:
+    report = build_validation_report(html, plan=plan, model_html=model_html)
     if not truncated:
         return report
     error = {
@@ -698,7 +745,7 @@ def _run_deterministic_repair(html: str, report: dict[str, Any], plan: dict[str,
         if settings.langsmith_tracing and get_current_run_tree() is not None
         else deterministic_repair_html
     )
-    return assemble_layout_contract(runner(html, report, plan=plan), plan)
+    return runner(html, report, plan=plan)
 
 
 @traceable(

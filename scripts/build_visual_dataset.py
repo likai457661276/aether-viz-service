@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from pathlib import Path
 
 
@@ -15,23 +16,41 @@ def _message_content(run: dict) -> str:
         return ""
 
 
+def _extract_html(content: str) -> str:
+    match = re.search(r"<!DOCTYPE\s+html[\s\S]*?</html\s*>", content, re.IGNORECASE)
+    return match.group(0) if match else content.strip()
+
+
 def trace_example(path: Path) -> dict | None:
     payload = json.loads(path.read_text(encoding="utf-8"))
     runs = payload.get("runs", []) if isinstance(payload, dict) else []
-    llm = next((run for run in runs if run.get("run_type") == "llm" and "<!DOCTYPE html>" in _message_content(run)), None)
+    llm = next(
+        (
+            run
+            for run in runs
+            if run.get("run_type") == "llm" and "<!doctype html" in _message_content(run).lower()
+        ),
+        None,
+    )
     root = next((run for run in runs if not run.get("parent_run_id")), None)
     if not llm:
         return None
     return {
         "trace_id": payload.get("trace_id"),
         "inputs": {
-            "html": _message_content(llm),
+            "html": _extract_html(_message_content(llm)),
             "topic": (root or {}).get("inputs", {}).get("topic", ""),
         },
         "outputs": {
             "max_stroke_width_px": 12,
             "max_label_height_px": 48,
             "stage_must_not_clip": True,
+            "animation_must_change_visual": True,
+            "pause_must_be_stable": True,
+            "reset_must_restore_initial": True,
+            "parameter_must_update_visual": True,
+            "node_count_must_be_stable": True,
+            "gsap_fallback_must_work": True,
             "required_viewports": ["960x540", "1280x720", "390x844"],
         },
         "metadata": {"source": "langsmith_trace", "dataset_type": "single_step"},
