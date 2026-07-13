@@ -26,6 +26,7 @@ QUALITY_REPAIR_WARNING_TYPES = {
     "missing_numeric_descriptor",
     "hardcoded_numeric_step",
     "scattered_visible_precision",
+    "svg_visual_center_mismatch",
     "static_viewbox_for_variable_svg",
     "abstract_svg_text_scale_risk",
     "abstract_svg_stroke_scale_risk",

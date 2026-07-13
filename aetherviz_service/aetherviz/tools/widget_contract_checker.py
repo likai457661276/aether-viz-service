@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 
 from bs4 import BeautifulSoup
@@ -16,6 +17,7 @@ REQUIRED_WIDGET_ACTIONS = (
     "REVEAL_ELEMENT",
 )
 ALLOWED_WIDGET_TYPES = {"simulation", "diagram", "game"}
+SVG_GEOMETRY_TAGS = {"circle", "ellipse", "line", "polygon", "polyline", "rect"}
 
 _SET_ATTR_COORD_RE = re.compile(
     r"([A-Za-z_$][\w.$]*)\.setAttribute\(\s*['\"](x|y)['\"]\s*,\s*([^)]+?)\s*\)"
@@ -435,6 +437,8 @@ def _check_layout_risks(parsed: BeautifulSoup, script_text: str, warnings: list[
 
     stage = parsed.find(id="aetherviz-stage")
     svg = stage.find("svg") if stage is not None else None
+    if svg is not None:
+        _check_static_svg_viewbox_alignment(svg, warnings)
     has_variable_control = parsed.find("input", attrs={"type": re.compile(r"^range$", re.IGNORECASE)}) is not None
     # Structural mutation means the content envelope cannot be known from the
     # authored markup, so a fixed viewBox may crop unseen content. Attribute-only
@@ -442,7 +446,7 @@ def _check_layout_risks(parsed: BeautifulSoup, script_text: str, warnings: list[
     # envelope and a static viewBox is the *preferred* stable solution there.
     mutates_svg_structure = bool(
         re.search(
-            r"createElementNS\s*\(|"
+            r"createElementNS\s*\([^,]+,\s*['\"](?:circle|ellipse|line|path|polygon|polyline|rect|use)['\"]\s*\)|"
             r"(?:svg|stage|visual|root|group|layer|chart|scene)[\w.$]*\.innerHTML\s*=|"
             r"insertAdjacentHTML\s*\(",
             script_text,
@@ -463,6 +467,94 @@ def _check_layout_risks(parsed: BeautifulSoup, script_text: str, warnings: list[
         )
 
     _check_dynamic_viewbox_stability(script_text, warnings)
+
+
+def _check_static_svg_viewbox_alignment(svg, warnings: list[dict]) -> None:
+    """Warn when statically visible geometry is mostly outside or far off the SVG viewBox.
+
+    This intentionally uses only cheap, theme-independent geometry. Dynamic paths
+    cannot be evaluated safely here, but authored primitives are enough to catch
+    the common failure where content is centered around the origin while the
+    viewBox starts at ``0 0``.
+    """
+    viewbox = _parse_number_list(str(svg.get("viewbox") or ""))
+    if len(viewbox) != 4 or viewbox[2] <= 0 or viewbox[3] <= 0:
+        return
+
+    visual_root = svg.find(id="visual-root") or svg.select_one('[data-role="visual-root"]')
+    scope = visual_root or svg
+    bounds = [_static_svg_element_bounds(element) for element in scope.find_all(SVG_GEOMETRY_TAGS)]
+    bounds = [bound for bound in bounds if bound is not None]
+    if not bounds:
+        return
+
+    min_x = min(bound[0] for bound in bounds)
+    min_y = min(bound[1] for bound in bounds)
+    max_x = max(bound[2] for bound in bounds)
+    max_y = max(bound[3] for bound in bounds)
+    content_width, content_height = max_x - min_x, max_y - min_y
+    if content_width <= 0 or content_height <= 0:
+        return
+
+    view_x, view_y, view_width, view_height = viewbox
+    overlap_width = max(0.0, min(max_x, view_x + view_width) - max(min_x, view_x))
+    overlap_height = max(0.0, min(max_y, view_y + view_height) - max(min_y, view_y))
+    visible_ratio = overlap_width * overlap_height / (content_width * content_height)
+    center_dx = abs((min_x + max_x) / 2 - (view_x + view_width / 2)) / view_width
+    center_dy = abs((min_y + max_y) / 2 - (view_y + view_height / 2)) / view_height
+
+    if visible_ratio < 0.5 or (center_dx > 0.4 and center_dy > 0.4):
+        warnings.append(
+            _warning(
+                "svg_visual_center_mismatch",
+                "主视觉静态几何大部分位于 SVG viewBox 之外或与其中心明显偏离；"
+                "应按全部状态的内容包络中心和相对安全边距设置固定 viewBox，"
+                "包络不可预知时才在结构变化后执行受控的动态拟合。",
+            )
+        )
+
+
+def _parse_number_list(value: str) -> list[float]:
+    try:
+        return [float(item) for item in re.findall(r"-?(?:\d+(?:\.\d*)?|\.\d+)", value)]
+    except ValueError:
+        return []
+
+
+def _static_svg_element_bounds(element) -> tuple[float, float, float, float] | None:
+    def number(name: str, default: float = 0.0) -> float | None:
+        raw = element.get(name)
+        if raw is None:
+            return default
+        if not re.fullmatch(r"\s*-?(?:\d+(?:\.\d*)?|\.\d+)\s*", str(raw)):
+            return None
+        value = float(raw)
+        return value if math.isfinite(value) else None
+
+    tag = str(element.name).lower()
+    if tag == "circle":
+        cx, cy, radius = number("cx"), number("cy"), number("r")
+        if None not in (cx, cy, radius) and radius > 0:
+            return cx - radius, cy - radius, cx + radius, cy + radius
+    elif tag == "ellipse":
+        cx, cy, rx, ry = number("cx"), number("cy"), number("rx"), number("ry")
+        if None not in (cx, cy, rx, ry) and rx > 0 and ry > 0:
+            return cx - rx, cy - ry, cx + rx, cy + ry
+    elif tag == "line":
+        values = number("x1"), number("y1"), number("x2"), number("y2")
+        if None not in values:
+            x1, y1, x2, y2 = values
+            return min(x1, x2), min(y1, y2), max(x1, x2), max(y1, y2)
+    elif tag == "rect":
+        x, y, width, height = number("x"), number("y"), number("width"), number("height")
+        if None not in (x, y, width, height) and width > 0 and height > 0:
+            return x, y, x + width, y + height
+    elif tag in {"polygon", "polyline"}:
+        points = _parse_number_list(str(element.get("points") or ""))
+        if len(points) >= 4 and len(points) % 2 == 0:
+            xs, ys = points[::2], points[1::2]
+            return min(xs), min(ys), max(xs), max(ys)
+    return None
 
 
 def _check_dynamic_viewbox_stability(script_text: str, warnings: list[dict]) -> None:

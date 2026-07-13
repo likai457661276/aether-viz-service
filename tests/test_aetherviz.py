@@ -882,6 +882,57 @@ def test_generate_phase_accepts_quality_repair_only_when_warning_is_reduced(monk
     assert done["data"]["metadata"]["repaired"] is True
 
 
+def test_generate_phase_accepts_generic_svg_centering_repair_with_dynamic_labels(monkeypatch) -> None:
+    from aetherviz_service.aetherviz.agents.html_agent import HtmlStreamResult
+    from aetherviz_service.aetherviz.agents.repair_agent import RepairStreamResult
+    from aetherviz_service.aetherviz.workflow import generate_workflow
+
+    original_svg = '<svg viewBox="0 0 100 100"><circle id="dot" cx="20" cy="50" r="8"></circle></svg>'
+    off_center_svg = (
+        '<svg viewBox="0 0 800 450"><g id="visual-root">'
+        '<circle id="dot" cx="0" cy="0" r="150"></circle>'
+        '<line x1="-150" y1="0" x2="150" y2="0"></line></g></svg>'
+    )
+    centered_svg = off_center_svg.replace('viewBox="0 0 800 450"', 'viewBox="-200 -200 400 400"')
+    dynamic_label_script = (
+        "const label = document.createElementNS('http://www.w3.org/2000/svg', 'text'); "
+        "document.getElementById('visual-root').appendChild(label);"
+    )
+    risky_html = sample_html().replace(original_svg, off_center_svg).replace(
+        "function updateVisualization(){", f"function updateVisualization(){{ {dynamic_label_script}"
+    )
+    repaired_html = sample_html().replace(original_svg, centered_svg).replace(
+        "function updateVisualization(){", f"function updateVisualization(){{ {dynamic_label_script}"
+    )
+
+    def fake_stream(topic, plan):
+        yield HtmlStreamResult(html=risky_html, degraded=False)
+
+    def fake_repair_stream(**kwargs):
+        yield RepairStreamResult(html=repaired_html, degraded=False)
+
+    monkeypatch.setattr(settings, "aetherviz_max_repair_attempts", 1)
+    monkeypatch.setattr(generate_workflow, "stream_generate_html", fake_stream)
+    monkeypatch.setattr(generate_workflow, "stream_repair_html", fake_repair_stream)
+
+    response = client.post(
+        AETHERVIZ_ENDPOINT,
+        json={"topic": "变量变化", "phase": "generate", "approved_plan": sample_plan("变量变化")},
+    )
+
+    events = parse_sse_events(response)
+    quality_done = next(
+        data
+        for event, data in events
+        if event == "repair.done" and data["data"].get("strategy") == "quality-model"
+    )
+    done = next(data for event, data in events if event == "html.done")
+
+    assert quality_done["data"]["accepted"] is True
+    assert 'viewbox="-200 -200 400 400"' in done["data"]["html"]
+    assert done["data"]["metadata"]["repaired"] is True
+
+
 def test_generate_phase_runs_quality_repair_after_hard_error_is_repaired(monkeypatch) -> None:
     from aetherviz_service.aetherviz.agents.html_agent import HtmlStreamResult
     from aetherviz_service.aetherviz.workflow import generate_workflow
@@ -1205,6 +1256,54 @@ def test_widget_contract_accepts_static_viewbox_for_attribute_only_redraw() -> N
 
     assert not any(warning["type"] == "static_viewbox_for_variable_svg" for warning in report["warnings"])
     assert report["ok"] is True
+
+
+def test_widget_contract_warns_when_static_geometry_is_mostly_outside_viewbox() -> None:
+    from aetherviz_service.aetherviz.tools.widget_contract_checker import check_widget_runtime_contract
+
+    html = sample_html().replace(
+        '<svg viewBox="0 0 100 100"><circle id="dot" cx="20" cy="50" r="8"></circle></svg>',
+        '<svg viewBox="0 0 800 450"><g id="visual-root">'
+        '<circle id="dot" cx="0" cy="0" r="150"></circle>'
+        '<line x1="-150" y1="0" x2="150" y2="0"></line></g></svg>',
+    )
+
+    report = check_widget_runtime_contract(html)
+
+    assert any(warning["type"] == "svg_visual_center_mismatch" for warning in report["warnings"])
+
+
+def test_widget_contract_accepts_centered_static_geometry_viewbox() -> None:
+    from aetherviz_service.aetherviz.tools.widget_contract_checker import check_widget_runtime_contract
+
+    html = sample_html().replace(
+        '<svg viewBox="0 0 100 100"><circle id="dot" cx="20" cy="50" r="8"></circle></svg>',
+        '<svg viewBox="-200 -200 400 400"><g id="visual-root">'
+        '<circle id="dot" cx="0" cy="0" r="150"></circle>'
+        '<line x1="-150" y1="0" x2="150" y2="0"></line></g></svg>',
+    )
+
+    report = check_widget_runtime_contract(html)
+
+    assert not any(warning["type"] == "svg_visual_center_mismatch" for warning in report["warnings"])
+
+
+def test_widget_contract_does_not_treat_dynamic_text_labels_as_unknown_geometry() -> None:
+    from aetherviz_service.aetherviz.tools.widget_contract_checker import check_widget_runtime_contract
+
+    html = sample_html().replace(
+        '<button id="play-animation">播放</button>',
+        '<input type="range" id="parameter-slider"><button id="play-animation">播放</button>',
+    ).replace(
+        "function updateVisualization(){",
+        "function updateVisualization(){ "
+        "const label = document.createElementNS('http://www.w3.org/2000/svg', 'text'); "
+        "document.querySelector('svg').appendChild(label);",
+    )
+
+    report = check_widget_runtime_contract(html)
+
+    assert not any(warning["type"] == "static_viewbox_for_variable_svg" for warning in report["warnings"])
 
 
 def test_widget_contract_warns_when_structural_svg_mutation_keeps_static_viewbox() -> None:
