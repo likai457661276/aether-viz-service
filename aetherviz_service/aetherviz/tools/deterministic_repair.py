@@ -9,6 +9,24 @@ from typing import Any
 
 from aetherviz_service.aetherviz.tools.widget_contract_checker import REQUIRED_RUNTIME_METHODS
 
+_JS_IDENTIFIER = r"[A-Za-z_$][\w$]*"
+_JS_MEMBER = rf"{_JS_IDENTIFIER}(?:\s*\.\s*{_JS_IDENTIFIER}|\s*\[\s*['\"]{_JS_IDENTIFIER}['\"]\s*\])*"
+_UNSTABLE_PRESERVED_CHILD_RE = re.compile(
+    rf"(?P<declaration>(?:const|let|var)\s+(?P<child>{_JS_IDENTIFIER})\s*=\s*"
+    rf"(?P<parent>{_JS_MEMBER})\.(?:firstChild|lastChild)\s*;)"
+    rf"(?P<middle>[\s\S]{{0,1600}}?"
+    rf"(?P=parent)\s*\.\s*(?:innerHTML\s*=\s*['\"]\s*['\"]|replaceChildren\s*\(\s*\))\s*;?"
+    rf"[\s\S]{{0,800}}?)"
+    rf"(?P<append>(?P=parent)\s*\.\s*appendChild\s*\(\s*(?P=child)\s*\))"
+)
+_INDEXED_ANGLE_PAIR_RE = re.compile(
+    rf"(?P<start_decl>(?:const|let|var)\s+(?P<start>{_JS_IDENTIFIER})\s*=)\s*"
+    rf"(?P<index>{_JS_IDENTIFIER})\s*\*\s*(?P<step>{_JS_IDENTIFIER})\s*;"
+    rf"(?P<between>\s*)"
+    rf"(?P<end_decl>(?:const|let|var)\s+(?P<end>{_JS_IDENTIFIER})\s*=)\s*"
+    rf"\(\s*(?P=index)\s*\+\s*1\s*\)\s*\*\s*(?P=step)\s*;"
+)
+
 
 def deterministic_repair_html(
     html: str,
@@ -51,6 +69,8 @@ def deterministic_repair_html(
         repaired = _ensure_runtime_methods(repaired)
     if "non_node_append_child" in error_types:
         repaired = _rewrite_assignment_append_child(repaired)
+    if "unstable_preserved_child" in error_types:
+        repaired = _guard_unstable_preserved_children(repaired)
     if "html_length_hard_limit" in error_types:
         repaired = re.sub(r"<!--(?!\[if)[\s\S]*?-->", "", repaired, flags=re.IGNORECASE)
         repaired = re.sub(r">\s+<", "><", repaired)
@@ -60,6 +80,8 @@ def deterministic_repair_html(
         "mixed_svg_unit_system",
     }:
         repaired = _insert_svg_scale_guard(repaired)
+    if "duplicate_geometry_transform_encoding" in warning_types:
+        repaired = _localize_indexed_angle_geometry(repaired)
     if "missing_stage_shrink_guard" in warning_types:
         repaired = _insert_stage_shrink_guard(repaired)
     if error_types & {
@@ -72,6 +94,14 @@ def deterministic_repair_html(
         from aetherviz_service.aetherviz.tools.layout_contract import assemble_layout_contract
 
         repaired = assemble_layout_contract(repaired, plan)
+    # Do not make a completely missing business runtime look healthy by adding
+    # only protocol fallbacks. These bridges are for near-valid model repairs
+    # that implemented the runtime but missed one host integration marker.
+    if "missing_runtime" not in error_types:
+        if "missing_message_listener" in error_types:
+            repaired = _insert_message_listener_bridge(repaired)
+        if "missing_runtime_ready" in error_types:
+            repaired = _insert_runtime_ready_guard(repaired)
     return repaired
 
 
@@ -157,6 +187,62 @@ def _rewrite_assignment_append_child(html: str) -> str:
         return f".appendChild(Object.assign({obj},{{{prop}:{value}}}))"
 
     return _ASSIGNMENT_APPEND_RE.sub(rewrite, html)
+
+
+def _guard_unstable_preserved_children(html: str) -> str:
+    """Guard nullable first/lastChild sentinels before re-appending them."""
+
+    def rewrite(match: re.Match[str]) -> str:
+        child = match.group("child")
+        return (
+            match.group("declaration")
+            + match.group("middle")
+            + f"if({child} instanceof Node){{{match.group('append')}}}"
+        )
+
+    return _UNSTABLE_PRESERVED_CHILD_RE.sub(rewrite, html)
+
+
+def _localize_indexed_angle_geometry(html: str) -> str:
+    """Author one centered local angular shape and leave instance direction to transforms."""
+
+    def rewrite(match: re.Match[str]) -> str:
+        step = match.group("step")
+        return (
+            f"{match.group('start_decl')} -{step}/2;"
+            f"{match.group('between')}"
+            f"{match.group('end_decl')} {step}/2;"
+        )
+
+    return _INDEXED_ANGLE_PAIR_RE.sub(rewrite, html)
+
+
+def _insert_message_listener_bridge(html: str) -> str:
+    if 'data-aetherviz-message-bridge="true"' in html:
+        return html
+    script = r'''<script data-aetherviz-message-bridge="true">(function(){
+window.addEventListener('message',function(event){var data=event.data;if(!data||typeof data!=='object')return;var runtime=window.AetherVizRuntime||{};
+if(data.type==='SET_WIDGET_STATE'&&typeof runtime.update==='function')runtime.update(data.state||{});
+else if(data.type==='HIGHLIGHT_ELEMENT'||data.type==='REVEAL_ELEMENT'||data.type==='ANNOTATE_ELEMENT'){var target=typeof data.target==='string'?document.querySelector(data.target):null;if(!target)return;if(data.type==='HIGHLIGHT_ELEMENT')target.setAttribute('data-aetherviz-highlight','true');else if(data.type==='REVEAL_ELEMENT')target.hidden=false;else if(data.content!=null)target.setAttribute('aria-label',String(data.content));}
+});})();</script>'''
+    return _insert_before_body_close(html, script)
+
+
+def _insert_runtime_ready_guard(html: str) -> str:
+    if 'data-aetherviz-ready-guard="true"' in html:
+        return html
+    methods = json.dumps(list(REQUIRED_RUNTIME_METHODS), separators=(",", ":"))
+    script = f'''<script data-aetherviz-ready-guard="true">(function(){{
+function markReady(){{var runtime=window.AetherVizRuntime;if(window.__AETHERVIZ_RUNTIME_ERROR__||!runtime)return;if({methods}.every(function(name){{return typeof runtime[name]==='function';}}))window.__AETHERVIZ_RUNTIME_READY__=true;}}
+function schedule(){{requestAnimationFrame(markReady);}}if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',schedule,{{once:true}});else schedule();
+}})();</script>'''
+    return _insert_before_body_close(html, script)
+
+
+def _insert_before_body_close(html: str, markup: str) -> str:
+    body_close = re.search(r"</body\s*>", html, re.IGNORECASE)
+    insert_at = body_close.start() if body_close else len(html)
+    return html[:insert_at] + markup + "\n" + html[insert_at:]
 
 
 def _move_inline_events_to_listeners(html: str) -> str:

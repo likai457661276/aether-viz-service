@@ -2,16 +2,30 @@
 
 from __future__ import annotations
 
+import re
+
 from aetherviz_service.aetherviz.constants import (
     ASSEMBLED_HTML_SAFETY_LIMIT_CHARS,
     MODEL_HTML_HARD_LIMIT_CHARS,
 )
 
 TARGET_LIMIT_CHARS = 36000
+_SERVICE_OWNED_TAG_RE = re.compile(
+    r"<(script|style)\b(?=[^>]*\bdata-aetherviz-(?:"
+    r"layout-contract|layout-guard|control-contract|animation-contract|"
+    r"scale-guard|message-bridge|ready-guard)\b)[^>]*>[\s\S]*?</\1\s*>",
+    re.IGNORECASE,
+)
 
 
 def check_length(html: str, *, scope: str = "model") -> dict:
-    length = len(html or "")
+    source = html or ""
+    # Deterministic service contracts are assembly/repair overhead, not model
+    # authored business code. Excluding only explicitly marked service tags
+    # keeps a near-limit valid model output from becoming invalid after a guard
+    # is injected, while the assembled safety limit still covers total size.
+    measured = _SERVICE_OWNED_TAG_RE.sub("", source) if scope == "model" else source
+    length = len(measured)
     errors = []
     warnings = []
     hard_limit = MODEL_HTML_HARD_LIMIT_CHARS if scope == "model" else ASSEMBLED_HTML_SAFETY_LIMIT_CHARS

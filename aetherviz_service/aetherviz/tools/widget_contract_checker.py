@@ -62,6 +62,10 @@ _VISUAL_CREATION_RE = re.compile(
     r"(?:\s*[^,]+,)?\s*['\"](svg|canvas)['\"]\s*\)",
     re.IGNORECASE,
 )
+_PRESERVED_CHILD_RE = re.compile(
+    rf"(?:const|let|var)\s+(?P<child>{_JS_IDENTIFIER})\s*=\s*"
+    rf"(?P<parent>{_JS_MEMBER})\.(?:firstChild|lastChild)\s*;"
+)
 
 
 def check_widget_runtime_contract(html: str, *, soup: BeautifulSoup | None = None) -> dict:
@@ -102,6 +106,7 @@ def check_widget_runtime_contract(html: str, *, soup: BeautifulSoup | None = Non
             warnings.append(_warning("missing_widget_action", f"未显式处理 widget action：{action}"))
 
     _check_append_child_arguments(script_text, errors)
+    _check_unstable_preserved_children(script_text, errors)
     _check_duplicate_label_positions(parsed, script_text, warnings)
     _check_layout_risks(parsed, script_text, warnings)
     _check_svg_unit_system(parsed, script_text, warnings)
@@ -120,6 +125,7 @@ def check_widget_runtime_contract(html: str, *, soup: BeautifulSoup | None = Non
                 "业务动画直接依赖 GSAP，未复用 AetherVizAnimationController 或提供 native requestAnimationFrame fallback。",
             )
         )
+    _check_gsap_serialized_state_mutation(business_script_text, warnings)
     if external_gsap and _has_call_only_gsap_timeline(business_script_text):
         warnings.append(
             _warning(
@@ -286,6 +292,49 @@ def _check_append_child_arguments(script_text: str, errors: list[dict]) -> None:
             )
 
 
+def _check_unstable_preserved_children(script_text: str, errors: list[dict]) -> None:
+    """Reject clearing a container and blindly re-appending first/lastChild.
+
+    ``firstChild`` and ``lastChild`` are nullable. Generated scene rebuilders
+    frequently retain one of them as a sentinel, clear the parent, and append it
+    without checking the value. A later rebuild can make that sentinel absent and
+    cause the browser's ``appendChild`` TypeError. The narrow data-flow pattern is
+    deterministic and topic-independent, so it is safe to block and auto-repair.
+    """
+    for match in _PRESERVED_CHILD_RE.finditer(script_text):
+        child = match.group("child")
+        parent = _normalize_reference(match.group("parent"))
+        tail = script_text[match.end() : match.end() + 1600]
+        clear_match = re.search(
+            rf"{_reference_pattern(parent)}\s*\.\s*(?:"
+            r"innerHTML\s*=\s*['\"]\s*['\"]|replaceChildren\s*\(\s*\))\s*;?",
+            tail,
+        )
+        if clear_match is None:
+            continue
+        append_match = re.search(
+            rf"{_reference_pattern(parent)}\s*\.\s*appendChild\s*\(\s*{re.escape(child)}\s*\)",
+            tail[clear_match.end() :],
+        )
+        if append_match is None:
+            continue
+        between = tail[clear_match.end() : clear_match.end() + append_match.start()]
+        guarded = re.search(
+            rf"if\s*\(\s*(?:{re.escape(child)}\s*(?:instanceof\s+Node)?|"
+            rf"{re.escape(child)}\s*!==?\s*null)\s*\)",
+            between,
+        )
+        if guarded:
+            continue
+        errors.append(
+            _error(
+                "unstable_preserved_child",
+                f"{child} 来自可为空的 firstChild/lastChild；清空 {parent} 后未经 Node 守卫直接 appendChild，"
+                "重复重建场景时可能抛出运行时异常。",
+            )
+        )
+
+
 def _extract_balanced_argument(text: str, start: int) -> str | None:
     depth = 1
     quote: str | None = None
@@ -417,6 +466,45 @@ def _check_unformatted_dynamic_numbers(script_text: str, warnings: list[dict]) -
                     "已定义统一格式化函数，但仍检测到多处散落的 toFixed；公式、HUD 和标签可能绕过统一 display state。",
                 )
             )
+
+
+def _check_gsap_serialized_state_mutation(script_text: str, warnings: list[dict]) -> None:
+    """Warn when GSAP decorates the same object exposed by getState.
+
+    GSAP stores an internal ``_gsap`` cache on direct tween targets. Returning
+    that object (or a shallow spread containing the cache) violates the runtime's
+    serializable-state contract and can create a circular structure.
+    """
+    targets = {
+        target
+        for _, target in re.findall(
+            r"(?:window\.)?gsap\.(to|from|fromTo)\s*\(\s*"
+            r"((?:state|model|vars?)(?:\.[A-Za-z_$][\w$]*)?)\s*,",
+            script_text,
+        )
+    }
+    for target in sorted(targets):
+        escaped = re.escape(target)
+        exposes_target = bool(
+            re.search(
+                rf"getState\s*:\s*(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*=>\s*"
+                rf"(?:{escaped}|\(\s*\{{\s*\.\.\.{escaped})|"
+                rf"getState\s*:\s*(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*=>\s*"
+                rf"\{{[\s\S]{{0,400}}?return\s+(?:{escaped}|\{{\s*\.\.\.{escaped})|"
+                rf"getState\s*\([^)]*\)\s*\{{[\s\S]{{0,400}}?return\s+"
+                rf"(?:{escaped}|\{{\s*\.\.\.{escaped})",
+                script_text,
+            )
+        )
+        if exposes_target:
+            warnings.append(
+                _warning(
+                    "gsap_mutates_serialized_state",
+                    f"GSAP 直接 tween {target}，同时 getState 暴露该对象；GSAP 的内部缓存可能形成循环引用。"
+                    "应 tween 独立 progress/proxy，并让 getState 只返回显式业务字段。",
+                )
+            )
+            return
 
 
 def _check_layout_risks(parsed: BeautifulSoup, script_text: str, warnings: list[dict]) -> None:

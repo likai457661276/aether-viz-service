@@ -984,7 +984,7 @@ def test_generate_phase_accepts_generic_svg_centering_repair_with_dynamic_labels
     assert done["data"]["metadata"]["repaired"] is True
 
 
-def test_generate_phase_skips_quality_repair_after_hard_error_is_repaired(monkeypatch) -> None:
+def test_generate_phase_runs_quality_repair_after_hard_error_is_repaired(monkeypatch) -> None:
     from aetherviz_service.aetherviz.agents.html_agent import HtmlStreamResult
     from aetherviz_service.aetherviz.workflow import generate_workflow
 
@@ -1018,8 +1018,50 @@ def test_generate_phase_skips_quality_repair_after_hard_error_is_repaired(monkey
     ]
     done = next(data for event, data in events if event == "html.done")
 
-    assert strategies == ["deterministic"]
-    assert 'data-aetherviz-scale-guard="true"' not in done["data"]["html"]
+    assert strategies[:2] == ["deterministic", "quality-deterministic"]
+    assert strategies[-1] == "quality-model"
+    assert 'data-aetherviz-scale-guard="true"' in done["data"]["html"]
+
+
+def test_edit_phase_applies_deterministic_quality_repair_without_model_rewrite(monkeypatch) -> None:
+    from aetherviz_service.aetherviz.agents.html_agent import HtmlStreamResult
+    from aetherviz_service.aetherviz.workflow import generate_workflow
+
+    risky_html = sample_html().replace(
+        "body{margin:0}",
+        "body{margin:0}.axis-line{stroke:#333;stroke-width:1.5}.label-text{font-size:12px}",
+    ).replace(
+        '<svg viewBox="0 0 100 100">',
+        '<svg viewBox="-6 -6 12 12"><line class="axis-line"></line>'
+        '<text class="label-text">x</text>',
+    )
+
+    def fail_model_repair(**kwargs):
+        raise AssertionError(f"edit warning 不应触发模型重写: {kwargs}")
+
+    monkeypatch.setattr(settings, "aetherviz_max_repair_attempts", 1)
+    monkeypatch.setattr(generate_workflow, "stream_repair_html", fail_model_repair)
+    raw_events = list(
+        generate_workflow._run_html_workflow(
+            run_id="run-edit-quality",
+            phase="edit_html",
+            start_event="html.edit_started",
+            topic="变量变化",
+            plan=sample_plan("变量变化"),
+            html_stream_factory=lambda: iter([HtmlStreamResult(html=risky_html, degraded=False)]),
+        )
+    )
+    response = type("SseResponse", (), {"text": "".join(raw_events)})()
+    events = parse_sse_events(response)
+    strategies = [
+        data["data"].get("strategy")
+        for event, data in events
+        if event == "repair.done"
+    ]
+    done = next(data for event, data in events if event == "html.done")
+
+    assert strategies == ["quality-deterministic"]
+    assert 'data-aetherviz-scale-guard="true"' in done["data"]["html"]
 
 
 def test_edit_html_stream_propagates_generator_exit(monkeypatch) -> None:

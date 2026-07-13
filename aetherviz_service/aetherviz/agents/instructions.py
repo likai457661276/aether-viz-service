@@ -30,6 +30,9 @@ WIDGET_CORE_PROMPT = """互动 widget 核心契约：
 - 所有触摸目标至少 44px；slider thumb 至少 24px；Canvas 自定义手势使用 touch-action: none。
 - 输出必须只有一个 HTML 文档，只能有一个 <!DOCTYPE html> 和一个 </html>。
 - appendChild/insertBefore/replaceChild 的参数必须是求值为 Node 的表达式；禁止传入字符串、模板字符串、数字或赋值表达式（如 `parent.appendChild(el.textContent = "x")`，赋值表达式返回字符串会直接抛错）。先创建并设置好元素，再单独追加。
+- 场景重建禁止把可为空的 firstChild/lastChild 当作哨兵，在清空父节点后未经 `instanceof Node` 守卫直接 appendChild；持久节点应使用稳定引用或独立图层。
+- 动态节点注册表必须在每次 buildScene 后满足可验证的不变量：渲染循环边界来自注册表自身长度，或在访问 `nodes[i]` 后先检查节点存在；不得让 state 中的数量与实际 DOM 节点数独立漂移。参数变化、reset、连续两次 build 后都要执行同一路径自检。
+- HTML 内只保留帮助维护的短注释；不要输出大段方案推演、自问自答、备选实现或重复契约说明，业务代码优先控制在目标字符数内，为初始化、事件绑定、运行时和 fallback 保留完整预算。
 """
 
 NUMERIC_PRESENTATION_PROMPT = """动态数值展示规则：
@@ -194,6 +197,10 @@ REPAIR_SYSTEM_PROMPT = f"""你是 HTML 最小变更修复器。
 保留原有 DOM 顺序、CSS、SVG/Canvas 坐标、控件和业务逻辑；math-shell-v1 的 .av-* 外壳属于服务端，不得修改；没有对应错误时不得改动。
 若风险是动态数值格式，建立描述符驱动的唯一 display state，清除所有可见文本中的裸状态值和散落精度处理。若风险是 SVG 偏心/裁切：内容包络可由变量 min/max 和动画关键帧推知时，改为一个覆盖 worst-case 包络的固定 viewBox，并删除多余的运行时重拟合；仅当运行时增删图形节点导致包络不可预知时，才保留 visual-root getBBox + 居中 fitStage，且 viewBox 只在结构变化和容器 resize 后更新、ResizeObserver 回调经 requestAnimationFrame 调度并在值未变化时跳过写入。禁止在动画帧内重写 viewBox。修复必须通用于参数范围和动画关键帧，不按知识点、文本、元素 id、具体坐标或预设写特例。
 若风险是 missing_animation_controller_fallback，保留现有几何和教学步骤，把动画时间源收敛为 AetherVizAnimationController 驱动的单一 progress，并让 GSAP/RAF 共用原有 deriveView/applyView；删除轮询等待 CDN 的失败分支，同时补齐完成后重播和从 widget-config 默认值完整重置。
+若风险是 unchecked_animation_node_registry，保持教学几何不变，统一 buildScene 与 render 的节点数量来源；循环以实际注册表长度为边界，访问动态节点后先校验存在，并在参数变化、reset 和重复重建后校验注册表数量与有限属性。禁止按元素 id、主题或某个参数值补丁。
+若风险是 gsap_mutates_serialized_state，禁止直接 tween 会由 getState 返回的业务 state/model；改为独立 progress/proxy，getState 只显式复制可序列化业务字段，不返回 GSAP tween、DOM 节点或 `_gsap` 缓存。
+若风险是 duplicate_geometry_transform_encoding，把可变换对象重建为一份统一局部坐标几何；删除 path/points 中按实例序号预编码的世界方向，实例方向只由初态/目标态 transform 表达，并复核 progress=0/1 的包围盒与对象数量。
+若错误是 unstable_preserved_child，不要依赖父容器当前 firstChild/lastChild 一定存在；改用稳定节点引用/独立图层，或在清空后仅对 `instanceof Node` 的节点执行重新挂载。
 若必须补代码，复用现有函数和状态，不引入新框架、外部接口或 GSAP 插件。
 输出必须可解析、可运行且不超过 {HTML_OUTPUT_HARD_LIMIT_CHARS} 字符。
 """

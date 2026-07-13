@@ -7,6 +7,7 @@ import argparse
 import json
 from pathlib import Path
 
+from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import sync_playwright
 
 VIEWPORTS = ((959, 900), (960, 540), (1280, 720), (912, 1180), (390, 844))
@@ -88,7 +89,10 @@ RUNTIME_SNAPSHOT_JS = r"""
   let canvasSample = '';
   try { if (canvas) canvasSample = canvas.toDataURL().slice(-256); } catch (_) {}
   let state = {};
-  try { state = runtime && runtime.getState ? runtime.getState() : {}; } catch (error) { state = {error: String(error)}; }
+  try {
+    const rawState = runtime && runtime.getState ? runtime.getState() : {};
+    state = JSON.parse(JSON.stringify(rawState == null ? {} : rawState));
+  } catch (error) { state = {error: 'non_serializable_state: ' + String(error)}; }
   const controls = [...document.querySelectorAll('#aetherviz-app-shell input,select')]
     .map((el) => [el.id || el.getAttribute('data-var') || el.name, el.value, el.checked].join('|'));
   return {node_count: nodes.length, visual_signature: visual + canvasSample, state, controls};
@@ -101,48 +105,55 @@ def _runtime_behavior(page) -> dict:
     has_runtime = page.evaluate("() => Boolean(window.AetherVizRuntime)")
     if not has_runtime:
         return {"runtime_present": False}
-    page.evaluate("() => window.AetherVizRuntime.play()")
-    page.wait_for_timeout(350)
-    playing = page.evaluate(RUNTIME_SNAPSHOT_JS)
-    page.evaluate("() => window.AetherVizRuntime.pause()")
-    page.wait_for_timeout(40)
-    paused_start = page.evaluate(RUNTIME_SNAPSHOT_JS)
-    page.wait_for_timeout(180)
-    paused = page.evaluate(RUNTIME_SNAPSHOT_JS)
-    page.evaluate("() => window.AetherVizRuntime.reset()")
-    page.wait_for_timeout(80)
-    reset = page.evaluate(RUNTIME_SNAPSHOT_JS)
-    for _ in range(2):
-        page.evaluate("() => { window.AetherVizRuntime.reset(); window.AetherVizRuntime.play(); }")
-        page.wait_for_timeout(80)
+    try:
+        page.evaluate("() => window.AetherVizRuntime.play()")
+        page.wait_for_timeout(350)
+        playing = page.evaluate(RUNTIME_SNAPSHOT_JS)
         page.evaluate("() => window.AetherVizRuntime.pause()")
-    repeated = page.evaluate(RUNTIME_SNAPSHOT_JS)
-    before_parameter = reset
-    parameter_changed = page.evaluate(
-        """() => {
-          const input = document.querySelector('#aetherviz-app-shell input[type="range"]');
-          if (!input) return false;
-          const min = Number(input.min || 0), max = Number(input.max || 100);
-          input.value = String(Number(input.value) === max ? min : max);
-          input.dispatchEvent(new Event('input', {bubbles: true}));
-          input.dispatchEvent(new Event('change', {bubbles: true}));
-          return true;
-        }"""
-    )
-    page.wait_for_timeout(80)
-    after_parameter = page.evaluate(RUNTIME_SNAPSHOT_JS)
-    page.evaluate("() => window.AetherVizRuntime.reset()")
-    page.wait_for_timeout(80)
-    parameter_reset = page.evaluate(RUNTIME_SNAPSHOT_JS)
-    page.evaluate(
-        """() => {
-          const runtime=window.AetherVizRuntime;
-          if (typeof runtime.setSpeed === 'function') runtime.setSpeed(20);
-          runtime.play();
-        }"""
-    )
-    page.wait_for_timeout(800)
-    completed = page.evaluate(RUNTIME_SNAPSHOT_JS)
+        page.wait_for_timeout(40)
+        paused_start = page.evaluate(RUNTIME_SNAPSHOT_JS)
+        page.wait_for_timeout(180)
+        paused = page.evaluate(RUNTIME_SNAPSHOT_JS)
+        page.evaluate("() => window.AetherVizRuntime.reset()")
+        page.wait_for_timeout(80)
+        reset = page.evaluate(RUNTIME_SNAPSHOT_JS)
+        for _ in range(2):
+            page.evaluate("() => { window.AetherVizRuntime.reset(); window.AetherVizRuntime.play(); }")
+            page.wait_for_timeout(80)
+            page.evaluate("() => window.AetherVizRuntime.pause()")
+        repeated = page.evaluate(RUNTIME_SNAPSHOT_JS)
+        before_parameter = reset
+        parameter_changed = page.evaluate(
+            """() => {
+              const input = document.querySelector('#aetherviz-app-shell input[type="range"]');
+              if (!input) return false;
+              const min = Number(input.min || 0), max = Number(input.max || 100);
+              input.value = String(Number(input.value) === max ? min : max);
+              input.dispatchEvent(new Event('input', {bubbles: true}));
+              input.dispatchEvent(new Event('change', {bubbles: true}));
+              return true;
+            }"""
+        )
+        page.wait_for_timeout(80)
+        after_parameter = page.evaluate(RUNTIME_SNAPSHOT_JS)
+        page.evaluate("() => window.AetherVizRuntime.reset()")
+        page.wait_for_timeout(80)
+        parameter_reset = page.evaluate(RUNTIME_SNAPSHOT_JS)
+        page.evaluate(
+            """() => {
+              const runtime=window.AetherVizRuntime;
+              if (typeof runtime.setSpeed === 'function') runtime.setSpeed(20);
+              runtime.play();
+            }"""
+        )
+        page.wait_for_timeout(800)
+        completed = page.evaluate(RUNTIME_SNAPSHOT_JS)
+    except PlaywrightError as error:
+        return {
+            "runtime_present": True,
+            "interaction_error": str(error),
+            "snapshots": {"initial": initial},
+        }
     completed_state = completed["state"] if isinstance(completed["state"], dict) else {}
     completed_progress = completed_state.get("progress")
     completion_reached = isinstance(completed_progress, (int, float)) and completed_progress >= 0.98
@@ -155,8 +166,28 @@ def _runtime_behavior(page) -> dict:
     )
     page.wait_for_timeout(80)
     replaying = page.evaluate(RUNTIME_SNAPSHOT_JS)
+    snapshots = (
+        initial,
+        playing,
+        paused_start,
+        paused,
+        reset,
+        repeated,
+        after_parameter,
+        parameter_reset,
+        completed,
+        replaying,
+    )
+    state_serializable = all(
+        not (
+            isinstance(snapshot.get("state"), dict)
+            and str(snapshot["state"].get("error", "")).startswith("non_serializable_state")
+        )
+        for snapshot in snapshots
+    )
     return {
         "runtime_present": True,
+        "state_serializable": state_serializable,
         "animation_visible_change": playing["visual_signature"] != initial["visual_signature"],
         "pause_stable": paused["visual_signature"] == paused_start["visual_signature"],
         "reset_consistent": reset["visual_signature"] == initial["visual_signature"],
@@ -187,21 +218,27 @@ def evaluate_html(html_path: Path, output_dir: Path) -> dict:
         browser = playwright.chromium.launch(headless=True)
         for width, height in VIEWPORTS:
             page = browser.new_page(viewport={"width": width, "height": height})
+            browser_errors: list[str] = []
+            page.on("pageerror", lambda error, errors=browser_errors: errors.append(str(error)))
             page.goto(html_path.resolve().as_uri(), wait_until="load")
             page.wait_for_timeout(500)
             metrics = page.evaluate(METRICS_JS)
             metrics["behavior"] = _runtime_behavior(page)
+            metrics["browser_errors"] = browser_errors
             screenshot = output_dir / f"{html_path.stem}-{width}x{height}.png"
             page.screenshot(path=str(screenshot), full_page=False)
             metrics.update({"width": width, "height": height, "screenshot": str(screenshot)})
             results.append(metrics)
             page.close()
         fallback_page = browser.new_page(viewport={"width": VIEWPORTS[0][0], "height": VIEWPORTS[0][1]})
+        fallback_errors: list[str] = []
+        fallback_page.on("pageerror", lambda error: fallback_errors.append(str(error)))
         fallback_page.route("**/*gsap*", lambda route: route.abort())
         fallback_page.goto(html_path.resolve().as_uri(), wait_until="load")
         fallback_page.wait_for_timeout(500)
         fallback_metrics = fallback_page.evaluate(METRICS_JS)
         fallback_metrics["behavior"] = _runtime_behavior(fallback_page)
+        fallback_metrics["browser_errors"] = fallback_errors
         fallback_page.close()
         browser.close()
     passed = all(
@@ -213,7 +250,10 @@ def evaluate_html(html_path: Path, output_dir: Path) -> dict:
         and item["slot_overlap_count"] == 0
         and item["invalid_range_count"] == 0
         and not item["runtime_error"]
+        and not item["browser_errors"]
         and item["runtime_ready"]
+        and not item["behavior"].get("interaction_error")
+        and item["behavior"].get("state_serializable", False)
         and item["behavior"].get("animation_visible_change", False)
         and item["behavior"].get("pause_stable", False)
         and item["behavior"].get("reset_consistent", False)
@@ -224,7 +264,13 @@ def evaluate_html(html_path: Path, output_dir: Path) -> dict:
         and item["behavior"].get("completion_state_stable", False)
         and item["behavior"].get("replay_after_completion", False)
         for item in results
-    ) and fallback_metrics.get("runtime_ready") and fallback_metrics["behavior"].get("animation_visible_change", False)
+    ) and (
+        fallback_metrics.get("runtime_ready")
+        and not fallback_metrics.get("browser_errors")
+        and not fallback_metrics["behavior"].get("interaction_error")
+        and fallback_metrics["behavior"].get("state_serializable", False)
+        and fallback_metrics["behavior"].get("animation_visible_change", False)
+    )
     return {
         "html": str(html_path),
         "passed": passed,

@@ -22,13 +22,16 @@ def has_planning_llm_config() -> bool:
     return has_primary_llm_config()
 
 
-def _html_model_kwargs() -> dict[str, Any]:
+def _html_model_kwargs(*, max_tokens: int | None = None) -> dict[str, Any]:
     kwargs: dict[str, Any] = {
         "model": settings.openai_html_model,
         "api_key": _blank_to_none(settings.openai_api_key),
         "base_url": _blank_to_none(settings.openai_base_url),
         "temperature": 0.2,
-        "max_tokens": max(settings.aetherviz_html_max_tokens, 512),
+        "max_tokens": max(
+            settings.aetherviz_html_max_tokens if max_tokens is None else max_tokens,
+            512,
+        ),
         "timeout": max(settings.aetherviz_html_timeout_seconds, 1),
         "max_retries": max(settings.aetherviz_html_max_retries, 0),
     }
@@ -62,7 +65,7 @@ def create_chat_model(kind: str):
     if kind == "html":
         return ChatOpenAI(**_html_model_kwargs())
     if kind == "edit":
-        kwargs = _html_model_kwargs()
+        kwargs = _html_model_kwargs(max_tokens=settings.aetherviz_edit_max_tokens)
         kwargs["temperature"] = 0.08
         kwargs["extra_body"] = {"enable_thinking": False}
         kwargs.pop("reasoning_effort", None)
@@ -72,7 +75,7 @@ def create_chat_model(kind: str):
         api_key=_blank_to_none(settings.openai_api_key),
         base_url=_blank_to_none(settings.openai_base_url),
         temperature=0.08,
-        max_tokens=max(settings.aetherviz_html_max_tokens, 512),
+        max_tokens=max(settings.aetherviz_repair_max_tokens, 512),
         timeout=max(settings.aetherviz_repair_timeout_seconds, 1),
         max_retries=max(settings.aetherviz_repair_max_retries, 0),
         extra_body={"enable_thinking": False},

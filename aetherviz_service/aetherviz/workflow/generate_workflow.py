@@ -33,6 +33,9 @@ QUALITY_REPAIR_WARNING_TYPES = {
     "mixed_svg_unit_system",
     "missing_stage_shrink_guard",
     "missing_animation_controller_fallback",
+    "unchecked_animation_node_registry",
+    "gsap_mutates_serialized_state",
+    "duplicate_geometry_transform_encoding",
 }
 
 
@@ -224,9 +227,8 @@ def _run_html_workflow(
             return
 
     if (
-        phase == "generate"
+        phase in {"generate", "edit_html"}
         and report["ok"]
-        and not metadata["repaired"]
         and _quality_warning_types(report)
     ):
         business_html, report, quality_repaired, quality_degraded = yield from _attempt_quality_repair(
@@ -238,6 +240,7 @@ def _run_html_workflow(
             report=report,
             metadata=metadata,
             started_at=started_at,
+            allow_model_repair=phase == "generate",
         )
         html = assemble_layout_contract(business_html, plan)
         metadata["repaired"] = metadata["repaired"] or quality_repaired
@@ -287,41 +290,39 @@ def _attempt_quality_repair(
     report: dict[str, Any],
     metadata: dict[str, Any],
     started_at: float,
+    allow_model_repair: bool = True,
 ) -> Iterator[str]:
-    """Try one non-blocking model repair for generic presentation risks.
+    """Apply deterministic normalization, then optionally repair remaining risks.
 
-    Quality warnings never reject a usable document. The candidate is accepted only
-    when it remains valid and reduces the selected warning set; otherwise the
-    original HTML is returned unchanged.
+    A prior hard-error repair must not suppress this phase. Deterministic quality
+    changes become the fallback baseline; a model candidate is accepted only when
+    it remains valid and further reduces the selected generic warnings.
     """
     if settings.aetherviz_max_repair_attempts <= 0:
         return html, report, False, False
 
-    original_html = html
-    original_report = report
-    original_quality = _quality_warning_types(report)
-    quality_report = {
-        **report,
-        "summary": "发现可自动改进的通用展示质量风险",
-        "errors": [],
-        "warnings": [
-            warning
-            for warning in report.get("warnings", [])
-            if isinstance(warning, dict) and warning.get("type") in QUALITY_REPAIR_WARNING_TYPES
-        ],
-    }
-    deterministic_candidate = deterministic_repair_html(original_html, quality_report, plan=plan)
-    if deterministic_candidate != original_html:
+    baseline_html = html
+    baseline_report = report
+    baseline_quality = _quality_warning_types(report)
+    repaired = False
+    quality_report = _quality_only_report(baseline_report)
+    deterministic_candidate = deterministic_repair_html(baseline_html, quality_report, plan=plan)
+    if deterministic_candidate != baseline_html:
         assembled_candidate = assemble_layout_contract(deterministic_candidate, plan)
         deterministic_report = _validate(assembled_candidate, plan=plan, model_html=deterministic_candidate)
         deterministic_quality = _quality_warning_types(deterministic_report)
-        if deterministic_report["ok"] and len(deterministic_quality) < len(original_quality):
+        if deterministic_report["ok"] and len(deterministic_quality) < len(baseline_quality):
             metadata["attempts"] += 1
+            attempt_number = metadata["attempts"]
             yield agent_sse_event(
                 "repair.started",
                 run_id=run_id,
                 phase=phase,
-                data={"attempt": 1, "strategy": "quality-deterministic", "warnings": quality_report["warnings"][:5]},
+                data={
+                    "attempt": attempt_number,
+                    "strategy": "quality-deterministic",
+                    "warnings": quality_report["warnings"][:5],
+                },
                 metadata=_metadata(metadata, started_at, stage="repair"),
             )
             yield agent_sse_event(
@@ -348,7 +349,7 @@ def _attempt_quality_repair(
                 run_id=run_id,
                 phase=phase,
                 data={
-                    "attempt": 1,
+                    "attempt": attempt_number,
                     "strategy": "quality-deterministic",
                     "ok": True,
                     "accepted": True,
@@ -358,14 +359,25 @@ def _attempt_quality_repair(
                 },
                 metadata=_metadata(metadata, started_at, stage="repair"),
             )
-            return deterministic_candidate, deterministic_report, True, False
+            baseline_html = deterministic_candidate
+            baseline_report = deterministic_report
+            baseline_quality = deterministic_quality
+            repaired = True
+            if not baseline_quality:
+                return baseline_html, baseline_report, True, False
+
+    if not allow_model_repair:
+        return baseline_html, baseline_report, repaired, False
+
+    quality_report = _quality_only_report(baseline_report)
     metadata["attempts"] += 1
+    attempt_number = metadata["attempts"]
     yield agent_sse_event(
         "repair.started",
         run_id=run_id,
         phase=phase,
         data={
-            "attempt": 1,
+            "attempt": attempt_number,
             "strategy": "quality-model",
             "summary": quality_report["summary"],
             "warnings": quality_report["warnings"][:5],
@@ -373,13 +385,13 @@ def _attempt_quality_repair(
         metadata=_metadata(metadata, started_at, stage="repair"),
     )
 
-    candidate = original_html
+    candidate = baseline_html
     candidate_degraded = False
     candidate_truncated = False
     for item in stream_repair_html(
         topic=topic,
         plan=plan,
-        raw_html=original_html,
+        raw_html=baseline_html,
         report=quality_report,
     ):
         if isinstance(item, RepairStreamResult):
@@ -416,9 +428,9 @@ def _attempt_quality_repair(
     )
     candidate_quality = _quality_warning_types(candidate_report)
     accepted = (
-        candidate != original_html
+        candidate != baseline_html
         and candidate_report["ok"]
-        and len(candidate_quality) < len(original_quality)
+        and len(candidate_quality) < len(baseline_quality)
     )
     if accepted:
         html, report = candidate, candidate_report
@@ -431,7 +443,7 @@ def _attempt_quality_repair(
             stage="repair",
         )
     else:
-        html, report = original_html, original_report
+        html, report = baseline_html, baseline_report
 
     yield agent_sse_event(
         "html.delta",
@@ -450,7 +462,7 @@ def _attempt_quality_repair(
         run_id=run_id,
         phase=phase,
         data={
-            "attempt": 1,
+            "attempt": attempt_number,
             "strategy": "quality-model",
             "ok": accepted,
             "accepted": accepted,
@@ -460,7 +472,20 @@ def _attempt_quality_repair(
         },
         metadata=_metadata(metadata, started_at, stage="repair"),
     )
-    return html, report, accepted, candidate_degraded if accepted else False
+    return html, report, repaired or accepted, candidate_degraded if accepted else False
+
+
+def _quality_only_report(report: dict[str, Any]) -> dict[str, Any]:
+    return {
+        **report,
+        "summary": "发现可自动改进的通用展示质量风险",
+        "errors": [],
+        "warnings": [
+            warning
+            for warning in report.get("warnings", [])
+            if isinstance(warning, dict) and warning.get("type") in QUALITY_REPAIR_WARNING_TYPES
+        ],
+    }
 
 
 def _attempt_repair_loop(
@@ -589,6 +614,63 @@ def _attempt_repair_loop(
             started_at=started_at,
             stage="repair",
         )
+        if not report["ok"]:
+            post_model_html = _run_deterministic_repair(html, report, plan)
+            if post_model_html != html:
+                metadata["attempts"] += 1
+                post_attempt = metadata["attempts"]
+                yield agent_sse_event(
+                    "repair.started",
+                    run_id=run_id,
+                    phase=phase,
+                    data={
+                        "attempt": post_attempt,
+                        "strategy": "post-model-deterministic",
+                        "summary": report.get("summary"),
+                    },
+                    metadata=_metadata(metadata, started_at, stage="repair"),
+                )
+                html = post_model_html
+                assembled_html = assemble_layout_contract(html, plan)
+                yield agent_sse_event(
+                    "html.delta",
+                    run_id=run_id,
+                    phase=phase,
+                    data={
+                        "delta": "",
+                        "bytes": len(assembled_html.encode("utf-8")),
+                        "chars": len(assembled_html),
+                    },
+                    metadata=_metadata(metadata, started_at, stage="repair"),
+                )
+                report = _validate(
+                    assembled_html,
+                    truncated=repair_truncated,
+                    plan=plan,
+                    model_html=html,
+                )
+                yield from _emit_validation_events(
+                    run_id=run_id,
+                    phase=phase,
+                    report=report,
+                    metadata=metadata,
+                    started_at=started_at,
+                    stage="repair",
+                )
+                yield agent_sse_event(
+                    "repair.done",
+                    run_id=run_id,
+                    phase=phase,
+                    data={
+                        "attempt": post_attempt,
+                        "strategy": "post-model-deterministic",
+                        "ok": report["ok"],
+                        "remaining_error_types": list(_error_signature(report)),
+                        "bytes": len(assembled_html.encode("utf-8")),
+                        "chars": len(assembled_html),
+                    },
+                    metadata=_metadata(metadata, started_at, stage="repair"),
+                )
         metadata["validation_warnings"] = [warning["message"] for warning in report.get("warnings", [])]
         stalled = not report["ok"] and _error_signature(report) == previous_errors
         accepted = not stalled

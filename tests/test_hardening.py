@@ -157,6 +157,41 @@ def test_deterministic_repair_rewrites_assignment_append_child() -> None:
     assert not any(error["type"] == "non_node_append_child" for error in repaired_report["errors"])
 
 
+def test_deterministic_repair_guards_nullable_preserved_child() -> None:
+    html = sample_html().replace(
+        "window.__AETHERVIZ_RUNTIME_READY__ = true;",
+        "const layer=document.createElementNS('http://www.w3.org/2000/svg','g');\n"
+        "const sentinel=layer.lastChild;\n"
+        "layer.innerHTML='';\n"
+        "layer.appendChild(sentinel);\n"
+        "window.__AETHERVIZ_RUNTIME_READY__ = true;",
+    )
+    report = check_widget_runtime_contract(html)
+
+    assert any(error["type"] == "unstable_preserved_child" for error in report["errors"])
+
+    repaired = deterministic_repair_html(html, {"errors": report["errors"]}, plan=sample_plan())
+    repaired_report = check_widget_runtime_contract(repaired)
+
+    assert "if(sentinel instanceof Node){layer.appendChild(sentinel)}" in repaired
+    assert not any(
+        error["type"] == "unstable_preserved_child" for error in repaired_report["errors"]
+    )
+
+
+def test_deterministic_repair_adds_guarded_runtime_ready_marker() -> None:
+    html = sample_html().replace("window.__AETHERVIZ_RUNTIME_READY__ = true;", "")
+    report = check_widget_runtime_contract(html)
+    assert any(error["type"] == "missing_runtime_ready" for error in report["errors"])
+
+    repaired = deterministic_repair_html(html, {"errors": report["errors"]}, plan=sample_plan())
+    repaired_report = check_widget_runtime_contract(repaired)
+
+    assert 'data-aetherviz-ready-guard="true"' in repaired
+    assert "window.__AETHERVIZ_RUNTIME_ERROR__" in repaired
+    assert not any(error["type"] == "missing_runtime_ready" for error in repaired_report["errors"])
+
+
 def test_planning_context_is_included_and_reports_compression(monkeypatch) -> None:
     captured_messages = []
     plan_json = (
@@ -229,6 +264,17 @@ def test_model_length_ignores_server_assembly_overhead() -> None:
     assert not any(error["type"] == "html_length_hard_limit" for error in report["errors"])
 
 
+def test_model_length_ignores_deterministic_guard_overhead() -> None:
+    business_html = sample_html().replace("</style>", f"/*{'x' * 37000}*/</style>")
+    guard = '<script data-aetherviz-ready-guard="true">/*' + ("x" * 2500) + "*/</script>"
+    guarded_html = business_html.replace("</body>", guard + "</body>")
+
+    report = _validate(guarded_html, plan=sample_plan(), model_html=guarded_html)
+
+    assert len(guarded_html) > 40000
+    assert not any(error["type"] == "html_length_hard_limit" for error in report["errors"])
+
+
 def test_animation_lifecycle_rejects_structural_render_from_timeline_update() -> None:
     html = sample_html().replace(
         "function updateVisualization(){",
@@ -256,6 +302,57 @@ def test_animation_lifecycle_allows_attribute_only_frame_updates() -> None:
     assert report["ok"] is True
 
 
+def test_animation_lifecycle_warns_about_unchecked_dynamic_node_registry() -> None:
+    html = sample_html().replace(
+        "function updateVisualization(){",
+        "const nodes=[];\n"
+        "function buildScene(){nodes.length=0;nodes.push(document.getElementById('dot'));}\n"
+        "function applyView(){for(let i=0;i<state.progress;i++){const node=nodes[i];"
+        "node.setAttribute('cx',String(i));}}\n"
+        "function updateVisualization(){",
+    )
+
+    report = check_animation_lifecycle(html)
+
+    assert any(
+        warning["type"] == "unchecked_animation_node_registry"
+        for warning in report["warnings"]
+    )
+
+
+def test_animation_lifecycle_warns_about_duplicate_geometry_rotation_encoding() -> None:
+    html = sample_html().replace(
+        "function updateVisualization(){",
+        "const pieces=[];\n"
+        "function buildScene(n){const angleStep=2*Math.PI/n;for(let i=0;i<n;i++){"
+        "const startAngle=i*angleStep;const endAngle=(i+1)*angleStep;"
+        "const x=Math.cos(startAngle);const y=Math.sin(startAngle)+Math.cos(endAngle);"
+        "const piece=document.createElementNS('http://www.w3.org/2000/svg','path');"
+        "piece.setAttribute('d',`M0 0 L${x} ${y}`);pieces.push(piece);}}\n"
+        "function applyView(n){const angleStep=2*Math.PI/n;for(let i=0;i<n;i++){"
+        "const rotation=i*angleStep*180/Math.PI;const current=rotation;"
+        "pieces[i].setAttribute('transform',`rotate(${current})`);}}\n"
+        "function updateVisualization(){",
+    )
+
+    report = check_animation_lifecycle(html)
+
+    assert any(
+        warning["type"] == "duplicate_geometry_transform_encoding"
+        for warning in report["warnings"]
+    )
+
+    repaired = deterministic_repair_html(html, {"errors": [], "warnings": report["warnings"]})
+    repaired_report = check_animation_lifecycle(repaired)
+
+    assert "const startAngle= -angleStep/2;" in repaired
+    assert "const endAngle= angleStep/2;" in repaired
+    assert not any(
+        warning["type"] == "duplicate_geometry_transform_encoding"
+        for warning in repaired_report["warnings"]
+    )
+
+
 def test_widget_contract_detects_direct_gsap_without_business_fallback_after_assembly() -> None:
     html = sample_html().replace(
         "</head>",
@@ -270,6 +367,26 @@ def test_widget_contract_detects_direct_gsap_without_business_fallback_after_ass
 
     assert any(
         warning["type"] == "missing_animation_controller_fallback"
+        for warning in report["warnings"]
+    )
+
+
+def test_widget_contract_detects_gsap_mutating_serialized_runtime_state() -> None:
+    html = sample_html().replace(
+        "</head>",
+        '<script src="https://cdn.jsdelivr.net/npm/gsap@3/dist/gsap.min.js"></script></head>',
+    ).replace(
+        "function play(){ updateVisualization(); }",
+        "function play(){ gsap.to(state,{progress:1,duration:1}); }",
+    ).replace(
+        "getState: () => state",
+        "getState: () => ({ ...state })",
+    )
+
+    report = check_widget_runtime_contract(assemble_layout_contract(html, sample_plan()))
+
+    assert any(
+        warning["type"] == "gsap_mutates_serialized_state"
         for warning in report["warnings"]
     )
 
