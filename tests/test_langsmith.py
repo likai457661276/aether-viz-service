@@ -4,7 +4,11 @@ from __future__ import annotations
 
 import os
 
-from aetherviz_service.aetherviz.api.sse import agent_sse_event
+from aetherviz_service.aetherviz.api.sse import (
+    agent_sse_event,
+    register_langsmith_trace_id,
+    unregister_langsmith_trace_id,
+)
 from aetherviz_service.aetherviz.workflow.generate_workflow import _summarize_sse_trace
 from aetherviz_service.config import settings
 from aetherviz_service.observability.langsmith import configure_langsmith
@@ -57,3 +61,13 @@ def test_generate_trace_summary_excludes_complete_html() -> None:
     assert summary["events"] == ["html.done"]
     assert summary["final"] == {"event": "html.done", "chars": 58, "bytes": 58, "repaired": True}
     assert "private output" not in str(summary)
+
+
+def test_sse_event_includes_current_langsmith_trace_id() -> None:
+    register_langsmith_trace_id("run_trace", "4de5cd2f-d9d0-49f8-97bf-bff2395c8201")
+    try:
+        event = agent_sse_event("plan.started", run_id="run_trace", phase="plan")
+    finally:
+        unregister_langsmith_trace_id("run_trace")
+
+    assert '"langsmith_trace_id": "4de5cd2f-d9d0-49f8-97bf-bff2395c8201"' in event

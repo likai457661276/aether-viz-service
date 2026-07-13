@@ -5,6 +5,17 @@ from __future__ import annotations
 import json
 from typing import Any
 
+_langsmith_trace_ids: dict[str, str] = {}
+
+
+def register_langsmith_trace_id(run_id: str, trace_id: str | None) -> None:
+    if trace_id:
+        _langsmith_trace_ids[run_id] = trace_id
+
+
+def unregister_langsmith_trace_id(run_id: str) -> None:
+    _langsmith_trace_ids.pop(run_id, None)
+
 
 def agent_sse_event(
     event: str,
@@ -27,6 +38,9 @@ def agent_sse_event(
             **(metadata or {}),
         },
     }
+    trace_id = _langsmith_trace_ids.get(run_id)
+    if trace_id:
+        payload["langsmith_trace_id"] = trace_id
     return f"event: {event}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 

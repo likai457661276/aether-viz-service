@@ -71,7 +71,7 @@ LANGSMITH_API_KEY="你的 LangSmith API Key"
 LANGSMITH_PROJECT="aetherviz-direct-html"
 ```
 
-`LANGSMITH_TRACING=false` 或未配置 `LANGSMITH_API_KEY` 时不会上报 trace。组织级 API Key 如需指定工作区，可额外设置 `LANGSMITH_WORKSPACE_ID`。生成阶段以 `aetherviz.generate_workflow` 作为根 trace，HTML 生成、确定性校验、确定性修复、模型修复和最终校验作为子 run；metadata 记录 `run_id`、phase、互动类型、错误/警告类型、修复是否接受、耗时及最终大小。工作流 trace 只保存摘要，不重复保存完整 SSE HTML；模型子 run 仍由 LangChain 自动采集。
+`LANGSMITH_TRACING=false` 或未配置 `LANGSMITH_API_KEY` 时不会上报 trace。组织级 API Key 如需指定工作区，可额外设置 `LANGSMITH_WORKSPACE_ID`。每个 API phase 以 `aetherviz.request` 作为根 trace，HTML 生成、确定性校验、确定性修复、模型修复和最终校验作为子 run；metadata 记录业务 `run_id`、phase、互动类型、错误/警告类型、修复是否接受、耗时及最终大小。启用追踪时，每个 SSE 事件会额外返回真实的 `langsmith_trace_id`，供前端复制并定位完整调用树。工作流 trace 只保存摘要，不重复保存完整 SSE HTML；模型子 run 仍由 LangChain 自动采集。
 
 ## 启动服务
 
