@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 import re
 from collections import deque
+from copy import deepcopy
 from typing import Any
 
 from aetherviz_service.aetherviz.tools.recomposition_ir import (
@@ -157,6 +158,112 @@ def evaluate_target_assembly(ir: dict[str, Any], plan: dict[str, Any]) -> dict[s
         "states": states,
         "source_states": source_states,
     }
+
+
+def translate_target_assembly_into_canvas(
+    ir: object,
+    assembly_report: dict[str, Any],
+) -> dict[str, Any]:
+    """Translate a valid target assembly when its sampled union only misses canvas bounds."""
+    if not isinstance(ir, dict):
+        return {"ok": False, "changed": False, "reason": "invalid_geometry_ir", "ir": ir}
+    errors = assembly_report.get("errors")
+    if not isinstance(errors, list) or not errors:
+        return {"ok": False, "changed": False, "reason": "no_assembly_error", "ir": ir}
+    error_types = {str(item.get("type") or "") for item in errors if isinstance(item, dict)}
+    if error_types != {"target_assembly_out_of_bounds"}:
+        return {
+            "ok": False,
+            "changed": False,
+            "reason": "assembly_has_non_bounds_failures",
+            "ir": ir,
+        }
+    states = assembly_report.get("states")
+    bboxes = (
+        [
+            item.get("bbox")
+            for item in states
+            if isinstance(item, dict) and _valid_bbox(item.get("bbox"))
+        ]
+        if isinstance(states, list)
+        else []
+    )
+    if not bboxes:
+        return {"ok": False, "changed": False, "reason": "missing_target_bbox", "ir": ir}
+    min_x = min(float(bbox[0]) for bbox in bboxes)
+    min_y = min(float(bbox[1]) for bbox in bboxes)
+    max_x = max(float(bbox[2]) for bbox in bboxes)
+    max_y = max(float(bbox[3]) for bbox in bboxes)
+    if max_x - min_x > _CANVAS_WIDTH or max_y - min_y > _CANVAS_HEIGHT:
+        return {
+            "ok": False,
+            "changed": False,
+            "reason": "target_union_larger_than_canvas",
+            "ir": ir,
+        }
+    dx = _axis_translation(min_x, max_x, _CANVAS_WIDTH)
+    dy = _axis_translation(min_y, max_y, _CANVAS_HEIGHT)
+    if abs(dx) <= 1e-9 and abs(dy) <= 1e-9:
+        return {"ok": True, "changed": False, "reason": "already_in_canvas", "ir": ir}
+
+    repaired = deepcopy(ir)
+    pieces = repaired.get("pieces")
+    if not isinstance(pieces, list):
+        return {"ok": False, "changed": False, "reason": "missing_pieces", "ir": ir}
+    for piece in pieces:
+        if not isinstance(piece, dict):
+            continue
+        _translate_transform(piece.get("target"), dx, dy)
+        keyframes = piece.get("keyframes")
+        if not isinstance(keyframes, list):
+            continue
+        for keyframe in keyframes:
+            if isinstance(keyframe, dict) and _number(keyframe.get("at")) >= 1 - 1e-9:
+                _translate_transform(keyframe, dx, dy)
+    return {
+        "ok": True,
+        "changed": True,
+        "reason": "target_assembly_translated_into_canvas",
+        "translation": {"x": round(dx, 6), "y": round(dy, 6)},
+        "ir": repaired,
+    }
+
+
+def _valid_bbox(value: object) -> bool:
+    if not isinstance(value, list) or len(value) != 4:
+        return False
+    try:
+        numbers = [float(item) for item in value]
+    except (TypeError, ValueError):
+        return False
+    return (
+        all(math.isfinite(item) for item in numbers)
+        and numbers[0] <= numbers[2]
+        and numbers[1] <= numbers[3]
+    )
+
+
+def _axis_translation(minimum: float, maximum: float, limit: float) -> float:
+    if minimum < 0:
+        return -minimum
+    if maximum > limit:
+        return limit - maximum
+    return 0.0
+
+
+def _translate_transform(value: object, dx: float, dy: float) -> None:
+    if not isinstance(value, dict):
+        return
+    if abs(dx) > 1e-9:
+        value["x"] = _translated_expression(value.get("x", 0), dx)
+    if abs(dy) > 1e-9:
+        value["y"] = _translated_expression(value.get("y", 0), dy)
+
+
+def _translated_expression(value: object, delta: float) -> object:
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return round(float(value) + delta, 9)
+    return {"op": "add", "args": [value, round(delta, 9)]}
 
 
 def _bbox_in_canvas(bbox: object) -> bool:

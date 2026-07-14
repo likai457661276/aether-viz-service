@@ -14,6 +14,9 @@ from langsmith.run_helpers import get_current_run_tree
 
 from aetherviz_service.aetherviz.agents.html_agent import HtmlStreamResult, build_html_progress_payload
 from aetherviz_service.aetherviz.agents.model_factory import create_chat_model, extract_llm_text, has_primary_llm_config
+from aetherviz_service.aetherviz.tools.recomposition_assembly import (
+    translate_target_assembly_into_canvas,
+)
 from aetherviz_service.aetherviz.tools.recomposition_contract import validate_scene_module
 from aetherviz_service.aetherviz.tools.recomposition_ir import (
     GEOMETRY_IR_MAX_CHARS,
@@ -201,6 +204,9 @@ def _generate_ranked_scene_source(
     ranking["strategy"] = "raw_candidate"
     _log_ranking(ranking)
     if not ranking["ok"]:
+        ranking, candidates = _attempt_target_bounds_completion(candidates, plan, ranking)
+        _log_ranking(ranking)
+    if not ranking["ok"]:
         ranking = _attempt_waypoint_completion(candidates, plan, ranking)
         _log_ranking(ranking)
     if not ranking["ok"]:
@@ -213,6 +219,68 @@ def _generate_ranked_scene_source(
         raise GeometryIRGenerationError(repair_input, _ranking_error_report(ranking))
     geometry_ir = ranking["selected_ir"]
     return compile_geometry_ir(geometry_ir, plan), timed_out, ranking
+
+
+def _attempt_target_bounds_completion(
+    candidates: list[object],
+    plan: dict[str, Any],
+    initial_ranking: dict[str, Any],
+) -> tuple[dict[str, Any], list[object]]:
+    repaired_candidates: list[object] = []
+    repair_reports: list[dict[str, Any]] = []
+    for index, candidate in enumerate(candidates):
+        candidate_report = initial_ranking["candidates"][index]
+        hard_failures = set(candidate_report.get("hard_failures", []))
+        eligible_for_translation = (
+            bool(hard_failures)
+            and hard_failures
+            <= {
+                "assembly:target_assembly_out_of_bounds",
+                "teaching:missing_intermediate_geometry_stage",
+            }
+            and "assembly:target_assembly_out_of_bounds" in hard_failures
+        )
+        if eligible_for_translation:
+            repair = translate_target_assembly_into_canvas(
+                candidate,
+                candidate_report.get("details", {}).get("target_assembly", {}),
+            )
+            repaired_candidates.append(repair.get("ir") or candidate)
+            repair_reports.append(
+                {
+                    "index": index,
+                    "attempted": True,
+                    "ok": repair["ok"],
+                    "changed": repair["changed"],
+                    "reason": repair["reason"],
+                    "translation": repair.get("translation"),
+                }
+            )
+        else:
+            repaired_candidates.append(candidate)
+            repair_reports.append(
+                {
+                    "index": index,
+                    "attempted": False,
+                    "ok": False,
+                    "changed": False,
+                    "reason": "candidate_has_non_bounds_hard_failures",
+                    "hard_failures": sorted(hard_failures),
+                }
+            )
+    repaired_ranking = _trace_rank_geometry_ir_candidates(
+        repaired_candidates,
+        plan,
+        origins=["bounds" if report["attempted"] else "model" for report in repair_reports],
+    )
+    repaired_ranking.update(
+        {
+            "strategy": "deterministic_target_bounds_completion",
+            "initial_ranking": public_geometry_ir_ranking(initial_ranking),
+            "target_bounds_completion": repair_reports,
+        }
+    )
+    return repaired_ranking, repaired_candidates
 
 
 def _attempt_waypoint_completion(
@@ -274,6 +342,7 @@ def _log_ranking(ranking: dict[str, Any]) -> None:
                 "strategy": ranking.get("strategy"),
                 "selected_index": ranking["selected_index"],
                 "ranking": ranking["ranking"],
+                "target_bounds_completion": ranking.get("target_bounds_completion", []),
                 "waypoint_completion": ranking.get("waypoint_completion", []),
                 "candidates": [
                     {

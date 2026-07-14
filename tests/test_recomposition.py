@@ -12,7 +12,10 @@ from aetherviz_service.aetherviz.tools.function_patch import (
     target_functions_from_report,
 )
 from aetherviz_service.aetherviz.tools.layout_contract import assemble_layout_contract
-from aetherviz_service.aetherviz.tools.recomposition_assembly import evaluate_target_assembly
+from aetherviz_service.aetherviz.tools.recomposition_assembly import (
+    evaluate_target_assembly,
+    translate_target_assembly_into_canvas,
+)
 from aetherviz_service.aetherviz.tools.recomposition_contract import validate_scene_module
 from aetherviz_service.aetherviz.tools.recomposition_ir import (
     GEOMETRY_IR_VERSION,
@@ -323,6 +326,93 @@ def test_target_assembly_rejects_overlapping_source_and_canvas_overflow() -> Non
     error_types = {item["type"] for item in report["errors"]}
     assert "source_assembly_overlap_failed" in error_types
     assert "target_assembly_out_of_bounds" in error_types
+
+
+def test_target_assembly_can_translate_an_otherwise_valid_target_into_canvas() -> None:
+    plan = normalize_plan(
+        {
+            "interactive_spec": {
+                "variables": [
+                    {"name": "sectorCount", "min": 4, "max": 32, "default": 8}
+                ]
+            },
+            "recomposition_spec": {
+                "topology_variables": ["sectorCount"],
+                "proof_constraints": {
+                    "target_assembly": [
+                        {
+                            "id": "target-rectangle",
+                            "type": "approximate_rectangle",
+                            "max_components": 1,
+                            "max_overlap_ratio": 0.1,
+                            "min_rectangularity": 0.62,
+                            "monotonic": True,
+                            "trend_tolerance": 0.08,
+                        }
+                    ],
+                    "stage_requirements": [
+                        {
+                            "id": "source",
+                            "role": "source",
+                            "at": 0,
+                            "geometry_requirement": "source_snapshot",
+                            "min_piece_ratio": 1,
+                            "required_relations": [],
+                        },
+                        {
+                            "id": "move",
+                            "role": "intermediate",
+                            "at": 0.5,
+                            "geometry_requirement": "transform_keyframe",
+                            "min_piece_ratio": 0.5,
+                            "required_relations": [],
+                        },
+                        {
+                            "id": "target",
+                            "role": "target",
+                            "at": 1,
+                            "geometry_requirement": "target_snapshot",
+                            "min_piece_ratio": 1,
+                            "required_relations": [],
+                        },
+                    ],
+                },
+            },
+        },
+        "圆形切分重排推导",
+    )
+    geometry_ir = _interlocking_sector_assembly_ir()
+    geometry_ir["frames"][-1]["formula"] = "S = πr²"
+    target = geometry_ir["pieces"][0]["target"]
+    target["x"] = {"op": "add", "args": [target["x"], 700]}
+    geometry_ir["pieces"][0]["keyframes"][-1]["x"] = deepcopy(target["x"])
+
+    before = evaluate_target_assembly(geometry_ir, plan)
+    repair = translate_target_assembly_into_canvas(geometry_ir, before)
+    after = evaluate_target_assembly(repair["ir"], plan)
+
+    assert {item["type"] for item in before["errors"]} == {
+        "target_assembly_out_of_bounds"
+    }
+    assert repair["ok"] and repair["changed"]
+    assert repair["translation"]["x"] < 0
+    assert after["ok"], after
+    assert [item["rectangularity"] for item in after["states"]] == [
+        item["rectangularity"] for item in before["states"]
+    ]
+    assert [item["overlap_ratio"] for item in after["states"]] == [
+        item["overlap_ratio"] for item in before["states"]
+    ]
+
+    from aetherviz_service.aetherviz.agents import recomposition_scene_agent
+
+    initial_ranking = rank_geometry_ir_candidates([geometry_ir], plan)
+    repaired_ranking, _ = recomposition_scene_agent._attempt_target_bounds_completion(
+        [geometry_ir], plan, initial_ranking
+    )
+    assert repaired_ranking["ok"]
+    assert repaired_ranking["strategy"] == "deterministic_target_bounds_completion"
+    assert repaired_ranking["target_bounds_completion"][0]["attempted"]
 
 
 def test_deterministic_fallback_satisfies_explicit_rectangle_assembly() -> None:

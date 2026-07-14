@@ -261,7 +261,7 @@ def _transform_at(piece: dict[str, Any], at: float) -> dict[str, float]:
 
 
 def _origin_score(origin: str) -> float:
-    return {"model": 1.0, "repair": 0.6, "fallback": 0.0}.get(origin, 0.5)
+    return {"model": 1.0, "bounds": 0.9, "repair": 0.6, "fallback": 0.0}.get(origin, 0.5)
 
 
 def _candidate_result(*, index: int, origin: str, ir: dict[str, Any] | None, fingerprint: str, hard_failures: list[str], components: dict[str, float], details: dict[str, Any]) -> dict[str, Any]:

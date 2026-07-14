@@ -54,6 +54,8 @@ def test_local_evaluation_smoke_is_network_independent(tmp_path: Path) -> None:
     assert summary["generation_strategies"] == {
         "observed_runs": 0,
         "counts": {},
+        "target_bounds_candidate_attempts": 0,
+        "target_bounds_candidate_successes": 0,
         "waypoint_candidate_attempts": 0,
         "waypoint_candidate_successes": 0,
         "completed_stage_counts": {},

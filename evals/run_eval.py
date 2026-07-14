@@ -156,12 +156,19 @@ def _generation_strategy_summary(runs: list[dict[str, Any]]) -> dict[str, Any]:
         if run.get("candidate_ranking_report", {}).get("strategy")
     ]
     strategies: dict[str, int] = {}
+    bounds_attempts = 0
+    bounds_successes = 0
     completion_attempts = 0
     completion_successes = 0
     completed_stage_counts: dict[str, int] = {}
     for report in reports:
         strategy = str(report.get("strategy"))
         strategies[strategy] = strategies.get(strategy, 0) + 1
+        for completion in report.get("target_bounds_completion", []):
+            if not isinstance(completion, dict) or not completion.get("attempted"):
+                continue
+            bounds_attempts += 1
+            bounds_successes += int(bool(completion.get("ok")))
         for completion in report.get("waypoint_completion", []):
             if not isinstance(completion, dict) or not completion.get("attempted"):
                 continue
@@ -173,6 +180,8 @@ def _generation_strategy_summary(runs: list[dict[str, Any]]) -> dict[str, Any]:
     return {
         "observed_runs": len(reports),
         "counts": dict(sorted(strategies.items())),
+        "target_bounds_candidate_attempts": bounds_attempts,
+        "target_bounds_candidate_successes": bounds_successes,
         "waypoint_candidate_attempts": completion_attempts,
         "waypoint_candidate_successes": completion_successes,
         "completed_stage_counts": dict(sorted(completed_stage_counts.items())),
