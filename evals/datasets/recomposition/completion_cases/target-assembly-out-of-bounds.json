@@ -1,0 +1,236 @@
+{
+  "id": "target-assembly-out-of-bounds",
+  "inputs": {
+    "topic": "几何图形切分重排面积推导",
+    "plan_seed": {
+      "interactive_spec": {
+        "variables": [
+          {
+            "name": "sectorCount",
+            "label": "拼片数量",
+            "min": 4,
+            "max": 32,
+            "default": 8
+          }
+        ]
+      },
+      "recomposition_spec": {
+        "topology_variables": ["sectorCount"],
+        "proof_constraints": {
+          "target_assembly": [
+            {
+              "id": "target-rectangle",
+              "type": "approximate_rectangle",
+              "max_components": 1,
+              "max_overlap_ratio": 0.1,
+              "min_rectangularity": 0.62,
+              "monotonic": true,
+              "trend_tolerance": 0.08
+            }
+          ],
+          "stage_requirements": [
+            {
+              "id": "source",
+              "role": "source",
+              "at": 0,
+              "geometry_requirement": "source_snapshot",
+              "min_piece_ratio": 1,
+              "required_relations": []
+            },
+            {
+              "id": "move",
+              "role": "intermediate",
+              "at": 0.5,
+              "geometry_requirement": "transform_keyframe",
+              "min_piece_ratio": 0.5,
+              "required_relations": []
+            },
+            {
+              "id": "target",
+              "role": "target",
+              "at": 1,
+              "geometry_requirement": "target_snapshot",
+              "min_piece_ratio": 1,
+              "required_relations": []
+            }
+          ]
+        }
+      }
+    },
+    "geometry_ir": {
+      "version": "aetherviz.geometry-ir.v1",
+      "definitions": {
+        "r": 80,
+        "pi": 3.141592653589793,
+        "N": {"state": "sectorCount"},
+        "angleStep": {
+          "op": "div",
+          "args": [
+            {"op": "mul", "args": [2, {"var": "pi"}]},
+            {"var": "N"}
+          ]
+        },
+        "halfAngle": {"op": "div", "args": [{"var": "angleStep"}, 2]},
+        "stepX": {
+          "op": "mul",
+          "args": [
+            {"var": "r"},
+            {"op": "sin", "args": [{"var": "halfAngle"}]}
+          ]
+        },
+        "stepY": {
+          "op": "mul",
+          "args": [
+            {"var": "r"},
+            {"op": "cos", "args": [{"var": "halfAngle"}]}
+          ]
+        }
+      },
+      "pieces": [
+        {
+          "repeat": {"count": {"var": "N"}, "index": "i"},
+          "id": {"op": "concat", "args": ["piece-", {"local": "i"}]},
+          "tag": "path",
+          "attrs": {
+            "d": {
+              "op": "sector_path",
+              "args": [
+                0,
+                0,
+                {"var": "r"},
+                {"op": "neg", "args": [{"var": "halfAngle"}]},
+                {"var": "halfAngle"}
+              ]
+            },
+            "fill": "#34d399"
+          },
+          "source": {
+            "x": 220,
+            "y": 280,
+            "rotation": {
+              "op": "rad_to_deg",
+              "args": [
+                {
+                  "op": "mul",
+                  "args": [{"local": "i"}, {"var": "angleStep"}]
+                }
+              ]
+            },
+            "scale": 1,
+            "opacity": 1
+          },
+          "target": {
+            "x": {
+              "op": "add",
+              "args": [
+                380,
+                {"op": "mul", "args": [{"local": "i"}, {"var": "stepX"}]}
+              ]
+            },
+            "y": {
+              "op": "if",
+              "args": [
+                {"op": "eq", "args": [{"op": "mod", "args": [{"local": "i"}, 2]}, 0]},
+                220,
+                {"op": "add", "args": [220, {"var": "stepY"}]}
+              ]
+            },
+            "rotation": {
+              "op": "if",
+              "args": [
+                {"op": "eq", "args": [{"op": "mod", "args": [{"local": "i"}, 2]}, 0]},
+                90,
+                -90
+              ]
+            },
+            "scale": 1,
+            "opacity": 1
+          },
+          "keyframes": [
+            {
+              "at": 0,
+              "x": 220,
+              "y": 280,
+              "rotation": {
+                "op": "rad_to_deg",
+                "args": [
+                  {
+                    "op": "mul",
+                    "args": [{"local": "i"}, {"var": "angleStep"}]
+                  }
+                ]
+              },
+              "scale": 1,
+              "opacity": 1
+            },
+            {
+              "at": 0.5,
+              "x": 300,
+              "y": 280,
+              "rotation": {
+                "op": "rad_to_deg",
+                "args": [
+                  {
+                    "op": "mul",
+                    "args": [{"local": "i"}, {"var": "angleStep"}]
+                  }
+                ]
+              },
+              "scale": 1,
+              "opacity": 1
+            },
+            {
+              "at": 1,
+              "x": {
+                "op": "add",
+                "args": [
+                  380,
+                  {"op": "mul", "args": [{"local": "i"}, {"var": "stepX"}]}
+                ]
+              },
+              "y": {
+                "op": "if",
+                "args": [
+                  {"op": "eq", "args": [{"op": "mod", "args": [{"local": "i"}, 2]}, 0]},
+                  220,
+                  {"op": "add", "args": [220, {"var": "stepY"}]}
+                ]
+              },
+              "rotation": {
+                "op": "if",
+                "args": [
+                  {"op": "eq", "args": [{"op": "mod", "args": [{"local": "i"}, 2]}, 0]},
+                  90,
+                  -90
+                ]
+              },
+              "scale": 1,
+              "opacity": 1
+            }
+          ]
+        }
+      ],
+      "frames": [
+        {"stage_id": "source", "at": 0, "caption": "观察源拼片", "formula": "S = πr²", "step": 0},
+        {"stage_id": "move", "at": 0.5, "caption": "移动并交错排列", "formula": "S = πr²", "step": 1},
+        {"stage_id": "target", "at": 1, "caption": "形成近似矩形", "formula": "S = πr²", "step": 2}
+      ]
+    },
+    "mutation": {
+      "type": "translate_target",
+      "x": 700,
+      "y": 0
+    }
+  },
+  "outputs": {
+    "expected_initial_hard_failures": ["assembly:target_assembly_out_of_bounds"],
+    "expected_strategy": "deterministic_target_bounds_completion",
+    "minimum_attempts": 1,
+    "required_success_rate": 1.0,
+    "preserved_assembly_metrics": ["component_count", "overlap_ratio", "rectangularity"]
+  },
+  "metadata": {
+    "dataset_type": "single_step",
+    "failure_class": "repairable_target_assembly_out_of_bounds"
+  }
+}

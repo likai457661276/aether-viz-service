@@ -4,23 +4,30 @@
 from __future__ import annotations
 
 import json
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
 from aetherviz_service.aetherviz.agents.recomposition_scene_agent import (
     GeometryIRGenerationError,
+    _attempt_target_bounds_completion,
     _generate_ranked_scene_source,
     _repair_scene_source,
 )
 from aetherviz_service.aetherviz.tools.layout_contract import assemble_layout_contract
+from aetherviz_service.aetherviz.tools.recomposition_assembly import evaluate_target_assembly
 from aetherviz_service.aetherviz.tools.recomposition_contract import validate_scene_module
 from aetherviz_service.aetherviz.tools.recomposition_ir import (
+    compile_geometry_ir,
     expand_geometry_ir,
     extract_geometry_ir_from_scene_source,
     sample_geometry_states,
     validate_geometry_ir,
 )
-from aetherviz_service.aetherviz.tools.recomposition_ranking import public_geometry_ir_ranking
+from aetherviz_service.aetherviz.tools.recomposition_ranking import (
+    public_geometry_ir_ranking,
+    rank_geometry_ir_candidates,
+)
 from aetherviz_service.aetherviz.tools.recomposition_runtime import (
     assemble_recomposition_business_html,
     build_deterministic_scene_module,
@@ -38,6 +45,89 @@ def load_examples(path: Path) -> list[dict[str, Any]]:
         if not isinstance(example.get("inputs"), dict) or not isinstance(example.get("outputs"), dict):
             raise ValueError("每个样本必须包含 inputs 和 outputs 对象")
     return examples
+
+
+def load_completion_cases(path: Path) -> list[dict[str, Any]]:
+    cases = [json.loads(case_path.read_text(encoding="utf-8")) for case_path in sorted(path.glob("*.json"))]
+    for case in cases:
+        if not isinstance(case.get("inputs"), dict) or not isinstance(case.get("outputs"), dict):
+            raise ValueError("每个 completion 样本必须包含 inputs 和 outputs 对象")
+    return cases
+
+
+def run_completion_case(example: dict[str, Any]) -> dict[str, Any]:
+    """Run one controlled candidate through the target-bounds completion branch."""
+    inputs = example["inputs"]
+    topic = str(inputs["topic"])
+    plan = normalize_plan(deepcopy(inputs["plan_seed"]), topic)
+    candidate = deepcopy(inputs["geometry_ir"])
+    _apply_completion_mutation(candidate, inputs.get("mutation", {}))
+    initial_ranking = rank_geometry_ir_candidates([candidate], plan)
+    assembly_before = evaluate_target_assembly(candidate, plan)
+    repaired_ranking, repaired_candidates = _attempt_target_bounds_completion(
+        [candidate], plan, initial_ranking
+    )
+    selected_ir = repaired_ranking.get("selected_ir")
+    if not isinstance(selected_ir, dict) and repaired_candidates:
+        selected_ir = repaired_candidates[0]
+    assembly_after = (
+        evaluate_target_assembly(selected_ir, plan) if isinstance(selected_ir, dict) else {"ok": False}
+    )
+    scene_report: dict[str, Any] = {"ok": False, "errors": [{"type": "missing_selected_ir"}]}
+    if isinstance(selected_ir, dict):
+        geometry_report = validate_geometry_ir(selected_ir, plan)
+        scene_report = (
+            validate_scene_module(compile_geometry_ir(selected_ir, plan))
+            if geometry_report["ok"]
+            else geometry_report
+        )
+    candidate_reports = initial_ranking.get("candidates", [])
+    initial_hard_failures = (
+        candidate_reports[0].get("hard_failures", [])
+        if candidate_reports and isinstance(candidate_reports[0], dict)
+        else []
+    )
+    return {
+        "initial_hard_failures": initial_hard_failures,
+        "strategy": repaired_ranking.get("strategy"),
+        "completion_reports": repaired_ranking.get("target_bounds_completion", []),
+        "final_ranking_ok": repaired_ranking.get("ok"),
+        "assembly_before": assembly_before,
+        "assembly_after": assembly_after,
+        "final_assembly_ok": assembly_after.get("ok"),
+        "scene_report": scene_report,
+    }
+
+
+def _apply_completion_mutation(ir: dict[str, Any], mutation: object) -> None:
+    if not isinstance(mutation, dict) or mutation.get("type") != "translate_target":
+        raise ValueError("unsupported_completion_mutation")
+    dx = float(mutation.get("x", 0))
+    dy = float(mutation.get("y", 0))
+    for piece in ir.get("pieces", []):
+        if not isinstance(piece, dict):
+            continue
+        _translate_transform_expression(piece.get("target"), dx, dy)
+        keyframes = piece.get("keyframes", [])
+        if isinstance(keyframes, list):
+            target_frame = next(
+                (
+                    frame
+                    for frame in reversed(keyframes)
+                    if isinstance(frame, dict) and float(frame.get("at", -1)) == 1.0
+                ),
+                None,
+            )
+            _translate_transform_expression(target_frame, dx, dy)
+
+
+def _translate_transform_expression(transform: object, dx: float, dy: float) -> None:
+    if not isinstance(transform, dict):
+        return
+    if dx:
+        transform["x"] = {"op": "add", "args": [transform.get("x", 0), dx]}
+    if dy:
+        transform["y"] = {"op": "add", "args": [transform.get("y", 0), dy]}
 
 
 def run_case(example: dict[str, Any], *, live_model: bool, browser: bool) -> dict[str, Any]:

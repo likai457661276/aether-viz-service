@@ -9,5 +9,7 @@
   "browser_runtime": 1.0,
   "initial_geometry_ir_contract": 0.95,
   "candidate_ranking": 0.95,
-  "no_generic_fallback": 0.97
+  "no_generic_fallback": 0.97,
+  "target_bounds_completion_min_attempts": 1,
+  "target_bounds_completion_success_rate": 1.0
 }

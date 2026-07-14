@@ -310,14 +310,14 @@ uv run python evals/datasets/build_visual.py /tmp/trace.json --output /tmp/aethe
 
 `evals/datasets/recomposition/legacy-topics.jsonl` 保留早期的 4 个开发主题、3 个保留主题和 4 个挑战主题。当前统一入口 `evals/run_eval.py` 分别统计分类、首次候选集中是否存在合格 IR、首次 Scene 契约、一次受限 JSON 修复后的最终契约、教学语义约束、目标拼合约束、完整 HTML 硬校验、通用 fallback 和浏览器 Runtime，并保存每个候选的硬失败、分项得分、稳定指纹、目标拼合指标及排序。LangSmith 子 Run `aetherviz.geometry_ir_ranking` 仅记录脱敏后的候选数量、分数、硬失败、拼合指标、不可计算关系和选择原因，不记录候选 IR 正文。首稿 IR 门槛为 95%，无通用 fallback 门槛为 97%；可用 `--max-runs` 精确限制调用次数。
 
-本地跨维度评估集位于 `evals/datasets/recomposition/`，包含 24 个主题、4 个通用无效 mutation、覆盖矩阵和阈值。主题同时覆盖 piece 数量、平移/旋转/翻转/组合变换、面积/长度/角度/全等、多边形/线段/角/网格、3~5 个阶段、推导难度和参数边界。默认执行 3 次形成 72 次回归：
+本地跨维度评估集位于 `evals/datasets/recomposition/`，包含 24 个主题、5 个通用无效 mutation、1 个受控 completion 样本、覆盖矩阵和阈值。受控样本构造仅有目标拼合整体越界的合法候选，硬性要求 `deterministic_target_bounds_completion` 至少尝试一次且成功率为 100%，不依赖真实模型随机触发。主题同时覆盖 piece 数量、平移/旋转/翻转/组合变换、面积/长度/角度/全等、多边形/线段/角/网格、3~5 个阶段、推导难度和参数边界。默认执行 3 次形成 72 次主题回归，并额外执行一次受控 completion：
 
 ```bash
 uv run python evals/run_eval.py
 uv run python evals/run_eval.py --live-model --browser
 ```
 
-确定性 evaluator 检查 Dataset 矩阵、分类、Geometry IR/Scene/HTML 契约、数学不变量、教学阶段和无效案例检测；`piece_count` 与主要变换的主题意图对齐作为诊断项单独汇总，避免把启发式语义当作生产硬裁决。真实模型回归的 summary 额外统计 `raw_candidate`、`deterministic_target_bounds_completion`、`deterministic_waypoint_completion` 策略次数，以及确定性候选修复的尝试与成功数。结果默认写入并可提交到 `evals/reports/latest/`。脚本不实例化 LangSmith Client，也不调用 Dataset/Evaluator 远端 API；真实模型与浏览器仅在显式传入参数时运行。模块职责与更多命令见 `evals/README.md`。
+确定性 evaluator 检查 Dataset 矩阵、分类、Geometry IR/Scene/HTML 契约、数学不变量、教学阶段、无效案例检测和受控 completion；`piece_count` 与主要变换的主题意图对齐作为诊断项单独汇总，避免把启发式语义当作生产硬裁决。真实模型回归的 summary 额外统计 `raw_candidate`、`deterministic_target_bounds_completion`、`deterministic_waypoint_completion` 策略次数，以及确定性候选修复的尝试与成功数。结果默认写入并可提交到 `evals/reports/latest/`。脚本不实例化 LangSmith Client，也不调用 Dataset/Evaluator 远端 API；真实模型与浏览器仅在显式传入参数时运行。模块职责与更多命令见 `evals/README.md`。
 
 完整 72～90 次真实模型回归可用 `--workers 2`～`--workers 4` 启用有界并发；默认值仍为 `1`。并发只缩短本地生成耗时，报告按 Dataset 与 repetition 的固定顺序汇总，不改变生产请求链路。
 

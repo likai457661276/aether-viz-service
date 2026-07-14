@@ -12,17 +12,25 @@ from typing import Any
 
 from aetherviz_service.aetherviz.tools.recomposition_ir import build_deterministic_geometry_ir
 from aetherviz_service.aetherviz.workflow.plan_contract import normalize_plan
+from evals.evaluators.completion import evaluate_completion_case
 from evals.evaluators.deterministic import (
     diagnostic_alignment,
     evaluate_run,
     validate_dataset_matrix,
 )
 from evals.evaluators.teaching_semantics import evaluate_invalid_case
-from evals.targets.recomposition import build_evaluation_plan_seed, load_examples, run_case
+from evals.targets.recomposition import (
+    build_evaluation_plan_seed,
+    load_completion_cases,
+    load_examples,
+    run_case,
+    run_completion_case,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_FIXTURES = ROOT / "evals/datasets/recomposition"
 DEFAULT_DATASET = DEFAULT_FIXTURES / "dataset.jsonl"
+DEFAULT_COMPLETION_CASES = DEFAULT_FIXTURES / "completion_cases"
 DEFAULT_INVALID_CASES = DEFAULT_FIXTURES / "invalid_cases"
 DEFAULT_THRESHOLDS = DEFAULT_FIXTURES / "expected/thresholds.json"
 DEFAULT_OUTPUT = ROOT / "evals/reports/latest"
@@ -35,6 +43,7 @@ def run_evaluation(
     live_model: bool,
     browser: bool,
     max_runs: int | None,
+    completion_cases_path: Path,
     invalid_cases_path: Path,
     thresholds_path: Path,
     workers: int = 1,
@@ -87,6 +96,10 @@ def run_evaluation(
     invalid_results = _run_invalid_cases(examples[0], invalid_cases_path)
     invalid_failures = [item for item in invalid_results if not item["ok"]]
     failures.extend({"kind": "invalid_case", **item} for item in invalid_failures)
+    completion_results = _run_completion_cases(completion_cases_path)
+    completion_summary = _completion_summary(completion_results, thresholds)
+    completion_failures = [item for item in completion_results if not item["ok"]]
+    failures.extend({"kind": "completion_case", **item} for item in completion_failures)
     metric_names = sorted({name for run in runs for name in run["scores"]})
     totals = {
         name: {
@@ -102,6 +115,7 @@ def run_evaluation(
         matrix["ok"]
         and run_range_ok
         and not invalid_failures
+        and completion_summary["ok"]
         and all(item["rate"] >= item["threshold"] for item in totals.values())
     )
     summary = {
@@ -121,6 +135,7 @@ def run_evaluation(
             "total": len(invalid_results),
             "results": invalid_results,
         },
+        "completion_cases": completion_summary,
         "diagnostic_alignment": _alignment_summary(runs),
         "generation_strategies": _generation_strategy_summary(runs),
         "failure_count": len(failures),
@@ -136,6 +151,37 @@ def _run_invalid_cases(example: dict[str, Any], path: Path) -> list[dict[str, An
         evaluate_invalid_case(base_ir, plan, json.loads(case_path.read_text(encoding="utf-8")))
         for case_path in sorted(path.glob("*.json"))
     ]
+
+
+def _run_completion_cases(path: Path) -> list[dict[str, Any]]:
+    return [
+        evaluate_completion_case(run_completion_case(example), example)
+        for example in load_completion_cases(path)
+    ]
+
+
+def _completion_summary(results: list[dict[str, Any]], thresholds: dict[str, Any]) -> dict[str, Any]:
+    attempts = sum(int(item.get("attempts", 0)) for item in results)
+    successes = sum(int(item.get("successes", 0)) for item in results)
+    success_rate = successes / attempts if attempts else 0.0
+    minimum_attempts = int(thresholds["target_bounds_completion_min_attempts"])
+    required_success_rate = float(thresholds["target_bounds_completion_success_rate"])
+    return {
+        "ok": (
+            bool(results)
+            and all(item.get("ok") for item in results)
+            and attempts >= minimum_attempts
+            and success_rate >= required_success_rate
+        ),
+        "passed": sum(bool(item.get("ok")) for item in results),
+        "total": len(results),
+        "target_bounds_completion_attempts": attempts,
+        "target_bounds_completion_successes": successes,
+        "target_bounds_completion_success_rate": round(success_rate, 6),
+        "required_min_attempts": minimum_attempts,
+        "required_success_rate": required_success_rate,
+        "results": results,
+    }
 
 
 def _alignment_summary(runs: list[dict[str, Any]]) -> dict[str, Any]:
@@ -195,6 +241,7 @@ def main() -> int:
     parser.add_argument("--max-runs", type=int)
     parser.add_argument("--live-model", action="store_true")
     parser.add_argument("--browser", action="store_true")
+    parser.add_argument("--completion-cases", type=Path, default=DEFAULT_COMPLETION_CASES)
     parser.add_argument("--invalid-cases", type=Path, default=DEFAULT_INVALID_CASES)
     parser.add_argument("--thresholds", type=Path, default=DEFAULT_THRESHOLDS)
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT)
@@ -218,6 +265,7 @@ def main() -> int:
         live_model=args.live_model,
         browser=args.browser,
         max_runs=args.max_runs,
+        completion_cases_path=args.completion_cases,
         invalid_cases_path=args.invalid_cases,
         thresholds_path=args.thresholds,
         workers=args.workers,

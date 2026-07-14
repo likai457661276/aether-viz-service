@@ -5,15 +5,22 @@ from pathlib import Path
 
 from aetherviz_service.aetherviz.tools.recomposition_ir import build_deterministic_geometry_ir
 from aetherviz_service.aetherviz.workflow.plan_contract import normalize_plan
+from evals.evaluators.completion import evaluate_completion_case
 from evals.evaluators.deterministic import REQUIRED_DIMENSIONS, validate_dataset_matrix
 from evals.evaluators.teaching_semantics import evaluate_invalid_case
 from evals.run_eval import (
+    DEFAULT_COMPLETION_CASES,
     DEFAULT_DATASET,
     DEFAULT_INVALID_CASES,
     DEFAULT_THRESHOLDS,
     run_evaluation,
 )
-from evals.targets.recomposition import build_evaluation_plan_seed, load_examples
+from evals.targets.recomposition import (
+    build_evaluation_plan_seed,
+    load_completion_cases,
+    load_examples,
+    run_completion_case,
+)
 
 
 def test_local_recomposition_dataset_covers_requested_matrix() -> None:
@@ -37,6 +44,32 @@ def test_all_invalid_recomposition_cases_are_detected() -> None:
     assert all(result["ok"] for result in results), results
 
 
+def test_target_bounds_completion_fixture_exercises_repair_branch() -> None:
+    cases = load_completion_cases(DEFAULT_COMPLETION_CASES)
+    assert len(cases) == 1
+
+    result = run_completion_case(cases[0])
+    evaluation = evaluate_completion_case(result, cases[0])
+
+    assert evaluation["ok"], evaluation
+    assert evaluation["attempts"] == 1
+    assert evaluation["success_rate"] == 1.0
+    assert evaluation["strategy"] == "deterministic_target_bounds_completion"
+
+    rejected = evaluate_completion_case(
+        {
+            **result,
+            "strategy": "raw_candidate",
+            "completion_reports": [],
+            "final_ranking_ok": False,
+        },
+        cases[0],
+    )
+    assert rejected["ok"] is False
+    assert rejected["checks"]["minimum_attempts"] is False
+    assert rejected["checks"]["completion_success_rate"] is False
+
+
 def test_local_evaluation_smoke_is_network_independent(tmp_path: Path) -> None:
     examples = load_examples(DEFAULT_DATASET)
     summary, failures = run_evaluation(
@@ -45,12 +78,16 @@ def test_local_evaluation_smoke_is_network_independent(tmp_path: Path) -> None:
         live_model=False,
         browser=False,
         max_runs=2,
+        completion_cases_path=DEFAULT_COMPLETION_CASES,
         invalid_cases_path=DEFAULT_INVALID_CASES,
         thresholds_path=DEFAULT_THRESHOLDS,
     )
     assert summary["local_only"] is True
     assert summary["passed"] is True
     assert summary["run_count"] == 2
+    assert summary["completion_cases"]["ok"] is True
+    assert summary["completion_cases"]["target_bounds_completion_attempts"] == 1
+    assert summary["completion_cases"]["target_bounds_completion_success_rate"] == 1.0
     assert summary["generation_strategies"] == {
         "observed_runs": 0,
         "counts": {},
