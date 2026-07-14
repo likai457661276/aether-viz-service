@@ -718,6 +718,36 @@ def test_server_range_contract_owns_track_progress_and_touch_target() -> None:
     assert len(parsed.select('script[data-aetherviz-control-contract="range-v1"]')) == 1
 
 
+def test_server_control_contract_provides_button_and_select_feedback() -> None:
+    from bs4 import BeautifulSoup
+
+    from aetherviz_service.aetherviz.tools.layout_contract import assemble_layout_contract
+
+    source = sample_html().replace(
+        '<button id="play-animation">播放</button>',
+        '<button id="play-animation">播放</button>'
+        '<label>速度<select id="animation-speed"><option>1×</option></select></label>',
+    )
+    parsed = BeautifulSoup(assemble_layout_contract(source, sample_plan()), "html.parser")
+    contract_css = parsed.select_one('style[data-aetherviz-layout-contract="math-shell-v1"]')
+    control_script = parsed.select_one('script[data-aetherviz-control-contract="range-v1"]')
+    animation_script = parsed.select_one('script[data-aetherviz-animation-contract="controller-v1"]')
+
+    assert contract_css is not None
+    assert control_script is not None
+    assert animation_script is not None
+    css = contract_css.get_text()
+    assert 'button:active' in css
+    assert '#play-animation[aria-pressed="true"]' in css
+    assert 'button.av-reset-confirm' in css
+    assert 'select:focus-visible' in css
+    assert 'appearance:none' in css
+    assert "aetherviz:animation-state" in control_script.get_text()
+    assert "emit('playing')" in animation_script.get_text()
+    assert "emit('paused')" in animation_script.get_text()
+    assert "emit('reset')" in animation_script.get_text()
+
+
 def test_server_layout_contract_sanitizes_model_owned_layout_and_range_css() -> None:
     from bs4 import BeautifulSoup
 
