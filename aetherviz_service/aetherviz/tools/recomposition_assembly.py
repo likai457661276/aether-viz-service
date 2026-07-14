@@ -17,6 +17,8 @@ Polygon = list[Point]
 
 _GRID_SIZE = 88
 _CURVE_STEPS = 24
+_CANVAS_WIDTH = 960.0
+_CANVAS_HEIGHT = 560.0
 _NUMBER_PATTERN = r"[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?"
 
 
@@ -34,13 +36,54 @@ def evaluate_target_assembly(ir: dict[str, Any], plan: dict[str, Any]) -> dict[s
     warnings: list[dict[str, Any]] = []
     checks: list[dict[str, Any]] = []
     states: list[dict[str, Any]] = []
+    source_states: list[dict[str, Any]] = []
+    source_overlap_limit = min(
+        (float(item.get("max_overlap_ratio", 0.1)) for item in constraints),
+        default=0.1,
+    )
     for state_label, state in sample_geometry_states(plan):
+        pieces = expand_geometry_ir(ir, state)
         try:
-            metrics = _assembly_metrics(expand_geometry_ir(ir, state), stage="target")
+            source_metrics = _assembly_metrics(pieces, stage="source")
+            source_states.append({"state": state_label, **source_metrics})
+            if source_metrics["overlap_ratio"] > source_overlap_limit:
+                errors.append(
+                    _issue(
+                        "source_assembly_overlap_failed",
+                        "源状态图元存在明显重叠，不能表示有效切分",
+                        state=state_label,
+                        overlap_ratio=source_metrics["overlap_ratio"],
+                        maximum_overlap_ratio=source_overlap_limit,
+                    )
+                )
+            if not _bbox_in_canvas(source_metrics["bbox"]):
+                errors.append(
+                    _issue(
+                        "source_assembly_out_of_bounds",
+                        "源状态整体超出画布边界",
+                        state=state_label,
+                        bbox=source_metrics["bbox"],
+                        canvas=[0, 0, _CANVAS_WIDTH, _CANVAS_HEIGHT],
+                    )
+                )
+        except (AssemblyGeometryUnavailable, KeyError, TypeError, ValueError) as exc:
+            warnings.append(_issue("source_assembly_unavailable", str(exc), state=state_label))
+        try:
+            metrics = _assembly_metrics(pieces, stage="target")
         except (AssemblyGeometryUnavailable, KeyError, TypeError, ValueError) as exc:
             warnings.append(_issue("target_assembly_unavailable", str(exc), state=state_label))
             continue
         states.append({"state": state_label, **metrics})
+        if not _bbox_in_canvas(metrics["bbox"]):
+            errors.append(
+                _issue(
+                    "target_assembly_out_of_bounds",
+                    "目标拼合整体超出画布边界",
+                    state=state_label,
+                    bbox=metrics["bbox"],
+                    canvas=[0, 0, _CANVAS_WIDTH, _CANVAS_HEIGHT],
+                )
+            )
         for constraint in constraints:
             result = _evaluate_constraint(constraint, metrics)
             check = {
@@ -66,9 +109,18 @@ def evaluate_target_assembly(ir: dict[str, Any], plan: dict[str, Any]) -> dict[s
     for constraint in constraints:
         if not constraint.get("monotonic") or len(states) < 2:
             continue
-        scores = [float(item["rectangularity"]) for item in states]
+        ordered_states = sorted(
+            states,
+            key=lambda item: {"minimum": 0, "default": 1, "maximum": 2}.get(
+                str(item.get("state")), 3
+            ),
+        )
+        scores = [float(item["rectangularity"]) for item in ordered_states]
         tolerance = float(constraint.get("trend_tolerance", 0.08))
-        passed = scores[-1] + tolerance >= scores[0]
+        passed = all(
+            right + tolerance >= left
+            for left, right in zip(scores, scores[1:], strict=False)
+        )
         checks.append(
             {
                 "kind": "target_assembly_trend",
@@ -103,7 +155,15 @@ def evaluate_target_assembly(ir: dict[str, Any], plan: dict[str, Any]) -> dict[s
         "warnings": warnings,
         "checks": checks,
         "states": states,
+        "source_states": source_states,
     }
+
+
+def _bbox_in_canvas(bbox: object) -> bool:
+    if not isinstance(bbox, list) or len(bbox) != 4:
+        return False
+    min_x, min_y, max_x, max_y = (float(value) for value in bbox)
+    return 0 <= min_x <= max_x <= _CANVAS_WIDTH and 0 <= min_y <= max_y <= _CANVAS_HEIGHT
 
 
 def piece_local_polygon(piece: dict[str, Any]) -> Polygon:

@@ -222,6 +222,43 @@ def test_target_assembly_is_inactive_without_structured_plan_constraint() -> Non
     assert report == {"ok": True, "errors": [], "warnings": [], "checks": [], "states": []}
 
 
+def test_ranking_does_not_award_assembly_points_without_structured_constraint() -> None:
+    plan = normalize_plan({}, "组合图形切割重排证明")
+    report = rank_geometry_ir_candidates([build_deterministic_geometry_ir(plan)], plan)
+    assert report["candidates"][0]["components"]["target_assembly"] == 0.0
+
+
+def test_target_assembly_rejects_overlapping_source_and_canvas_overflow() -> None:
+    plan = normalize_plan(
+        {
+            "recomposition_spec": {
+                "proof_constraints": {
+                    "target_assembly": [
+                        {
+                            "id": "target-rectangle",
+                            "type": "approximate_rectangle",
+                            "max_components": 1,
+                            "max_overlap_ratio": 0.1,
+                            "min_rectangularity": 0.62,
+                        }
+                    ]
+                }
+            }
+        },
+        "组合图形切割重排证明",
+    )
+    geometry_ir = _rectangular_assembly_ir(plan)
+    geometry_ir["pieces"][0]["source"]["x"] = 180
+    geometry_ir["pieces"][0]["keyframes"][0]["x"] = 180
+    geometry_ir["pieces"][0]["target"]["x"] = 950
+    geometry_ir["pieces"][0]["keyframes"][-1]["x"] = 950
+
+    report = evaluate_target_assembly(geometry_ir, plan)
+    error_types = {item["type"] for item in report["errors"]}
+    assert "source_assembly_overlap_failed" in error_types
+    assert "target_assembly_out_of_bounds" in error_types
+
+
 def test_deterministic_fallback_satisfies_explicit_rectangle_assembly() -> None:
     plan = normalize_plan(
         {
@@ -243,6 +280,52 @@ def test_deterministic_fallback_satisfies_explicit_rectangle_assembly() -> None:
     )
     report = rank_geometry_ir_candidates([build_deterministic_geometry_ir(plan)], plan)
     assert report["ok"], report["candidates"][0]["details"]["target_assembly"]
+
+
+def test_explicit_target_assembly_does_not_use_generic_fallback_after_failed_repair(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from aetherviz_service.aetherviz.agents import recomposition_scene_agent
+
+    plan = normalize_plan(
+        {
+            "recomposition_spec": {
+                "proof_constraints": {
+                    "target_assembly": [
+                        {
+                            "id": "target-rectangle",
+                            "type": "approximate_rectangle",
+                            "max_components": 1,
+                            "max_overlap_ratio": 0.1,
+                            "min_rectangularity": 0.62,
+                        }
+                    ]
+                }
+            }
+        },
+        "组合图形切割重排证明",
+    )
+    failure_report = {
+        "ok": False,
+        "errors": [{"type": "geometry_ir_candidate_rejected"}],
+        "warnings": [],
+    }
+    monkeypatch.setattr(recomposition_scene_agent, "has_primary_llm_config", lambda: True)
+    monkeypatch.setattr(
+        recomposition_scene_agent,
+        "_generate_scene_source",
+        lambda *_args: (_ for _ in ()).throw(
+            recomposition_scene_agent.GeometryIRGenerationError("{}", failure_report)
+        ),
+    )
+    monkeypatch.setattr(
+        recomposition_scene_agent,
+        "_repair_scene_source",
+        lambda *_args: (_ for _ in ()).throw(ValueError("repair failed")),
+    )
+
+    with pytest.raises(recomposition_scene_agent.GeometryIRGenerationError):
+        list(recomposition_scene_agent._stream_generate_recomposition_html_impl("topic", plan))
 
 
 def test_scene_generation_selects_one_ir_from_single_three_candidate_response(
@@ -883,6 +966,27 @@ def test_geometry_ir_supports_repeat_scoped_definitions_and_fold_arithmetic() ->
     report = validate_geometry_ir(geometry_ir, plan)
     assert report["ok"]
     assert validate_scene_module(compile_geometry_ir(geometry_ir, plan))["ok"]
+
+
+def test_geometry_ir_rejects_repeat_index_in_congruent_local_geometry() -> None:
+    plan = normalize_plan({}, "扇形面积等分重排推导")
+    geometry_ir = build_deterministic_geometry_ir(plan)
+    geometry_ir["definitions"]["startAngle"] = {
+        "op": "mul",
+        "args": [{"local": "i"}, 0.5],
+    }
+    geometry_ir["pieces"][0]["tag"] = "path"
+    geometry_ir["pieces"][0]["attrs"] = {
+        "d": {
+            "op": "sector_path",
+            "args": [0, 0, 54, {"var": "startAngle"}, 0.5],
+        },
+        "fill": "#34d399",
+    }
+
+    report = validate_geometry_ir(geometry_ir, plan)
+
+    assert "repeat_geometry_depends_on_index" in {item["type"] for item in report["errors"]}
 
 
 def test_geometry_ir_supports_sector_sweep_and_opacity_only_transition() -> None:

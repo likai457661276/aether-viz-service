@@ -387,7 +387,9 @@ def validate_geometry_ir(ir: object, plan: dict[str, Any]) -> dict[str, Any]:
             piece,
             index=index,
             state_names=state_names,
+            definitions=definitions,
             definition_names=definition_names,
+            require_index_independent_geometry=_piece_congruence_required(plan),
             budget=budget,
             errors=errors,
         )
@@ -596,7 +598,9 @@ def _validate_piece_template(
     *,
     index: int,
     state_names: set[str],
+    definitions: dict[str, Any],
     definition_names: set[str],
+    require_index_independent_geometry: bool,
     budget: list[int],
     errors: list[dict[str, Any]],
 ) -> None:
@@ -629,6 +633,20 @@ def _validate_piece_template(
             if name not in allowed_attrs:
                 errors.append(_issue("forbidden_piece_attr", "图元属性不在白名单", path=path, attr=name))
             _validate_expression(expression, path=f"{path}.attrs.{name}", state_names=state_names, definition_names=definition_names, local_names=local_names, depth=0, budget=budget, errors=errors)
+            if (
+                repeat is not None
+                and require_index_independent_geometry
+                and name in _TAG_ATTRS.get(tag, set())
+                and _expression_depends_on_local(expression, local_names, definitions)
+            ):
+                errors.append(
+                    _issue(
+                        "repeat_geometry_depends_on_index",
+                        "全等 repeat 图元的局部几何不得依赖 repeat 索引；朝向和位置只能写入变换",
+                        path=f"{path}.attrs.{name}",
+                        attr=name,
+                    )
+                )
     for transform_name in ("source", "target"):
         transform = piece.get(transform_name)
         if not isinstance(transform, dict) or not transform:
@@ -665,6 +683,44 @@ def _validate_piece_template(
                 errors.append(_issue("missing_initial_transform_keyframe", "第一个变换阶段 at 必须为 0", path=path))
             if isinstance(keyframes[-1], dict) and keyframes[-1].get("at") != 1:
                 errors.append(_issue("missing_final_transform_keyframe", "最后一个变换阶段 at 必须为 1", path=path))
+
+
+def _expression_depends_on_local(
+    expression: object,
+    local_names: set[str],
+    definitions: dict[str, Any],
+    resolving: set[str] | None = None,
+) -> bool:
+    if isinstance(expression, list):
+        return any(
+            _expression_depends_on_local(item, local_names, definitions, resolving)
+            for item in expression
+        )
+    if not isinstance(expression, dict):
+        return False
+    if set(expression) == {"local"}:
+        return str(expression.get("local")) in local_names
+    if set(expression) == {"var"}:
+        name = str(expression.get("var"))
+        if name not in definitions or name in (resolving or set()):
+            return False
+        return _expression_depends_on_local(
+            definitions[name],
+            local_names,
+            definitions,
+            {*resolving, name} if resolving else {name},
+        )
+    return any(
+        _expression_depends_on_local(value, local_names, definitions, resolving)
+        for value in expression.values()
+    )
+
+
+def _piece_congruence_required(plan: dict[str, Any]) -> bool:
+    spec = plan.get("recomposition_spec") if isinstance(plan.get("recomposition_spec"), dict) else {}
+    proof = spec.get("proof_constraints") if isinstance(spec.get("proof_constraints"), dict) else {}
+    invariants = proof.get("measure_invariants")
+    return isinstance(invariants, list) and "piece_congruence" in invariants
 
 
 def _validate_expression(

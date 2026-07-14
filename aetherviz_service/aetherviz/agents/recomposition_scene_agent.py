@@ -133,6 +133,8 @@ def _stream_generate_recomposition_html_impl(
             source = _repair_scene_source(topic, plan, repair_input, repair_report)
         except Exception as exc:
             logger.warning("geometry IR bounded repair failed: %s", exc)
+    if not source and repair_report and _has_target_assembly_constraints(plan):
+        raise GeometryIRGenerationError(repair_input, repair_report)
     report = validate_scene_module(source)
     if not report["ok"]:
         if source:
@@ -287,6 +289,16 @@ def _log_ranking(ranking: dict[str, Any]) -> None:
     process_inputs=lambda inputs: {
         "candidate_count": len(inputs.get("candidates") or []),
         "origins": inputs.get("origins"),
+        "measure_invariant_count": len(
+            (((inputs.get("plan") or {}).get("recomposition_spec") or {}).get("proof_constraints") or {}).get(
+                "measure_invariants", []
+            )
+        ),
+        "stage_requirement_count": len(
+            (((inputs.get("plan") or {}).get("recomposition_spec") or {}).get("proof_constraints") or {}).get(
+                "stage_requirements", []
+            )
+        ),
         "target_assembly": (
             (((inputs.get("plan") or {}).get("recomposition_spec") or {}).get("proof_constraints") or {}).get(
                 "target_assembly", []
@@ -318,6 +330,9 @@ def _trace_ranking_summary(ranking: dict[str, Any]) -> dict[str, Any]:
                 "hard_failures": item.get("hard_failures", []),
                 "components": item.get("components", {}),
                 "assembly_states": item.get("details", {}).get("target_assembly", {}).get("states", []),
+                "source_assembly_states": item.get("details", {}).get("target_assembly", {}).get(
+                    "source_states", []
+                ),
                 "unavailable_relations": [
                     warning
                     for warning in item.get("details", {}).get("mathematics", {}).get("warnings", [])
@@ -397,6 +412,13 @@ def _build_scene_prompt(topic: str, plan: dict[str, Any]) -> str:
         "画布为 960×560，默认状态的主体图形建议占 160~420px，避免把 1~8 这类抽象参数直接当像素尺寸。\n"
         + json.dumps(compact, ensure_ascii=False, separators=(",", ":"))
     )
+
+
+def _has_target_assembly_constraints(plan: dict[str, Any]) -> bool:
+    spec = plan.get("recomposition_spec") if isinstance(plan.get("recomposition_spec"), dict) else {}
+    proof = spec.get("proof_constraints") if isinstance(spec.get("proof_constraints"), dict) else {}
+    constraints = proof.get("target_assembly")
+    return isinstance(constraints, list) and any(isinstance(item, dict) for item in constraints)
 
 
 def _parse_error_report(message: str) -> dict[str, Any]:

@@ -116,7 +116,9 @@ def _evaluate_candidate(candidate: object, plan: dict[str, Any], index: int, ori
     stage_errors = [
         error
         for error in semantic_report.get("errors", [])
-        if not str(error.get("type", "")).startswith(("mathematical_", "target_assembly_"))
+        if not str(error.get("type", "")).startswith(
+            ("mathematical_", "target_assembly_", "source_assembly_")
+        )
     ]
     hard_failures = [
         *_error_types(math_report, "mathematics"),
@@ -167,7 +169,7 @@ def _assembly_score(report: dict[str, Any]) -> float:
         return 0.0
     states = report.get("states", [])
     if not states:
-        return 1.0
+        return 0.0
     scores = [
         _finite(item.get("rectangularity"), 0)
         * (1 - min(1.0, _finite(item.get("overlap_ratio"), 1)))

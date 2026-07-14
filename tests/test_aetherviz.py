@@ -205,6 +205,41 @@ def test_approve_plan_marks_plan_approved() -> None:
     assert events[-1][1]["data"]["plan"]["status"] == "approved"
 
 
+def test_approve_plan_preserves_recomposition_contract() -> None:
+    plan = sample_plan("圆的面积推导")
+    plan["subject"] = "mathematics"
+    plan["recomposition_spec"] = {
+        "topology_variables": ["parameter"],
+        "proof_constraints": {
+            "measure_invariants": ["area_preserved", "piece_congruence"],
+            "target_assembly": [
+                {
+                    "id": "target-rectangle",
+                    "type": "approximate_rectangle",
+                    "max_components": 1,
+                    "max_overlap_ratio": 0.1,
+                    "min_rectangularity": 0.62,
+                    "monotonic": True,
+                    "trend_tolerance": 0.08,
+                }
+            ],
+            "stage_requirements": [
+                {"id": "source", "intent": "源状态"},
+                {"id": "align", "intent": "对齐"},
+                {"id": "target", "intent": "目标状态"},
+            ],
+        },
+    }
+
+    response = client.post(AETHERVIZ_ENDPOINT, json={"phase": "approve_plan", "plan": plan})
+
+    events = parse_sse_events(response)
+    approved = events[-1][1]["data"]["plan"]
+    proof = approved["recomposition_spec"]["proof_constraints"]
+    assert proof["target_assembly"] == plan["recomposition_spec"]["proof_constraints"]["target_assembly"]
+    assert [item["id"] for item in proof["stage_requirements"]] == ["source", "align", "target"]
+
+
 def test_generate_phase_requires_approved_plan() -> None:
     response = client.post(AETHERVIZ_ENDPOINT, json={"phase": "generate"})
 
