@@ -1,0 +1,1 @@
+{"id":"missing-stage","mutation":"remove_intermediate_stage","expected_issues":["invalid_display_frames","missing_teaching_stage"]}

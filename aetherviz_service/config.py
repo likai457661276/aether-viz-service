@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     aetherviz_html_enable_thinking: bool = False
     aetherviz_html_reasoning_effort: str | None = None
     aetherviz_html_max_tokens: int = 8192
+    aetherviz_scene_max_tokens: int = 12288
     aetherviz_edit_max_tokens: int = 9216
     aetherviz_repair_max_tokens: int = 9216
     aetherviz_max_repair_attempts: int = 1

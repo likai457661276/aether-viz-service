@@ -1,0 +1,12 @@
+{
+  "profile_match": 1.0,
+  "scene_contract": 1.0,
+  "html_hard_validation": 1.0,
+  "mathematical_invariants": 1.0,
+  "teaching_semantics": 1.0,
+  "stage_count_match": 1.0,
+  "browser_runtime": 1.0,
+  "initial_geometry_ir_contract": 0.95,
+  "candidate_ranking": 0.95,
+  "no_generic_fallback": 0.97
+}

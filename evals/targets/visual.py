@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Offline browser quality checks for generated AetherViz HTML."""
+"""Offline browser target for generated AetherViz HTML."""
 
 from __future__ import annotations
 

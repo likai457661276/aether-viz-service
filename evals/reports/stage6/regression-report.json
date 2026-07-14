@@ -1,0 +1,203 @@
+{
+  "local_only": true,
+  "git": {
+    "revision": "93134bfcda42f838a457e09c9ad3735645162eb4",
+    "dirty": true
+  },
+  "baseline": {
+    "created_at": "2026-07-14T03:15:45.458242+00:00",
+    "mode": "deterministic_scaffold",
+    "run_count": 72,
+    "passed": true
+  },
+  "current": {
+    "created_at": "2026-07-14T04:02:38.988412+00:00",
+    "mode": "live_model",
+    "run_count": 72,
+    "passed": false
+  },
+  "version_difference": {
+    "common_metric_deltas": {
+      "html_hard_validation": {
+        "baseline": 1.0,
+        "current": 1.0,
+        "delta": 0.0
+      },
+      "mathematical_invariants": {
+        "baseline": 1.0,
+        "current": 1.0,
+        "delta": 0.0
+      },
+      "profile_match": {
+        "baseline": 1.0,
+        "current": 1.0,
+        "delta": 0.0
+      },
+      "scene_contract": {
+        "baseline": 1.0,
+        "current": 1.0,
+        "delta": 0.0
+      },
+      "stage_count_match": {
+        "baseline": 1.0,
+        "current": 1.0,
+        "delta": 0.0
+      },
+      "teaching_semantics": {
+        "baseline": 1.0,
+        "current": 1.0,
+        "delta": 0.0
+      }
+    },
+    "current_live_only_metrics": {
+      "browser_runtime": {
+        "passed": 72,
+        "total": 72,
+        "rate": 1.0,
+        "threshold": 1.0
+      },
+      "candidate_ranking": {
+        "passed": 68,
+        "total": 72,
+        "rate": 0.944444,
+        "threshold": 0.95
+      },
+      "initial_geometry_ir_contract": {
+        "passed": 68,
+        "total": 72,
+        "rate": 0.944444,
+        "threshold": 0.95
+      },
+      "no_generic_fallback": {
+        "passed": 70,
+        "total": 72,
+        "rate": 0.972222,
+        "threshold": 0.97
+      }
+    },
+    "comparison_note": "baseline 为同版本确定性脚手架，current 为真实模型；公共指标可比较，live-only 指标无历史真实模型基线，不能解释为代码版本升降。"
+  },
+  "failures": {
+    "records": 4,
+    "repaired_records": 2,
+    "metric_counts": {
+      "candidate_ranking": 4,
+      "initial_geometry_ir_contract": 4,
+      "no_generic_fallback": 2
+    },
+    "candidate_hard_failure_counts": {
+      "teaching:missing_intermediate_geometry_stage": 9,
+      "schema:geometry_ir_semantics": 3
+    },
+    "topic_counts": {
+      "单块多边形旋转割补面积守恒推导": 2,
+      "两段线段组合变换重排长度证明": 1,
+      "两段折线旋转重排长度等式证明": 1
+    },
+    "fallback_topic_counts": {
+      "单块多边形旋转割补面积守恒推导": 2
+    },
+    "failed_dimensions": {
+      "derivation_difficulty": {
+        "multi_step": 3,
+        "single_step": 1
+      },
+      "math_relation": {
+        "length": 2,
+        "area": 2
+      },
+      "parameter_form": {
+        "boundary": 3,
+        "fixed": 1
+      },
+      "piece_count": {
+        "2": 2,
+        "1": 2
+      },
+      "primary_transform": {
+        "rotation": 3,
+        "combined": 1
+      },
+      "representation": {
+        "segment": 2,
+        "polygon": 2
+      },
+      "stage_count": {
+        "5": 3,
+        "3": 1
+      }
+    }
+  },
+  "llm_judge": {
+    "evaluated": 72,
+    "available": 50,
+    "unavailable": 22,
+    "unavailable_reasons": {
+      "JSONDecodeError": 22
+    },
+    "criterion_averages": {
+      "action_text_consistency": 0.858,
+      "conclusion_derivability": 0.795,
+      "intermediate_explanation": 0.73,
+      "teaching_clarity": 0.7326,
+      "visual_text_conflict_absence": 0.835
+    },
+    "low_score_below_0_7": 9,
+    "low_score_samples": [
+      {
+        "id": "recomp-021",
+        "repetition": 1,
+        "score": 0.58
+      },
+      {
+        "id": "recomp-021",
+        "repetition": 3,
+        "score": 0.58
+      },
+      {
+        "id": "recomp-004",
+        "repetition": 2,
+        "score": 0.54
+      },
+      {
+        "id": "recomp-004",
+        "repetition": 3,
+        "score": 0.18
+      },
+      {
+        "id": "recomp-007",
+        "repetition": 2,
+        "score": 0.4
+      },
+      {
+        "id": "recomp-010",
+        "repetition": 1,
+        "score": 0.52
+      },
+      {
+        "id": "recomp-017",
+        "repetition": 1,
+        "score": 0.64
+      },
+      {
+        "id": "recomp-017",
+        "repetition": 3,
+        "score": 0.64
+      },
+      {
+        "id": "recomp-024",
+        "repetition": 3,
+        "score": 0.54
+      }
+    ],
+    "serious_visual_text_conflicts": 7,
+    "serious_conflict_ids": {
+      "recomp-021": 2,
+      "recomp-004": 1,
+      "recomp-007": 1,
+      "recomp-010": 1,
+      "recomp-018": 1,
+      "recomp-024": 1
+    }
+  }
+}

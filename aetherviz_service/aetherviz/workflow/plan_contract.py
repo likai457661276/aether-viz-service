@@ -45,6 +45,7 @@ def compact_plan_for_revision(plan: dict[str, Any]) -> dict[str, Any]:
         "controls",
         "formulas",
         "discipline_spec",
+        "recomposition_spec",
     )
     return {field: plan[field] for field in semantic_fields if field in plan}
 
@@ -113,6 +114,11 @@ def normalize_plan(raw_plan: dict | None, topic: str, primary_color: str = DEFAU
         "scene_outline": scene_outline,
         "subject": subject,
         "knowledge_profile": knowledge_profile,
+        **(
+            {"recomposition_spec": _normalize_recomposition_spec(raw.get("recomposition_spec"), interactive_spec)}
+            if knowledge_profile.get("representation_type") == "geometric_recomposition"
+            else {}
+        ),
         "title": title,
         "goal": (_safe_str(raw.get("goal")) or baseline["goal"])[:180],
         "learner_level": (_safe_str(raw.get("learner_level")) or "初中/高中")[:24],
@@ -147,7 +153,7 @@ def _default_plan(topic: str, primary_color: str) -> dict:
     key_points = _default_key_points(topic, interactive_type)
     widget_outline = _normalize_widget_outline(None, interactive_spec, interactive_type, topic)
     knowledge_profile = build_knowledge_profile(topic, subject=subject)
-    return {
+    plan = {
         "page_type": "interactive",
         "interactive_type": interactive_type,
         "widget_type": interactive_type,
@@ -180,6 +186,189 @@ def _default_plan(topic: str, primary_color: str) -> dict:
             ),
         },
         "primary_color": primary_color,
+    }
+    if knowledge_profile.get("representation_type") == "geometric_recomposition":
+        plan["recomposition_spec"] = _normalize_recomposition_spec(None, interactive_spec)
+    return plan
+
+
+def _normalize_recomposition_spec(raw_spec: object, interactive_spec: dict[str, Any]) -> dict[str, Any]:
+    raw = raw_spec if isinstance(raw_spec, dict) else {}
+    variables = [
+        variable
+        for variable in interactive_spec.get("variables", [])
+        if isinstance(variable, dict) and not variable.get("computed") and _safe_str(variable.get("name"))
+    ]
+    variable_names = [_safe_str(variable.get("name")) for variable in variables]
+    inferred_topology = [
+        name
+        for name in variable_names
+        if any(cue in name.lower() for cue in ("count", "piece", "segment", "sector", "slice", "part", "number"))
+    ]
+    requested_topology = _string_list(raw.get("topology_variables"), [], max_items=3, max_len=40)
+    topology = [name for name in requested_topology if name in variable_names] or inferred_topology
+    requested_geometry = _string_list(raw.get("geometry_variables"), [], max_items=3, max_len=40)
+    geometry = [name for name in requested_geometry if name in variable_names and name not in topology]
+    if not geometry:
+        geometry = [name for name in variable_names if name not in topology]
+    invariants = _string_list(
+        raw.get("invariants"),
+        [
+            "piece_identity_preserved",
+            "piece_count_constant_during_animation",
+            "source_target_piece_sets_equal",
+            "no_structural_mutation_during_animation",
+        ],
+        max_items=8,
+        max_len=72,
+    )
+    proof_raw = raw.get("proof_constraints") if isinstance(raw.get("proof_constraints"), dict) else {}
+    allowed_measures = {"area_preserved", "length_preserved", "angle_preserved", "piece_congruence"}
+    requested_measures = _string_list(
+        proof_raw.get("measure_invariants"),
+        ["area_preserved", "piece_congruence"],
+        max_items=4,
+        max_len=40,
+    )
+    measure_invariants = [item for item in requested_measures if item in allowed_measures]
+    if not measure_invariants:
+        measure_invariants = ["area_preserved", "piece_congruence"]
+    stage_requirements = _normalize_stage_requirements(proof_raw.get("stage_requirements"))
+    return {
+        "topology_variables": topology,
+        "geometry_variables": geometry,
+        "animation_variable": "progress",
+        "invariants": invariants,
+        "proof_constraints": {
+            "piece_policy": "stable_ids",
+            "measure_invariants": measure_invariants,
+            "target_relations": _normalize_target_relations(
+                proof_raw.get("target_relations"), measure_invariants
+            ),
+            "stage_requirements": stage_requirements,
+        },
+    }
+
+
+def _normalize_stage_requirements(value: object) -> list[dict[str, Any]]:
+    raw_stages = [item for item in value[:5] if isinstance(item, dict)] if isinstance(value, list) else []
+    if len(raw_stages) < 3:
+        raw_stages = [
+            {"id": "source", "intent": "展示切分前或切分后的源图元集合"},
+            {"id": "transform", "intent": "展示同一组图元形成可观察的中间几何状态"},
+            {"id": "target", "intent": "展示目标排列并建立度量等式"},
+        ]
+
+    stage_count = len(raw_stages)
+    used_ids: set[str] = set()
+    stages: list[dict[str, Any]] = []
+    for index, item in enumerate(raw_stages):
+        role = "source" if index == 0 else "target" if index == stage_count - 1 else "intermediate"
+        default_id = role if role != "intermediate" else f"transform-{index}"
+        stage_id = re.sub(
+            r"[^a-zA-Z0-9_-]+",
+            "-",
+            (_safe_str(item.get("id")) or default_id).lower(),
+        ).strip("-")[:40] or default_id
+        if stage_id in used_ids:
+            stage_id = f"{default_id}-{index}"[:40]
+        used_ids.add(stage_id)
+        at = 0.0 if role == "source" else 1.0 if role == "target" else index / (stage_count - 1)
+        stages.append(
+            {
+                "id": stage_id,
+                "role": role,
+                "at": round(at, 6),
+                "intent": (_safe_str(item.get("intent")) or "展示几何关系")[:120],
+                "geometry_requirement": (
+                    "transform_keyframe" if role == "intermediate" else f"{role}_snapshot"
+                ),
+                "min_piece_ratio": (
+                    _clamp(_safe_number(item.get("min_piece_ratio"), 0.5), 0.1, 1.0)
+                    if role == "intermediate"
+                    else 1.0
+                ),
+                "required_relations": _string_list(
+                    item.get("required_relations"), [], max_items=4, max_len=48
+                ),
+            }
+        )
+    return stages
+
+
+def _normalize_target_relations(value: object, measure_invariants: list[str]) -> list[dict[str, Any]]:
+    allowed_types = {
+        "equal_area",
+        "equal_length",
+        "equal_angle",
+        "parallel",
+        "perpendicular",
+        "coincident",
+        "collinear",
+        "congruent",
+    }
+    relations: list[dict[str, Any]] = []
+    if isinstance(value, list):
+        for index, item in enumerate(value[:12]):
+            if not isinstance(item, dict) or item.get("type") not in allowed_types:
+                continue
+            relation: dict[str, Any] = {
+                "id": re.sub(
+                    r"[^a-zA-Z0-9_-]+",
+                    "-",
+                    (_safe_str(item.get("id")) or f"relation-{index + 1}").lower(),
+                ).strip("-")[:48]
+                or f"relation-{index + 1}",
+                "type": item["type"],
+                "tolerance": _clamp(_safe_number(item.get("tolerance"), 1e-6), 1e-9, 0.1),
+            }
+            for key in ("left", "right"):
+                reference = _normalize_relation_reference(item.get(key), depth=0)
+                if reference is not None:
+                    relation[key] = reference
+            if item["type"] == "collinear" and isinstance(item.get("points"), list):
+                points = [
+                    normalized
+                    for point in item["points"][:8]
+                    if (normalized := _normalize_relation_reference(point, depth=0)) is not None
+                ]
+                if points:
+                    relation["points"] = points
+            relations.append(relation)
+    if not relations and "area_preserved" in measure_invariants:
+        relations.append(
+            {
+                "id": "source-target-area",
+                "type": "equal_area",
+                "left": {"stage": "source"},
+                "right": {"stage": "target"},
+                "tolerance": 1e-6,
+            }
+        )
+    return relations
+
+
+def _normalize_relation_reference(value: object, *, depth: int) -> object | None:
+    if depth > 4:
+        return None
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, (int, float, str)):
+        return value
+    if isinstance(value, list):
+        return [
+            normalized
+            for item in value[:8]
+            if (normalized := _normalize_relation_reference(item, depth=depth + 1)) is not None
+        ]
+    if not isinstance(value, dict):
+        return None
+    allowed_keys = {"stage", "piece_id", "piece_ids", "anchor", "index", "start", "end", "points"}
+    return {
+        str(key): normalized
+        for key, item in value.items()
+        if key in allowed_keys
+        and (normalized := _normalize_relation_reference(item, depth=depth + 1)) is not None
     }
 
 

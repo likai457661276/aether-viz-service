@@ -31,19 +31,24 @@ def check_animation_lifecycle(html: str, *, soup: BeautifulSoup | None = None) -
     functions = _extract_function_bodies(script_text)
 
     for callback in _extract_braced_bodies(script_text, _FRAME_CALLBACK_RE):
-        risky = []
-        if _STRUCTURAL_MUTATION_RE.search(callback):
-            risky.append("<inline callback>")
+        risky: list[tuple[list[str], str]] = []
+        inline_mutation = _first_structural_operation(callback)
+        if inline_mutation:
+            risky.append((["<inline callback>"], inline_mutation))
         for name in _CALL_RE.findall(callback):
-            if name not in _IGNORED_CALLS and _calls_structural_function(name, functions, set()):
-                risky.append(name)
+            path = _structural_call_path(name, functions, set()) if name not in _IGNORED_CALLS else None
+            if path:
+                risky.append(path)
         if risky:
+            call_chain, operation = min(risky, key=lambda item: (len(item[0]), item[0]))
             errors.append(
                 _issue(
                     "structural_render_inside_animation_frame",
-                    "动画逐帧回调调用了会重建 DOM/SVG 结构的函数："
-                    + ", ".join(sorted(set(risky)))
-                    + "；应拆分 buildScene 与 applyView，逐帧只更新既有节点属性。",
+                    "动画逐帧回调经调用链 "
+                    + " -> ".join(call_chain)
+                    + f" 执行结构操作 {operation}；应拆分 buildScene 与 applyView，逐帧只更新既有节点属性。",
+                    call_chain=call_chain,
+                    operation=operation,
                 )
             )
             break
@@ -165,6 +170,39 @@ def _calls_structural_function(
     )
 
 
+def _structural_call_path(
+    name: str,
+    functions: dict[str, str],
+    visited: set[str],
+) -> tuple[list[str], str] | None:
+    if name in visited or name not in functions:
+        return None
+    visited = {*visited, name}
+    body = functions[name]
+    operation = _first_structural_operation(body)
+    if operation:
+        return [name], operation
+    for called in _CALL_RE.findall(body):
+        if called in _IGNORED_CALLS:
+            continue
+        nested = _structural_call_path(called, functions, visited)
+        if nested:
+            path, operation = nested
+            return [name, *path], operation
+    return None
+
+
+def _first_structural_operation(body: str) -> str | None:
+    match = _STRUCTURAL_MUTATION_RE.search(body)
+    if not match:
+        return None
+    token = match.group(0)
+    for operation in ("innerHTML", "replaceChildren", "createElementNS", "createElement", "appendChild", "removeChild"):
+        if operation in token:
+            return operation
+    return token.strip()
+
+
 def _check_unchecked_node_registries(
     registries: set[str],
     functions: dict[str, str],
@@ -270,5 +308,5 @@ def _check_duplicate_geometry_transform_encoding(
         return
 
 
-def _issue(issue_type: str, message: str) -> dict:
-    return {"type": issue_type, "message": message, "line": None}
+def _issue(issue_type: str, message: str, **details: object) -> dict:
+    return {"type": issue_type, "message": message, "line": None, **details}

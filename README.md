@@ -2,9 +2,9 @@
 
 `AI互动实验` 是一个基于 Python 3.12 和 FastAPI 的后端服务，用于根据教学主题生成完整、可直接打开的互动教学 HTML。
 
-当前生成链路使用 LangChain `ChatOpenAI` 生成动态单页互动课件：先生成可确认的 `interactive` 教案计划，用户可多轮修订计划，确认后模型生成数学主视觉、业务控件、公式、旁白、教学流程和运行时。服务端随后按版本化 `math-shell-v1` 布局契约确定性重建页面骨架、响应式断点、区域顺序和滚动归属，模型不再创作最终页面布局。服务端根据主题生成通用 `knowledge_profile`（学科、概念族、表征类型、教学模式），再组合互动类型、学科组和表征提示词；计划通过 `discipline_spec` 描述对象、关系、不变量、边界情况和多重表征，不为单独知识点维护硬编码模板。HTML 只在请求内存中完成装配、检查和修复，通过 SSE 返回前端渲染与会话缓存；后端不落盘缓存 HTML、修复稿或检查报告。
+当前生成链路使用 LangChain `ChatOpenAI` 生成动态单页互动课件：先生成可确认的 `interactive` 教案计划，用户可多轮修订计划，确认后再生成 HTML。服务端根据主题生成通用 `knowledge_profile`（学科、概念族、表征类型、教学模式）；普通主题沿用直接 HTML 链路，`geometric_recomposition` 几何切分重排主题只由模型生成纯 JSON 几何 IR（通用图元模板、有限循环、受限表达式、源/目标 transform 和教学帧），模型不再生成 JavaScript。DOM、SVG 注册表、IR 解释器、动画控制器、参数生命周期和 iframe Runtime 全部由服务端脚手架提供。最终页面统一按 `math-shell-v1` 布局契约装配，不为单独知识点维护硬编码模板。HTML 只在请求内存中完成装配、检查和修复，通过 SSE 返回前端渲染与会话缓存；后端不落盘缓存 HTML、修复稿或检查报告。
 
-Docker 镜像内置 Node.js，仅用于对生成物的内联 JavaScript 执行 `node --check` 语法校验，保证 macOS 本地与 Linux 生产容器使用同等级检查。
+Docker 镜像内置 Node.js，用于内联 JavaScript `node --check` 和受限 Scene Module 隔离运行冒烟检查，保证 macOS 本地与 Linux 生产容器使用同等级检查；浏览器回归仍只在本地/离线流程运行。
 
 ## 目录结构
 
@@ -56,11 +56,12 @@ AETHERVIZ_KATEX_ENABLED=true
 AETHERVIZ_KATEX_CSS_URL="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css"
 AETHERVIZ_KATEX_JS_URL="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"
 AETHERVIZ_HTML_MAX_TOKENS=8192
+AETHERVIZ_SCENE_MAX_TOKENS=12288
 AETHERVIZ_EDIT_MAX_TOKENS=9216
 AETHERVIZ_REPAIR_MAX_TOKENS=9216
 ```
 
-规划阶段使用 `OPENAI_PLAN_MODEL`，HTML 生成、HTML 编辑和模型修复使用 `OPENAI_HTML_MODEL`。两类模型复用 `OPENAI_API_KEY` 与 `OPENAI_BASE_URL`；默认分别为 `deepseek-v4-flash` 和 `qwen3.7-plus`。`AETHERVIZ_PLAN_MAX_TOKENS` 控制计划 JSON 的最大输出 token，默认 3072；规划阶段固定关闭深度思考并启用 JSON Mode，以降低延迟和格式漂移。`AETHERVIZ_GSAP_CDN_URL` 统一配置 GSAP core UMD。KaTeX 仅在计划包含公式时按需加载固定 CSS/JS，且必须提供 `window.katex` 缺失时的纯文本降级。所有 CDN 地址只接受不含凭据、query 或 fragment 的 HTTPS URL；Tailwind、D3、KaTeX auto-render 和其他外部资源不在白名单中。`AETHERVIZ_HTML_MAX_TOKENS`、`AETHERVIZ_EDIT_MAX_TOKENS`、`AETHERVIZ_REPAIR_MAX_TOKENS` 分别控制 HTML 新生成、编辑和模型修复的最大输出 token，默认 8192、9216、9216。阶段级温度、超时及重试策略由服务内置默认值控制；HTML 直出默认关闭推理，避免增加耗时和截断概率。不要把真实 API Key 提交到仓库。
+规划阶段使用 `OPENAI_PLAN_MODEL`，HTML、几何 IR、HTML 编辑和模型修复使用 `OPENAI_HTML_MODEL`。两类模型复用 `OPENAI_API_KEY` 与 `OPENAI_BASE_URL`；默认分别为 `deepseek-v4-flash` 和 `qwen3.7-plus`。`AETHERVIZ_PLAN_MAX_TOKENS` 控制计划 JSON 的最大输出 token，默认 3072；`AETHERVIZ_SCENE_MAX_TOKENS` 控制单次 3 候选重排 IR 响应，默认 12288。IR 优先使用严格 JSON Schema 响应约束；兼容网关不支持时自动降级到 JSON object 模式，再由同一服务端契约校验。IR 生成温度固定为 0；服务端执行传输结构归一化、确定性 AST 纠错、schema/白名单检查、default/min/max 语义展开和教学证明约束检查，再编译为固定 Scene Module，补齐 `structureKey`、多阶段 transform 插值和展示帧选择。`AETHERVIZ_GSAP_CDN_URL` 统一配置 GSAP core UMD。KaTeX 仅在计划包含公式时按需加载固定 CSS/JS，且必须提供 `window.katex` 缺失时的纯文本降级。所有 CDN 地址只接受不含凭据、query 或 fragment 的 HTTPS URL；Tailwind、D3、KaTeX auto-render 和其他外部资源不在白名单中。`AETHERVIZ_HTML_MAX_TOKENS`、`AETHERVIZ_EDIT_MAX_TOKENS`、`AETHERVIZ_REPAIR_MAX_TOKENS` 分别控制 HTML 新生成、编辑和模型修复的最大输出 token，默认 8192、9216、9216。不要把真实 API Key 提交到仓库。
 
 ### LangSmith 可观测性
 
@@ -276,14 +277,14 @@ HTML 文件编辑阶段请求示例：
 1. `phase=plan` 由统一配置的模型执行单次规划，生成完整 `draft` 教案计划。
 2. `phase=revise_plan` 由规划模型接收 `current_plan + message`，重新生成完整 `revised` 计划，不返回局部 patch。
 3. `phase=approve_plan` 将计划状态置为 `approved`。
-4. `phase=generate` 由 `html_agent` 根据已确认计划生成完整自包含 HTML，并在 `html.delta` 中持续返回累计实际大小。
+4. `phase=generate` 根据 `knowledge_profile.representation_type` 路由：`geometric_recomposition` 由 `recomposition_scene_agent` 一次生成 3 个结构化几何 IR 候选，不生成多个 HTML；服务端淘汰确定性硬校验失败候选，对其余候选按固定权重和稳定指纹排序，只编译最高分 IR 并装配生命周期脚手架。全部候选仅因中间 transform 证据不足而失败时，服务端先用通用 waypoint 补全器生成有界、偏离首尾直线插值的独立中间状态并重新执行全部硬校验；仍失败才对最接近合格的 IR 做一次受限模型修复，最后才使用通用 fallback。独立证据报告包含阶段、参数状态、piece id、失败原因、端点分离分数、直线路径偏离分数和各维度阈值；其他类型由 `html_agent` 直接生成业务 HTML。
 5. 模型业务 HTML 先执行 32000/40000 字符约束，再经过 `math-shell-v1` 服务端装配器；模型外层布局不会进入最终 HTML。装配器会过滤业务 CSS 中的页面级、布局槽位根节点和 range 外观规则，标准 range 由 `range-v1` 独占尺寸与渲染，`controller-v1` 在业务脚本执行前提供 GSAP/RAF 共用动画控制接口。最终装配只执行 64000 字符异常膨胀检查。
 6. `validation_report` 聚合布局、HTML、JavaScript、安全、分阶段长度、Widget、动画生命周期和学科一致性检查。动画检查会阻断 timeline/RAF 逐帧回调调用结构性 DOM/SVG 重建函数、可为空的 first/lastChild 清空后直接重挂载，并提示未清理或未经存在性校验的动态节点注册表、局部几何与世界 transform 重复编码，以及 GSAP 直接污染 getState 可序列化业务对象的风险；学科启发式检查仍只产生 warning。
-7. 检查失败时先确定性修复业务 HTML；仍失败时由 `repair_agent` 使用未装配的业务 HTML 定向修复，最多 1 次，并对模型候选再执行一次确定性收尾。错误签名不变时恢复修复前版本并停止。硬错误修复成功后仍会继续处理已有的通用视觉/动画质量风险；确定性质量修复作为安全基线，后续模型候选只有在保持硬校验通过且进一步减少风险时才会被接受。
+7. 检查失败时先确定性修复业务 HTML。生命周期错误优先使用“报告点名函数 + SHA-256 源哈希”的函数级替换，限制函数数量和总字符数，失败立即回滚；其他硬错误才进入整页修复。截断候选、引入 `js_syntax`/`missing_runtime_ready` 的候选、以及未严格减少硬错误的候选一律拒绝。硬错误修复 prompt 不携带质量 warning，attempt 事件统一单调编号。
 8. 生成、编辑和模型修复的候选结果都会重新经过同一个服务端布局装配器，`phase=edit_html` 不能改变布局外壳，只能修改数学内容、业务交互与槽位优先级；编辑候选会继续执行确定性视觉/动画质量收尾，但不会为 warning 额外发起一次完整模型重写。结果仍生成新 HTML 分支，不覆盖旧 HTML。
 9. 最终 HTML 仅通过 `html.done` 返回前端；服务端不保留 HTML 文件缓存或产物路径。
 
-生产同步链路不启动服务端浏览器。真实运行时错误由前端 iframe bridge 捕获，用户可发起一次定向 `phase=edit_html` 修复并生成新分支。
+生产同步链路不启动浏览器。几何 IR 只允许白名单 state/definition/local 引用、算术与几何操作符、SVG 图元和属性；通用 DSL 包含 `atan/atan2/hypot` 等角度与距离计算，并允许每个稳定图元声明 2~5 个 transform keyframes。计划中的 `proof_constraints` 描述度量不变量、目标关系和教学阶段；每个 `stage_requirement` 由服务端归一化为唯一 `id`、`source/intermediate/target` 角色、确定时间点、几何证据类型和最小图元比例。IR 的教学帧必须用 `stage_id`/`at` 一一覆盖计划阶段；每个中间阶段必须有足够比例图元在同一时间点形成区别于首尾且偏离直接线性插值的几何关键状态，纯文字中间步骤会被阻断。`target_relations` 使用通用结构化关系 `equal_area` / `equal_length` / `equal_angle` / `parallel` / `perpendicular` / `coincident` / `collinear` / `congruent`，通过图元、顶点和线段引用表达，不包含知识点分支。服务端会在默认、最小和最大状态展开图元，阻断无效尺寸、非有限值、重复 id、静止端点、缺失中间几何证据、明确违反度量不变量或结构化几何关系的结果；当前图元或引用不足以计算时只产生 warning。编译后的 Scene Module 还会在无 DOM/网络/动态代码能力的 Node `vm` 中执行低成本冒烟检查；真实浏览器布局与行为验证仍由离线流程负责。
 
 ### 离线视觉稳定性验证
 
@@ -293,7 +294,8 @@ HTML 文件编辑阶段请求示例：
 
 ```bash
 uv run playwright install chromium
-uv run python scripts/visual_regression.py /path/to/generated.html --report /tmp/visual-report.json
+uv run python evals/targets/visual.py /path/to/generated.html --report /tmp/visual-report.json
+uv run python evals/run_eval.py --repetitions 4 --max-runs 35 --live-model --browser --output-dir /tmp/recomposition-35
 ```
 
 脚本除视觉布局外，还检查槽位重叠、range 的 44~64px 命中高度和槽位内包含关系、播放后的可见变化、暂停稳定性、参数修改后的完整重置、完成状态与再次播放、重复播放节点数稳定性，并收集页面异常和每个运行时动作的调用异常；单个动作抛错会形成失败报告而不会中断整轮回归。脚本还通过阻断 GSAP CDN 验证 native fallback，且只用于离线验证，不进入生产同步链路。
@@ -301,10 +303,38 @@ uv run python scripts/visual_regression.py /path/to/generated.html --report /tmp
 可从 `langsmith trace get --full --format json --output ...` 的真实导出构建本地单步评估数据集：
 
 ```bash
-uv run python scripts/build_visual_dataset.py /tmp/trace.json --output /tmp/aetherviz-visual-dataset.json
+uv run python evals/datasets/build_visual.py /tmp/trace.json --output /tmp/aetherviz-visual-dataset.json
 ```
 
-`scripts/langsmith_visual_evaluators.py` 提供视觉总通过、舞台可见性、SVG 尺度、动画变化、暂停、重置、参数同步、节点稳定和 GSAP fallback 等单指标确定性 evaluator，可用于 LangSmith 本地实验或按需上传；脚本默认不修改远端数据集和 evaluator。
+`evals/evaluators/visual.py` 提供视觉总通过、舞台可见性、SVG 尺度、动画变化、暂停、重置、参数同步、节点稳定和 GSAP fallback 等单指标确定性 evaluator，仅用于本地或离线回归；Dataset、Evaluator 和经确认的评测报告均可提交到 Git，禁止通过 LangSmith CLI/SDK/API/UI 创建或上传远端 Dataset/Evaluator。
+
+`evals/datasets/recomposition/legacy-topics.jsonl` 保留早期的 4 个开发主题、3 个保留主题和 4 个挑战主题。当前统一入口 `evals/run_eval.py` 分别统计分类、首次候选集中是否存在合格 IR、首次 Scene 契约、一次受限 JSON 修复后的最终契约、教学语义约束、完整 HTML 硬校验、通用 fallback 和浏览器 Runtime，并保存每个候选的硬失败、分项得分、稳定指纹及排序。首稿 IR 门槛为 95%，无通用 fallback 门槛为 97%；可用 `--max-runs` 精确限制调用次数。
+
+本地跨维度评估集位于 `evals/datasets/recomposition/`，包含 24 个主题、4 个通用无效 mutation、覆盖矩阵和阈值。主题同时覆盖 piece 数量、平移/旋转/翻转/组合变换、面积/长度/角度/全等、多边形/线段/角/网格、3~5 个阶段、推导难度和参数边界。默认执行 3 次形成 72 次回归：
+
+```bash
+uv run python evals/run_eval.py
+uv run python evals/run_eval.py --live-model --browser
+```
+
+确定性 evaluator 检查 Dataset 矩阵、分类、Geometry IR/Scene/HTML 契约、数学不变量、教学阶段和无效案例检测；`piece_count` 与主要变换的主题意图对齐作为诊断项单独汇总，避免把启发式语义当作生产硬裁决。真实模型回归的 summary 额外统计 `raw_candidate`、`deterministic_waypoint_completion` 策略次数、waypoint 候选尝试/成功数和被补全的阶段 id。结果默认写入并可提交到 `evals/reports/latest/`。脚本不实例化 LangSmith Client，也不调用 Dataset/Evaluator 远端 API；真实模型与浏览器仅在显式传入参数时运行。模块职责与更多命令见 `evals/README.md`。
+
+完整 72～90 次真实模型回归可用 `--workers 2`～`--workers 4` 启用有界并发；默认值仍为 `1`。并发只缩短本地生成耗时，报告按 Dataset 与 repetition 的固定顺序汇总，不改变生产请求链路。
+
+第六阶段完整本地回归使用 24 个主题、3 次 repetition，并将确定性基线与真实模型结果分目录保留。真实模型批量运行示例：
+
+```bash
+uv run python evals/run_eval.py \
+  --repetitions 3 --live-model --browser --workers 3 \
+  --output-dir evals/reports/stage6/current
+uv run python evals/reporting/regression.py \
+  --baseline evals/reports/stage6/deterministic/latest-summary.json \
+  --current evals/reports/stage6/current/latest-summary.json \
+  --failures evals/reports/stage6/current/failures.jsonl \
+  --output evals/reports/stage6/regression-report.json
+```
+
+`regression-report.json` 汇总公共指标差异、真实模型专属指标、候选硬失败以及失败主题/维度。确定性脚手架与真实模型属于不同运行模式，公共指标可比较；没有历史真实模型报告时，首稿 IR、候选排序和 fallback 不能解释为代码版本升降。
 
 主题色从 `topic` 中的 `#RRGGBB` 或中文颜色词提取，未提取到时使用默认色 `#22D3EE`。
 
@@ -319,7 +349,7 @@ uv run python scripts/build_visual_dataset.py /tmp/trace.json --output /tmp/aeth
 - 后端按 `simulation`、`diagram`、`game` 拆分独立 prompt、分型 widget-config 和开发期分型校验。
 - 计划对象必须包含 `scene_outline`、`widget_outline`、`design_brief`、`widget_actions`、`knowledge_profile` 和 `discipline_spec`，作为后续 HTML 生成的唯一蓝图。知识画像只路由到通用概念族、表征和教学模式，不包含具体知识点专用模板。
 - 旧版共享模块和兼容层已移除；学科与互动类型选择在 `workflow/plan_detection.py`，计划规范化在 `workflow/plan_contract.py`，直接模型 prompt 在 `agents/instructions.py`，确定性修复在 `tools/deterministic_repair.py`。
-- `html.done.metadata.generation_backend` 当前固定为 `direct`，用于前端和观测系统识别直接模型链路。
+- `html.done.metadata.generation_backend` 为 `direct` 或 `recomposition_scene`；API/SSE 主结构不变，前端未声明 `representation_type` 固定枚举，无需同步类型迁移。
 - 前端可展示 `attempts`、`repaired`、`degraded`、`validation_warnings`、`context_status`、`bytes` 和 `chars`。
 - 计划中的 action 使用 `widget_setState`、`widget_highlight`、`widget_annotation`、`widget_reveal`；生成物 iframe 内部应兼容 `SET_WIDGET_STATE`、`HIGHLIGHT_ELEMENT`、`ANNOTATE_ELEMENT`、`REVEAL_ELEMENT` 消息。
 

@@ -1,0 +1,850 @@
+from __future__ import annotations
+
+import json
+from copy import deepcopy
+
+import pytest
+
+from aetherviz_service.aetherviz.tools.animation_lifecycle_checker import check_animation_lifecycle
+from aetherviz_service.aetherviz.tools.function_patch import (
+    apply_function_replacements,
+    describe_target_functions,
+    target_functions_from_report,
+)
+from aetherviz_service.aetherviz.tools.layout_contract import assemble_layout_contract
+from aetherviz_service.aetherviz.tools.recomposition_contract import validate_scene_module
+from aetherviz_service.aetherviz.tools.recomposition_ir import (
+    GEOMETRY_IR_VERSION,
+    build_deterministic_geometry_ir,
+    compile_geometry_ir,
+    geometry_ir_candidates_response_schema,
+    geometry_ir_response_schema,
+    normalize_geometry_ir,
+    parse_geometry_ir,
+    parse_geometry_ir_candidates,
+    validate_geometry_ir,
+)
+from aetherviz_service.aetherviz.tools.recomposition_math import (
+    evaluate_mathematical_invariants,
+)
+from aetherviz_service.aetherviz.tools.recomposition_ranking import rank_geometry_ir_candidates
+from aetherviz_service.aetherviz.tools.recomposition_runtime import (
+    assemble_recomposition_business_html,
+    build_deterministic_scene_module,
+)
+from aetherviz_service.aetherviz.tools.recomposition_semantics import (
+    INTERMEDIATE_EVIDENCE_THRESHOLDS,
+    evaluate_intermediate_transform_evidence,
+    evaluate_recomposition_semantics,
+)
+from aetherviz_service.aetherviz.tools.recomposition_waypoints import (
+    complete_intermediate_waypoints,
+)
+from aetherviz_service.aetherviz.tools.validation_report import build_validation_report
+from aetherviz_service.aetherviz.workflow.generate_workflow import (
+    _accept_hard_repair_candidate,
+    _hard_error_only_report,
+    run_generate_workflow,
+)
+from aetherviz_service.aetherviz.workflow.knowledge_profile import build_knowledge_profile
+from aetherviz_service.aetherviz.workflow.plan_contract import normalize_plan
+from aetherviz_service.config import settings
+from evals.evaluators.deterministic import html_hard_validation_pass
+
+
+@pytest.mark.parametrize(
+    "topic",
+    [
+        "圆的面积推导",
+        "平行四边形面积割补推导",
+        "三角形面积复制拼合推导",
+        "梯形面积复制重排推导",
+        "菱形面积按对角线切分重排推导",
+        "勾股定理拼图重排证明",
+        "扇形面积等分重排推导",
+        "椭圆面积分割重排推导",
+        "正六边形面积拆分拼合推导",
+        "弓形面积割补推导",
+        "组合图形面积切割重排证明",
+    ],
+)
+def test_recomposition_profile_generalizes_across_topics(topic: str) -> None:
+    profile = build_knowledge_profile(topic)
+    assert profile["representation_type"] == "geometric_recomposition"
+    assert profile["pedagogy_pattern"] == "decompose_recompose_proof"
+
+
+@pytest.mark.parametrize("topic", ["用尺规作三角形", "测量圆周角", "动态构造理解几何定理证明"])
+def test_recomposition_profile_does_not_capture_plain_construction(topic: str) -> None:
+    assert build_knowledge_profile(topic)["representation_type"] != "geometric_recomposition"
+
+
+def test_normalized_plan_overrides_stale_profile_and_classifies_state_variables() -> None:
+    plan = normalize_plan(
+        {
+            "knowledge_profile": {
+                "representation_type": "geometric_construction",
+                "pedagogy_pattern": "proof_animation",
+            },
+            "interactive_spec": {
+                "variables": [
+                    {"name": "pieceCount", "label": "分块数", "min": 4, "max": 20, "default": 8},
+                    {"name": "radius", "label": "半径", "min": 1, "max": 8, "default": 4},
+                ]
+            },
+        },
+        "圆的面积推导",
+    )
+    assert plan["knowledge_profile"]["representation_type"] == "geometric_recomposition"
+    assert plan["recomposition_spec"]["topology_variables"] == ["pieceCount"]
+    assert plan["recomposition_spec"]["geometry_variables"] == ["radius"]
+    assert plan["recomposition_spec"]["proof_constraints"]["measure_invariants"] == [
+        "area_preserved",
+        "piece_congruence",
+    ]
+
+
+def test_scene_module_contract_rejects_dom_and_animation_ownership() -> None:
+    source = """const sceneModule={
+      structureKey(state){return 'x';},
+      buildGeometry(state){document.createElement('div');return {pieces:[]};},
+      deriveFrame(geometry,state,progress){requestAnimationFrame(()=>{});return {pieces:[]};},
+      deriveDisplay(state,progress){return {caption:'',formula:'',step:0};}
+    }; // sourceTransform targetTransform"""
+    report = validate_scene_module(source)
+    assert not report["ok"]
+    apis = {error.get("api") for error in report["errors"]}
+    assert {"document", "dom_creation", "animation_loop"} <= apis
+
+
+def test_geometry_ir_rejects_executable_content_and_trailing_prose() -> None:
+    with pytest.raises(ValueError, match="trailing_content"):
+        parse_geometry_ir('{"version":"aetherviz.geometry-ir.v1"}; alert(1)')
+    with pytest.raises(ValueError, match="missing_geometry_ir_object"):
+        parse_geometry_ir("const sceneBlueprint = buildGeometry();")
+
+
+def test_geometry_ir_candidate_envelope_requires_two_or_three_items() -> None:
+    plan = normalize_plan({}, "组合图形面积切割重排证明")
+    candidate = build_deterministic_geometry_ir(plan)
+    raw = json.dumps({"candidates": [candidate, candidate]}, ensure_ascii=False)
+    assert len(parse_geometry_ir_candidates(raw)) == 2
+    with pytest.raises(ValueError, match="2_to_3"):
+        parse_geometry_ir_candidates(json.dumps({"candidates": [candidate]}, ensure_ascii=False))
+    schema = geometry_ir_candidates_response_schema()
+    assert schema["properties"]["candidates"]["minItems"] == 2
+    assert schema["properties"]["candidates"]["maxItems"] == 3
+
+
+def test_ir_candidate_ranking_rejects_hard_failures_and_is_repeatable() -> None:
+    plan = normalize_plan({}, "组合图形面积切割重排证明")
+    first = build_deterministic_geometry_ir(plan)
+    second = deepcopy(first)
+    second["pieces"][0]["target"]["x"] = 520
+    invalid = deepcopy(first)
+    invalid["pieces"][0]["target"]["scale"] = 0
+
+    report = rank_geometry_ir_candidates([first, second, invalid], plan)
+    repeated = rank_geometry_ir_candidates([first, second, invalid], plan)
+
+    assert report["ok"]
+    assert report["selected_index"] == repeated["selected_index"]
+    assert report["ranking"] == repeated["ranking"]
+    assert report["candidates"][2]["eligible"] is False
+    assert any("schema:geometry_ir_semantics" == item for item in report["candidates"][2]["hard_failures"])
+    assert sum(report["candidates"][report["selected_index"]]["components"].values()) == report["selected_score"]
+
+
+def test_ir_candidate_ranking_is_order_independent_by_fingerprint() -> None:
+    plan = normalize_plan({}, "组合图形面积切割重排证明")
+    first = build_deterministic_geometry_ir(plan)
+    second = deepcopy(first)
+    second["frames"][-1]["caption"] = "拼合并解释目标关系"
+    forward = rank_geometry_ir_candidates([first, second], plan)
+    reverse = rank_geometry_ir_candidates([second, first], plan)
+    forward_fingerprint = forward["candidates"][forward["selected_index"]]["fingerprint"]
+    reverse_fingerprint = reverse["candidates"][reverse["selected_index"]]["fingerprint"]
+    assert forward_fingerprint == reverse_fingerprint
+
+
+def test_ir_candidate_ranking_rejects_gross_out_of_bounds_motion() -> None:
+    plan = normalize_plan({}, "组合图形面积切割重排证明")
+    candidate = build_deterministic_geometry_ir(plan)
+    candidate["pieces"][0]["target"]["x"] = 4_000
+    candidate["pieces"][0]["keyframes"][-1]["x"] = 4_000
+    report = rank_geometry_ir_candidates([candidate], plan)
+    assert not report["ok"]
+    assert "safety:gross_transform_out_of_bounds" in report["candidates"][0]["hard_failures"]
+
+
+def test_scene_generation_selects_one_ir_from_single_three_candidate_response(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from aetherviz_service.aetherviz.agents import recomposition_scene_agent
+
+    plan = normalize_plan({}, "组合图形面积切割重排证明")
+    candidates = [build_deterministic_geometry_ir(plan) for _ in range(3)]
+    candidates[1]["frames"][-1]["caption"] = "拼合并解释目标关系"
+    captured: dict[str, object] = {}
+
+    def fake_stream(_messages: object, *, response_schema: dict[str, object] | None = None):
+        captured["schema"] = response_schema
+        yield {"content": json.dumps({"candidates": candidates}, ensure_ascii=False)}
+
+    monkeypatch.setattr(recomposition_scene_agent, "_stream_scene_response", fake_stream)
+    source, timed_out, ranking = recomposition_scene_agent._generate_ranked_scene_source(
+        "组合图形面积切割重排证明", plan
+    )
+    assert not timed_out
+    assert ranking["ok"]
+    assert len(ranking["candidates"]) == 3
+    assert validate_scene_module(source)["ok"]
+    assert captured["schema"]["properties"]["candidates"]["maxItems"] == 3
+
+
+def test_geometry_ir_rejects_unknown_operator_attribute_and_state() -> None:
+    plan = normalize_plan({}, "组合图形面积切割重排证明")
+    geometry_ir = build_deterministic_geometry_ir(plan)
+    piece = geometry_ir["pieces"][0]
+    piece["attrs"]["onclick"] = "alert(1)"
+    piece["target"]["x"] = {"op": "execute", "args": [{"state": "secret"}]}
+    report = validate_geometry_ir(geometry_ir, plan)
+    issue_types = {item["type"] for item in report["errors"]}
+    assert "forbidden_piece_attr" in issue_types
+    assert "forbidden_expression_operator" in issue_types
+
+
+def test_geometry_ir_checks_minimum_default_and_maximum_semantics() -> None:
+    plan = normalize_plan(
+        {
+            "interactive_spec": {
+                "variables": [
+                    {"name": "radius", "label": "半径", "min": 0, "max": 8, "default": 4, "step": 1}
+                ]
+            }
+        },
+        "弓形面积割补推导",
+    )
+    geometry_ir = {
+        "version": GEOMETRY_IR_VERSION,
+        "definitions": {},
+        "pieces": [
+            {
+                "id": "piece-0",
+                "tag": "circle",
+                "attrs": {"cx": 0, "cy": 0, "r": {"state": "radius"}, "fill": "#34d399"},
+                "source": {"x": 100, "y": 100, "rotation": 0, "scale": 1, "opacity": 1},
+                "target": {"x": 300, "y": 100, "rotation": 0, "scale": 1, "opacity": 1},
+            }
+        ],
+        "frames": [
+            {"stage_id": "source", "at": 0, "caption": "源状态", "formula": "A", "step": 0},
+            {"stage_id": "transform-1", "at": 0.5, "caption": "重排", "formula": "A=B", "step": 1},
+            {"stage_id": "target", "at": 1, "caption": "目标状态", "formula": "B", "step": 2},
+        ],
+    }
+    report = validate_geometry_ir(geometry_ir, plan)
+    assert not report["ok"]
+    assert any(item.get("state") == "minimum" for item in report["errors"])
+
+
+def test_geometry_ir_compiles_to_server_owned_scene_module() -> None:
+    plan = normalize_plan({}, "正六边形面积拆分拼合推导")
+    geometry_ir = build_deterministic_geometry_ir(plan)
+    source = compile_geometry_ir(geometry_ir, plan)
+    assert "const sceneIR=" in source
+    assert "sceneIRRuntime" in source
+    assert "buildGeometry(state){return sceneIRRuntime.build" in source
+    assert validate_scene_module(source)["ok"]
+
+
+def test_geometry_ir_normalizes_only_unambiguous_dsl_aliases() -> None:
+    plan = normalize_plan(
+        {
+            "interactive_spec": {
+                "variables": [
+                    {"name": "scale", "label": "尺度", "min": 1, "max": 8, "default": 4, "step": 1}
+                ]
+            }
+        },
+        "组合图形面积切割重排证明",
+    )
+    geometry_ir = build_deterministic_geometry_ir(plan)
+    geometry_ir["definitions"]["angle"] = {"op": "rad2deg", "args": [{"var": "scale"}]}
+    normalized = normalize_geometry_ir(geometry_ir, plan)
+    assert normalized["definitions"]["angle"] == {
+        "op": "rad_to_deg",
+        "args": [{"state": "scale"}],
+    }
+    assert validate_geometry_ir(normalized, plan)["ok"]
+
+
+def test_geometry_ir_normalizes_strict_transport_and_expression_shorthand() -> None:
+    plan = normalize_plan({}, "组合图形面积切割重排证明")
+    geometry_ir = build_deterministic_geometry_ir(plan)
+    transport = {
+        **geometry_ir,
+        "definitions": [
+            *[
+                {"name": name, "value": value}
+                for name, value in geometry_ir["definitions"].items()
+            ],
+            {"name": "negative", "value": {"neg": 12}},
+        ],
+        "pieces": [
+            {
+                **geometry_ir["pieces"][0],
+                "repeat": geometry_ir["pieces"][0]["repeat"],
+                "attrs": [
+                    {"name": name, "value": value}
+                    for name, value in geometry_ir["pieces"][0]["attrs"].items()
+                ],
+                "keyframes": [],
+            }
+        ],
+    }
+    normalized = normalize_geometry_ir(transport, plan)
+    assert normalized["definitions"]["negative"] == {"op": "neg", "args": [12]}
+    assert isinstance(normalized["pieces"][0]["attrs"], dict)
+    assert normalized["pieces"][0]["repeat"]["index"] == "i"
+    assert validate_geometry_ir(normalized, plan)["ok"]
+    schema = geometry_ir_response_schema()
+    assert schema["additionalProperties"] is False
+    assert schema["properties"]["definitions"]["type"] == "array"
+    operator_variants = [
+        item
+        for item in schema["$defs"]["expression"]["anyOf"]
+        if isinstance(item, dict) and "op" in item.get("properties", {})
+    ]
+    unary = next(item for item in operator_variants if "sqrt" in item["properties"]["op"]["enum"])
+    fold = next(item for item in operator_variants if "div" in item["properties"]["op"]["enum"])
+    assert unary["properties"]["args"]["minItems"] == unary["properties"]["args"]["maxItems"] == 1
+    assert fold["properties"]["args"]["minItems"] == 2
+
+
+def test_geometry_ir_supports_generic_angle_distance_operators() -> None:
+    plan = normalize_plan({}, "勾股定理拼图重排证明")
+    geometry_ir = build_deterministic_geometry_ir(plan)
+    geometry_ir["definitions"]["angle"] = {"op": "atan2", "args": [3, 4]}
+    geometry_ir["definitions"]["distance"] = {"op": "hypot", "args": [3, 4]}
+    geometry_ir["pieces"][0]["target"]["rotation"] = {
+        "op": "rad_to_deg",
+        "args": [{"var": "angle"}],
+    }
+    assert validate_geometry_ir(geometry_ir, plan)["ok"]
+    assert validate_scene_module(compile_geometry_ir(geometry_ir, plan))["ok"]
+
+
+def test_geometry_ir_supports_multistage_transform_keyframes() -> None:
+    plan = normalize_plan({}, "组合图形面积切割重排证明")
+    geometry_ir = build_deterministic_geometry_ir(plan)
+    piece = geometry_ir["pieces"][0]
+    piece["keyframes"] = [
+        {"at": 0, **piece["source"]},
+        {
+            "at": 0.5,
+            "x": 320,
+            "y": 110,
+            "rotation": 45,
+            "scale": piece["source"]["scale"],
+            "opacity": 1,
+        },
+        {"at": 1, **piece["target"]},
+    ]
+    assert validate_geometry_ir(geometry_ir, plan)["ok"]
+    source = compile_geometry_ir(geometry_ir, plan)
+    assert "transformKeyframes" in source
+    assert validate_scene_module(source)["ok"]
+    assert not evaluate_recomposition_semantics(geometry_ir, plan)["errors"]
+
+
+def test_plan_normalizes_hard_intermediate_teaching_stage_contract() -> None:
+    plan = normalize_plan(
+        {
+            "recomposition_spec": {
+                "proof_constraints": {
+                    "stage_requirements": [
+                        {"id": "observe", "intent": "观察源状态"},
+                        {"id": "separate", "intent": "分离图元", "min_piece_ratio": 0.4},
+                        {"id": "align", "intent": "对齐图元", "min_piece_ratio": 2},
+                        {"id": "conclude", "intent": "得到结论"},
+                    ]
+                }
+            }
+        },
+        "组合图形面积切割重排证明",
+    )
+    stages = plan["recomposition_spec"]["proof_constraints"]["stage_requirements"]
+    assert [stage["role"] for stage in stages] == ["source", "intermediate", "intermediate", "target"]
+    assert [stage["at"] for stage in stages] == [0.0, 0.333333, 0.666667, 1.0]
+    assert [stage["geometry_requirement"] for stage in stages] == [
+        "source_snapshot",
+        "transform_keyframe",
+        "transform_keyframe",
+        "target_snapshot",
+    ]
+    assert stages[1]["min_piece_ratio"] == 0.4
+    assert stages[2]["min_piece_ratio"] == 1.0
+
+
+def test_semantic_evaluator_requires_independent_intermediate_geometry() -> None:
+    plan = normalize_plan({}, "组合图形面积切割重排证明")
+    geometry_ir = build_deterministic_geometry_ir(plan)
+    accepted = evaluate_recomposition_semantics(geometry_ir, plan)
+    assert accepted["ok"]
+    assert {
+        check["state"]
+        for check in accepted["checks"]
+        if check.get("kind") == "intermediate_geometry"
+    } == {"minimum", "default", "maximum"}
+
+    geometry_ir["pieces"][0].pop("keyframes")
+    rejected = evaluate_recomposition_semantics(geometry_ir, plan)
+    assert not rejected["ok"]
+    assert "missing_intermediate_geometry_stage" in {
+        item["type"] for item in rejected["errors"]
+    }
+
+
+def test_semantic_evaluator_rejects_text_stage_with_only_linear_geometry() -> None:
+    plan = normalize_plan({}, "组合图形面积切割重排证明")
+    geometry_ir = build_deterministic_geometry_ir(plan)
+    piece = geometry_ir["pieces"][0]
+    middle = piece["keyframes"][1]
+    middle.update({key: piece["source"][key] for key in ("x", "y", "rotation", "scale", "opacity")})
+    report = evaluate_recomposition_semantics(geometry_ir, plan)
+    assert not report["ok"]
+    assert "missing_intermediate_geometry_stage" in {item["type"] for item in report["errors"]}
+
+
+def test_intermediate_transform_evidence_reports_explainable_metrics() -> None:
+    piece = {
+        "id": "piece-0",
+        "source": {"x": 100, "y": 100, "rotation": 0, "scale": 1, "opacity": 1},
+        "target": {"x": 300, "y": 100, "rotation": 90, "scale": 1, "opacity": 1},
+        "keyframes": [
+            {"at": 0.5, "x": 200, "y": 100, "rotation": 45, "scale": 1, "opacity": 1}
+        ],
+    }
+    evidence = evaluate_intermediate_transform_evidence(piece, 0.5)
+    assert evidence["evidenced"] is False
+    assert evidence["reason"] == "insufficient_direct_path_deviation"
+    assert evidence["endpoint_score"] > 1
+    assert evidence["independence_score"] == 0
+    assert evidence["thresholds"] == INTERMEDIATE_EVIDENCE_THRESHOLDS
+    assert evidence["metrics"]["from_direct_interpolation"]["translation_px"] == 0
+
+    piece["keyframes"][0]["rotation"] = 45 + INTERMEDIATE_EVIDENCE_THRESHOLDS["rotation_deg"]
+    accepted = evaluate_intermediate_transform_evidence(piece, 0.5)
+    assert accepted["evidenced"] is True
+    assert accepted["reason"] == "independent_transform_evidence"
+    assert accepted["independence_score"] == 1
+
+
+def test_waypoint_completion_repairs_only_generic_intermediate_transform_evidence() -> None:
+    plan = normalize_plan(
+        {
+            "recomposition_spec": {
+                "proof_constraints": {
+                    "stage_requirements": [
+                        {"id": "source", "intent": "观察"},
+                        {"id": "separate", "intent": "分离"},
+                        {"id": "rotate", "intent": "旋转"},
+                        {"id": "align", "intent": "对齐"},
+                        {"id": "target", "intent": "结论"},
+                    ]
+                }
+            }
+        },
+        "单块多边形旋转割补面积守恒推导",
+    )
+    geometry_ir = build_deterministic_geometry_ir(plan)
+    source = deepcopy(geometry_ir["pieces"][0]["source"])
+    target = deepcopy(geometry_ir["pieces"][0]["target"])
+    for keyframe in geometry_ir["pieces"][0]["keyframes"][1:-1]:
+        at = keyframe["at"]
+        keyframe.update(
+            {
+                name: _test_lerp(source[name], target[name], at)
+                for name in ("x", "y", "rotation", "scale", "opacity")
+            }
+        )
+    before = evaluate_recomposition_semantics(geometry_ir, plan)
+    assert not before["ok"]
+
+    completion = complete_intermediate_waypoints(geometry_ir, plan)
+    assert completion["ok"]
+    assert completion["changed"]
+    assert completion["completed_stage_ids"] == ["separate", "rotate", "align"]
+    assert completion["ir"]["pieces"][0]["source"] == source
+    assert completion["ir"]["pieces"][0]["target"] == target
+    assert len(completion["ir"]["pieces"][0]["keyframes"]) == 5
+    assert evaluate_recomposition_semantics(completion["ir"], plan)["ok"]
+
+
+def test_scene_generation_uses_waypoint_completion_before_model_repair(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from aetherviz_service.aetherviz.agents import recomposition_scene_agent
+
+    plan = normalize_plan({}, "单块多边形旋转割补面积守恒推导")
+    candidates = [build_deterministic_geometry_ir(plan) for _ in range(2)]
+    for candidate in candidates:
+        piece = candidate["pieces"][0]
+        middle = piece["keyframes"][1]
+        middle.update(
+            {
+                name: _test_lerp(piece["source"][name], piece["target"][name], middle["at"])
+                for name in ("x", "y", "rotation", "scale", "opacity")
+            }
+        )
+
+    def fake_stream(_messages: object, *, response_schema: dict[str, object] | None = None):
+        yield {"content": json.dumps({"candidates": candidates}, ensure_ascii=False)}
+
+    monkeypatch.setattr(recomposition_scene_agent, "_stream_scene_response", fake_stream)
+    source, _, ranking = recomposition_scene_agent._generate_ranked_scene_source("topic", plan)
+    assert validate_scene_module(source)["ok"]
+    assert ranking["strategy"] == "deterministic_waypoint_completion"
+    assert ranking["ok"]
+    assert all(item["attempted"] for item in ranking["waypoint_completion"])
+    assert ranking["initial_ranking"]["ok"] is False
+
+
+def test_geometry_ir_normalizer_completes_keyframe_endpoints_from_source_target() -> None:
+    plan = normalize_plan({}, "组合图形面积切割重排证明")
+    geometry_ir = build_deterministic_geometry_ir(plan)
+    piece = geometry_ir["pieces"][0]
+    piece["keyframes"] = [
+        {
+            "at": 0.6,
+            "x": 310,
+            "y": 180,
+            "rotation": 45,
+            "scale": piece["source"]["scale"],
+            "opacity": 1,
+        }
+    ]
+    normalized = normalize_geometry_ir(geometry_ir, plan)
+    keyframes = normalized["pieces"][0]["keyframes"]
+    assert [frame["at"] for frame in keyframes] == [0, 0.6, 1]
+    assert keyframes[0]["x"] == normalized["pieces"][0]["source"]["x"]
+    assert keyframes[-1]["x"] == normalized["pieces"][0]["target"]["x"]
+    assert validate_geometry_ir(normalized, plan)["ok"]
+
+
+def test_semantic_evaluator_rejects_area_changing_scale() -> None:
+    plan = normalize_plan({}, "组合图形面积切割重排证明")
+    geometry_ir = build_deterministic_geometry_ir(plan)
+    geometry_ir["pieces"][0]["target"]["scale"] = 1.2
+    report = evaluate_recomposition_semantics(geometry_ir, plan)
+    assert not report["ok"]
+    assert "mathematical_invariant_failed" in {item["type"] for item in report["errors"]}
+
+
+def test_plan_normalizes_structured_geometry_relations() -> None:
+    plan = normalize_plan(
+        {
+            "recomposition_spec": {
+                "proof_constraints": {
+                    "target_relations": [
+                        {
+                            "id": "Source area = Target area",
+                            "type": "equal_area",
+                            "left": {"stage": "source"},
+                            "right": {"stage": "target"},
+                            "tolerance": 1e-7,
+                            "ignored": "not part of the relation DSL",
+                        },
+                        {"id": "unsupported", "type": "topic_specific_relation"},
+                    ]
+                }
+            }
+        },
+        "组合图形面积切割重排证明",
+    )
+    relations = plan["recomposition_spec"]["proof_constraints"]["target_relations"]
+    assert relations == [
+        {
+            "id": "source-area-target-area",
+            "type": "equal_area",
+            "left": {"stage": "source"},
+            "right": {"stage": "target"},
+            "tolerance": 1e-7,
+        }
+    ]
+
+
+def test_mathematical_evaluator_computes_generic_relations() -> None:
+    plan = {
+        "interactive_spec": {"variables": []},
+        "recomposition_spec": {
+            "proof_constraints": {
+                "measure_invariants": [
+                    "area_preserved",
+                    "length_preserved",
+                    "angle_preserved",
+                    "piece_congruence",
+                ],
+                "target_relations": [
+                    {
+                        "id": "area",
+                        "type": "equal_area",
+                        "left": {"piece_ids": ["rect-a"], "stage": "source"},
+                        "right": {"piece_ids": ["rect-b"], "stage": "target"},
+                    },
+                    {
+                        "id": "length",
+                        "type": "equal_length",
+                        "left": _segment("line-h", 0, 1),
+                        "right": _segment("line-v", 0, 1),
+                    },
+                    {
+                        "id": "angle",
+                        "type": "equal_angle",
+                        "left": {"points": [_point("tri-a", 1), _point("tri-a", 0), _point("tri-a", 2)]},
+                        "right": {"points": [_point("tri-b", 1), _point("tri-b", 0), _point("tri-b", 2)]},
+                    },
+                    {"id": "parallel", "type": "parallel", "left": _segment("line-h", 0, 1), "right": _segment("line-h2", 0, 1)},
+                    {"id": "perpendicular", "type": "perpendicular", "left": _segment("line-h", 0, 1), "right": _segment("line-v", 0, 1)},
+                    {"id": "coincident", "type": "coincident", "left": _point("line-h", 1), "right": _point("line-h2", 0)},
+                    {"id": "collinear", "type": "collinear", "points": [_point("line-h", 0), _point("line-h", 1), _point("line-h2", 1)]},
+                    {"id": "congruent", "type": "congruent", "left": {"piece_id": "tri-a", "stage": "source"}, "right": {"piece_id": "tri-b", "stage": "target"}},
+                ],
+            }
+        },
+    }
+    report = evaluate_mathematical_invariants(_mathematical_geometry_ir(), plan)
+    assert report["ok"]
+    assert not report["warnings"]
+    assert {check["name"] for check in report["checks"] if check["kind"] == "relation"} == {
+        "area",
+        "length",
+        "angle",
+        "parallel",
+        "perpendicular",
+        "coincident",
+        "collinear",
+        "congruent",
+    }
+
+
+def test_mathematical_evaluator_rejects_false_relation_and_warns_when_unavailable() -> None:
+    geometry_ir = _mathematical_geometry_ir()
+    plan = {
+        "interactive_spec": {"variables": []},
+        "recomposition_spec": {
+            "proof_constraints": {
+                "measure_invariants": [],
+                "target_relations": [
+                    {"id": "false-parallel", "type": "parallel", "left": _segment("line-h", 0, 1), "right": _segment("line-v", 0, 1)},
+                    {
+                        "id": "missing-piece",
+                        "type": "coincident",
+                        "left": _point("line-h", 0),
+                        "right": _point("does-not-exist", 0),
+                    },
+                ],
+            }
+        },
+    }
+    report = evaluate_mathematical_invariants(geometry_ir, plan)
+    assert not report["ok"]
+    assert {item["type"] for item in report["errors"]} == {"mathematical_relation_failed"}
+    assert {item["type"] for item in report["warnings"]} == {"target_relation_unavailable"}
+
+
+def _point(piece_id: str, index: int, stage: str = "source") -> dict[str, object]:
+    return {"piece_id": piece_id, "stage": stage, "anchor": "vertex", "index": index}
+
+
+def _test_lerp(source: object, target: object, at: float) -> object:
+    if source == target:
+        return deepcopy(source)
+    return {
+        "op": "add",
+        "args": [
+            deepcopy(source),
+            {
+                "op": "mul",
+                "args": [
+                    {"op": "sub", "args": [deepcopy(target), deepcopy(source)]},
+                    at,
+                ],
+            },
+        ],
+    }
+
+
+def _segment(piece_id: str, start: int, end: int, stage: str = "source") -> dict[str, object]:
+    return {"start": _point(piece_id, start, stage), "end": _point(piece_id, end, stage)}
+
+
+def _mathematical_geometry_ir() -> dict[str, object]:
+    transform = {"x": 0, "y": 0, "rotation": 0, "scale": 1, "opacity": 1}
+
+    def piece(piece_id: str, tag: str, attrs: dict[str, object]) -> dict[str, object]:
+        return {
+            "id": piece_id,
+            "tag": tag,
+            "attrs": attrs,
+            "source": dict(transform),
+            "target": dict(transform),
+        }
+
+    return {
+        "version": GEOMETRY_IR_VERSION,
+        "definitions": {},
+        "pieces": [
+            piece("rect-a", "rect", {"x": 0, "y": 0, "width": 10, "height": 10}),
+            piece("rect-b", "rect", {"x": 20, "y": 0, "width": 10, "height": 10}),
+            piece("line-h", "line", {"x1": 0, "y1": 20, "x2": 10, "y2": 20}),
+            piece("line-h2", "line", {"x1": 10, "y1": 20, "x2": 20, "y2": 20}),
+            piece("line-v", "line", {"x1": 0, "y1": 20, "x2": 0, "y2": 30}),
+            piece("tri-a", "polygon", {"points": "0,40 10,40 0,50"}),
+            piece("tri-b", "polygon", {"points": "20,40 30,40 20,50"}),
+        ],
+        "frames": [],
+    }
+
+
+def test_geometry_ir_supports_repeat_scoped_definitions_and_fold_arithmetic() -> None:
+    plan = normalize_plan({}, "扇形面积等分重排推导")
+    geometry_ir = build_deterministic_geometry_ir(plan)
+    geometry_ir["definitions"]["offset"] = {
+        "op": "sub",
+        "args": [320, {"op": "mul", "args": [{"local": "i"}, 12]}, 5],
+    }
+    geometry_ir["pieces"][0]["source"]["x"] = {"var": "offset"}
+    report = validate_geometry_ir(geometry_ir, plan)
+    assert report["ok"]
+    assert validate_scene_module(compile_geometry_ir(geometry_ir, plan))["ok"]
+
+
+def test_geometry_ir_supports_sector_sweep_and_opacity_only_transition() -> None:
+    plan = normalize_plan({}, "弓形面积割补推导")
+    geometry_ir = {
+        "version": GEOMETRY_IR_VERSION,
+        "definitions": {},
+        "pieces": [
+            {
+                "id": "arc-piece",
+                "tag": "path",
+                "attrs": {
+                    "d": {"op": "sector_path", "args": [0, 0, 80, 0, 3.14, 0]},
+                    "fill": "#34d399",
+                },
+                "source": {"x": 240, "y": 220, "rotation": 0, "scale": 1, "opacity": 1},
+                "target": {"x": 240, "y": 220, "rotation": 0, "scale": 1, "opacity": 0},
+            }
+        ],
+        "frames": [
+            {"stage_id": "source", "at": 0, "caption": "源状态", "formula": "A", "step": 0},
+            {"stage_id": "transform-1", "at": 0.5, "caption": "比较", "formula": "A=B", "step": 1},
+            {"stage_id": "target", "at": 1, "caption": "目标状态", "formula": "B", "step": 2},
+        ],
+    }
+    assert validate_geometry_ir(geometry_ir, plan)["ok"]
+    assert validate_scene_module(compile_geometry_ir(geometry_ir, plan))["ok"]
+
+
+def test_server_scaffold_assembles_valid_bounded_html() -> None:
+    plan = normalize_plan({}, "圆的面积推导")
+    source = build_deterministic_scene_module(plan)
+    assert validate_scene_module(source)["ok"]
+    business = assemble_recomposition_business_html(source, plan, "圆的面积推导")
+    assembled = assemble_layout_contract(business, plan)
+    report = build_validation_report(assembled, plan=plan, model_html=business)
+    assert report["ok"]
+    assert len(source) <= 12_000
+    assert len(business) <= 24_000
+    assert not any(error["type"] == "structural_render_inside_animation_frame" for error in report["errors"])
+
+
+def test_recomposition_regression_uses_project_html_hard_limit() -> None:
+    assert html_hard_validation_pass(
+        {"html_report": {"ok": True}, "business_chars": 24_469}, {}
+    )
+
+
+def test_lifecycle_error_reports_full_call_chain_and_operation() -> None:
+    html = """<script>
+    function updateFormulaPanel(){ panel.innerHTML='x'; }
+    function updateLabels(){ updateFormulaPanel(); }
+    function applyView(){ updateLabels(); }
+    window.gsap.to(proxy,{onUpdate:()=>{applyView();}});
+    </script>"""
+    report = check_animation_lifecycle(html)
+    error = report["errors"][0]
+    assert error["call_chain"] == ["applyView", "updateLabels", "updateFormulaPanel"]
+    assert error["operation"] == "innerHTML"
+
+
+def test_function_patch_requires_named_target_and_exact_hash() -> None:
+    html = """<script>
+    function updateLabels(){ panel.innerHTML='x'; }
+    function applyView(){ updateLabels(); }
+    window.gsap.to(proxy,{onUpdate:()=>{applyView();}});
+    </script>"""
+    report = check_animation_lifecycle(html)
+    targets = target_functions_from_report(report)
+    descriptions = describe_target_functions(html, targets)
+    target = next(item for item in descriptions if item["function"] == "updateLabels")
+    replacement = "function updateLabels(){ panel.textContent='x'; }"
+    result = apply_function_replacements(
+        html,
+        [{"function": "updateLabels", "source_hash": target["source_hash"], "replacement": replacement}],
+        allowed_functions=targets,
+    )
+    assert result.applied == ("updateLabels",)
+    assert check_animation_lifecycle(result.html)["ok"]
+    stale = apply_function_replacements(
+        html,
+        [{"function": "updateLabels", "source_hash": "stale", "replacement": replacement}],
+        allowed_functions=targets,
+    )
+    assert stale.html == html
+    assert "source_hash_mismatch:updateLabels" in stale.errors
+
+
+def test_hard_repair_gate_rejects_truncation_and_new_fatal_errors() -> None:
+    baseline = {"ok": False, "errors": [{"type": "structural_render_inside_animation_frame"}]}
+    fixed = {"ok": True, "errors": []}
+    assert _accept_hard_repair_candidate(
+        baseline_report=baseline, candidate_report=fixed, candidate_truncated=False
+    ) == (True, None)
+    assert _accept_hard_repair_candidate(
+        baseline_report=baseline, candidate_report=fixed, candidate_truncated=True
+    ) == (False, "truncated_candidate")
+    broken = {"ok": False, "errors": [{"type": "js_syntax"}]}
+    accepted, reason = _accept_hard_repair_candidate(
+        baseline_report=baseline, candidate_report=broken, candidate_truncated=False
+    )
+    assert not accepted
+    assert reason == "new_fatal_errors:js_syntax"
+
+
+def test_hard_repair_report_excludes_quality_warnings() -> None:
+    report = {
+        "ok": False,
+        "errors": [{"type": "js_syntax"}],
+        "warnings": [{"type": "unformatted_dynamic_value"}],
+        "checks": {"js": {"errors": [{"type": "js_syntax"}], "warnings": [{"type": "quality"}]}},
+    }
+    compact = _hard_error_only_report(report)
+    assert compact["warnings"] == []
+    assert compact["checks"]["js"]["warnings"] == []
+
+
+def test_generate_workflow_routes_recomposition_to_scene_backend(monkeypatch: pytest.MonkeyPatch) -> None:
+    from aetherviz_service.aetherviz.agents import recomposition_scene_agent
+
+    plan = normalize_plan({}, "圆的面积推导")
+    monkeypatch.setattr(recomposition_scene_agent, "has_primary_llm_config", lambda: False)
+    monkeypatch.setattr(settings, "langsmith_tracing", False)
+    monkeypatch.setattr(settings, "aetherviz_max_repair_attempts", 0)
+    events = list(run_generate_workflow(run_id="scene-test", topic="圆的面积推导", approved_plan=plan))
+    done = next(event for event in events if event.startswith("event: html.done"))
+    payload = json.loads(next(line[6:] for line in done.splitlines() if line.startswith("data: ")))
+    assert payload["data"]["metadata"]["generation_backend"] == "recomposition_scene"
+    assert payload["data"]["metadata"]["truncated"] is False

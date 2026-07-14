@@ -1,0 +1,15 @@
+{
+  "topic_count": {"min": 24, "max": 30},
+  "default_repetitions": 3,
+  "default_run_count": 72,
+  "dimensions": {
+    "piece_count": ["1", "2", "3", "4+"],
+    "primary_transform": ["translation", "rotation", "reflection", "combined"],
+    "math_relation": ["area", "length", "angle", "congruence"],
+    "representation": ["polygon", "segment", "angle", "grid"],
+    "stage_count": [3, 4, 5],
+    "derivation_difficulty": ["single_step", "two_step", "multi_step"],
+    "parameter_form": ["fixed", "variable", "boundary"],
+    "failure_mode": ["missing_stage", "wrong_relation", "text_conflict", "out_of_bounds"]
+  }
+}

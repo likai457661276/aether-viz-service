@@ -52,6 +52,21 @@ REPRESENTATION_CUES: dict[str, tuple[str, ...]] = {
     "relation_network": ("关系", "结构", "因果", "网络", "体系"),
 }
 
+GEOMETRIC_RECOMPOSITION_MEASURE_CUES = ("面积", "体积", "容积")
+GEOMETRIC_RECOMPOSITION_OPERATION_CUES = (
+    "等分",
+    "切割",
+    "割补",
+    "拼合",
+    "拼成",
+    "重排",
+    "重新排列",
+    "分割",
+    "拆分",
+    "逼近",
+)
+GEOMETRIC_RECOMPOSITION_DERIVATION_CUES = ("推导", "证明", "导出")
+
 PEDAGOGY_CUES: dict[str, tuple[str, ...]] = {
     "proof_animation": ("证明", "推导", "定理", "依据"),
     "parameter_exploration": ("参数", "调节", "变化", "函数", "变量"),
@@ -80,6 +95,11 @@ def build_knowledge_profile(topic: str, *, subject: str | None = None) -> dict[s
     concept_family, family_score = _best_match(text, CONCEPT_FAMILY_CUES.get(resolved_subject, {}), "general")
     representation, representation_score = _best_match(text, REPRESENTATION_CUES, _default_representation(resolved_subject))
     pedagogy, pedagogy_score = _best_match(text, PEDAGOGY_CUES, "guided_exploration")
+    if resolved_subject == "math" and is_geometric_recomposition_topic(text):
+        representation = "geometric_recomposition"
+        pedagogy = "decompose_recompose_proof"
+        representation_score = max(representation_score, 2)
+        pedagogy_score = max(pedagogy_score, 2)
     evidence_count = family_score + representation_score + pedagogy_score
     confidence = min(0.95, 0.45 + evidence_count * 0.08) if evidence_count else 0.35
     return {
@@ -100,8 +120,24 @@ def normalize_knowledge_profile(raw: object, topic: str, subject: str) -> dict[s
         value = str(raw.get(key) or "").strip()
         if value and len(value) <= 48:
             result[key] = value
+    if baseline["representation_type"] == "geometric_recomposition":
+        result["representation_type"] = "geometric_recomposition"
+        result["pedagogy_pattern"] = "decompose_recompose_proof"
+    elif result["representation_type"] == "geometric_recomposition":
+        result["representation_type"] = baseline["representation_type"]
+        result["pedagogy_pattern"] = baseline["pedagogy_pattern"]
     result["subject"] = subject
     return result
+
+
+def is_geometric_recomposition_topic(topic: str) -> bool:
+    """Detect a reusable cut/rearrange proof shape, not a named knowledge point."""
+
+    text = (topic or "").lower()
+    has_measure = any(cue in text for cue in GEOMETRIC_RECOMPOSITION_MEASURE_CUES)
+    has_operation = any(cue in text for cue in GEOMETRIC_RECOMPOSITION_OPERATION_CUES)
+    has_derivation = any(cue in text for cue in GEOMETRIC_RECOMPOSITION_DERIVATION_CUES)
+    return has_operation and (has_measure or has_derivation) or has_measure and has_derivation
 
 
 def _best_match(text: str, choices: dict[str, tuple[str, ...]], default: str) -> tuple[str, int]:

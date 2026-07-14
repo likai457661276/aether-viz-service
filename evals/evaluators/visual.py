@@ -1,4 +1,4 @@
-"""Deterministic one-metric LangSmith evaluators for visual regression outputs."""
+"""Deterministic one-metric local evaluators for visual regression outputs."""
 
 
 def _outputs(run):

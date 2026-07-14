@@ -70,3 +70,22 @@ def test_planning_and_html_models_are_configured_separately(monkeypatch) -> None
     assert "reasoning_effort" not in captured[0]
     assert captured[2]["timeout"] == settings.aetherviz_html_timeout_seconds
     assert captured[2]["extra_body"] == {"enable_thinking": False}
+
+
+def test_scene_model_uses_strict_response_schema_when_provided(monkeypatch) -> None:
+    captured: list[dict] = []
+
+    class FakeChatOpenAI:
+        def __init__(self, **kwargs) -> None:
+            captured.append(kwargs)
+
+    monkeypatch.setattr("langchain_openai.ChatOpenAI", FakeChatOpenAI)
+    schema = {"type": "object", "additionalProperties": False}
+    model_factory.create_chat_model("scene", response_schema=schema)
+    response_format = captured[0]["model_kwargs"]["response_format"]
+    assert response_format["type"] == "json_schema"
+    assert response_format["json_schema"] == {
+        "name": "aetherviz_geometry_ir",
+        "strict": True,
+        "schema": schema,
+    }

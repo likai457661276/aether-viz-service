@@ -1,0 +1,196 @@
+{
+  "created_at": "2026-07-14T03:15:45.458242+00:00",
+  "local_only": true,
+  "mode": "deterministic_scaffold",
+  "browser": false,
+  "example_count": 24,
+  "repetitions": 3,
+  "run_count": 72,
+  "expected_run_range": [
+    72,
+    90
+  ],
+  "run_range_ok": true,
+  "matrix": {
+    "ok": true,
+    "example_count": 24,
+    "coverage": {
+      "piece_count": {
+        "1": 6,
+        "2": 6,
+        "3": 6,
+        "4+": 6
+      },
+      "primary_transform": {
+        "combined": 6,
+        "reflection": 6,
+        "rotation": 6,
+        "translation": 6
+      },
+      "math_relation": {
+        "angle": 6,
+        "area": 6,
+        "congruence": 6,
+        "length": 6
+      },
+      "representation": {
+        "angle": 6,
+        "grid": 6,
+        "polygon": 6,
+        "segment": 6
+      },
+      "stage_count": {
+        "3": 8,
+        "4": 8,
+        "5": 8
+      },
+      "derivation_difficulty": {
+        "multi_step": 8,
+        "single_step": 8,
+        "two_step": 8
+      },
+      "parameter_form": {
+        "boundary": 8,
+        "fixed": 8,
+        "variable": 8
+      },
+      "failure_mode": {
+        "missing_stage": 6,
+        "out_of_bounds": 6,
+        "text_conflict": 6,
+        "wrong_relation": 6
+      }
+    },
+    "errors": []
+  },
+  "totals": {
+    "html_hard_validation": {
+      "passed": 72,
+      "total": 72,
+      "rate": 1.0,
+      "threshold": 1.0
+    },
+    "mathematical_invariants": {
+      "passed": 72,
+      "total": 72,
+      "rate": 1.0,
+      "threshold": 1.0
+    },
+    "profile_match": {
+      "passed": 72,
+      "total": 72,
+      "rate": 1.0,
+      "threshold": 1.0
+    },
+    "scene_contract": {
+      "passed": 72,
+      "total": 72,
+      "rate": 1.0,
+      "threshold": 1.0
+    },
+    "stage_count_match": {
+      "passed": 72,
+      "total": 72,
+      "rate": 1.0,
+      "threshold": 1.0
+    },
+    "teaching_semantics": {
+      "passed": 72,
+      "total": 72,
+      "rate": 1.0,
+      "threshold": 1.0
+    }
+  },
+  "invalid_cases": {
+    "passed": 4,
+    "total": 4,
+    "results": [
+      {
+        "ok": true,
+        "detected": true,
+        "case_id": "missing-stage",
+        "expected_issues": [
+          "invalid_display_frames",
+          "missing_teaching_stage"
+        ],
+        "issues": [
+          "invalid_display_frames"
+        ],
+        "semantic_ok": false,
+        "mathematics_ok": true,
+        "ranking_ok": false
+      },
+      {
+        "ok": true,
+        "detected": true,
+        "case_id": "out-of-bounds",
+        "expected_issues": [
+          "gross_transform_out_of_bounds"
+        ],
+        "issues": [
+          "gross_transform_out_of_bounds"
+        ],
+        "semantic_ok": true,
+        "mathematics_ok": true,
+        "ranking_ok": false
+      },
+      {
+        "ok": true,
+        "detected": true,
+        "case_id": "text-conflict",
+        "expected_issues": [
+          "transform_text_conflict"
+        ],
+        "issues": [
+          "transform_text_conflict"
+        ],
+        "semantic_ok": true,
+        "mathematics_ok": true,
+        "ranking_ok": true
+      },
+      {
+        "ok": true,
+        "detected": true,
+        "case_id": "wrong-relation",
+        "expected_issues": [
+          "mathematical_invariant_failed",
+          "mathematical_relation_failed"
+        ],
+        "issues": [
+          "mathematical_invariant_failed",
+          "mathematical_relation_failed"
+        ],
+        "semantic_ok": false,
+        "mathematics_ok": false,
+        "ranking_ok": false
+      }
+    ]
+  },
+  "diagnostic_alignment": {
+    "piece_count": {
+      "matched": 36,
+      "total": 72
+    },
+    "primary_transform": {
+      "matched": 54,
+      "total": 72
+    },
+    "stage_count": {
+      "matched": 72,
+      "total": 72
+    }
+  },
+  "llm_judge": {
+    "enabled": false,
+    "evaluated": 0,
+    "available": 0,
+    "unavailable": 0,
+    "judge_available_rate": null,
+    "average_score": null,
+    "serious_visual_text_conflicts": 0,
+    "non_blocking": true,
+    "results": []
+  },
+  "failure_count": 0,
+  "passed": true
+}

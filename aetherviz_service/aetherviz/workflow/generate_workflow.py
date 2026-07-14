@@ -5,15 +5,19 @@ from __future__ import annotations
 import json
 import time
 from collections.abc import Callable, Iterator
+from functools import partial
 from typing import Any
 
 from langsmith import traceable
 from langsmith.run_helpers import get_current_run_tree
 
+from aetherviz_service.aetherviz.agents.function_repair_agent import FunctionRepairResult, stream_repair_functions
 from aetherviz_service.aetherviz.agents.html_agent import HtmlGenerationError, HtmlStreamResult, stream_generate_html
+from aetherviz_service.aetherviz.agents.recomposition_scene_agent import stream_generate_recomposition_html
 from aetherviz_service.aetherviz.agents.repair_agent import RepairStreamResult, stream_repair_html
 from aetherviz_service.aetherviz.api.sse import agent_error_event, agent_sse_event
 from aetherviz_service.aetherviz.tools.deterministic_repair import deterministic_repair_html
+from aetherviz_service.aetherviz.tools.function_patch import target_functions_from_report
 from aetherviz_service.aetherviz.tools.layout_contract import (
     LAYOUT_CONTRACT_VERSION,
     assemble_layout_contract,
@@ -36,6 +40,12 @@ QUALITY_REPAIR_WARNING_TYPES = {
     "unchecked_animation_node_registry",
     "gsap_mutates_serialized_state",
     "duplicate_geometry_transform_encoding",
+}
+
+CANDIDATE_FATAL_ERROR_TYPES = {
+    "js_syntax",
+    "missing_runtime_ready",
+    "truncated_model_output",
 }
 
 
@@ -89,13 +99,22 @@ def _run_generate_workflow_impl(
     topic: str,
     approved_plan: dict[str, Any],
 ) -> Iterator[str]:
+    profile = approved_plan.get("knowledge_profile")
+    representation = profile.get("representation_type") if isinstance(profile, dict) else None
+    if representation == "geometric_recomposition":
+        html_stream_factory = partial(stream_generate_recomposition_html, topic, approved_plan)
+        generation_backend = "recomposition_scene"
+    else:
+        html_stream_factory = partial(stream_generate_html, topic, approved_plan)
+        generation_backend = "direct"
     yield from _run_html_workflow(
         run_id=run_id,
         phase="generate",
         start_event="html.generation_started",
         topic=topic,
         plan=approved_plan,
-        html_stream_factory=lambda: stream_generate_html(topic, approved_plan),
+        html_stream_factory=html_stream_factory,
+        generation_backend=generation_backend,
     )
 
 
@@ -107,6 +126,7 @@ def _run_html_workflow(
     topic: str,
     plan: dict[str, Any],
     html_stream_factory: Callable[[], Iterator[dict[str, Any] | HtmlStreamResult]],
+    generation_backend: str = "direct",
 ) -> Iterator[str]:
     started_at = time.monotonic()
     metadata = {
@@ -116,7 +136,7 @@ def _run_html_workflow(
         "validation_warnings": [],
         "stage": "generate",
         "elapsed_ms": 0,
-        "generation_backend": "direct",
+        "generation_backend": generation_backend,
         "reasoning_enabled": phase == "generate" and settings.aetherviz_html_enable_thinking,
     }
     yield agent_sse_event(
@@ -265,7 +285,7 @@ def _run_html_workflow(
                 "reasoning_elapsed_ms": metadata.get("reasoning_elapsed_ms", 0),
                 "first_chunk_elapsed_ms": metadata.get("first_chunk_elapsed_ms", 0),
                 "generation_elapsed_ms": metadata.get("generation_elapsed_ms", 0),
-                "generation_backend": "direct",
+                "generation_backend": metadata["generation_backend"],
                 "layout_contract_version": LAYOUT_CONTRACT_VERSION,
                 "truncated": metadata.get("truncated", False),
                 "bytes": len(html.encode("utf-8")),
@@ -312,8 +332,7 @@ def _attempt_quality_repair(
         deterministic_report = _validate(assembled_candidate, plan=plan, model_html=deterministic_candidate)
         deterministic_quality = _quality_warning_types(deterministic_report)
         if deterministic_report["ok"] and len(deterministic_quality) < len(baseline_quality):
-            metadata["attempts"] += 1
-            attempt_number = metadata["attempts"]
+            attempt_number = _next_repair_attempt(metadata)
             yield agent_sse_event(
                 "repair.started",
                 run_id=run_id,
@@ -370,8 +389,7 @@ def _attempt_quality_repair(
         return baseline_html, baseline_report, repaired, False
 
     quality_report = _quality_only_report(baseline_report)
-    metadata["attempts"] += 1
-    attempt_number = metadata["attempts"]
+    attempt_number = _next_repair_attempt(metadata)
     yield agent_sse_event(
         "repair.started",
         run_id=run_id,
@@ -429,6 +447,7 @@ def _attempt_quality_repair(
     candidate_quality = _quality_warning_types(candidate_report)
     accepted = (
         candidate != baseline_html
+        and not candidate_truncated
         and candidate_report["ok"]
         and len(candidate_quality) < len(baseline_quality)
     )
@@ -488,6 +507,22 @@ def _quality_only_report(report: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _hard_error_only_report(report: dict[str, Any]) -> dict[str, Any]:
+    errors = [error for error in report.get("errors", []) if isinstance(error, dict)]
+    return {
+        **report,
+        "ok": not errors,
+        "summary": f"发现 {len(errors)} 个硬性错误" if errors else "硬性检查通过",
+        "errors": errors,
+        "warnings": [],
+        "checks": {
+            name: {**check, "warnings": []}
+            for name, check in (report.get("checks") or {}).items()
+            if isinstance(check, dict) and check.get("errors")
+        },
+    }
+
+
 def _attempt_repair_loop(
     *,
     run_id: str,
@@ -501,19 +536,20 @@ def _attempt_repair_loop(
     source_truncated: bool,
 ) -> Iterator[str]:
     repaired = False
-    deterministic_html = _run_deterministic_repair(html, report, plan)
+    hard_report = _hard_error_only_report(report)
+    deterministic_html = _run_deterministic_repair(html, hard_report, plan)
     if deterministic_html != html:
-        metadata["attempts"] += 1
+        previous_html = html
+        previous_report = report
+        attempt_number = _next_repair_attempt(metadata)
         yield agent_sse_event(
             "repair.started",
             run_id=run_id,
             phase=phase,
-            data={"attempt": 1, "strategy": "deterministic", "summary": report.get("summary")},
+            data={"attempt": attempt_number, "strategy": "deterministic", "summary": hard_report.get("summary")},
             metadata=_metadata(metadata, started_at, stage="repair"),
         )
-        html = deterministic_html
-        assembled_html = assemble_layout_contract(html, plan)
-        repaired = True
+        assembled_html = assemble_layout_contract(deterministic_html, plan)
         yield agent_sse_event(
             "html.delta",
             run_id=run_id,
@@ -521,43 +557,85 @@ def _attempt_repair_loop(
             data={"delta": "", "bytes": len(assembled_html.encode("utf-8")), "chars": len(assembled_html)},
             metadata=_metadata(metadata, started_at, stage="repair"),
         )
-        report = _validate(assembled_html, truncated=source_truncated, plan=plan, model_html=html)
+        candidate_report = _validate(
+            assembled_html,
+            truncated=source_truncated,
+            plan=plan,
+            model_html=deterministic_html,
+        )
         yield from _emit_validation_events(
             run_id=run_id,
             phase=phase,
-            report=report,
+            report=candidate_report,
             metadata=metadata,
             started_at=started_at,
             stage="repair",
         )
+        accepted, rejection_reason = _accept_hard_repair_candidate(
+            baseline_report=previous_report,
+            candidate_report=candidate_report,
+            candidate_truncated=source_truncated,
+        )
+        if accepted:
+            html = deterministic_html
+            report = candidate_report
+            repaired = True
+        else:
+            html = previous_html
+            report = previous_report
+            rollback_html = assemble_layout_contract(html, plan)
+            yield agent_sse_event(
+                "html.delta",
+                run_id=run_id,
+                phase=phase,
+                data={"delta": "", "bytes": len(rollback_html.encode("utf-8")), "chars": len(rollback_html)},
+                metadata=_metadata(metadata, started_at, stage="repair"),
+            )
         metadata["validation_warnings"] = [warning["message"] for warning in report.get("warnings", [])]
         yield agent_sse_event(
             "repair.done",
             run_id=run_id,
             phase=phase,
             data={
-                "attempt": 1,
+                "attempt": attempt_number,
                 "strategy": "deterministic",
                 "ok": report["ok"],
+                "accepted": accepted,
+                "rejection_reason": rejection_reason,
                 "summary": report.get("summary"),
                 "bytes": len(assembled_html.encode("utf-8")),
                 "chars": len(assembled_html),
             },
             metadata=_metadata(metadata, started_at, stage="repair"),
         )
-        if report["ok"]:
+        if accepted and report["ok"]:
             return html, report, repaired, metadata["degraded"]
 
     max_attempts = min(max(settings.aetherviz_max_repair_attempts, 0), 1)
-    for attempt in range(max_attempts):
+    if max_attempts and target_functions_from_report(report):
+        html, report, function_repaired, function_degraded = yield from _attempt_function_repair(
+            run_id=run_id,
+            phase=phase,
+            plan=plan,
+            html=html,
+            report=report,
+            metadata=metadata,
+            started_at=started_at,
+        )
+        repaired = repaired or function_repaired
+        metadata["degraded"] = metadata["degraded"] or function_degraded
+        metadata["validation_warnings"] = [warning["message"] for warning in report.get("warnings", [])]
+        if report["ok"] or target_functions_from_report(report):
+            return html, report, repaired, metadata["degraded"]
+
+    for _attempt in range(max_attempts):
         had_prior_repair = repaired
         previous_html = html
         previous_report = report
-        previous_errors = _error_signature(report)
         previous_degraded = metadata["degraded"]
         previous_truncated = metadata.get("truncated", False)
-        metadata["attempts"] += 1
-        attempt_number = attempt + 1 + int(repaired)
+        attempt_number = _next_repair_attempt(metadata)
+        hard_report = _hard_error_only_report(report)
         yield agent_sse_event(
             "repair.started",
             run_id=run_id,
@@ -565,8 +643,8 @@ def _attempt_repair_loop(
             data={
                 "attempt": attempt_number,
                 "strategy": "model",
-                "summary": report.get("summary"),
-                "errors": report.get("errors", [])[:5],
+                "summary": hard_report.get("summary"),
+                "errors": hard_report.get("errors", [])[:5],
             },
             metadata=_metadata(metadata, started_at, stage="repair"),
         )
@@ -576,7 +654,7 @@ def _attempt_repair_loop(
             topic=topic,
             plan=plan,
             raw_html=html,
-            report=report,
+            report=hard_report,
         ):
             if isinstance(item, RepairStreamResult):
                 html, repair_degraded = item.html, item.degraded
@@ -601,35 +679,19 @@ def _attempt_repair_loop(
                 data=item,
                 metadata=_metadata(metadata, started_at, stage="repair"),
             )
-        metadata["degraded"] = metadata["degraded"] or repair_degraded
-        metadata["truncated"] = repair_truncated
-        repaired = True
         assembled_html = assemble_layout_contract(html, plan)
-        report = _validate(assembled_html, truncated=repair_truncated, plan=plan, model_html=html)
+        candidate_report = _validate(assembled_html, truncated=repair_truncated, plan=plan, model_html=html)
         yield from _emit_validation_events(
             run_id=run_id,
             phase=phase,
-            report=report,
+            report=candidate_report,
             metadata=metadata,
             started_at=started_at,
             stage="repair",
         )
-        if not report["ok"]:
-            post_model_html = _run_deterministic_repair(html, report, plan)
+        if not candidate_report["ok"] and not repair_truncated:
+            post_model_html = _run_deterministic_repair(html, _hard_error_only_report(candidate_report), plan)
             if post_model_html != html:
-                metadata["attempts"] += 1
-                post_attempt = metadata["attempts"]
-                yield agent_sse_event(
-                    "repair.started",
-                    run_id=run_id,
-                    phase=phase,
-                    data={
-                        "attempt": post_attempt,
-                        "strategy": "post-model-deterministic",
-                        "summary": report.get("summary"),
-                    },
-                    metadata=_metadata(metadata, started_at, stage="repair"),
-                )
                 html = post_model_html
                 assembled_html = assemble_layout_contract(html, plan)
                 yield agent_sse_event(
@@ -643,7 +705,7 @@ def _attempt_repair_loop(
                     },
                     metadata=_metadata(metadata, started_at, stage="repair"),
                 )
-                report = _validate(
+                candidate_report = _validate(
                     assembled_html,
                     truncated=repair_truncated,
                     plan=plan,
@@ -652,30 +714,23 @@ def _attempt_repair_loop(
                 yield from _emit_validation_events(
                     run_id=run_id,
                     phase=phase,
-                    report=report,
+                    report=candidate_report,
                     metadata=metadata,
                     started_at=started_at,
                     stage="repair",
                 )
-                yield agent_sse_event(
-                    "repair.done",
-                    run_id=run_id,
-                    phase=phase,
-                    data={
-                        "attempt": post_attempt,
-                        "strategy": "post-model-deterministic",
-                        "ok": report["ok"],
-                        "remaining_error_types": list(_error_signature(report)),
-                        "bytes": len(assembled_html.encode("utf-8")),
-                        "chars": len(assembled_html),
-                    },
-                    metadata=_metadata(metadata, started_at, stage="repair"),
-                )
-        metadata["validation_warnings"] = [warning["message"] for warning in report.get("warnings", [])]
-        stalled = not report["ok"] and _error_signature(report) == previous_errors
-        accepted = not stalled
-        candidate_error_types = list(_error_signature(report))
-        if stalled:
+        accepted, rejection_reason = _accept_hard_repair_candidate(
+            baseline_report=previous_report,
+            candidate_report=candidate_report,
+            candidate_truncated=repair_truncated,
+        )
+        candidate_error_types = list(_error_signature(candidate_report))
+        if accepted:
+            report = candidate_report
+            repaired = True
+            metadata["degraded"] = previous_degraded or repair_degraded
+            metadata["truncated"] = False
+        else:
             html = previous_html
             report = previous_report
             repaired = had_prior_repair
@@ -684,8 +739,18 @@ def _attempt_repair_loop(
             metadata["validation_warnings"] = [
                 warning["message"] for warning in report.get("warnings", [])
             ]
-            metadata["repair_stalled"] = True
-            metadata["repair_stalled_error_types"] = candidate_error_types
+            metadata["repair_rejected"] = True
+            metadata["repair_rejected_error_types"] = candidate_error_types
+            metadata["repair_rejection_reason"] = rejection_reason
+            rollback_html = assemble_layout_contract(html, plan)
+            yield agent_sse_event(
+                "html.delta",
+                run_id=run_id,
+                phase=phase,
+                data={"delta": "", "bytes": len(rollback_html.encode("utf-8")), "chars": len(rollback_html)},
+                metadata=_metadata(metadata, started_at, stage="repair"),
+            )
+        metadata["validation_warnings"] = [warning["message"] for warning in report.get("warnings", [])]
         yield agent_sse_event(
             "repair.done",
             run_id=run_id,
@@ -695,7 +760,8 @@ def _attempt_repair_loop(
                 "strategy": "model",
                 "ok": report["ok"],
                 "accepted": accepted,
-                "stalled": stalled,
+                "stalled": rejection_reason == "no_hard_error_reduction",
+                "rejection_reason": rejection_reason,
                 "remaining_error_types": candidate_error_types,
                 "summary": report.get("summary"),
                 "bytes": len(assemble_layout_contract(html, plan).encode("utf-8")),
@@ -706,9 +772,105 @@ def _attempt_repair_loop(
         )
         if report["ok"]:
             break
-        if stalled or html == previous_html:
+        if not accepted or html == previous_html:
             break
     return html, report, repaired, metadata["degraded"]
+
+
+def _attempt_function_repair(
+    *,
+    run_id: str,
+    phase: str,
+    plan: dict[str, Any],
+    html: str,
+    report: dict[str, Any],
+    metadata: dict[str, Any],
+    started_at: float,
+) -> Iterator[str]:
+    baseline_html = html
+    baseline_report = report
+    attempt_number = _next_repair_attempt(metadata)
+    yield agent_sse_event(
+        "repair.started",
+        run_id=run_id,
+        phase=phase,
+        data={
+            "attempt": attempt_number,
+            "strategy": "function-model",
+            "functions": list(target_functions_from_report(report)),
+            "errors": report.get("errors", [])[:5],
+        },
+        metadata=_metadata(metadata, started_at, stage="repair"),
+    )
+    candidate = baseline_html
+    applied: tuple[str, ...] = ()
+    degraded = False
+    patch_errors: tuple[str, ...] = ()
+    for item in stream_repair_functions(raw_html=baseline_html, report=_hard_error_only_report(report)):
+        if isinstance(item, FunctionRepairResult):
+            candidate = item.html
+            applied = item.applied
+            degraded = item.degraded
+            patch_errors = item.errors
+            continue
+        yield agent_sse_event(
+            "html.delta",
+            run_id=run_id,
+            phase=phase,
+            data=item,
+            metadata=_metadata(metadata, started_at, stage="repair"),
+        )
+    assembled_candidate = assemble_layout_contract(candidate, plan)
+    candidate_report = _validate(assembled_candidate, plan=plan, model_html=candidate)
+    accepted, rejection_reason = _accept_hard_repair_candidate(
+        baseline_report=baseline_report,
+        candidate_report=candidate_report,
+        candidate_truncated=False,
+    )
+    accepted = accepted and candidate != baseline_html and bool(applied)
+    if not accepted and rejection_reason is None:
+        rejection_reason = "no_function_patch_applied"
+    if accepted:
+        html = candidate
+        report = candidate_report
+        yield from _emit_validation_events(
+            run_id=run_id,
+            phase=phase,
+            report=report,
+            metadata=metadata,
+            started_at=started_at,
+            stage="repair",
+        )
+    else:
+        html = baseline_html
+        report = baseline_report
+    assembled_result = assemble_layout_contract(html, plan)
+    yield agent_sse_event(
+        "html.delta",
+        run_id=run_id,
+        phase=phase,
+        data={"delta": "", "bytes": len(assembled_result.encode("utf-8")), "chars": len(assembled_result)},
+        metadata=_metadata(metadata, started_at, stage="repair"),
+    )
+    yield agent_sse_event(
+        "repair.done",
+        run_id=run_id,
+        phase=phase,
+        data={
+            "attempt": attempt_number,
+            "strategy": "function-model",
+            "ok": report["ok"],
+            "accepted": accepted,
+            "rejection_reason": rejection_reason,
+            "functions": list(applied),
+            "patch_errors": list(patch_errors),
+            "remaining_error_types": list(_error_signature(report)),
+            "bytes": len(assembled_result.encode("utf-8")),
+            "chars": len(assembled_result),
+        },
+        metadata=_metadata(metadata, started_at, stage="repair"),
+    )
+    return html, report, accepted, degraded if accepted else False
 
 
 def _error_signature(report: dict[str, Any]) -> tuple[str, ...]:
@@ -719,6 +881,31 @@ def _error_signature(report: dict[str, Any]) -> tuple[str, ...]:
             if isinstance(error, dict)
         )
     )
+
+
+def _accept_hard_repair_candidate(
+    *,
+    baseline_report: dict[str, Any],
+    candidate_report: dict[str, Any],
+    candidate_truncated: bool,
+) -> tuple[bool, str | None]:
+    if candidate_truncated:
+        return False, "truncated_candidate"
+    baseline_errors = set(_error_signature(baseline_report))
+    candidate_errors = set(_error_signature(candidate_report))
+    new_fatal_errors = (candidate_errors - baseline_errors) & CANDIDATE_FATAL_ERROR_TYPES
+    if new_fatal_errors:
+        return False, "new_fatal_errors:" + ",".join(sorted(new_fatal_errors))
+    if candidate_report.get("ok"):
+        return True, None
+    if len(candidate_report.get("errors", [])) < len(baseline_report.get("errors", [])):
+        return True, None
+    return False, "no_hard_error_reduction"
+
+
+def _next_repair_attempt(metadata: dict[str, Any]) -> int:
+    metadata["attempts"] = int(metadata.get("attempts", 0)) + 1
+    return metadata["attempts"]
 
 
 def _quality_warning_types(report: dict[str, Any]) -> set[str]:

@@ -45,7 +45,7 @@ def _html_model_kwargs(*, max_tokens: int | None = None) -> dict[str, Any]:
     return kwargs
 
 
-def create_chat_model(kind: str):
+def create_chat_model(kind: str, *, response_schema: dict[str, Any] | None = None):
     from langchain_openai import ChatOpenAI
 
     if kind == "planning":
@@ -64,6 +64,26 @@ def create_chat_model(kind: str):
         return ChatOpenAI(**planning_kwargs)
     if kind == "html":
         return ChatOpenAI(**_html_model_kwargs())
+    if kind == "scene":
+        kwargs = _html_model_kwargs(max_tokens=settings.aetherviz_scene_max_tokens)
+        kwargs["temperature"] = 0.0
+        kwargs["extra_body"] = {"enable_thinking": False}
+        kwargs["model_kwargs"] = {
+            "response_format": (
+                {
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": "aetherviz_geometry_ir",
+                        "strict": True,
+                        "schema": response_schema,
+                    },
+                }
+                if response_schema
+                else {"type": "json_object"}
+            )
+        }
+        kwargs.pop("reasoning_effort", None)
+        return ChatOpenAI(**kwargs)
     if kind == "edit":
         kwargs = _html_model_kwargs(max_tokens=settings.aetherviz_edit_max_tokens)
         kwargs["temperature"] = 0.08

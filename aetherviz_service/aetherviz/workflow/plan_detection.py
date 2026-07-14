@@ -39,6 +39,7 @@ JSON 顶层字段必须且只能包含：
 - controls：只生成 1~2 个真实影响学习的控件，每项只含 id、label、type、bind；不要生成播放、暂停、重置按钮
 - formulas：0~3 个字符串
 - discipline_spec：只含 entities、relations、invariants、boundary_cases、representations；每项均为字符串数组，用通用学科语义描述实现所需对象、关系、不变量、边界/特殊情况和多重表征，不写 HTML/CSS/JS
+- recomposition_spec：仅当服务端知识画像 representation_type=geometric_recomposition 时输出；只含 topology_variables、geometry_variables、invariants、proof_constraints。proof_constraints 只含 measure_invariants、target_relations、stage_requirements；stage_requirements 为 3~5 项，每项只含 id、intent、min_piece_ratio、required_relations。第一项描述源状态，最后一项描述目标结论，中间 1~3 项必须描述可观察的切分、分离、对齐、旋转或拼合几何状态；min_piece_ratio 表示该阶段至少多少比例图元形成独立几何状态，取 0.1~1，建议 0.5。target_relations 是可计算对象数组，每项只含 id、type、left、right、points、tolerance，type 只能是 equal_area、equal_length、equal_angle、parallel、perpendicular、coincident、collinear、congruent。它描述可复用的图元集合、度量不变量、目标关系和教学阶段，不写具体坐标、SVG、HTML、JS 或知识点模板
 
 一致性要求：
 - controls[].bind 必须等于 interactive_spec 中一个可调变量 name；无可调变量时 controls 输出空数组。
@@ -46,6 +47,7 @@ JSON 顶层字段必须且只能包含：
 - 所有 id 使用小写英文、数字、连字符或下划线，引用必须存在。
 - design_brief 必须明确主舞台对象、相对位置、颜色语义、动态更新、默认状态和验收标准。
 - design_brief.visual_rules 必须区分浅色教学工作台 UI 与学科图形语义色：UI 保持白色/灰绿纸张感和绿色交互强调，饱和色只用于数据对象、关键节点、游戏反馈或当前状态；不得规划整页深色霓虹面板或卡片墙。
+- recomposition_spec 的 topology_variables/geometry_variables 只能引用 interactive_spec.variables.name；measure_invariants 只使用 area_preserved、length_preserved、angle_preserved、piece_congruence；target_relations 不写自然语言关系，面积总量关系用 {{"id":"source-target-area","type":"equal_area","left":{{"stage":"source"}},"right":{{"stage":"target"}},"tolerance":0.000001}}，点引用只用 piece_id、stage、anchor(center/vertex)、index，线段引用 start/end 两个点；stage_requirements 必须覆盖源状态、至少一个非首尾线性插值的中间几何状态和目标结论，不能用纯文字中间步骤代替几何阶段。
 
 {type_contract}
 """
