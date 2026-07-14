@@ -47,7 +47,7 @@ JSON 顶层字段必须且只能包含：
 - 所有 id 使用小写英文、数字、连字符或下划线，引用必须存在。
 - design_brief 必须明确主舞台对象、相对位置、颜色语义、动态更新、默认状态和验收标准。
 - design_brief.visual_rules 必须区分浅色教学工作台 UI 与学科图形语义色：UI 保持白色/灰绿纸张感和绿色交互强调，饱和色只用于数据对象、关键节点、游戏反馈或当前状态；不得规划整页深色霓虹面板或卡片墙。
-- recomposition_spec 的 topology_variables/geometry_variables 只能引用 interactive_spec.variables.name；measure_invariants 只使用 area_preserved、length_preserved、angle_preserved、piece_congruence；target_relations 不写自然语言关系，面积总量关系用 {{"id":"source-target-area","type":"equal_area","left":{{"stage":"source"}},"right":{{"stage":"target"}},"tolerance":0.000001}}，点引用只用 piece_id、stage、anchor(center/vertex)、index，线段引用 start/end 两个点。若目标要求拼成近似矩形，target_assembly 至少输出 {{"id":"target-rectangle","type":"approximate_rectangle","max_components":1,"max_overlap_ratio":0.1,"min_rectangularity":0.62,"monotonic":true,"trend_tolerance":0.08}}；其他整体目标按需使用 connected 或 non_overlapping，不得从教学文本关键词在服务端反推。stage_requirements 必须覆盖源状态、至少一个非首尾线性插值的中间几何状态和目标结论，不能用纯文字中间步骤代替几何阶段。
+- recomposition_spec 的 topology_variables/geometry_variables 只能引用 interactive_spec.variables.name；measure_invariants 只使用 area_preserved、length_preserved、angle_preserved、piece_congruence，并始终包含 piece_congruence，表示每个稳定拼片在切分重排中形状不变；target_relations 不写自然语言关系，面积总量关系用 {{"id":"source-target-area","type":"equal_area","left":{{"stage":"source"}},"right":{{"stage":"target"}},"tolerance":0.000001}}，点引用只用 piece_id、stage、anchor(center/vertex)、index，线段引用 start/end 两个点。若目标要求拼成近似矩形，target_assembly 至少输出 {{"id":"target-rectangle","type":"approximate_rectangle","max_components":1,"max_overlap_ratio":0.1,"min_rectangularity":0.62,"monotonic":true,"trend_tolerance":0.08}}；其他整体目标按需使用 connected 或 non_overlapping，不得从教学文本关键词在服务端反推。stage_requirements 必须覆盖源状态、至少一个非首尾线性插值的中间几何状态和目标结论，不能用纯文字中间步骤代替几何阶段。
 
 {type_contract}
 """

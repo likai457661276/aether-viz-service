@@ -126,11 +126,14 @@ const sceneMath=Object.freeze({
 const aliases=`const clamp=sceneMath.clamp,fixed=sceneMath.fixed;const state={parameter:5,pieceCount:8,sectors:8,segments:8,scale:4,radius:4,base:6,height:4,width:6};`;
 const smoke=`
 if(typeof sceneModule!=='object')throw new Error('sceneModule unavailable');
+const collectStateNames=(value,names=new Set())=>{if(Array.isArray(value)){for(const item of value)collectStateNames(item,names);return names;}if(!value||typeof value!=='object')return names;if(typeof value.state==='string')names.add(value.state);for(const item of Object.values(value))collectStateNames(item,names);return names;};
+const requiredStateNames=typeof sceneIR==='object'?collectStateNames(sceneIR):new Set();
 const states=[
  {parameter:5,pieceCount:8,sectors:8,segments:8,scale:4,radius:4,base:6,height:4,width:6},
  {parameter:1,pieceCount:4,sectors:4,segments:4,scale:1,radius:1,base:1,height:1,width:1},
  {parameter:10,pieceCount:24,sectors:24,segments:24,scale:8,radius:8,base:10,height:10,width:10}
 ];
+for(const [index,state] of states.entries())for(const name of requiredStateNames)if(!(name in state))state[name]=[8,4,16][index];
 const allowedTags=new Set(['path','polygon','polyline','rect','circle','ellipse','line','g']);
 for(const state of states){
  String(sceneModule.structureKey(state));

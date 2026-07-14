@@ -105,6 +105,25 @@ def test_normalized_plan_overrides_stale_profile_and_classifies_state_variables(
     ]
 
 
+def test_normalized_recomposition_plan_always_preserves_piece_shape() -> None:
+    plan = normalize_plan(
+        {
+            "recomposition_spec": {
+                "proof_constraints": {
+                    "measure_invariants": ["area_preserved", "length_preserved"]
+                }
+            }
+        },
+        "组合图形切割重排证明",
+    )
+
+    assert plan["recomposition_spec"]["proof_constraints"]["measure_invariants"] == [
+        "area_preserved",
+        "length_preserved",
+        "piece_congruence",
+    ]
+
+
 def test_scene_module_contract_rejects_dom_and_animation_ownership() -> None:
     source = """const sceneModule={
       structureKey(state){return 'x';},
@@ -214,6 +233,53 @@ def test_target_assembly_rejects_scattered_candidate_and_selects_rectangle() -> 
     assert report["candidates"][0]["eligible"] is False
     assert "assembly:target_assembly_failed" in report["candidates"][0]["hard_failures"]
     assert report["candidates"][1]["details"]["target_assembly"]["states"][0]["rectangularity"] >= 0.95
+
+
+def test_sector_rectangle_guidance_describes_measurable_interlocking_assembly() -> None:
+    from aetherviz_service.aetherviz.agents.recomposition_scene_agent import SCENE_SYSTEM_PROMPT
+
+    plan = normalize_plan(
+        {
+            "interactive_spec": {
+                "variables": [
+                    {
+                        "name": "sectorCount",
+                        "label": "等分数",
+                        "min": 4,
+                        "max": 32,
+                        "default": 8,
+                    }
+                ]
+            },
+            "recomposition_spec": {
+                "topology_variables": ["sectorCount"],
+                "proof_constraints": {
+                    "target_assembly": [
+                        {
+                            "id": "target-rectangle",
+                            "type": "approximate_rectangle",
+                            "max_components": 1,
+                            "max_overlap_ratio": 0.1,
+                            "min_rectangularity": 0.62,
+                            "monotonic": True,
+                            "trend_tolerance": 0.08,
+                        }
+                    ]
+                },
+            },
+        },
+        "圆形切分重排推导",
+    )
+
+    report = evaluate_target_assembly(_interlocking_sector_assembly_ir(), plan)
+    source = compile_geometry_ir(_interlocking_sector_assembly_ir(), plan)
+
+    assert report["ok"], report
+    assert validate_scene_module(source)["ok"]
+    assert all(state["component_count"] == 1 for state in report["states"])
+    assert all(state["rectangularity"] >= 0.62 for state in report["states"])
+    assert "stepX=r*sin(halfAngle)" in SCENE_SYSTEM_PROMPT
+    assert "不得用 arcLen 作为逐片中心间距" in SCENE_SYSTEM_PROMPT
 
 
 def test_target_assembly_is_inactive_without_structured_plan_constraint() -> None:
@@ -326,6 +392,98 @@ def test_explicit_target_assembly_does_not_use_generic_fallback_after_failed_rep
 
     with pytest.raises(recomposition_scene_agent.GeometryIRGenerationError):
         list(recomposition_scene_agent._stream_generate_recomposition_html_impl("topic", plan))
+
+
+def test_geometry_ir_failure_reports_unique_actionable_reasons() -> None:
+    from aetherviz_service.aetherviz.agents.recomposition_scene_agent import (
+        GeometryIRGenerationError,
+        _compact_assembly_diagnostics,
+        _compact_teaching_diagnostics,
+    )
+
+    error = GeometryIRGenerationError(
+        "{}",
+        {
+            "errors": [
+                {
+                    "type": "geometry_ir_candidate_rejected",
+                    "hard_failures": [
+                        "assembly:target_assembly_failed",
+                        "teaching:missing_intermediate_geometry_stage",
+                    ],
+                },
+                {
+                    "type": "geometry_ir_candidate_rejected",
+                    "hard_failures": ["assembly:target_assembly_failed"],
+                },
+            ]
+        },
+    )
+    assembly = _compact_assembly_diagnostics(
+        {
+            "states": [
+                {
+                    "state": "default",
+                    "piece_count": 8,
+                    "component_count": 5,
+                    "rectangularity": 0.2,
+                    "overlap_ratio": 0.06,
+                    "bbox": [100, 100, 700, 400],
+                    "grid": [88, 44],
+                }
+            ],
+            "errors": [
+                {
+                    "type": "target_assembly_failed",
+                    "state": "default",
+                    "minimum_rectangularity": 0.62,
+                    "message": "verbose",
+                }
+            ],
+            "checks": [{"verbose": "omitted"}],
+        }
+    )
+    teaching = _compact_teaching_diagnostics(
+        {
+            "errors": [{"type": "missing_intermediate_geometry_stage"}],
+            "checks": [
+                {
+                    "kind": "intermediate_geometry",
+                    "name": "stage-split",
+                    "state": "default",
+                    "at": 0.333333,
+                    "ratio": 0,
+                    "required_ratio": 0.5,
+                    "reason_counts": {"insufficient_source_separation": 8},
+                    "piece_evidence": [{"piece_id": f"piece-{index}"} for index in range(32)],
+                }
+            ],
+        }
+    )
+
+    assert str(error) == (
+        "assembly:target_assembly_failed,teaching:missing_intermediate_geometry_stage"
+    )
+    assert assembly == {
+        "errors": [
+            {
+                "type": "target_assembly_failed",
+                "state": "default",
+                "minimum_rectangularity": 0.62,
+            }
+        ],
+        "states": [
+            {
+                "state": "default",
+                "piece_count": 8,
+                "component_count": 5,
+                "rectangularity": 0.2,
+                "overlap_ratio": 0.06,
+                "bbox": [100, 100, 700, 400],
+            }
+        ],
+    }
+    assert "piece_evidence" not in json.dumps(teaching)
 
 
 def test_scene_generation_selects_one_ir_from_single_three_candidate_response(
@@ -877,6 +1035,104 @@ def _test_lerp(source: object, target: object, at: float) -> object:
 
 def _segment(piece_id: str, start: int, end: int, stage: str = "source") -> dict[str, object]:
     return {"start": _point(piece_id, start, stage), "end": _point(piece_id, end, stage)}
+
+
+def _interlocking_sector_assembly_ir() -> dict[str, object]:
+    source = {
+        "x": 220,
+        "y": 280,
+        "rotation": {
+            "op": "rad_to_deg",
+            "args": [
+                {
+                    "op": "mul",
+                    "args": [{"local": "i"}, {"var": "angleStep"}],
+                }
+            ],
+        },
+        "scale": 1,
+        "opacity": 1,
+    }
+    is_even = {
+        "op": "eq",
+        "args": [{"op": "mod", "args": [{"local": "i"}, 2]}, 0],
+    }
+    target = {
+        "x": {
+            "op": "add",
+            "args": [380, {"op": "mul", "args": [{"local": "i"}, {"var": "stepX"}]}],
+        },
+        "y": {
+            "op": "if",
+            "args": [
+                is_even,
+                220,
+                {"op": "add", "args": [220, {"var": "stepY"}]},
+            ],
+        },
+        "rotation": {"op": "if", "args": [is_even, 90, -90]},
+        "scale": 1,
+        "opacity": 1,
+    }
+    return {
+        "version": GEOMETRY_IR_VERSION,
+        "definitions": {
+            "r": 80,
+            "pi": 3.141592653589793,
+            "N": {"state": "sectorCount"},
+            "angleStep": {
+                "op": "div",
+                "args": [{"op": "mul", "args": [2, {"var": "pi"}]}, {"var": "N"}],
+            },
+            "halfAngle": {"op": "div", "args": [{"var": "angleStep"}, 2]},
+            "stepX": {
+                "op": "mul",
+                "args": [
+                    {"var": "r"},
+                    {"op": "sin", "args": [{"var": "halfAngle"}]},
+                ],
+            },
+            "stepY": {
+                "op": "mul",
+                "args": [
+                    {"var": "r"},
+                    {"op": "cos", "args": [{"var": "halfAngle"}]},
+                ],
+            },
+        },
+        "pieces": [
+            {
+                "repeat": {"count": {"var": "N"}, "index": "i"},
+                "id": {"op": "concat", "args": ["sector-", {"local": "i"}]},
+                "tag": "path",
+                "attrs": {
+                    "d": {
+                        "op": "sector_path",
+                        "args": [
+                            0,
+                            0,
+                            {"var": "r"},
+                            {"op": "neg", "args": [{"var": "halfAngle"}]},
+                            {"var": "halfAngle"},
+                        ],
+                    },
+                    "fill": "#34d399",
+                },
+                "source": source,
+                "target": target,
+                "keyframes": [
+                    {"at": 0, **source},
+                    {"at": 0.5, **source, "x": 300},
+                    {"at": 1, **target},
+                ],
+            }
+        ],
+        "frames": [
+            {"stage_id": "source", "at": 0, "caption": "source", "formula": "", "step": 0},
+            {"stage_id": "move", "at": 0.5, "caption": "move", "formula": "", "step": 1},
+            {"stage_id": "target", "at": 1, "caption": "target", "formula": "", "step": 2},
+        ],
+    }
 
 
 def _rectangular_assembly_ir(plan: dict[str, object]) -> dict[str, object]:

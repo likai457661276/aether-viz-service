@@ -233,6 +233,8 @@ def _normalize_recomposition_spec(raw_spec: object, interactive_spec: dict[str, 
     measure_invariants = [item for item in requested_measures if item in allowed_measures]
     if not measure_invariants:
         measure_invariants = ["area_preserved", "piece_congruence"]
+    elif "piece_congruence" not in measure_invariants:
+        measure_invariants.append("piece_congruence")
     stage_requirements = _normalize_stage_requirements(proof_raw.get("stage_requirements"))
     return {
         "topology_variables": topology,
