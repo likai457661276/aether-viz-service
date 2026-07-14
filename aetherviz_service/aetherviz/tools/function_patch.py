@@ -13,6 +13,7 @@ from aetherviz_service.aetherviz.tools.javascript_syntax import check_javascript
 MAX_FUNCTION_REPLACEMENTS = 3
 MAX_FUNCTION_REPLACEMENT_CHARS = 6_000
 _FUNCTION_START_RE = re.compile(r"\bfunction\s+([A-Za-z_$][\w$]*)\s*\([^)]*\)\s*\{")
+_SCENE_BUILDER_NAMES = ("buildScene", "rebuildScene", "createScene", "initScene", "initializeScene")
 
 
 @dataclass(frozen=True)
@@ -41,6 +42,28 @@ def target_functions_from_report(report: dict[str, Any]) -> tuple[str, ...]:
             if normalized and not normalized.startswith("<") and normalized not in targets:
                 targets.append(normalized)
     return tuple(targets)
+
+
+def repair_function_targets(html: str, report: dict[str, Any]) -> tuple[str, ...]:
+    """Select the failing call-chain tail plus one scene builder when available.
+
+    A frame updater cannot move structural work out of the animation callback by
+    itself. Supplying the unique scene builder lets the bounded model patch
+    preallocate nodes there and leave the updater with attribute-only changes.
+    """
+    targets = list(target_functions_from_report(report))
+    functions = extract_named_functions(html)
+    builder = next(
+        (
+            name
+            for name in _SCENE_BUILDER_NAMES
+            if name not in targets and len(functions.get(name, [])) == 1
+        ),
+        None,
+    )
+    if builder is None:
+        return tuple(targets[-MAX_FUNCTION_REPLACEMENTS:])
+    return tuple([*targets[-(MAX_FUNCTION_REPLACEMENTS - 1) :], builder])
 
 
 def describe_target_functions(html: str, targets: tuple[str, ...]) -> list[dict[str, str]]:

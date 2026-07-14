@@ -17,7 +17,10 @@ from aetherviz_service.aetherviz.agents.recomposition_scene_agent import stream_
 from aetherviz_service.aetherviz.agents.repair_agent import RepairStreamResult, stream_repair_html
 from aetherviz_service.aetherviz.api.sse import agent_error_event, agent_sse_event
 from aetherviz_service.aetherviz.tools.deterministic_repair import deterministic_repair_html
-from aetherviz_service.aetherviz.tools.function_patch import target_functions_from_report
+from aetherviz_service.aetherviz.tools.function_patch import (
+    repair_function_targets,
+    target_functions_from_report,
+)
 from aetherviz_service.aetherviz.tools.layout_contract import (
     LAYOUT_CONTRACT_VERSION,
     assemble_layout_contract,
@@ -797,7 +800,7 @@ def _attempt_function_repair(
         data={
             "attempt": attempt_number,
             "strategy": "function-model",
-            "functions": list(target_functions_from_report(report)),
+            "functions": list(repair_function_targets(html, report)),
             "errors": report.get("errors", [])[:5],
         },
         metadata=_metadata(metadata, started_at, stage="repair"),

@@ -19,7 +19,7 @@ from aetherviz_service.aetherviz.tools.function_patch import (
     apply_function_replacements,
     describe_target_functions,
     parse_function_replacements,
-    target_functions_from_report,
+    repair_function_targets,
 )
 from aetherviz_service.config import settings
 
@@ -29,6 +29,8 @@ FUNCTION_REPAIR_SYSTEM_PROMPT = """你是 JavaScript 函数级最小变更修复
 只输出一个 JSON 对象：{"replacements":[{"function":"函数名","source_hash":"原哈希","replacement":"完整函数声明"}]}。
 只能替换输入中列出的函数，必须原样返回 source_hash；不得输出完整 HTML、CSS、Markdown 或解释。
 只修复检查报告点名的逐帧结构修改：动画帧内只能更新已有节点属性，结构创建/清空必须留在初始化或显式重建阶段。
+输入可能包含一个伴随的场景构建函数。若逐帧函数处理可变节点数量，必须同时修改场景构建函数，按已有变量上界预分配有界节点池，再在逐帧函数中仅更新属性并用 hidden/display 控制启用数量。
+禁止在逐帧函数中通过 while/for + createElement/appendChild/removeChild、innerHTML、replaceChildren 或“仅首次执行”的条件分支增删节点；这仍属于逐帧结构修改。
 保留函数签名、业务状态、教学含义和未点名行为；不要引入新框架、网络、eval、timer 或新的动画循环。
 替换总长度不得超过 6000 字符。"""
 
@@ -60,7 +62,9 @@ def stream_repair_functions(
     metadata={"component": "aetherviz", "stage": "function_repair"},
     process_inputs=lambda inputs: {
         "source_chars": len(inputs.get("raw_html") or ""),
-        "target_functions": list(target_functions_from_report(inputs.get("report") or {})),
+        "target_functions": list(
+            repair_function_targets(inputs.get("raw_html") or "", inputs.get("report") or {})
+        ),
     },
     reduce_fn=lambda items: _summarize(items),
 )
@@ -77,9 +81,11 @@ def _stream_repair_functions_impl(
     raw_html: str,
     report: dict[str, Any],
 ) -> Iterator[dict[str, Any] | FunctionRepairResult]:
-    targets = target_functions_from_report(report)
+    targets = repair_function_targets(raw_html, report)
     descriptions = describe_target_functions(raw_html, targets)
-    descriptions = [item for item in descriptions if len(item["source"]) <= MAX_FUNCTION_REPLACEMENT_CHARS][-3:]
+    descriptions = [
+        item for item in descriptions if len(item["source"]) <= MAX_FUNCTION_REPLACEMENT_CHARS
+    ][:3]
     if not descriptions:
         yield FunctionRepairResult(raw_html, (), degraded=True, errors=("no_unique_target_functions",))
         return
@@ -94,6 +100,11 @@ def _stream_repair_functions_impl(
             "errors": report.get("errors", []),
             "functions": descriptions,
             "allowed_functions": [item["function"] for item in descriptions],
+            "repair_constraints": [
+                "frame callbacks may only update existing node attributes",
+                "variable topology must be preallocated in the scene builder",
+                "do not append, remove, create, clear, or replace nodes in frame functions",
+            ],
         },
         ensure_ascii=False,
         separators=(",", ":"),

@@ -18,7 +18,10 @@ from aetherviz_service.aetherviz.agents.html_agent import (
     build_html_progress_payload,
     stream_generate_html,
 )
-from aetherviz_service.aetherviz.agents.instructions import build_interactive_generation_prompt
+from aetherviz_service.aetherviz.agents.instructions import (
+    build_interactive_generation_prompt,
+    system_prompt_for_interactive_type,
+)
 
 
 def test_build_html_progress_payload_marks_active_step() -> None:
@@ -38,6 +41,7 @@ def test_generation_prompt_compacts_plan_json_without_dropping_content() -> None
     plan = sample_plan("勾股定理")
 
     prompt = build_interactive_generation_prompt("勾股定理", plan)
+    system_prompt = system_prompt_for_interactive_type(plan)
 
     assert '"scene_outline":{"id":"scene-main","type":"interactive"' in prompt
     assert '"type":"simulation","concept":"勾股定理"' in prompt
@@ -48,6 +52,8 @@ def test_generation_prompt_compacts_plan_json_without_dropping_content() -> None
     assert "连续计算状态与可见展示状态分离" in prompt
     assert "描述符驱动的统一格式化入口" in prompt
     assert "共享边只绘制一次" in prompt
+    assert "预分配有界节点池" in system_prompt
+    assert "禁止在逐帧函数中用 while/for" in system_prompt
     assert "静态 HTML" in prompt
     assert 'data-role="main-visual"' in prompt
 

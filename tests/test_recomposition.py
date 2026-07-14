@@ -9,6 +9,7 @@ from aetherviz_service.aetherviz.tools.animation_lifecycle_checker import check_
 from aetherviz_service.aetherviz.tools.function_patch import (
     apply_function_replacements,
     describe_target_functions,
+    repair_function_targets,
     target_functions_from_report,
 )
 from aetherviz_service.aetherviz.tools.layout_contract import assemble_layout_contract
@@ -1433,6 +1434,22 @@ def test_function_patch_requires_named_target_and_exact_hash() -> None:
     )
     assert stale.html == html
     assert "source_hash_mismatch:updateLabels" in stale.errors
+
+
+def test_function_repair_includes_scene_builder_for_variable_topology() -> None:
+    html = """<script>
+    function buildScene(){ dots.length=0; for(let i=0;i<96;i++){const dot=createDot();stage.appendChild(dot);dots.push(dot);} }
+    function updateView(){ while(dots.length<state.sides){const dot=createDot();stage.appendChild(dot);dots.push(dot);} }
+    window.gsap.to(proxy,{onUpdate:()=>{updateView();}});
+    </script>"""
+    report = check_animation_lifecycle(html)
+
+    assert target_functions_from_report(report) == ("updateView",)
+    assert repair_function_targets(html, report) == ("updateView", "buildScene")
+    assert [
+        item["function"]
+        for item in describe_target_functions(html, repair_function_targets(html, report))
+    ] == ["updateView", "buildScene"]
 
 
 def test_hard_repair_gate_rejects_truncation_and_new_fatal_errors() -> None:
