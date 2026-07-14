@@ -284,7 +284,7 @@ HTML 文件编辑阶段请求示例：
 8. 生成、编辑和模型修复的候选结果都会重新经过同一个服务端布局装配器，`phase=edit_html` 不能改变布局外壳，只能修改数学内容、业务交互与槽位优先级；编辑候选会继续执行确定性视觉/动画质量收尾，但不会为 warning 额外发起一次完整模型重写。结果仍生成新 HTML 分支，不覆盖旧 HTML。
 9. 最终 HTML 仅通过 `html.done` 返回前端；服务端不保留 HTML 文件缓存或产物路径。
 
-生产同步链路不启动浏览器。几何 IR 只允许白名单 state/definition/local 引用、算术与几何操作符、SVG 图元和属性；通用 DSL 包含 `atan/atan2/hypot` 等角度与距离计算，并允许每个稳定图元声明 2~5 个 transform keyframes。计划中的 `proof_constraints` 描述度量不变量、目标关系和教学阶段；每个 `stage_requirement` 由服务端归一化为唯一 `id`、`source/intermediate/target` 角色、确定时间点、几何证据类型和最小图元比例。IR 的教学帧必须用 `stage_id`/`at` 一一覆盖计划阶段；每个中间阶段必须有足够比例图元在同一时间点形成区别于首尾且偏离直接线性插值的几何关键状态，纯文字中间步骤会被阻断。`target_relations` 使用通用结构化关系 `equal_area` / `equal_length` / `equal_angle` / `parallel` / `perpendicular` / `coincident` / `collinear` / `congruent`，通过图元、顶点和线段引用表达，不包含知识点分支。服务端会在默认、最小和最大状态展开图元，阻断无效尺寸、非有限值、重复 id、静止端点、缺失中间几何证据、明确违反度量不变量或结构化几何关系的结果；当前图元或引用不足以计算时只产生 warning。编译后的 Scene Module 还会在无 DOM/网络/动态代码能力的 Node `vm` 中执行低成本冒烟检查；真实浏览器布局与行为验证仍由离线流程负责。
+生产同步链路不启动浏览器。几何 IR 只允许白名单 state/definition/local 引用、算术与几何操作符、SVG 图元和属性；通用 DSL 包含 `atan/atan2/hypot` 等角度与距离计算，并允许每个稳定图元声明 2~5 个 transform keyframes。计划中的 `proof_constraints` 描述度量不变量、目标关系、目标拼合约束和教学阶段；每个 `stage_requirement` 由服务端归一化为唯一 `id`、`source/intermediate/target` 角色、确定时间点、几何证据类型和最小图元比例。IR 的教学帧必须用 `stage_id`/`at` 一一覆盖计划阶段；每个中间阶段必须有足够比例图元在同一时间点形成区别于首尾且偏离直接线性插值的几何关键状态，纯文字中间步骤会被阻断。`target_relations` 使用通用结构化关系 `equal_area` / `equal_length` / `equal_angle` / `parallel` / `perpendicular` / `coincident` / `collinear` / `congruent`，通过图元、顶点和线段引用表达；`target_assembly` 使用 `connected` / `non_overlapping` / `approximate_rectangle` 描述世界坐标下的连通性、重叠率、矩形度及参数趋势，不包含知识点分支。服务端会在默认、最小和最大状态展开图元，阻断无效尺寸、非有限值、重复 id、静止端点、缺失中间几何证据、明确违反度量不变量、结构化几何关系或显式目标拼合约束的结果；扇形 `sector_path` 支持确定性轮廓采样和面积计算，其他当前图元或引用不足以计算时产生 warning，且不可计算的显式关系不会获得完整数学评分。编译后的 Scene Module 还会在无 DOM/网络/动态代码能力的 Node `vm` 中执行低成本冒烟检查；真实浏览器布局与行为验证仍由离线流程负责。
 
 ### 离线视觉稳定性验证
 
@@ -308,7 +308,7 @@ uv run python evals/datasets/build_visual.py /tmp/trace.json --output /tmp/aethe
 
 `evals/evaluators/visual.py` 提供视觉总通过、舞台可见性、SVG 尺度、动画变化、暂停、重置、参数同步、节点稳定和 GSAP fallback 等单指标确定性 evaluator，仅用于本地或离线回归；Dataset、Evaluator 和经确认的评测报告均可提交到 Git，禁止通过 LangSmith CLI/SDK/API/UI 创建或上传远端 Dataset/Evaluator。
 
-`evals/datasets/recomposition/legacy-topics.jsonl` 保留早期的 4 个开发主题、3 个保留主题和 4 个挑战主题。当前统一入口 `evals/run_eval.py` 分别统计分类、首次候选集中是否存在合格 IR、首次 Scene 契约、一次受限 JSON 修复后的最终契约、教学语义约束、完整 HTML 硬校验、通用 fallback 和浏览器 Runtime，并保存每个候选的硬失败、分项得分、稳定指纹及排序。首稿 IR 门槛为 95%，无通用 fallback 门槛为 97%；可用 `--max-runs` 精确限制调用次数。
+`evals/datasets/recomposition/legacy-topics.jsonl` 保留早期的 4 个开发主题、3 个保留主题和 4 个挑战主题。当前统一入口 `evals/run_eval.py` 分别统计分类、首次候选集中是否存在合格 IR、首次 Scene 契约、一次受限 JSON 修复后的最终契约、教学语义约束、目标拼合约束、完整 HTML 硬校验、通用 fallback 和浏览器 Runtime，并保存每个候选的硬失败、分项得分、稳定指纹、目标拼合指标及排序。LangSmith 子 Run `aetherviz.geometry_ir_ranking` 仅记录脱敏后的候选数量、分数、硬失败、拼合指标、不可计算关系和选择原因，不记录候选 IR 正文。首稿 IR 门槛为 95%，无通用 fallback 门槛为 97%；可用 `--max-runs` 精确限制调用次数。
 
 本地跨维度评估集位于 `evals/datasets/recomposition/`，包含 24 个主题、4 个通用无效 mutation、覆盖矩阵和阈值。主题同时覆盖 piece 数量、平移/旋转/翻转/组合变换、面积/长度/角度/全等、多边形/线段/角/网格、3~5 个阶段、推导难度和参数边界。默认执行 3 次形成 72 次回归：
 

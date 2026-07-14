@@ -3,6 +3,7 @@
   "scene_contract": 1.0,
   "html_hard_validation": 1.0,
   "mathematical_invariants": 1.0,
+  "target_assembly": 1.0,
   "teaching_semantics": 1.0,
   "stage_count_match": 1.0,
   "browser_runtime": 1.0,

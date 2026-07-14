@@ -67,6 +67,7 @@ def evaluate_run(
         "scene_contract": bool(result.get("scene_report", {}).get("ok")),
         "html_hard_validation": bool(result.get("html_report", {}).get("ok")),
         "mathematical_invariants": _mathematical_checks_pass(result),
+        "target_assembly": _target_assembly_checks_pass(result),
         "teaching_semantics": bool(result.get("semantic_report", {}).get("ok")),
         "stage_count_match": _stage_count_matches(result, example),
     }
@@ -115,6 +116,16 @@ def _mathematical_checks_pass(result: dict[str, Any]) -> bool:
 def _stage_count_matches(result: dict[str, Any], example: dict[str, Any]) -> bool:
     expected = example.get("outputs", {}).get("expected_constraints", {}).get("stage_count")
     return result.get("geometry_ir_facts", {}).get("stage_count") == expected
+
+
+def _target_assembly_checks_pass(result: dict[str, Any]) -> bool:
+    report = result.get("semantic_report", {})
+    checks = [
+        item
+        for item in report.get("checks", [])
+        if item.get("kind") in {"target_assembly", "target_assembly_trend"}
+    ]
+    return all(item.get("passed") is not False for item in checks)
 
 
 def _candidate_ranking_pass(result: dict[str, Any]) -> bool:

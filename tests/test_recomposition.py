@@ -12,6 +12,7 @@ from aetherviz_service.aetherviz.tools.function_patch import (
     target_functions_from_report,
 )
 from aetherviz_service.aetherviz.tools.layout_contract import assemble_layout_contract
+from aetherviz_service.aetherviz.tools.recomposition_assembly import evaluate_target_assembly
 from aetherviz_service.aetherviz.tools.recomposition_contract import validate_scene_module
 from aetherviz_service.aetherviz.tools.recomposition_ir import (
     GEOMETRY_IR_VERSION,
@@ -175,6 +176,73 @@ def test_ir_candidate_ranking_rejects_gross_out_of_bounds_motion() -> None:
     report = rank_geometry_ir_candidates([candidate], plan)
     assert not report["ok"]
     assert "safety:gross_transform_out_of_bounds" in report["candidates"][0]["hard_failures"]
+
+
+def test_target_assembly_rejects_scattered_candidate_and_selects_rectangle() -> None:
+    plan = normalize_plan(
+        {
+            "recomposition_spec": {
+                "proof_constraints": {
+                    "target_assembly": [
+                        {
+                            "id": "target-rectangle",
+                            "type": "approximate_rectangle",
+                            "max_components": 1,
+                            "max_overlap_ratio": 0.1,
+                            "min_rectangularity": 0.8,
+                        }
+                    ]
+                }
+            }
+        },
+        "组合图形切割重排证明",
+    )
+    rectangle = _rectangular_assembly_ir(plan)
+    scattered = deepcopy(rectangle)
+    scattered["pieces"][0]["target"]["x"] = {
+        "op": "add",
+        "args": [420, {"op": "mul", "args": [{"local": "i"}, 100]}],
+    }
+    scattered["pieces"][0]["keyframes"][-1]["x"] = deepcopy(
+        scattered["pieces"][0]["target"]["x"]
+    )
+
+    report = rank_geometry_ir_candidates([scattered, rectangle], plan)
+
+    assert report["ok"]
+    assert report["selected_index"] == 1
+    assert report["candidates"][0]["eligible"] is False
+    assert "assembly:target_assembly_failed" in report["candidates"][0]["hard_failures"]
+    assert report["candidates"][1]["details"]["target_assembly"]["states"][0]["rectangularity"] >= 0.95
+
+
+def test_target_assembly_is_inactive_without_structured_plan_constraint() -> None:
+    plan = normalize_plan({}, "组合图形切割重排证明")
+    report = evaluate_target_assembly(_rectangular_assembly_ir(plan), plan)
+    assert report == {"ok": True, "errors": [], "warnings": [], "checks": [], "states": []}
+
+
+def test_deterministic_fallback_satisfies_explicit_rectangle_assembly() -> None:
+    plan = normalize_plan(
+        {
+            "recomposition_spec": {
+                "proof_constraints": {
+                    "target_assembly": [
+                        {
+                            "id": "target-rectangle",
+                            "type": "approximate_rectangle",
+                            "max_components": 1,
+                            "max_overlap_ratio": 0.1,
+                            "min_rectangularity": 0.62,
+                        }
+                    ]
+                }
+            }
+        },
+        "组合图形切割重排证明",
+    )
+    report = rank_geometry_ir_candidates([build_deterministic_geometry_ir(plan)], plan)
+    assert report["ok"], report["candidates"][0]["details"]["target_assembly"]
 
 
 def test_scene_generation_selects_one_ir_from_single_three_candidate_response(
@@ -575,6 +643,42 @@ def test_plan_normalizes_structured_geometry_relations() -> None:
     ]
 
 
+def test_plan_normalizes_structured_target_assembly_constraints() -> None:
+    plan = normalize_plan(
+        {
+            "recomposition_spec": {
+                "proof_constraints": {
+                    "target_assembly": [
+                        {
+                            "id": "Target rectangle",
+                            "type": "approximate_rectangle",
+                            "max_components": 0,
+                            "max_overlap_ratio": 0.08,
+                            "min_rectangularity": 0.7,
+                            "monotonic": True,
+                            "trend_tolerance": 0.05,
+                            "ignored": "not part of the assembly DSL",
+                        },
+                        {"id": "unsupported", "type": "circle_area_specific"},
+                    ]
+                }
+            }
+        },
+        "组合图形面积切割重排证明",
+    )
+    assert plan["recomposition_spec"]["proof_constraints"]["target_assembly"] == [
+        {
+            "id": "target-rectangle",
+            "type": "approximate_rectangle",
+            "max_components": 1,
+            "max_overlap_ratio": 0.08,
+            "min_rectangularity": 0.7,
+            "monotonic": True,
+            "trend_tolerance": 0.05,
+        }
+    ]
+
+
 def test_mathematical_evaluator_computes_generic_relations() -> None:
     plan = {
         "interactive_spec": {"variables": []},
@@ -654,6 +758,18 @@ def test_mathematical_evaluator_rejects_false_relation_and_warns_when_unavailabl
     assert {item["type"] for item in report["warnings"]} == {"target_relation_unavailable"}
 
 
+def test_ranking_does_not_award_math_points_when_all_relations_are_unavailable() -> None:
+    plan = normalize_plan({}, "组合图形面积切割重排证明")
+    geometry_ir = build_deterministic_geometry_ir(plan)
+    geometry_ir["pieces"][0]["tag"] = "path"
+    geometry_ir["pieces"][0]["attrs"] = {"d": "M 0 0 L 20 0 L 10 20 Z", "fill": "#34d399"}
+    report = rank_geometry_ir_candidates([geometry_ir], plan)
+    candidate = report["candidates"][0]
+    assert candidate["eligible"] is True
+    assert candidate["details"]["mathematics"]["relation_coverage"] == 0.0
+    assert candidate["components"]["mathematical_invariants"] == 0.0
+
+
 def _point(piece_id: str, index: int, stage: str = "source") -> dict[str, object]:
     return {"piece_id": piece_id, "stage": stage, "anchor": "vertex", "index": index}
 
@@ -678,6 +794,54 @@ def _test_lerp(source: object, target: object, at: float) -> object:
 
 def _segment(piece_id: str, start: int, end: int, stage: str = "source") -> dict[str, object]:
     return {"start": _point(piece_id, start, stage), "end": _point(piece_id, end, stage)}
+
+
+def _rectangular_assembly_ir(plan: dict[str, object]) -> dict[str, object]:
+    geometry_ir = build_deterministic_geometry_ir(plan)
+    source = {
+        "x": {"op": "add", "args": [180, {"op": "mul", "args": [{"local": "i"}, 55]}]},
+        "y": 120,
+        "rotation": 0,
+        "scale": 1,
+        "opacity": 1,
+    }
+    target = {
+        "x": {
+            "op": "add",
+            "args": [420, {"op": "mul", "args": [{"op": "mod", "args": [{"local": "i"}, 2]}, 40]}],
+        },
+        "y": {
+            "op": "add",
+            "args": [260, {"op": "mul", "args": [{"op": "floor", "args": [{"op": "div", "args": [{"local": "i"}, 2]}]}, 30]}],
+        },
+        "rotation": 0,
+        "scale": 1,
+        "opacity": 1,
+    }
+    geometry_ir["definitions"] = {}
+    geometry_ir["pieces"] = [
+        {
+            "repeat": {"count": 4, "index": "i"},
+            "id": {"op": "concat", "args": ["tile-", {"local": "i"}]},
+            "tag": "rect",
+            "attrs": {"x": 0, "y": 0, "width": 40, "height": 30, "fill": "#34d399"},
+            "source": source,
+            "target": target,
+            "keyframes": [
+                {"at": 0, **source},
+                {
+                    "at": 0.5,
+                    "x": {"op": "add", "args": [300, {"op": "mul", "args": [{"local": "i"}, 15]}]},
+                    "y": {"op": "add", "args": [170, {"op": "mul", "args": [{"op": "mod", "args": [{"local": "i"}, 2]}, 50]}]},
+                    "rotation": 20,
+                    "scale": 1,
+                    "opacity": 1,
+                },
+                {"at": 1, **target},
+            ],
+        }
+    ]
+    return geometry_ir
 
 
 def _mathematical_geometry_ir() -> dict[str, object]:
@@ -746,6 +910,20 @@ def test_geometry_ir_supports_sector_sweep_and_opacity_only_transition() -> None
     }
     assert validate_geometry_ir(geometry_ir, plan)["ok"]
     assert validate_scene_module(compile_geometry_ir(geometry_ir, plan))["ok"]
+
+
+def test_mathematical_evaluator_computes_sector_path_area() -> None:
+    plan = normalize_plan({}, "弓形面积割补推导")
+    geometry_ir = build_deterministic_geometry_ir(plan)
+    geometry_ir["pieces"][0]["tag"] = "path"
+    geometry_ir["pieces"][0]["attrs"] = {
+        "d": {"op": "sector_path", "args": [0, 0, 80, 0, 1.2]},
+        "fill": "#34d399",
+    }
+    report = evaluate_mathematical_invariants(geometry_ir, plan)
+    assert report["ok"]
+    assert report["relation_coverage"] == 1.0
+    assert not any(item["type"] == "target_relation_unavailable" for item in report["warnings"])
 
 
 def test_server_scaffold_assembles_valid_bounded_html() -> None:

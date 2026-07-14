@@ -1,0 +1,1 @@
+{"id":"false-target-assembly","mutation":"require_false_target_assembly","expected_issues":["target_assembly_failed"]}

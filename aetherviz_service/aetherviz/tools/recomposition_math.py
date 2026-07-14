@@ -6,6 +6,11 @@ import math
 import re
 from typing import Any
 
+from aetherviz_service.aetherviz.tools.recomposition_assembly import (
+    AssemblyGeometryUnavailable,
+    piece_local_polygon,
+    polygon_area,
+)
 from aetherviz_service.aetherviz.tools.recomposition_ir import (
     expand_geometry_ir,
     sample_geometry_states,
@@ -121,7 +126,19 @@ def evaluate_mathematical_invariants(ir: dict[str, Any], plan: dict[str, Any]) -
                         **details,
                     )
                 )
-    return {"ok": not errors, "errors": errors, "warnings": warnings, "checks": checks}
+    relation_checks = [item for item in checks if item.get("kind") == "relation"]
+    requested_relation_checks = len(relations[:MAX_RELATIONS]) * len(sample_geometry_states(plan))
+    return {
+        "ok": not errors,
+        "errors": errors,
+        "warnings": warnings,
+        "checks": checks,
+        "relation_coverage": (
+            len(relation_checks) / requested_relation_checks if requested_relation_checks else 1.0
+        ),
+        "requested_relation_checks": requested_relation_checks,
+        "available_relation_checks": len(relation_checks),
+    }
 
 
 def _proof_constraints(plan: dict[str, Any]) -> dict[str, Any]:
@@ -246,6 +263,11 @@ def _base_area(piece: dict[str, Any]) -> float:
         return math.pi * _number(attrs.get("r")) ** 2
     if tag == "ellipse":
         return math.pi * _number(attrs.get("rx")) * _number(attrs.get("ry"))
+    if tag == "path":
+        try:
+            return polygon_area(piece_local_polygon(piece))
+        except AssemblyGeometryUnavailable as exc:
+            raise GeometryRelationUnavailable(str(exc)) from exc
     raise GeometryRelationUnavailable(f"图元 {piece.get('id')}({tag}) 没有可计算面积")
 
 
@@ -312,6 +334,11 @@ def _local_points(piece: dict[str, Any]) -> list[Point]:
         rx = _number(attrs.get("r" if tag == "circle" else "rx"))
         ry = _number(attrs.get("r" if tag == "circle" else "ry"))
         return [(cx + rx, cy), (cx, cy + ry), (cx - rx, cy), (cx, cy - ry)]
+    if tag == "path":
+        try:
+            return piece_local_polygon(piece)
+        except AssemblyGeometryUnavailable as exc:
+            raise GeometryRelationUnavailable(str(exc)) from exc
     raise GeometryRelationUnavailable(f"图元 {piece.get('id')}({tag}) 没有可引用顶点")
 
 

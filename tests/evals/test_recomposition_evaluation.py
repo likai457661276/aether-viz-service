@@ -33,7 +33,7 @@ def test_all_invalid_recomposition_cases_are_detected() -> None:
         evaluate_invalid_case(ir, plan, json.loads(path.read_text(encoding="utf-8")))
         for path in sorted(DEFAULT_INVALID_CASES.glob("*.json"))
     ]
-    assert len(results) == 4
+    assert len(results) == 5
     assert all(result["ok"] for result in results), results
 
 

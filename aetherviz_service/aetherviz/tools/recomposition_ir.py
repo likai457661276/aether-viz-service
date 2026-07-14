@@ -471,8 +471,38 @@ def build_deterministic_geometry_ir(plan: dict[str, Any]) -> dict[str, Any]:
         "opacity": 1,
     }
     target = {
-        "x": {"op": "add", "args": [180, {"op": "mul", "args": [{"local": "i"}, 42]}]},
-        "y": {"op": "add", "args": [390, {"op": "mul", "args": [{"op": "mod", "args": [{"local": "i"}, 2]}, 34]}]},
+        "x": {
+            "op": "add",
+            "args": [
+                180,
+                {
+                    "op": "mul",
+                    "args": [
+                        {
+                            "op": "add",
+                            "args": [
+                                {"op": "floor", "args": [{"op": "div", "args": [{"local": "i"}, 2]}]},
+                                {"op": "mod", "args": [{"local": "i"}, 2]},
+                            ],
+                        },
+                        {"var": "tileSize"},
+                    ],
+                },
+            ],
+        },
+        "y": {
+            "op": "add",
+            "args": [
+                390,
+                {
+                    "op": "mul",
+                    "args": [
+                        {"op": "mod", "args": [{"local": "i"}, 2]},
+                        {"var": "tileSize"},
+                    ],
+                },
+            ],
+        },
         "rotation": {"op": "mul", "args": [{"op": "mod", "args": [{"local": "i"}, 2]}, 180]},
         "scale": {"var": "shapeScale"},
         "opacity": 1,
@@ -510,14 +540,18 @@ def build_deterministic_geometry_ir(plan: dict[str, Any]) -> dict[str, Any]:
         )
     return {
         "version": GEOMETRY_IR_VERSION,
-        "definitions": {"count": count_expr, "shapeScale": scale_expr},
+        "definitions": {
+            "count": count_expr,
+            "shapeScale": scale_expr,
+            "tileSize": {"op": "mul", "args": [54, {"var": "shapeScale"}]},
+        },
         "pieces": [
             {
                 "repeat": {"count": {"var": "count"}, "index": "i"},
                 "id": {"op": "concat", "args": ["piece-", {"local": "i"}]},
                 "tag": "polygon",
                 "attrs": {
-                    "points": "0,0 54,0 27,54",
+                    "points": "0,0 54,0 0,54",
                     "fill": {
                         "op": "if",
                         "args": [{"op": "eq", "args": [{"op": "mod", "args": [{"local": "i"}, 2]}, 0]}, "#fbbf24", "#34d399"],

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from aetherviz_service.aetherviz.tools.recomposition_assembly import evaluate_target_assembly
 from aetherviz_service.aetherviz.tools.recomposition_ir import (
     expand_geometry_ir,
     sample_geometry_states,
@@ -48,8 +49,15 @@ def evaluate_recomposition_semantics(ir: object, plan: dict[str, Any]) -> dict[s
     math_report = evaluate_mathematical_invariants(ir, plan)
     errors.extend(math_report["errors"])
     warnings.extend(math_report["warnings"])
+    assembly_report = evaluate_target_assembly(ir, plan)
+    errors.extend(assembly_report["errors"])
+    warnings.extend(assembly_report["warnings"])
 
-    return _report(errors, warnings, checks=[*stage_checks["checks"], *math_report["checks"]])
+    return _report(
+        errors,
+        warnings,
+        checks=[*stage_checks["checks"], *math_report["checks"], *assembly_report["checks"]],
+    )
 
 
 def _evaluate_teaching_stage_evidence(

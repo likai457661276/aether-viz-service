@@ -34,6 +34,19 @@ def evaluate_invalid_case(
         ir["pieces"][0]["target"]["x"] = 5000
         if ir["pieces"][0].get("keyframes"):
             ir["pieces"][0]["keyframes"][-1]["x"] = 5000
+    elif mutation == "require_false_target_assembly":
+        proof = mutated_plan["recomposition_spec"]["proof_constraints"]
+        proof["target_assembly"] = [
+            {
+                "id": "target-rectangle",
+                "type": "approximate_rectangle",
+                "max_components": 1,
+                "max_overlap_ratio": 0.05,
+                "min_rectangularity": 0.85,
+                "monotonic": False,
+                "trend_tolerance": 0.08,
+            }
+        ]
     else:
         return {"ok": False, "detected": False, "issues": ["unknown_mutation"]}
 

@@ -7,6 +7,7 @@ import json
 import math
 from typing import Any
 
+from aetherviz_service.aetherviz.tools.recomposition_assembly import evaluate_target_assembly
 from aetherviz_service.aetherviz.tools.recomposition_ir import (
     expand_geometry_ir,
     normalize_geometry_ir,
@@ -20,12 +21,13 @@ CANVAS_WIDTH = 960.0
 CANVAS_HEIGHT = 560.0
 SCORE_WEIGHTS = {
     "schema": 15.0,
-    "mathematical_invariants": 20.0,
-    "teaching_stages": 20.0,
-    "transform_text_consistency": 15.0,
-    "piece_count": 10.0,
-    "motion_range": 10.0,
-    "bounds_and_scale": 5.0,
+    "mathematical_invariants": 15.0,
+    "target_assembly": 20.0,
+    "teaching_stages": 15.0,
+    "transform_text_consistency": 10.0,
+    "piece_count": 8.0,
+    "motion_range": 8.0,
+    "bounds_and_scale": 4.0,
     "fallback_avoidance": 5.0,
 }
 
@@ -108,15 +110,17 @@ def _evaluate_candidate(candidate: object, plan: dict[str, Any], index: int, ori
         )
 
     math_report = evaluate_mathematical_invariants(ir, plan)
+    assembly_report = evaluate_target_assembly(ir, plan)
     semantic_report = evaluate_recomposition_semantics(ir, plan)
     safety_report = _evaluate_motion_safety(ir, plan)
     stage_errors = [
         error
         for error in semantic_report.get("errors", [])
-        if not str(error.get("type", "")).startswith("mathematical_")
+        if not str(error.get("type", "")).startswith(("mathematical_", "target_assembly_"))
     ]
     hard_failures = [
         *_error_types(math_report, "mathematics"),
+        *_error_types(assembly_report, "assembly"),
         *[f"teaching:{error.get('type', 'unknown')}" for error in stage_errors],
         *[f"safety:{error.get('type', 'unknown')}" for error in safety_report["errors"]],
     ]
@@ -124,7 +128,8 @@ def _evaluate_candidate(candidate: object, plan: dict[str, Any], index: int, ori
     text_score, text_details = _score_transform_text_consistency(ir, plan)
     components = {
         "schema": SCORE_WEIGHTS["schema"],
-        "mathematical_invariants": SCORE_WEIGHTS["mathematical_invariants"] if math_report["ok"] else 0.0,
+        "mathematical_invariants": SCORE_WEIGHTS["mathematical_invariants"] * _mathematics_score(math_report),
+        "target_assembly": SCORE_WEIGHTS["target_assembly"] * _assembly_score(assembly_report),
         "teaching_stages": SCORE_WEIGHTS["teaching_stages"] if not stage_errors else 0.0,
         "transform_text_consistency": SCORE_WEIGHTS["transform_text_consistency"] * text_score,
         "piece_count": SCORE_WEIGHTS["piece_count"] * piece_score,
@@ -142,12 +147,34 @@ def _evaluate_candidate(candidate: object, plan: dict[str, Any], index: int, ori
         details={
             "schema": contract,
             "mathematics": math_report,
+            "target_assembly": assembly_report,
             "teaching_semantics": semantic_report,
             "transform_text": text_details,
             "piece_count": piece_details,
             "motion_safety": safety_report,
         },
     )
+
+
+def _mathematics_score(report: dict[str, Any]) -> float:
+    if not report.get("ok"):
+        return 0.0
+    return max(0.0, min(1.0, _finite(report.get("relation_coverage"), 1.0)))
+
+
+def _assembly_score(report: dict[str, Any]) -> float:
+    if not report.get("ok"):
+        return 0.0
+    states = report.get("states", [])
+    if not states:
+        return 1.0
+    scores = [
+        _finite(item.get("rectangularity"), 0)
+        * (1 - min(1.0, _finite(item.get("overlap_ratio"), 1)))
+        / max(1, int(item.get("component_count", 1)))
+        for item in states
+    ]
+    return sum(scores) / len(scores)
 
 
 def _evaluate_motion_safety(ir: dict[str, Any], plan: dict[str, Any]) -> dict[str, Any]:

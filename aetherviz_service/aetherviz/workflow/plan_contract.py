@@ -245,6 +245,7 @@ def _normalize_recomposition_spec(raw_spec: object, interactive_spec: dict[str, 
             "target_relations": _normalize_target_relations(
                 proof_raw.get("target_relations"), measure_invariants
             ),
+            "target_assembly": _normalize_target_assembly(proof_raw.get("target_assembly")),
             "stage_requirements": stage_requirements,
         },
     }
@@ -346,6 +347,44 @@ def _normalize_target_relations(value: object, measure_invariants: list[str]) ->
             }
         )
     return relations
+
+
+def _normalize_target_assembly(value: object) -> list[dict[str, Any]]:
+    allowed_types = {"connected", "non_overlapping", "approximate_rectangle"}
+    constraints: list[dict[str, Any]] = []
+    if not isinstance(value, list):
+        return constraints
+    for index, item in enumerate(value[:4]):
+        if not isinstance(item, dict) or item.get("type") not in allowed_types:
+            continue
+        constraint_type = str(item["type"])
+        constraint: dict[str, Any] = {
+            "id": re.sub(
+                r"[^a-zA-Z0-9_-]+",
+                "-",
+                (_safe_str(item.get("id")) or f"assembly-{index + 1}").lower(),
+            ).strip("-")[:48]
+            or f"assembly-{index + 1}",
+            "type": constraint_type,
+        }
+        if constraint_type in {"connected", "approximate_rectangle"}:
+            constraint["max_components"] = int(
+                _clamp(_safe_number(item.get("max_components"), 1), 1, 4)
+            )
+        if constraint_type in {"non_overlapping", "approximate_rectangle"}:
+            constraint["max_overlap_ratio"] = _clamp(
+                _safe_number(item.get("max_overlap_ratio"), 0.1), 0, 0.5
+            )
+        if constraint_type == "approximate_rectangle":
+            constraint["min_rectangularity"] = _clamp(
+                _safe_number(item.get("min_rectangularity"), 0.62), 0.4, 0.95
+            )
+            constraint["monotonic"] = bool(item.get("monotonic", False))
+            constraint["trend_tolerance"] = _clamp(
+                _safe_number(item.get("trend_tolerance"), 0.08), 0, 0.25
+            )
+        constraints.append(constraint)
+    return constraints
 
 
 def _normalize_relation_reference(value: object, *, depth: int) -> object | None:
