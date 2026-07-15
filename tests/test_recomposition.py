@@ -1486,6 +1486,89 @@ def test_edit_patch_targets_duplicate_play_by_runtime_error_expression() -> None
     assert sum(item["function"] == "onUpdate" for item in descriptions) == 1
 
 
+def test_edit_patch_selects_event_call_path_without_function_name_conventions() -> None:
+    html = """<button id="launch-sequence">播放</button><script>
+    const launchButton=document.getElementById('launch-sequence');
+    function acquireEngine(){return window.AetherVizAnimationController.create({duration:8,update:paintFrame});}
+    function paintFrame(progress){stage.style.opacity=progress;}
+    function beginSequence(){acquireEngine().play();}
+    function haltSequence(){acquireEngine().pause();}
+    function restoreSequence(){acquireEngine().reset();}
+    function fallbackLoop(now){state.progress=now;}
+    launchButton.addEventListener('click',beginSequence);
+    window.AetherVizRuntime={play:beginSequence,pause:haltSequence,reset:restoreSequence};
+    </script>"""
+
+    descriptions = select_edit_function_descriptions(html, "播放按钮无法播放，但拖动滑块可以更新")
+
+    assert [item["function"] for item in descriptions] == [
+        "beginSequence",
+        "acquireEngine",
+        "haltSequence",
+        "restoreSequence",
+    ]
+    assert descriptions[0]["evidence"] == ["runtime_action:play"]
+    assert "fallbackLoop" not in {item["function"] for item in descriptions}
+
+
+def test_edit_patch_expands_control_path_through_shared_state() -> None:
+    html = """<button id="launch-sequence">播放</button><script>
+    const launchButton=document.getElementById('launch-sequence');
+    let motionEngine=window.AetherVizAnimationController.create({duration:8,update:paintFrame});
+    function beginSequence(){motionEngine.play();}
+    function haltSequence(){motionEngine.pause();}
+    function restoreSequence(){motionEngine.reset();}
+    function changeRate(value){motionEngine.setSpeed(value);}
+    launchButton.addEventListener('click',beginSequence);
+    </script>"""
+
+    descriptions = select_edit_function_descriptions(html, "播放按钮无法播放")
+
+    assert [item["function"] for item in descriptions] == [
+        "beginSequence",
+        "haltSequence",
+        "restoreSequence",
+        "changeRate",
+    ]
+    assert all(
+        item["evidence"] == ["shared_state:motionEngine"]
+        for item in descriptions[1:]
+    )
+
+
+def test_function_patch_rejects_fallback_only_change_for_playback_issue() -> None:
+    html = """<button id="launch-sequence">播放</button><script>
+    const launchButton=document.getElementById('launch-sequence');
+    function acquireEngine(){return window.AetherVizAnimationController.create({duration:8,update:paintFrame});}
+    function beginSequence(){acquireEngine().play();}
+    function fallbackLoop(now){state.progress=now;}
+    launchButton.addEventListener('click',beginSequence);
+    </script>"""
+    fallback_only = html.replace(
+        "function fallbackLoop(now){state.progress=now;}",
+        "function fallbackLoop(now){const elapsed=now;state.progress=elapsed;}",
+    )
+
+    assert patch_causal_error(html, fallback_only, "播放按钮无法播放") == "runtime_control_path_unchanged"
+
+
+def test_function_patch_rejects_new_undeclared_animation_state() -> None:
+    html = """<button id="play-animation">播放</button><script>
+    const playButton=document.getElementById('play-animation');
+    function beginSequence(){controller.play();}
+    function fallbackLoop(now){state.progress=now;}
+    playButton.addEventListener('click',beginSequence);
+    </script>"""
+    broken = html.replace(
+        "function fallbackLoop(now){state.progress=now;}",
+        "function fallbackLoop(now){lastFrameTime=now;state.progress=now;}",
+    )
+
+    assert patch_causal_error(html, broken, "播放按钮无法播放") == (
+        "new_unresolved_identifiers:lastFrameTime"
+    )
+
+
 def test_function_patch_rejects_unchanged_replacement_and_preserves_cause() -> None:
     html = """<script>
     const controller={play:function(){

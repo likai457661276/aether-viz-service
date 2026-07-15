@@ -13,6 +13,14 @@ _OBJECT_FUNCTION_START_RE = re.compile(
 _OBJECT_METHOD_START_RE = re.compile(
     r"(?:(?<=\{)|(?<=,))\s*([A-Za-z_$][\w$]*)\s*\([^)]*\)\s*\{"
 )
+_VARIABLE_ARROW_START_RE = re.compile(
+    r"\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*"
+    r"(?:async\s*)?(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*=>\s*\{"
+)
+_OBJECT_ARROW_START_RE = re.compile(
+    r"\b([A-Za-z_$][\w$]*)\s*:\s*"
+    r"(?:async\s*)?(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*=>\s*\{"
+)
 _FRAME_CALLBACK_RE = re.compile(
     r"(?:onUpdate\s*:\s*(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*=>\s*\{|"
     r"requestAnimationFrame\s*\(\s*(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*=>\s*\{)"
@@ -101,6 +109,7 @@ def check_animation_lifecycle(html: str, *, soup: BeautifulSoup | None = None) -
     _check_duplicate_geometry_transform_encoding(script_text, warnings)
     _check_quantized_animation_accumulator(business_script_text, warnings)
     _check_playback_api_effects(business_script_text, warnings)
+    _check_animation_controller_contract(business_script_text, errors)
 
     return {
         "ok": not errors,
@@ -160,9 +169,70 @@ def _check_playback_api_effects(script_text: str, warnings: list[dict]) -> None:
         )
 
 
+def _check_animation_controller_contract(script_text: str, errors: list[dict]) -> None:
+    create_re = re.compile(r"(?:window\.)?AetherVizAnimationController\.create\s*\(\s*\{")
+    for match in create_re.finditer(script_text):
+        opening = script_text.find("{", match.start(), match.end())
+        closing = _matching_brace(script_text, opening)
+        if closing is None:
+            continue
+        options = script_text[opening + 1 : closing]
+        has_update = bool(re.search(r"(?:^|,)\s*update\s*(?=:|,|$)", options))
+        has_on_update = bool(re.search(r"(?:^|,)\s*onUpdate\s*:", options))
+        if not has_update:
+            errors.append(
+                _issue(
+                    "animation_controller_missing_update",
+                    "AetherVizAnimationController.create 必须传入 update(progress)；onUpdate 不是控制器契约字段，"
+                    "会导致播放状态推进但画面不更新。",
+                    received="onUpdate" if has_on_update else None,
+                )
+            )
+        duration = re.search(r"(?:^|,)\s*duration\s*:\s*(\d+(?:\.\d+)?)", options)
+        if duration and float(duration.group(1)) > 600:
+            errors.append(
+                _issue(
+                    "animation_controller_duration_unit",
+                    "AetherVizAnimationController 的 duration 单位是秒；当前常量异常偏大，"
+                    "疑似把毫秒直接传入，播放会看起来静止。",
+                    duration=float(duration.group(1)),
+                )
+            )
+
+    functions = _extract_function_bodies(script_text)
+    for name, body in functions.items():
+        if not re.search(
+            r"\breturn\s+(?:window\.)?AetherVizAnimationController\.create\s*\(", body
+        ):
+            continue
+        lifecycle_calls = set(
+            re.findall(
+                rf"(?<![.\w$]){re.escape(name)}\s*\(\s*\)\s*\.\s*"
+                r"(play|pause|reset|restart|setSpeed)\s*\(",
+                script_text,
+            )
+        )
+        if len(lifecycle_calls) >= 2:
+            errors.append(
+                _issue(
+                    "ephemeral_animation_controller",
+                    f"{name} 每次调用都创建新的动画控制器，却被多个生命周期动作分别调用；"
+                    "play/pause/reset/setSpeed 必须共享同一控制器实例。",
+                    factory=name,
+                    actions=sorted(lifecycle_calls),
+                )
+            )
+
+
 def _extract_function_bodies(script: str) -> dict[str, str]:
     functions: dict[str, str] = {}
-    for pattern in (_FUNCTION_START_RE, _OBJECT_FUNCTION_START_RE, _OBJECT_METHOD_START_RE):
+    for pattern in (
+        _FUNCTION_START_RE,
+        _OBJECT_FUNCTION_START_RE,
+        _OBJECT_METHOD_START_RE,
+        _VARIABLE_ARROW_START_RE,
+        _OBJECT_ARROW_START_RE,
+    ):
         for match, body in _matches_with_bodies(script, pattern):
             functions[match.group(1)] = body
     return functions

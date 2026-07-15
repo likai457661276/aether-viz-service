@@ -395,6 +395,47 @@ def test_animation_lifecycle_detects_no_op_object_set_speed() -> None:
     assert "no_op_set_speed" in warning_types
 
 
+def test_animation_lifecycle_detects_no_op_arrow_set_speed() -> None:
+    html = """<script>
+    const runtime={setSpeed:(value)=>{void value;}};
+    </script>"""
+
+    warning_types = {item["type"] for item in check_animation_lifecycle(html)["warnings"]}
+
+    assert "no_op_set_speed" in warning_types
+
+
+def test_animation_lifecycle_rejects_invalid_controller_options() -> None:
+    html = """<script>
+    function applyFrame(progress){stage.style.opacity=progress;}
+    const controller=window.AetherVizAnimationController.create({duration:8000,onUpdate:applyFrame});
+    </script>"""
+
+    error_types = {item["type"] for item in check_animation_lifecycle(html)["errors"]}
+
+    assert error_types == {
+        "animation_controller_missing_update",
+        "animation_controller_duration_unit",
+    }
+
+
+def test_animation_lifecycle_rejects_ephemeral_controller_across_actions() -> None:
+    html = """<script>
+    function draw(progress){stage.style.opacity=progress;}
+    function acquireEngine(){
+      return window.AetherVizAnimationController.create({duration:8,update:draw});
+    }
+    function begin(){acquireEngine().play();}
+    function halt(){acquireEngine().pause();}
+    function restore(){acquireEngine().reset();}
+    </script>"""
+
+    errors = check_animation_lifecycle(html)["errors"]
+
+    assert [item["type"] for item in errors] == ["ephemeral_animation_controller"]
+    assert errors[0]["actions"] == ["pause", "play", "reset"]
+
+
 def test_animation_lifecycle_warns_about_unchecked_dynamic_node_registry() -> None:
     html = sample_html().replace(
         "function updateVisualization(){",

@@ -8,7 +8,11 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-from aetherviz_service.aetherviz.tools.javascript_syntax import check_javascript_syntax
+from aetherviz_service.aetherviz.tools.animation_lifecycle_checker import check_animation_lifecycle
+from aetherviz_service.aetherviz.tools.javascript_syntax import (
+    check_javascript_syntax,
+    new_unresolved_identifiers,
+)
 
 MAX_FUNCTION_REPLACEMENTS = 5
 MAX_FUNCTION_REPLACEMENT_CHARS = 6_000
@@ -45,7 +49,7 @@ _FUNCTION_PATTERNS = (
     _STANDALONE_METHOD_START_RE,
 )
 _SCENE_BUILDER_NAMES = ("buildScene", "rebuildScene", "createScene", "initScene", "initializeScene")
-_PLAYBACK_FUNCTION_NAMES = (
+_LEGACY_PLAYBACK_FUNCTION_NAMES = (
     "play",
     "loop",
     "animate",
@@ -125,7 +129,9 @@ def select_edit_function_descriptions(
     target_selectors: tuple[str, ...] = (),
 ) -> list[dict[str, str | int]]:
     """Describe runtime-edit targets, including duplicate names selected by source position."""
-    selected = _select_edit_function_sources(html, instruction, target_selectors=target_selectors)
+    selected, evidence = _select_edit_function_sources_with_evidence(
+        html, instruction, target_selectors=target_selectors
+    )
     return [
         {
             "function": item.name,
@@ -135,6 +141,7 @@ def select_edit_function_descriptions(
             "start": item.start,
             "end": item.end,
             "line": (html.count("\n", 0, item.start) + 1),
+            "evidence": list(evidence.get((item.start, item.end), ())),
         }
         for item in selected
     ]
@@ -182,13 +189,28 @@ def _select_edit_function_sources(
     *,
     target_selectors: tuple[str, ...] = (),
 ) -> tuple[FunctionSource, ...]:
+    selected, _evidence = _select_edit_function_sources_with_evidence(
+        html, instruction, target_selectors=target_selectors
+    )
+    return selected
+
+
+def _select_edit_function_sources_with_evidence(
+    html: str,
+    instruction: str,
+    *,
+    target_selectors: tuple[str, ...] = (),
+) -> tuple[tuple[FunctionSource, ...], dict[tuple[int, int], tuple[str, ...]]]:
     functions = extract_named_functions(html)
     text = instruction or ""
     targets: list[FunctionSource] = []
     seen_spans: set[tuple[int, int]] = set()
+    selection_evidence: dict[tuple[int, int], list[str]] = {}
 
-    def add(item: FunctionSource) -> None:
+    def add(item: FunctionSource, reason: str) -> None:
         span = (item.start, item.end)
+        if reason not in selection_evidence.setdefault(span, []):
+            selection_evidence[span].append(reason)
         if span not in seen_spans and len(targets) < MAX_FUNCTION_REPLACEMENTS:
             seen_spans.add(span)
             targets.append(item)
@@ -199,11 +221,11 @@ def _select_edit_function_sources(
         for match in re.finditer(_dotted_expression_pattern(anchor), source):
             enclosing = [item for item in all_functions if item.start <= match.start() < item.end]
             if enclosing:
-                add(min(enclosing, key=lambda item: item.end - item.start))
+                add(min(enclosing, key=lambda item: item.end - item.start), f"runtime_error:{anchor}")
 
     for name, matches in functions.items():
         if len(matches) == 1 and re.search(rf"(?<![\w$]){re.escape(name)}(?![\w$])", text):
-            add(matches[0])
+            add(matches[0], "instruction_symbol")
     for selector in target_selectors:
         selector_text = str(selector or "").strip()
         if not selector_text:
@@ -213,20 +235,19 @@ def _select_edit_function_sources(
             identifiers.add(selector_text[1:])
         for function in all_functions:
             if any(identifier in function.source for identifier in identifiers):
-                add(function)
-    playback_request = bool(
-        re.search(
-            r"播放|暂停|重置|速度|动画|不动|无响应|没反应|play|pause|reset|speed|animation",
-            text,
-            re.IGNORECASE,
-        )
-    )
-    if playback_request:
-        for name in _PLAYBACK_FUNCTION_NAMES:
+                add(function, f"dom_dependency:{selector_text}")
+
+    semantic_slice, semantic_evidence = _runtime_control_slice(source, text, functions)
+    for function in semantic_slice:
+        add(function, semantic_evidence.get((function.start, function.end), "control_path"))
+
+    if _runtime_actions(text) and not semantic_slice:
+        for name in _LEGACY_PLAYBACK_FUNCTION_NAMES:
             matches = functions.get(name, [])
             if len(matches) == 1:
-                add(matches[0])
-    return tuple(targets[:MAX_FUNCTION_REPLACEMENTS])
+                add(matches[0], "legacy_name_fallback")
+    frozen_evidence = {span: tuple(values) for span, values in selection_evidence.items()}
+    return tuple(targets[:MAX_FUNCTION_REPLACEMENTS]), frozen_evidence
 
 
 def patch_causal_error(before: str, after: str, instruction: str) -> str | None:
@@ -236,7 +257,208 @@ def patch_causal_error(before: str, after: str, instruction: str) -> str | None:
         before_count = len(pattern.findall(_strip_javascript_comments(before)))
         if before_count and len(pattern.findall(_strip_javascript_comments(after))) >= before_count:
             return f"reported_error_signature_unchanged:{anchor}"
+    unresolved = new_unresolved_identifiers(before, after)
+    if unresolved:
+        return "new_unresolved_identifiers:" + ",".join(unresolved[:8])
+    if _runtime_actions(instruction):
+        before_functions = extract_named_functions(before)
+        control_path, _evidence = _runtime_control_slice(before, instruction, before_functions)
+        if control_path:
+            after_hashes = {
+                item.source_hash
+                for matches in extract_named_functions(after).values()
+                for item in matches
+            }
+            if all(item.source_hash in after_hashes for item in control_path):
+                return "runtime_control_path_unchanged"
+        controller_errors = {
+            str(item.get("type") or "")
+            for item in check_animation_lifecycle(after).get("errors", [])
+            if str(item.get("type") or "").startswith("animation_controller_")
+            or item.get("type") == "ephemeral_animation_controller"
+        }
+        if controller_errors:
+            return "controller_contract_errors_remaining:" + ",".join(sorted(controller_errors))
     return None
+
+
+def _runtime_actions(instruction: str) -> tuple[str, ...]:
+    text = instruction or ""
+    patterns = {
+        "play": r"播放|开始|继续|重播|不动|无响应|没反应|play|start|resume|replay|animation",
+        "pause": r"暂停|pause",
+        "reset": r"重置|复位|reset|restart",
+        "speed": r"速度|倍速|speed|rate",
+        "update": r"滑块|拖动|参数|进度|slider|range|input|change|update",
+    }
+    return tuple(action for action, pattern in patterns.items() if re.search(pattern, text, re.IGNORECASE))
+
+
+def _runtime_control_slice(
+    html: str,
+    instruction: str,
+    functions: dict[str, list[FunctionSource]],
+) -> tuple[tuple[FunctionSource, ...], dict[tuple[int, int], str]]:
+    """Build a bounded control-path slice from bindings, runtime actions and calls."""
+    actions = set(_runtime_actions(instruction))
+    if not actions:
+        return (), {}
+    unique = {name: matches[0] for name, matches in functions.items() if len(matches) == 1}
+    if not unique:
+        return (), {}
+    dom_vars = _dom_variable_actions(html)
+    roots: list[tuple[str, str]] = []
+
+    binding_re = re.compile(
+        r"(?P<target>[A-Za-z_$][\w$]*)\s*\.\s*addEventListener\s*\(\s*"
+        r"['\"](?P<event>click|input|change)['\"]\s*,\s*(?P<handler>[A-Za-z_$][\w$]*)",
+        re.IGNORECASE,
+    )
+    for match in binding_re.finditer(html):
+        target_actions = dom_vars.get(match.group("target"), set())
+        event_actions = {"update"} if match.group("event").lower() in {"input", "change"} else target_actions
+        if actions & event_actions and match.group("handler") in unique:
+            roots.append((match.group("handler"), f"event_binding:{match.group('event').lower()}"))
+
+    property_re = re.compile(
+        r"(?P<target>[A-Za-z_$][\w$]*)\s*\.\s*on(?:click|input|change)\s*=\s*(?P<handler>[A-Za-z_$][\w$]*)"
+    )
+    for match in property_re.finditer(html):
+        if actions & dom_vars.get(match.group("target"), set()) and match.group("handler") in unique:
+            roots.append((match.group("handler"), "event_property"))
+
+    for action, handler in _runtime_action_handlers(html):
+        if action in actions and handler in unique:
+            roots.append((handler, f"runtime_action:{action}"))
+
+    for tag in re.finditer(r"<(?P<tag>button|input)\b(?P<attrs>[^>]*)>", html, re.IGNORECASE):
+        attrs = tag.group("attrs")
+        semantic = _semantic_actions(attrs)
+        handler = re.search(r"\bonclick\s*=\s*['\"]\s*([A-Za-z_$][\w$]*)", attrs, re.IGNORECASE)
+        if handler and actions & semantic and handler.group(1) in unique:
+            roots.append((handler.group(1), "inline_event_binding"))
+
+    if not roots:
+        return (), {}
+
+    calls = {
+        name: tuple(
+            candidate
+            for candidate in unique
+            if candidate != name
+            and re.search(rf"(?<![.\w$]){re.escape(candidate)}\s*\(", item.source)
+        )
+        for name, item in unique.items()
+    }
+    ordered: list[FunctionSource] = []
+    evidence: dict[tuple[int, int], str] = {}
+    queue = list(dict.fromkeys(name for name, _reason in roots))
+    root_reasons = {name: reason for name, reason in roots}
+    seen: set[str] = set()
+    while queue and len(ordered) < MAX_FUNCTION_REPLACEMENTS:
+        name = queue.pop(0)
+        if name in seen or name not in unique:
+            continue
+        seen.add(name)
+        item = unique[name]
+        ordered.append(item)
+        evidence[(item.start, item.end)] = root_reasons.get(name, "forward_call_dependency")
+        queue.extend(calls.get(name, ()))
+
+    # Include lifecycle siblings that share a selected controller/state helper.
+    selected_names = {item.name for item in ordered}
+    shared_helpers = {callee for name in selected_names for callee in calls.get(name, ())}
+    for helper in shared_helpers:
+        for caller, callees in calls.items():
+            if len(ordered) >= MAX_FUNCTION_REPLACEMENTS:
+                break
+            if caller not in selected_names and helper in callees:
+                item = unique[caller]
+                ordered.append(item)
+                selected_names.add(caller)
+                evidence[(item.start, item.end)] = f"shared_dependency:{helper}"
+
+    global_state = _top_level_declared_identifiers(html, functions)
+    selected_state = {
+        state
+        for item in ordered
+        for state in global_state
+        if re.search(rf"(?<![\w$]){re.escape(state)}(?![\w$])", item.source)
+    }
+    for state in sorted(selected_state):
+        for name, item in unique.items():
+            if len(ordered) >= MAX_FUNCTION_REPLACEMENTS:
+                break
+            if name in selected_names:
+                continue
+            if re.search(rf"(?<![\w$]){re.escape(state)}(?![\w$])", item.source):
+                ordered.append(item)
+                selected_names.add(name)
+                evidence[(item.start, item.end)] = f"shared_state:{state}"
+    return tuple(ordered), evidence
+
+
+def _top_level_declared_identifiers(
+    html: str, functions: dict[str, list[FunctionSource]]
+) -> set[str]:
+    spans = [(item.start, item.end) for matches in functions.values() for item in matches]
+    names: set[str] = set()
+    for match in re.finditer(r"\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)", html):
+        if not any(start <= match.start() < end for start, end in spans):
+            names.add(match.group(1))
+    return names
+
+
+def _dom_variable_actions(html: str) -> dict[str, set[str]]:
+    result: dict[str, set[str]] = {}
+    pattern = re.compile(
+        r"\b(?:const|let|var)\s+(?P<name>[A-Za-z_$][\w$]*)\s*=\s*document\."
+        r"(?:getElementById|querySelector)\s*\(\s*['\"](?P<selector>[^'\"]+)['\"]\s*\)"
+    )
+    for match in pattern.finditer(html):
+        selector = match.group("selector")
+        actions = _semantic_actions(selector)
+        element_id = selector[1:] if selector.startswith("#") else selector
+        element = re.search(
+            rf"<(?P<tag>button|input|select)\b(?P<attrs>[^>]*\bid\s*=\s*['\"]{re.escape(element_id)}['\"][^>]*)>"
+            r"(?P<label>[\s\S]*?)</(?P=tag)>",
+            html,
+            re.IGNORECASE,
+        )
+        if element:
+            actions.update(_semantic_actions(element.group("attrs") + " " + element.group("label")))
+        result[match.group("name")] = actions
+    return result
+
+
+def _semantic_actions(text: str) -> set[str]:
+    patterns = {
+        "play": r"play|start|resume|replay|播放|开始|继续|重播",
+        "pause": r"pause|暂停",
+        "reset": r"reset|restart|重置|复位",
+        "speed": r"speed|rate|速度|倍速",
+        "update": r"slider|range|progress|parameter|input|滑块|进度|参数",
+    }
+    return {action for action, pattern in patterns.items() if re.search(pattern, text, re.IGNORECASE)}
+
+
+def _runtime_action_handlers(html: str) -> tuple[tuple[str, str], ...]:
+    marker = re.search(r"(?:window\.)?AetherVizRuntime\s*=\s*\{", html)
+    if not marker:
+        return ()
+    opening = html.find("{", marker.start(), marker.end())
+    closing = _matching_brace(html, opening)
+    if closing is None:
+        return ()
+    body = html[opening + 1 : closing]
+    handlers: list[tuple[str, str]] = []
+    for action in ("play", "pause", "reset", "setSpeed", "update"):
+        explicit = re.search(rf"\b{re.escape(action)}\s*:\s*([A-Za-z_$][\w$]*)", body)
+        shorthand = re.search(rf"(?:^|,)\s*{re.escape(action)}\s*(?=,|$)", body)
+        handler = explicit.group(1) if explicit else action if shorthand else None
+        if handler:
+            handlers.append(("speed" if action == "setSpeed" else action, handler))
+    return tuple(handlers)
 
 
 def _runtime_error_anchors(instruction: str) -> tuple[str, ...]:
