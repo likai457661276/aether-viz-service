@@ -12,6 +12,8 @@ from dataclasses import dataclass
 from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
+from langsmith import traceable
+from langsmith.run_helpers import get_current_run_tree
 
 from aetherviz_service.aetherviz.agents.model_factory import (
     create_chat_model,
@@ -56,6 +58,33 @@ class PlanningStreamResult:
 
 
 def stream_create_plan(topic: str, *, context: dict[str, Any] | None = None) -> Iterator[dict[str, Any] | PlanningStreamResult]:
+    runner = (
+        _traced_stream_create_plan
+        if settings.langsmith_tracing and get_current_run_tree() is not None
+        else _stream_create_plan_impl
+    )
+    yield from runner(topic=topic, context=context)
+
+
+@traceable(
+    name="aetherviz.plan_generation",
+    run_type="chain",
+    metadata={"component": "aetherviz", "stage": "plan_generation"},
+    process_inputs=lambda inputs: {
+        "topic": inputs.get("topic"),
+        "has_context": bool(inputs.get("context")),
+    },
+    reduce_fn=lambda items: _summarize_planning_trace(items),
+)
+def _traced_stream_create_plan(
+    topic: str, *, context: dict[str, Any] | None = None
+) -> Iterator[dict[str, Any] | PlanningStreamResult]:
+    yield from _stream_create_plan_impl(topic=topic, context=context)
+
+
+def _stream_create_plan_impl(
+    topic: str, *, context: dict[str, Any] | None = None
+) -> Iterator[dict[str, Any] | PlanningStreamResult]:
     color = extract_color_from_topic(topic)
     system_prompt, user_prompt = build_planning_prompt(topic, color)
     context_text, context_status = _compact_planning_context(context)
@@ -70,6 +99,25 @@ def stream_create_plan(topic: str, *, context: dict[str, Any] | None = None) -> 
         context_status=context_status,
         deterministic_factory=lambda: _deterministic_plan(topic, color, status="draft"),
     )
+
+
+def _summarize_planning_trace(
+    items: list[dict[str, Any] | PlanningStreamResult],
+) -> dict[str, Any]:
+    result = next((item for item in reversed(items) if isinstance(item, PlanningStreamResult)), None)
+    if result is None:
+        return {"completed": False}
+    return {
+        "completed": True,
+        "degraded": result.degraded,
+        "planning_elapsed_ms": result.planning_elapsed_ms,
+        "token_usage": {
+            "input_tokens": result.input_tokens,
+            "output_tokens": result.output_tokens,
+            "total_tokens": result.total_tokens,
+        },
+        "plan": result.plan,
+    }
 
 
 def stream_revise_plan(

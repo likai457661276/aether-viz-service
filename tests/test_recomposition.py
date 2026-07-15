@@ -9,7 +9,9 @@ from aetherviz_service.aetherviz.tools.animation_lifecycle_checker import check_
 from aetherviz_service.aetherviz.tools.function_patch import (
     apply_function_replacements,
     describe_target_functions,
+    patch_causal_error,
     repair_function_targets,
+    select_edit_function_descriptions,
     target_functions_from_report,
 )
 from aetherviz_service.aetherviz.tools.layout_contract import assemble_layout_contract
@@ -1465,6 +1467,81 @@ def test_function_patch_supports_arrow_and_object_methods() -> None:
     assert result.applied == ("loop", "setSpeed")
     assert "elapsed = now" in result.html
     assert "Math.max" in result.html
+
+
+def test_edit_patch_targets_duplicate_play_by_runtime_error_expression() -> None:
+    html = """<script>
+    const localController={play:function(){
+      gsap.to({p:0},{p:1,onUpdate:function(){this.update(this.targets()[0].p);}.bind(this)});
+    }};
+    window.AetherVizRuntime={play:function(){localController.play();},pause:function(){},reset:function(){},setSpeed:function(){}};
+    </script>"""
+
+    descriptions = select_edit_function_descriptions(
+        html, "TypeError: this.targets is not a function；播放失败"
+    )
+
+    assert descriptions[0]["function"] == "onUpdate"
+    assert "this.targets" in descriptions[0]["source"]
+    assert sum(item["function"] == "onUpdate" for item in descriptions) == 1
+
+
+def test_function_patch_rejects_unchanged_replacement_and_preserves_cause() -> None:
+    html = """<script>
+    const controller={play:function(){
+      gsap.to({p:0},{onUpdate:function(){this.update(this.targets()[0].p);}.bind(this)});
+    }};
+    </script>"""
+    target = select_edit_function_descriptions(
+        html, "TypeError: this.targets is not a function"
+    )[0]
+    unchanged = apply_function_replacements(
+        html,
+        [{
+            "function": target["function"],
+            "source_hash": target["source_hash"],
+            "replacement": target["source"],
+        }],
+        allowed_functions=(str(target["function"]),),
+        allowed_targets=((str(target["function"]), str(target["source_hash"])),),
+    )
+
+    assert unchanged.html == html
+    assert unchanged.applied == ()
+    assert "unchanged_replacement:onUpdate" in unchanged.errors
+    assert patch_causal_error(
+        html, html.replace("function(){", "function(){window.changed=true;", 1),
+        "TypeError: this.targets is not a function",
+    ) == "reported_error_signature_unchanged:this.targets"
+
+
+def test_function_patch_accepts_identical_duplicate_by_target_id() -> None:
+    html = """<script>
+    const first={play:function(){broken();}};
+    const second={play:function(){broken();}};
+    </script>"""
+    targets = [
+        item for item in select_edit_function_descriptions(html, "broken is not a function")
+        if item["function"] == "play"
+    ]
+    assert len(targets) == 2
+    target = targets[0]
+    result = apply_function_replacements(
+        html,
+        [{
+            "function": "play",
+            "target_id": target["target_id"],
+            "source_hash": target["source_hash"],
+            "replacement": "play:function(){fixed();}",
+        }],
+        allowed_functions=("play",),
+        allowed_targets=(("play", str(target["source_hash"])),),
+        allowed_target_ids=(str(target["target_id"]),),
+    )
+
+    assert result.applied == ("play",)
+    assert "fixed()" in result.html
+    assert result.html.count("broken()") == 1
 
 
 def test_function_repair_includes_scene_builder_for_variable_topology() -> None:

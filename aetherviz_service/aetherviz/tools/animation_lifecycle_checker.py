@@ -7,6 +7,12 @@ import re
 from bs4 import BeautifulSoup
 
 _FUNCTION_START_RE = re.compile(r"\bfunction\s+([A-Za-z_$][\w$]*)\s*\([^)]*\)\s*\{")
+_OBJECT_FUNCTION_START_RE = re.compile(
+    r"\b([A-Za-z_$][\w$]*)\s*:\s*function\s*\([^)]*\)\s*\{"
+)
+_OBJECT_METHOD_START_RE = re.compile(
+    r"(?:(?<=\{)|(?<=,))\s*([A-Za-z_$][\w$]*)\s*\([^)]*\)\s*\{"
+)
 _FRAME_CALLBACK_RE = re.compile(
     r"(?:onUpdate\s*:\s*(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*=>\s*\{|"
     r"requestAnimationFrame\s*\(\s*(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*=>\s*\{)"
@@ -37,6 +43,20 @@ def check_animation_lifecycle(html: str, *, soup: BeautifulSoup | None = None) -
     errors: list[dict] = []
     warnings: list[dict] = []
     functions = _extract_function_bodies(script_text)
+
+    if re.search(
+        r"onUpdate\s*:\s*function\s*\([^)]*\)\s*\{[\s\S]{0,2000}?"
+        r"\bthis\s*\.\s*targets\s*\([^)]*\)[\s\S]{0,2000}?\}"
+        r"\s*\.\s*bind\s*\(\s*this\s*\)",
+        business_script_text,
+    ):
+        errors.append(
+            _issue(
+                "bound_gsap_callback_context_mismatch",
+                "GSAP onUpdate 被 bind(this) 改绑后仍调用 this.targets()；此时 this 不再是 Tween，"
+                "播放时会触发 TypeError。应通过闭包读取 tween proxy，或复用共享动画控制器。",
+            )
+        )
 
     for callback in _extract_braced_bodies(script_text, _FRAME_CALLBACK_RE):
         risky: list[tuple[list[str], str]] = []
@@ -141,10 +161,11 @@ def _check_playback_api_effects(script_text: str, warnings: list[dict]) -> None:
 
 
 def _extract_function_bodies(script: str) -> dict[str, str]:
-    return {
-        match.group(1): body
-        for match, body in _matches_with_bodies(script, _FUNCTION_START_RE)
-    }
+    functions: dict[str, str] = {}
+    for pattern in (_FUNCTION_START_RE, _OBJECT_FUNCTION_START_RE, _OBJECT_METHOD_START_RE):
+        for match, body in _matches_with_bodies(script, pattern):
+            functions[match.group(1)] = body
+    return functions
 
 
 def _extract_braced_bodies(script: str, pattern: re.Pattern[str]) -> list[str]:

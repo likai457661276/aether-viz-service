@@ -75,7 +75,7 @@ LANGSMITH_API_KEY="你的 LangSmith API Key"
 LANGSMITH_PROJECT="aetherviz-direct-html"
 ```
 
-`LANGSMITH_TRACING=false` 或未配置 `LANGSMITH_API_KEY` 时不会上报 trace。组织级 API Key 如需指定工作区，可额外设置 `LANGSMITH_WORKSPACE_ID`。每个 API phase 以 `aetherviz.request` 作为根 trace，HTML 生成、确定性校验、确定性修复、模型修复和最终校验作为子 run；metadata 记录业务 `run_id`、phase、互动类型、错误/警告类型、修复是否接受、耗时及最终大小。启用追踪时，每个 SSE 事件会额外返回真实的 `langsmith_trace_id`，供前端复制并定位完整调用树。工作流 trace 只保存摘要，不重复保存完整 SSE HTML；模型子 run 仍由 LangChain 自动采集。
+`LANGSMITH_TRACING=false` 或未配置 `LANGSMITH_API_KEY` 时不会上报 trace。组织级 API Key 如需指定工作区，可额外设置 `LANGSMITH_WORKSPACE_ID`。每个 API phase 以 `aetherviz.request` 作为根 trace；计划生成会记录 `aetherviz.plan_generation` 子 run 及规范化计划，HTML 生成、确定性校验、确定性修复、模型修复和最终校验也分别作为子 run。函数编辑补丁额外记录带源码位置和哈希的目标、内容是否变化、因果检查结果与回退原因；metadata 记录业务 `run_id`、phase、互动类型、错误/警告类型、修复是否接受、耗时及最终大小。启用追踪时，每个 SSE 事件会额外返回真实的 `langsmith_trace_id`，供前端复制并定位完整调用树。工作流 trace 只保存摘要，不重复保存完整 SSE HTML；模型子 run 仍由 LangChain 自动采集。
 
 ## 启动服务
 
@@ -237,7 +237,7 @@ HTML 文件编辑阶段请求示例：
 }
 ```
 
-`phase=edit_html` 必须携带选中的 HTML 文件全文。后端先剥离 `math-shell-v1`、控件契约和动画控制器，只把业务 HTML 作为修改基线；运行时/动画反馈优先采用“候选函数 + SHA-256 源哈希”的受限 JSON 补丁，服务端应用后重新装配和校验，其他修改才回退到完整业务 HTML 编辑。前端保存结果为新的时间线分支，不覆盖原文件。模型生成、编辑和修复的业务 HTML 目标为 32000 字符、硬上限为 40000 字符；服务端装配开销不计入模型上限，最终装配 HTML 仅受 64000 字符异常膨胀安全上限约束。完整编辑会在调用前检查输出预算；模型 `finish_reason=length/max_tokens` 或原始输出缺少 `</html>` 时立即返回 `edit_truncated`，保留原页面，不解析、确定性修复或基于残片继续整页修复。
+`phase=edit_html` 必须携带选中的 HTML 文件全文。后端先剥离 `math-shell-v1`、控件契约和动画控制器，只把业务 HTML 作为修改基线；运行时/动画反馈优先采用“源码位置 + 候选函数 + SHA-256 源哈希”的受限 JSON 补丁，重复函数名由哈希精确区分。服务端拒绝无实际内容变化的 replacement；错误信息包含可定位失败表达式时，还要求补丁消除该表达式，否则回滚并进入完整业务 HTML 编辑。前端保存结果为新的时间线分支，不覆盖原文件。模型生成、编辑和修复的业务 HTML 目标为 32000 字符、硬上限为 40000 字符；服务端装配开销不计入模型上限，最终装配 HTML 仅受 64000 字符异常膨胀安全上限约束。完整编辑会在调用前检查输出预算；模型 `finish_reason=length/max_tokens` 或原始输出缺少 `</html>` 时立即返回 `edit_truncated`，保留原页面，不解析、确定性修复或基于残片继续整页修复。
 
 响应类型为 `text/event-stream`。事件包括：
 
@@ -281,7 +281,7 @@ HTML 文件编辑阶段请求示例：
 3. `phase=approve_plan` 将计划状态置为 `approved`。
 4. `phase=generate` 根据 `knowledge_profile.representation_type` 路由：`geometric_recomposition` 由 `recomposition_scene_agent` 一次生成 3 个结构化几何 IR 候选，不生成多个 HTML；服务端淘汰确定性硬校验失败候选，对其余候选按固定权重和稳定指纹排序，只编译最高分 IR 并装配生命周期脚手架。目标拼合已满足连通、重叠和形状约束但仅整体越界时，服务端先对所有目标端点执行保持几何关系的统一平移归位；全部候选仅因中间 transform 证据不足而失败时，再用通用 waypoint 补全器生成有界、偏离首尾直线插值的独立中间状态并重新执行全部硬校验。仍失败才对最接近合格的 IR 做一次受限模型修复。计划声明显式 `target_assembly` 时，候选和修复均失败会明确终止生成，不再用无法证明原主题几何语义的通用 fallback 冒充正确结果。独立证据报告包含阶段、参数状态、piece id、失败原因、端点分离分数、直线路径偏离分数和各维度阈值；其他类型由 `html_agent` 直接生成业务 HTML。
 5. 模型业务 HTML 先执行 32000/40000 字符约束，再经过 `math-shell-v1` 服务端装配器；模型外层布局不会进入最终 HTML。装配器会过滤业务 CSS 中的页面级、布局槽位根节点和 range 外观规则，标准 range 由 `range-v1` 独占尺寸与渲染，播放、暂停、重置按钮及 select 由服务端提供统一的按压、状态、焦点反馈，`controller-v1` 在业务脚本执行前提供 GSAP/RAF 共用动画控制接口并广播播放状态。最终装配只执行 64000 字符异常膨胀检查。
-6. `validation_report` 聚合布局、HTML、JavaScript、安全、分阶段长度、Widget、动画生命周期和学科一致性检查。Widget 检查会识别主视觉挂载节点的直接查询及一层精确字符串常量查询，避免把可证明的 SVG/Canvas 动态挂载误判为空节点；仅在业务脚本直接调用 GSAP 时要求 fallback guard。动画检查会阻断 timeline/RAF 逐帧回调调用结构性 DOM/SVG 重建函数、可为空的 first/lastChild 清空后直接重挂载，并提示未清理或未经存在性校验的动态节点注册表、量化状态反复吞掉逐帧增量、空实现 `setSpeed`、绕过统一动画控制器、局部几何与世界 transform 重复编码，以及 GSAP 直接污染 getState 可序列化业务对象的风险；学科启发式检查仍只产生 warning。
+6. `validation_report` 聚合布局、HTML、JavaScript、安全、分阶段长度、Widget、动画生命周期和学科一致性检查。Widget 检查会识别主视觉挂载节点的直接查询及一层精确字符串常量查询，避免把可证明的 SVG/Canvas 动态挂载误判为空节点；仅在业务脚本直接调用 GSAP 时要求 fallback guard。业务脚本声明、遮蔽或覆盖服务端 `window.AetherVizAnimationController`，以及 GSAP `onUpdate` 经 `bind(this)` 改绑后仍调用 Tween 专属 `this.targets()`，均作为硬错误阻断。动画检查还会阻断 timeline/RAF 逐帧回调调用结构性 DOM/SVG 重建函数、可为空的 first/lastChild 清空后直接重挂载，并提示未清理或未经存在性校验的动态节点注册表、量化状态反复吞掉逐帧增量、对象方法形式的空 `setSpeed`、绕过统一动画控制器、局部几何与世界 transform 重复编码，以及 GSAP 直接污染 getState 可序列化业务对象的风险；学科启发式检查仍只产生 warning。
 7. 检查失败时先确定性修复业务 HTML。生命周期错误优先使用“报告点名函数/方法/箭头函数 + SHA-256 源哈希”的函数级替换，限制函数数量和总字符数，失败回滚后仍允许其他硬错误修复继续执行；其他硬错误才进入整页修复。截断源输出不进入修复循环；截断候选、引入 `js_syntax`/`missing_runtime_ready` 的候选、以及未严格减少硬错误的候选一律拒绝。候选检查只发送 `validation.candidate`，接受后才发送新的 `validation.report`。硬错误修复 prompt 不携带质量 warning，attempt 事件统一单调编号。
 8. 生成、编辑和模型修复的候选结果都会重新经过同一个服务端布局装配器。`phase=edit_html` 会先执行 `extract_business_html`，运行时问题优先走小输出补丁，完整编辑只处理业务 HTML；它不能改变布局外壳，只能修改数学内容、业务交互与槽位优先级。编辑候选会继续执行确定性视觉/动画质量收尾，但不会为 warning 额外发起一次完整模型重写。结果仍生成新 HTML 分支，不覆盖旧 HTML。
 9. 最终 HTML 仅通过 `html.done` 返回前端；服务端不保留 HTML 文件缓存或产物路径。

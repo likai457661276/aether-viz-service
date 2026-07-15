@@ -365,6 +365,36 @@ def test_animation_lifecycle_warns_when_quantized_state_stalls_accumulation() ->
     assert "animation_controller_bypass" in warning_types
 
 
+def test_animation_lifecycle_rejects_bound_gsap_tween_context_mismatch() -> None:
+    html = """<script>
+    const controller = {
+      update(value) { state.progress = value; },
+      play() {
+        gsap.to({p:0},{p:1,onUpdate:function(){
+          this.update(this.targets()[0].p);
+        }.bind(this)});
+      }
+    };
+    </script>"""
+
+    report = check_animation_lifecycle(html)
+
+    assert any(
+        error["type"] == "bound_gsap_callback_context_mismatch"
+        for error in report["errors"]
+    )
+
+
+def test_animation_lifecycle_detects_no_op_object_set_speed() -> None:
+    html = """<script>
+    window.AetherVizRuntime = { setSpeed: function() {} };
+    </script>"""
+
+    warning_types = {item["type"] for item in check_animation_lifecycle(html)["warnings"]}
+
+    assert "no_op_set_speed" in warning_types
+
+
 def test_animation_lifecycle_warns_about_unchecked_dynamic_node_registry() -> None:
     html = sample_html().replace(
         "function updateVisualization(){",
@@ -470,3 +500,18 @@ def test_widget_contract_accepts_shared_animation_controller_fallback() -> None:
         warning["type"] == "missing_animation_controller_fallback"
         for warning in report["warnings"]
     )
+
+
+def test_widget_contract_rejects_business_animation_controller_shadowing() -> None:
+    html = sample_html().replace(
+        "</head>",
+        '<script src="https://cdn.jsdelivr.net/npm/gsap@3/dist/gsap.min.js"></script></head>',
+    ).replace(
+        "function updateVisualization(){",
+        "const AetherVizAnimationController={create(){return {};}};\n"
+        "function updateVisualization(){",
+    )
+
+    report = check_widget_runtime_contract(assemble_layout_contract(html, sample_plan()))
+
+    assert any(error["type"] == "shadowed_animation_controller" for error in report["errors"])

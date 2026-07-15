@@ -4,6 +4,10 @@ from __future__ import annotations
 
 import os
 
+from aetherviz_service.aetherviz.agents.planner_agent import (
+    PlanningStreamResult,
+    _summarize_planning_trace,
+)
 from aetherviz_service.aetherviz.api.sse import (
     agent_sse_event,
     register_langsmith_trace_id,
@@ -71,3 +75,20 @@ def test_sse_event_includes_current_langsmith_trace_id() -> None:
         unregister_langsmith_trace_id("run_trace")
 
     assert '"langsmith_trace_id": "4de5cd2f-d9d0-49f8-97bf-bff2395c8201"' in event
+
+
+def test_planning_trace_summary_includes_normalized_plan() -> None:
+    plan = {
+        "plan_id": "plan_trace",
+        "topic": "圆周率",
+        "interactive_type": "simulation",
+        "subject": "math",
+    }
+
+    summary = _summarize_planning_trace(
+        [PlanningStreamResult(plan=plan, degraded=False, total_tokens=321)]
+    )
+
+    assert summary["completed"] is True
+    assert summary["plan"] == plan
+    assert summary["token_usage"]["total_tokens"] == 321

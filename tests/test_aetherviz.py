@@ -1430,6 +1430,62 @@ def test_edit_html_prefers_hash_guarded_function_patch(monkeypatch) -> None:
     assert "__PATCHED__" in result.html
 
 
+def test_edit_patch_rolls_back_non_causal_runtime_change(monkeypatch) -> None:
+    import json
+    from unittest.mock import MagicMock
+
+    from aetherviz_service.aetherviz.agents import edit_patch_agent
+    from aetherviz_service.aetherviz.agents.edit_patch_agent import EditPatchResult
+    from aetherviz_service.aetherviz.tools.function_patch import select_edit_function_descriptions
+
+    source = """<script>
+    const controller={play:function(){
+      gsap.to({p:0},{onUpdate:function(){this.update(this.targets()[0].p);}.bind(this)});
+    }};
+    window.AetherVizRuntime={pause:function(){},reset:function(){},setSpeed:function(){}};
+    </script>"""
+    reset = next(
+        item
+        for item in select_edit_function_descriptions(
+            source, "TypeError: this.targets is not a function；请修复播放和重置"
+        )
+        if item["function"] == "reset"
+    )
+    response = json.dumps(
+        {
+            "replacements": [
+                {
+                    "function": "reset",
+                    "target_id": reset["target_id"],
+                    "source_hash": reset["source_hash"],
+                    "replacement": "reset:function(){window.resetCalled=true;}",
+                }
+            ]
+        }
+    )
+
+    class PatchModel:
+        def stream(self, messages):
+            yield MagicMock(content=response, response_metadata={"finish_reason": "stop"})
+
+    monkeypatch.setattr(edit_patch_agent, "create_chat_model", lambda kind: PatchModel())
+    result = next(
+        item
+        for item in edit_patch_agent._stream_edit_patch_impl(
+            raw_html=source,
+            instruction="TypeError: this.targets is not a function；请修复播放和重置",
+            topic="动画",
+        )
+        if isinstance(item, EditPatchResult)
+    )
+
+    assert result.html == source
+    assert result.applied == ()
+    assert result.causal_check == "failed"
+    assert result.fallback_reason == "reported_error_signature_unchanged:this.targets"
+    assert "reported_error_signature_unchanged:this.targets" in result.errors
+
+
 def test_edit_html_rejects_truncated_full_output_without_partial_repair(monkeypatch) -> None:
     from unittest.mock import MagicMock
 

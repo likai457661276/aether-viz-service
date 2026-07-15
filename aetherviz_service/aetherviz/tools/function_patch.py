@@ -126,6 +126,23 @@ def describe_target_functions(html: str, targets: tuple[str, ...]) -> list[dict[
     return descriptions
 
 
+def select_edit_function_descriptions(html: str, instruction: str) -> list[dict[str, str | int]]:
+    """Describe runtime-edit targets, including duplicate names selected by source position."""
+    selected = _select_edit_function_sources(html, instruction)
+    return [
+        {
+            "function": item.name,
+            "target_id": f"{item.name}:{item.start}:{item.source_hash[:12]}",
+            "source_hash": item.source_hash,
+            "source": item.source,
+            "start": item.start,
+            "end": item.end,
+            "line": (html.count("\n", 0, item.start) + 1),
+        }
+        for item in selected
+    ]
+
+
 def extract_named_functions(html: str) -> dict[str, list[FunctionSource]]:
     functions: dict[str, list[FunctionSource]] = {}
     seen_spans: set[tuple[int, int]] = set()
@@ -159,12 +176,32 @@ def extract_named_functions(html: str) -> dict[str, list[FunctionSource]]:
 
 def select_edit_function_targets(html: str, instruction: str) -> tuple[str, ...]:
     """Select a bounded set of unique functions for a runtime-focused edit."""
+    return tuple(item.name for item in _select_edit_function_sources(html, instruction))
+
+
+def _select_edit_function_sources(html: str, instruction: str) -> tuple[FunctionSource, ...]:
     functions = extract_named_functions(html)
     text = instruction or ""
-    targets: list[str] = []
+    targets: list[FunctionSource] = []
+    seen_spans: set[tuple[int, int]] = set()
+
+    def add(item: FunctionSource) -> None:
+        span = (item.start, item.end)
+        if span not in seen_spans and len(targets) < MAX_FUNCTION_REPLACEMENTS:
+            seen_spans.add(span)
+            targets.append(item)
+
+    source = html or ""
+    all_functions = [item for matches in functions.values() for item in matches]
+    for anchor in _runtime_error_anchors(text):
+        for match in re.finditer(_dotted_expression_pattern(anchor), source):
+            enclosing = [item for item in all_functions if item.start <= match.start() < item.end]
+            if enclosing:
+                add(min(enclosing, key=lambda item: item.end - item.start))
+
     for name, matches in functions.items():
         if len(matches) == 1 and re.search(rf"(?<![\w$]){re.escape(name)}(?![\w$])", text):
-            targets.append(name)
+            add(matches[0])
     playback_request = bool(
         re.search(
             r"播放|暂停|重置|速度|动画|不动|无响应|没反应|play|pause|reset|speed|animation",
@@ -174,9 +211,86 @@ def select_edit_function_targets(html: str, instruction: str) -> tuple[str, ...]
     )
     if playback_request:
         for name in _PLAYBACK_FUNCTION_NAMES:
-            if name not in targets and len(functions.get(name, [])) == 1:
-                targets.append(name)
+            matches = functions.get(name, [])
+            if len(matches) == 1:
+                add(matches[0])
     return tuple(targets[:MAX_FUNCTION_REPLACEMENTS])
+
+
+def patch_causal_error(before: str, after: str, instruction: str) -> str | None:
+    """Reject a runtime patch when the reported failing call remains unchanged."""
+    for anchor in _runtime_error_anchors(instruction):
+        pattern = re.compile(_dotted_expression_pattern(anchor) + r"\s*\(")
+        before_count = len(pattern.findall(_strip_javascript_comments(before)))
+        if before_count and len(pattern.findall(_strip_javascript_comments(after))) >= before_count:
+            return f"reported_error_signature_unchanged:{anchor}"
+    return None
+
+
+def _runtime_error_anchors(instruction: str) -> tuple[str, ...]:
+    anchors: list[str] = []
+    for match in re.finditer(
+        r"(?<![\w$])([A-Za-z_$][\w$]*(?:\s*\.\s*[A-Za-z_$][\w$]*)*)\s+is not a function",
+        instruction or "",
+        re.IGNORECASE,
+    ):
+        anchor = re.sub(r"\s+", "", match.group(1))
+        if anchor not in anchors:
+            anchors.append(anchor)
+    return tuple(anchors)
+
+
+def _dotted_expression_pattern(expression: str) -> str:
+    return r"\s*\.\s*".join(re.escape(part) for part in expression.split("."))
+
+
+def _strip_javascript_comments(text: str) -> str:
+    """Remove comments while preserving strings well enough for call-signature checks."""
+    result: list[str] = []
+    quote: str | None = None
+    escaped = False
+    line_comment = False
+    block_comment = False
+    index = 0
+    while index < len(text):
+        char = text[index]
+        next_char = text[index + 1] if index + 1 < len(text) else ""
+        if line_comment:
+            if char in "\r\n":
+                line_comment = False
+                result.append(char)
+            index += 1
+            continue
+        if block_comment:
+            if char == "*" and next_char == "/":
+                block_comment = False
+                index += 2
+            else:
+                index += 1
+            continue
+        if quote:
+            result.append(char)
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == quote:
+                quote = None
+            index += 1
+            continue
+        if char == "/" and next_char == "/":
+            line_comment = True
+            index += 2
+            continue
+        if char == "/" and next_char == "*":
+            block_comment = True
+            index += 2
+            continue
+        result.append(char)
+        if char in {"'", '"', "`"}:
+            quote = char
+        index += 1
+    return "".join(result)
 
 
 def parse_function_replacements(raw_text: str) -> list[dict[str, str]]:
@@ -201,6 +315,7 @@ def parse_function_replacements(raw_text: str) -> list[dict[str, str]]:
         replacements.append(
             {
                 "function": str(item.get("function") or ""),
+                "target_id": str(item.get("target_id") or ""),
                 "source_hash": str(item.get("source_hash") or ""),
                 "replacement": str(item.get("replacement") or ""),
             }
@@ -213,6 +328,8 @@ def apply_function_replacements(
     replacements: list[dict[str, str]],
     *,
     allowed_functions: tuple[str, ...],
+    allowed_targets: tuple[tuple[str, str], ...] = (),
+    allowed_target_ids: tuple[str, ...] = (),
 ) -> FunctionPatchResult:
     if not replacements:
         return FunctionPatchResult(html=html, applied=(), errors=("empty_replacements",))
@@ -222,6 +339,11 @@ def apply_function_replacements(
     if total_chars > MAX_FUNCTION_REPLACEMENT_CHARS:
         return FunctionPatchResult(html=html, applied=(), errors=("replacement_too_long",))
     functions = extract_named_functions(html)
+    functions_by_target_id = {
+        f"{function.name}:{function.start}:{function.source_hash[:12]}": function
+        for matches in functions.values()
+        for function in matches
+    }
     patches: list[tuple[int, int, str, str]] = []
     errors: list[str] = []
     seen: set[str] = set()
@@ -236,13 +358,33 @@ def apply_function_replacements(
             errors.append(f"function_not_allowed:{name}")
             continue
         matches = functions.get(name, [])
-        if len(matches) != 1:
-            errors.append(f"function_not_unique:{name}")
+        source_hash = item.get("source_hash") or ""
+        target_id = item.get("target_id") or ""
+        if allowed_target_ids:
+            if target_id not in allowed_target_ids:
+                errors.append(f"function_target_id_not_allowed:{name}")
+                continue
+            original = functions_by_target_id.get(target_id)
+            if original is None or original.name != name:
+                errors.append(f"function_target_id_mismatch:{name}")
+                continue
+            if original.source_hash != source_hash:
+                errors.append(f"source_hash_mismatch:{name}")
+                continue
+        else:
+            original = None
+        if allowed_targets and (name, source_hash) not in allowed_targets:
+            errors.append(f"function_target_not_allowed:{name}")
             continue
-        original = matches[0]
-        if item.get("source_hash") != original.source_hash:
-            errors.append(f"source_hash_mismatch:{name}")
-            continue
+        if original is None:
+            hash_matches = [match for match in matches if match.source_hash == source_hash]
+            if not hash_matches:
+                errors.append(f"source_hash_mismatch:{name}")
+                continue
+            if len(hash_matches) != 1:
+                errors.append(f"function_not_unique:{name}")
+                continue
+            original = hash_matches[0]
         replacement_functions = extract_named_functions(replacement)
         replacement_matches = replacement_functions.get(name, [])
         if len(replacement_matches) != 1 or replacement_matches[0].source.strip() != replacement:
@@ -257,6 +399,9 @@ def apply_function_replacements(
         syntax_error = check_javascript_syntax(syntax_source)
         if syntax_error:
             errors.append(f"replacement_js_syntax:{name}:{syntax_error}")
+            continue
+        if replacement == original.source.strip():
+            errors.append(f"unchanged_replacement:{name}")
             continue
         patches.append((original.start, original.end, replacement, name))
     if errors or not patches:

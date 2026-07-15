@@ -123,6 +123,9 @@ def _stream_repair_functions_impl(
             raw_html,
             replacements,
             allowed_functions=tuple(item["function"] for item in descriptions),
+            allowed_targets=tuple(
+                (str(item["function"]), str(item["source_hash"])) for item in descriptions
+            ),
         )
         yield build_html_progress_payload(
             [{"content": "按校验调用链修复点名函数", "status": "completed"}]

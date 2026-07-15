@@ -17,18 +17,19 @@ from aetherviz_service.aetherviz.agents.model_factory import create_chat_model, 
 from aetherviz_service.aetherviz.tools.function_patch import (
     MAX_FUNCTION_REPLACEMENT_CHARS,
     apply_function_replacements,
-    describe_target_functions,
     parse_function_replacements,
-    select_edit_function_targets,
+    patch_causal_error,
+    select_edit_function_descriptions,
 )
 from aetherviz_service.config import settings
 
 logger = logging.getLogger(__name__)
 
 EDIT_PATCH_SYSTEM_PROMPT = """你是互动 HTML 的 JavaScript 最小补丁工程师。
-只输出 JSON：{"replacements":[{"function":"名称","source_hash":"原哈希","replacement":"完整函数/方法/箭头函数源码"}]}。
-只能替换输入列出的函数并原样返回 source_hash；不得输出完整 HTML、CSS、Markdown 或解释。
+只输出 JSON：{"replacements":[{"function":"名称","target_id":"原目标 ID","source_hash":"原哈希","replacement":"完整函数/方法/箭头函数源码"}]}。
+只能替换输入列出的目标并原样返回 function、target_id 与 source_hash；同名函数以 target_id 和 source_hash 区分，不得改写其他同名实现；不得输出完整 HTML、CSS、Markdown 或解释。
 根据用户反馈修复运行时行为，保留函数声明形式、签名、页面结构、教学语义和未点名行为。
+错误信息包含具体失败表达式时，必须修改包含该表达式的目标并消除原失败调用，不能只调整播放、暂停、重置等旁支函数。
 动画必须使用独立连续 progress/elapsed/accumulator 推进；离散显示值只能由连续量派生，禁止把 Math.floor/round 后的业务状态作为下一帧累加起点。
 优先复用 window.AetherVizAnimationController；原生 requestAnimationFrame 路径必须支持 play/pause/reset/replay/setSpeed，且 setSpeed 必须实际改变时间推进速度。
 不得引入网络、eval、新框架或第二套并行动画循环。替换总长度不得超过 6000 字符。"""
@@ -41,6 +42,10 @@ class EditPatchResult:
     applied: tuple[str, ...] = ()
     errors: tuple[str, ...] = ()
     finish_reason: str | None = None
+    selected_targets: tuple[str, ...] = ()
+    content_changed: bool = False
+    fallback_reason: str | None = None
+    causal_check: str = "not_applicable"
 
 
 def stream_edit_patch(
@@ -61,11 +66,16 @@ def stream_edit_patch(
     process_inputs=lambda inputs: {
         "source_chars": len(inputs.get("raw_html") or ""),
         "instruction_chars": len(inputs.get("instruction") or ""),
-        "targets": list(
-            select_edit_function_targets(
+        "targets": [
+            {
+                "function": item["function"],
+                "target_id": item["target_id"],
+                "line": item["line"],
+            }
+            for item in select_edit_function_descriptions(
                 inputs.get("raw_html") or "", inputs.get("instruction") or ""
             )
-        ),
+        ],
     },
     reduce_fn=lambda items: _summarize(items),
 )
@@ -78,14 +88,19 @@ def _traced_stream_edit_patch(
 def _stream_edit_patch_impl(
     *, raw_html: str, instruction: str, topic: str
 ) -> Iterator[dict[str, Any] | EditPatchResult]:
-    targets = select_edit_function_targets(raw_html, instruction)
     descriptions = [
         item
-        for item in describe_target_functions(raw_html, targets)
+        for item in select_edit_function_descriptions(raw_html, instruction)
         if len(item["source"]) <= MAX_FUNCTION_REPLACEMENT_CHARS
     ]
+    selected_target_ids = tuple(str(item["target_id"]) for item in descriptions)
     if not descriptions:
-        yield EditPatchResult(html=raw_html, attempted=False, errors=("no_patch_targets",))
+        yield EditPatchResult(
+            html=raw_html,
+            attempted=False,
+            errors=("no_patch_targets",),
+            fallback_reason="no_patch_targets",
+        )
         return
 
     yield build_html_progress_payload(
@@ -118,7 +133,18 @@ def _stream_edit_patch_impl(
             raw_html,
             parse_function_replacements(raw_text),
             allowed_functions=tuple(item["function"] for item in descriptions),
+            allowed_targets=tuple(
+                (str(item["function"]), str(item["source_hash"])) for item in descriptions
+            ),
+            allowed_target_ids=tuple(str(item["target_id"]) for item in descriptions),
         )
+        causal_error = patch_causal_error(raw_html, patch.html, instruction) if patch.applied else None
+        if causal_error:
+            patch = type(patch)(html=raw_html, applied=(), errors=(*patch.errors, causal_error))
+        content_changed = patch.html != raw_html
+        fallback_reason = None
+        if not patch.applied:
+            fallback_reason = causal_error or (patch.errors[0] if patch.errors else "patch_not_applied")
         yield build_html_progress_payload(
             [{"content": "定位并补丁修复相关运行时函数", "status": "completed"}]
         )
@@ -128,6 +154,10 @@ def _stream_edit_patch_impl(
             applied=patch.applied,
             errors=patch.errors,
             finish_reason=finish_reason,
+            selected_targets=selected_target_ids,
+            content_changed=content_changed,
+            fallback_reason=fallback_reason,
+            causal_check="failed" if causal_error else "passed" if patch.applied else "not_applicable",
         )
     except GeneratorExit:
         raise
@@ -138,6 +168,8 @@ def _stream_edit_patch_impl(
             attempted=True,
             errors=(str(exc),),
             finish_reason=finish_reason,
+            selected_targets=selected_target_ids,
+            fallback_reason="patch_exception",
         )
 
 
@@ -153,4 +185,8 @@ def _summarize(items: list[dict[str, Any] | EditPatchResult]) -> dict[str, Any]:
         "applied": list(result.applied),
         "errors": list(result.errors),
         "finish_reason": result.finish_reason,
+        "selected_targets": list(result.selected_targets),
+        "content_changed": result.content_changed,
+        "fallback_reason": result.fallback_reason,
+        "causal_check": result.causal_check,
     }

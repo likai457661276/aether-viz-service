@@ -120,7 +120,22 @@ def check_widget_runtime_contract(html: str, *, soup: BeautifulSoup | None = Non
         r"window\.gsap|typeof\s+gsap|typeof\s+window\.gsap", business_script_text
     ):
         warnings.append(_warning("missing_gsap_fallback_guard", "使用 GSAP CDN，但未检测到 native fallback 判断"))
-    has_shared_controller = "AetherVizAnimationController" in business_script_text
+    controller_override = re.search(
+        r"\b(?:const|let|var|class|function)\s+AetherVizAnimationController\b|"
+        r"\bwindow\.AetherVizAnimationController\s*=",
+        business_script_text,
+    )
+    if controller_override:
+        errors.append(
+            _error(
+                "shadowed_animation_controller",
+                "业务脚本不得声明或覆盖 AetherVizAnimationController；必须复用服务端预置的 "
+                "window.AetherVizAnimationController.create(...)。",
+            )
+        )
+    has_shared_controller = bool(
+        re.search(r"\bwindow\.AetherVizAnimationController\.create\s*\(", business_script_text)
+    )
     has_native_animation = bool(re.search(r"requestAnimationFrame\s*\(", business_script_text))
     if external_gsap and uses_direct_gsap and not (has_shared_controller or has_native_animation):
         warnings.append(
