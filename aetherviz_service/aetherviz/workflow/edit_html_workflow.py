@@ -214,6 +214,12 @@ def _stream_edit_html_impl(
             code="edit_truncated",
             detail=f"finish_reason={patch_result.finish_reason}",
         )
+    if patch_result and not patch_result.allow_full_html_fallback:
+        raise HtmlGenerationError(
+            "HTML 修改失败，局部样式补丁未通过安全校验，原页面已保留",
+            code="edit_local_patch_rejected",
+            detail=f"fallback_reason={patch_result.fallback_reason or 'patch_not_applied'}",
+        )
     if not _has_full_edit_budget(current_html):
         raise HtmlGenerationError(
             "HTML 修改失败，完整编辑输出预算不足，原页面已保留",

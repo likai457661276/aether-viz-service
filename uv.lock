@@ -14,6 +14,7 @@ dependencies = [
     { name = "openai" },
     { name = "pydantic-settings" },
     { name = "python-dotenv" },
+    { name = "tinycss2" },
     { name = "uvicorn", extra = ["standard"] },
 ]
 
@@ -34,6 +35,7 @@ requires-dist = [
     { name = "openai", specifier = ">=1.78.1,<2.0.0" },
     { name = "pydantic-settings", specifier = ">=2.9.1,<3.0.0" },
     { name = "python-dotenv", specifier = ">=1.1.0,<2.0.0" },
+    { name = "tinycss2", specifier = ">=1.4.0,<2.0.0" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.34.2,<0.35.0" },
 ]
 
@@ -710,6 +712,18 @@ wheels = [
 ]
 
 [[package]]
+name = "tinycss2"
+version = "1.5.1"
+source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }
+dependencies = [
+    { name = "webencodings" },
+]
+sdist = { url = "https://mirrors.aliyun.com/pypi/packages/a3/ae/2ca4913e5c0f09781d75482874c3a95db9105462a92ddd303c7d285d3df2/tinycss2-1.5.1.tar.gz", hash = "sha256:d339d2b616ba90ccce58da8495a78f46e55d4d25f9fd71dfd526f07e7d53f957" }
+wheels = [
+    { url = "https://mirrors.aliyun.com/pypi/packages/60/45/c7b5c3168458db837e8ceab06dc77824e18202679d0463f0e8f002143a97/tinycss2-1.5.1-py3-none-any.whl", hash = "sha256:3415ba0f5839c062696996998176c4a3751d18b7edaaeeb658c9ce21ec150661" },
+]
+
+[[package]]
 name = "tqdm"
 version = "4.67.3"
 source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }
@@ -833,6 +847,15 @@ wheels = [
     { url = "https://mirrors.aliyun.com/pypi/packages/0a/bf/95895e78dd75efe9a7f31733607f384b42eb5feb54bd2eb6ed57cc2e94f4/watchfiles-1.1.1-cp312-cp312-win32.whl", hash = "sha256:859e43a1951717cc8de7f4c77674a6d389b106361585951d9e69572823f311d9" },
     { url = "https://mirrors.aliyun.com/pypi/packages/87/0a/90eb755f568de2688cb220171c4191df932232c20946966c27a59c400850/watchfiles-1.1.1-cp312-cp312-win_amd64.whl", hash = "sha256:91d4c9a823a8c987cce8fa2690923b069966dabb196dd8d137ea2cede885fde9" },
     { url = "https://mirrors.aliyun.com/pypi/packages/36/76/f322701530586922fbd6723c4f91ace21364924822a8772c549483abed13/watchfiles-1.1.1-cp312-cp312-win_arm64.whl", hash = "sha256:a625815d4a2bdca61953dbba5a39d60164451ef34c88d751f6c368c3ea73d404" },
+]
+
+[[package]]
+name = "webencodings"
+version = "0.5.1"
+source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }
+sdist = { url = "https://mirrors.aliyun.com/pypi/packages/0b/02/ae6ceac1baeda530866a85075641cec12989bd8d31af6d5ab4a3e8c92f47/webencodings-0.5.1.tar.gz", hash = "sha256:b36a1c245f2d304965eb4e0a82848379241dc04b865afcc4aab16748587e1923" }
+wheels = [
+    { url = "https://mirrors.aliyun.com/pypi/packages/f4/24/2a3e3df732393fed8b3ebf2ec078f05546de641fe1b667ee316ec1dcf3b7/webencodings-0.5.1-py2.py3-none-any.whl", hash = "sha256:a0af1213f3c2226497a97e2b3aa01a7e4bee4f403f95be16fc9acd2947514a78" },
 ]
 
 [[package]]

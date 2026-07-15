@@ -10,6 +10,11 @@ from typing import Any
 
 from bs4 import BeautifulSoup, Tag
 
+from aetherviz_service.aetherviz.tools.css_patch import (
+    apply_declaration_edit,
+    parse_css_rules,
+    stylesheet_validation_error,
+)
 from aetherviz_service.aetherviz.tools.edit_targeting import (
     EditEvidence,
     extract_edit_evidence,
@@ -37,9 +42,6 @@ _SEMANTIC_SELECTORS = (
     "h1",
     "h2",
 )
-_CSS_CONTAINER_AT_RULES = ("@media", "@supports", "@container", "@layer", "@document")
-
-
 @dataclass(frozen=True)
 class ContentSource:
     kind: str
@@ -55,6 +57,8 @@ class ContentSource:
     score: int = 0
     evidence: tuple[str, ...] = ()
     dependencies: tuple[str, ...] = ()
+    parse_status: str = "not_applicable"
+    at_rule_path: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -62,6 +66,7 @@ class ContentPatchResult:
     html: str
     applied: tuple[str, ...]
     errors: tuple[str, ...] = ()
+    operations: tuple[str, ...] = ()
 
 
 def select_content_descriptions(
@@ -91,15 +96,24 @@ def select_content_descriptions(
     for candidate in css_candidates:
         _merge_candidate(candidates, candidate)
 
-    if not css_candidates and _has_issue(
+    if _has_issue(
         edit_evidence, "style_change", "layout_issue", "visual_not_visible", "visual_change"
     ):
         for tag in soup.find_all("style"):
             block = _describe_tag(source, "style", tag)
-            if block is not None:
+            if block is None or len(block.source) > MAX_CONTENT_SOURCE_CHARS:
+                continue
+            css = tag.get_text()
+            parse_status = parse_css_rules(css).status
+            if not css_candidates or parse_status != "exact":
                 _merge_candidate(
                     candidates,
-                    replace(block, score=20, evidence=("style_block_fallback",)),
+                    replace(
+                        block,
+                        score=30 if parse_status != "exact" else 20,
+                        evidence=(f"style_block_fallback:{parse_status}",),
+                        parse_status=parse_status,
+                    ),
                 )
 
     selected = _select_ranked_candidates(tuple(candidates.values()), edit_evidence)
@@ -123,24 +137,57 @@ def parse_content_replacements(raw_text: str) -> list[dict[str, str]]:
     ]
 
 
+def parse_css_declaration_edits(raw_text: str) -> list[dict[str, Any]]:
+    payload = _parse_json_object(raw_text)
+    raw_edits = payload.get("css_edits") if isinstance(payload, dict) else None
+    if not isinstance(raw_edits, list):
+        return []
+    result: list[dict[str, Any]] = []
+    for item in raw_edits[:MAX_CSS_RULE_REPLACEMENTS]:
+        if not isinstance(item, dict):
+            continue
+        set_values = item.get("set")
+        remove = item.get("remove")
+        result.append(
+            {
+                "target_id": str(item.get("target_id") or ""),
+                "source_hash": str(item.get("source_hash") or ""),
+                "set": (
+                    {str(key): str(value) for key, value in set_values.items()}
+                    if isinstance(set_values, dict)
+                    else {}
+                ),
+                "remove": [str(value) for value in remove] if isinstance(remove, list) else [],
+            }
+        )
+    return result
+
+
 def apply_content_replacements(
     html: str,
     replacements: list[dict[str, str]],
     *,
     allowed_descriptions: list[dict[str, Any]],
+    declaration_edits: list[dict[str, Any]] | None = None,
 ) -> ContentPatchResult:
-    if not replacements:
+    css_edits = declaration_edits or []
+    if not replacements and not css_edits:
         return ContentPatchResult(html=html, applied=())
     if len(replacements) > MAX_CONTENT_REPLACEMENTS:
         return ContentPatchResult(html=html, applied=(), errors=("too_many_content_replacements",))
-    if sum(len(item.get("replacement", "")) for item in replacements) > MAX_CONTENT_REPLACEMENT_CHARS:
+    edit_chars = len(json.dumps(css_edits, ensure_ascii=False, separators=(",", ":")))
+    if sum(len(item.get("replacement", "")) for item in replacements) + edit_chars > MAX_CONTENT_REPLACEMENT_CHARS:
         return ContentPatchResult(html=html, applied=(), errors=("content_replacement_too_long",))
 
     allowed = {str(item["target_id"]): item for item in allowed_descriptions}
     patches: list[tuple[int, int, str, str]] = []
     errors: list[str] = []
     seen: set[str] = set()
-    for item in replacements:
+    operations: list[str] = []
+    combined_items: list[tuple[str, dict[str, Any]]] = [
+        ("replace", item) for item in replacements
+    ] + [("declarations", item) for item in css_edits]
+    for operation, item in combined_items:
         target_id = item.get("target_id", "")
         if target_id in seen:
             errors.append(f"duplicate_content_replacement:{target_id}")
@@ -151,18 +198,32 @@ def apply_content_replacements(
             errors.append(f"content_target_not_allowed:{target_id}")
             continue
         kind = str(description.get("kind") or "")
-        if item.get("kind") != kind:
+        if operation == "replace" and item.get("kind") != kind:
             errors.append(f"content_kind_mismatch:{target_id}")
+            continue
+        if operation == "declarations" and kind != "css_rule":
+            errors.append(f"css_declaration_target_kind_mismatch:{target_id}")
             continue
         if item.get("source_hash") != description.get("source_hash"):
             errors.append(f"content_source_hash_mismatch:{target_id}")
             continue
         original = str(description.get("source") or "")
-        start = html.find(original)
-        if start < 0 or html.find(original, start + 1) >= 0:
-            errors.append(f"content_source_not_unique:{target_id}")
+        start = int(description.get("start", -1))
+        end = int(description.get("end", -1))
+        if start < 0 or end < start or html[start:end] != original:
+            errors.append(f"content_source_span_mismatch:{target_id}")
             continue
-        replacement = item.get("replacement", "").strip()
+        if operation == "declarations":
+            replacement, declaration_error = apply_declaration_edit(
+                original,
+                set_values=item.get("set") if isinstance(item.get("set"), dict) else {},
+                remove=item.get("remove") if isinstance(item.get("remove"), list) else [],
+            )
+            if declaration_error or replacement is None:
+                errors.append(f"{declaration_error or 'css_declaration_invalid'}:{target_id}")
+                continue
+        else:
+            replacement = str(item.get("replacement", "")).strip()
         validation_error = _validate_replacement(original, replacement, target_id, kind)
         if validation_error:
             errors.append(validation_error)
@@ -170,16 +231,22 @@ def apply_content_replacements(
         if replacement == original.strip():
             errors.append(f"unchanged_content_replacement:{target_id}")
             continue
-        patches.append((start, start + len(original), replacement, target_id))
+        patches.append((start, end, replacement, target_id))
+        operations.append("css_declarations" if operation == "declarations" else kind)
 
     if errors or not patches:
         return ContentPatchResult(html=html, applied=(), errors=tuple(errors or ["no_valid_content_replacements"]))
     updated = html
     for start, end, replacement, _target_id in sorted(patches, reverse=True):
         updated = updated[:start] + replacement + updated[end:]
+    transaction_error = _html_stylesheet_validation_error(updated)
+    css_changed = any(operation in {"css_declarations", "css_rule", "style"} for operation in operations)
+    if transaction_error and (css_changed or _html_stylesheet_validation_error(html) is None):
+        return ContentPatchResult(html=html, applied=(), errors=(transaction_error,))
     return ContentPatchResult(
         html=updated,
         applied=tuple(target_id for _start, _end, _replacement, target_id in patches),
+        operations=tuple(operations),
     )
 
 
@@ -295,7 +362,14 @@ def _css_rule_candidates(
         if opening_end < 0 or closing_start < 0:
             continue
         css = html[opening_end + 1 : closing_start]
-        for start, end, selector in _iter_css_rules(css, opening_end + 1):
+        parsed = parse_css_rules(css)
+        if parsed.status != "exact":
+            continue
+        style_hash = hashlib.sha256(css.encode("utf-8")).hexdigest()[:12]
+        for rule in parsed.rules:
+            start = opening_end + 1 + rule.start
+            end = opening_end + 1 + rule.end
+            selector = rule.selector
             rule_source = html[start:end]
             if len(rule_source) > MAX_CONTENT_SOURCE_CHARS:
                 continue
@@ -325,7 +399,11 @@ def _css_rule_candidates(
             if score == 0:
                 continue
             source_hash = hashlib.sha256(rule_source.encode("utf-8")).hexdigest()
-            target_id = f"css_rule:rule:{start}:{source_hash[:12]}"
+            path_key = ">".join(rule.at_rule_path) or "root"
+            identity_hash = hashlib.sha256(
+                f"{style_hash}|{path_key}|{_normalize_css_selector(selector)}|{rule.occurrence}".encode()
+            ).hexdigest()[:16]
+            target_id = f"css_rule:{identity_hash}:{source_hash[:12]}"
             result.append(
                 ContentSource(
                     kind="css_rule",
@@ -341,6 +419,8 @@ def _css_rule_candidates(
                     score=score,
                     evidence=tuple(dict.fromkeys(reasons)),
                     dependencies=tuple(dict.fromkeys(dependencies)),
+                    parse_status=parsed.status,
+                    at_rule_path=rule.at_rule_path,
                 )
             )
     return result
@@ -444,35 +524,6 @@ def _tag_source_span(html: str, tag: Tag) -> tuple[int, int] | None:
     return None
 
 
-def _iter_css_rules(css: str, base_offset: int) -> list[tuple[int, int, str]]:
-    rules: list[tuple[int, int, str]] = []
-    cursor = 0
-    while cursor < len(css):
-        opening = _find_css_token(css, "{", cursor)
-        if opening is None:
-            break
-        closing = _matching_css_brace(css, opening)
-        if closing is None:
-            break
-        header_start = cursor
-        semicolon = _last_css_token(css, ";", cursor, opening)
-        if semicolon is not None:
-            header_start = semicolon + 1
-        while header_start < opening and css[header_start].isspace():
-            header_start += 1
-        header = css[header_start:opening].strip()
-        if not header:
-            cursor = closing + 1
-            continue
-        lowered = header.lower()
-        if lowered.startswith(_CSS_CONTAINER_AT_RULES):
-            rules.extend(_iter_css_rules(css[opening + 1 : closing], base_offset + opening + 1))
-        elif not lowered.startswith("@"):
-            rules.append((base_offset + header_start, base_offset + closing + 1, header))
-        cursor = closing + 1
-    return rules
-
-
 def _find_css_token(text: str, token: str, start: int) -> int | None:
     quote: str | None = None
     escaped = False
@@ -507,15 +558,6 @@ def _find_css_token(text: str, token: str, start: int) -> int | None:
             return index
         index += 1
     return None
-
-
-def _last_css_token(text: str, token: str, start: int, end: int) -> int | None:
-    found: int | None = None
-    cursor = start
-    while (position := _find_css_token(text[:end], token, cursor)) is not None:
-        found = position
-        cursor = position + 1
-    return found
 
 
 def _matching_css_brace(text: str, opening: int) -> int | None:
@@ -554,6 +596,20 @@ def _validate_replacement(original: str, replacement: str, target_id: str, kind:
             return f"content_css_selector_mismatch:{target_id}"
         if _matching_css_brace(replacement, replacement.find("{")) != len(replacement) - 1:
             return f"content_css_rule_invalid:{target_id}"
+        parsed = parse_css_rules(replacement)
+        if parsed.status != "exact" or len(parsed.rules) != 1:
+            return f"content_css_rule_invalid:{target_id}"
+        return None
+    if kind == "style":
+        original_root = _single_root(original)
+        replacement_root = _single_root(replacement)
+        if original_root is None or replacement_root is None or replacement_root.name != "style":
+            return f"content_root_mismatch:{target_id}"
+        if dict(original_root.attrs) != dict(replacement_root.attrs):
+            return f"content_style_identity_mismatch:{target_id}"
+        css_error = stylesheet_validation_error(replacement_root.get_text())
+        if css_error:
+            return f"{css_error}:{target_id}"
         return None
     original_root = _single_root(original)
     replacement_root = _single_root(replacement)
@@ -654,9 +710,20 @@ def _description_payload(item: ContentSource, html: str) -> dict[str, Any]:
         "score": item.score,
         "evidence": list(item.evidence),
         "dependencies": list(item.dependencies),
+        "parse_status": item.parse_status,
+        "at_rule_path": list(item.at_rule_path),
         "start": item.start,
         "end": item.end,
     }
+
+
+def _html_stylesheet_validation_error(html: str) -> str | None:
+    soup = BeautifulSoup(html, "html.parser")
+    for index, tag in enumerate(soup.find_all("style")):
+        error = stylesheet_validation_error(tag.get_text())
+        if error:
+            return f"{error}:style:{index}"
+    return None
 
 
 def _parse_json_object(raw_text: str) -> dict[str, Any]:

@@ -1552,6 +1552,49 @@ def test_edit_html_rejects_truncated_full_output_without_partial_repair(monkeypa
     assert "原页面已保留" in exc_info.value.message
 
 
+def test_edit_html_does_not_escalate_rejected_local_css_patch_to_full_html(monkeypatch) -> None:
+    from aetherviz_service.aetherviz.agents.edit_patch_agent import EditPatchResult
+    from aetherviz_service.aetherviz.agents.html_agent import HtmlGenerationError
+    from aetherviz_service.aetherviz.workflow import edit_html_workflow
+
+    source = sample_html()
+    monkeypatch.setattr(settings, "openai_api_key", "test-key")
+    monkeypatch.setattr(
+        edit_html_workflow,
+        "stream_edit_patch",
+        lambda **kwargs: iter(
+            [
+                EditPatchResult(
+                    html=kwargs["raw_html"],
+                    attempted=True,
+                    errors=("css_declaration_result_invalid",),
+                    fallback_reason="css_declaration_result_invalid",
+                    css_parse_statuses=("exact",),
+                    allow_full_html_fallback=False,
+                )
+            ]
+        ),
+    )
+    monkeypatch.setattr(
+        edit_html_workflow,
+        "create_chat_model",
+        lambda kind: (_ for _ in ()).throw(AssertionError("局部 CSS 失败后不应整页重写")),
+    )
+
+    with pytest.raises(HtmlGenerationError) as exc_info:
+        list(
+            edit_html_workflow._stream_edit_html(
+                topic="动画",
+                message="修改 #stage 的颜色",
+                current_html=source,
+                context=None,
+            )
+        )
+
+    assert exc_info.value.code == "edit_local_patch_rejected"
+    assert "原页面已保留" in exc_info.value.message
+
+
 def test_repair_stream_propagates_generator_exit(monkeypatch) -> None:
     from unittest.mock import MagicMock
 

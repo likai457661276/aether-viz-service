@@ -23,6 +23,7 @@ from aetherviz_service.aetherviz.tools.content_patch import (
     apply_content_replacements,
     content_patch_causal_error,
     parse_content_replacements,
+    parse_css_declaration_edits,
     select_content_descriptions,
 )
 from aetherviz_service.aetherviz.tools.edit_targeting import (
@@ -42,9 +43,10 @@ from aetherviz_service.config import settings
 logger = logging.getLogger(__name__)
 
 EDIT_PATCH_SYSTEM_PROMPT = """你是互动 HTML 的最小结构化补丁工程师。
-只输出 JSON：{"replacements":[{"function":"名称","target_id":"原目标 ID","source_hash":"原哈希","replacement":"完整函数源码"}],"blocks":[{"kind":"css_rule|style|visual|semantic","target_id":"原目标 ID","source_hash":"原哈希","replacement":"完整目标块"}]}。
+只输出 JSON：{"replacements":[{"function":"名称","target_id":"原目标 ID","source_hash":"原哈希","replacement":"完整函数源码"}],"css_edits":[{"target_id":"CSS规则目标ID","source_hash":"原哈希","set":{"属性":"值"},"remove":["属性"]}],"blocks":[{"kind":"css_rule|style|visual|semantic","target_id":"原目标 ID","source_hash":"原哈希","replacement":"完整目标块"}]}。
 只能替换输入列出的目标并原样返回 kind/function、target_id 与 source_hash；不需要修改的数组输出空数组。不得输出完整 HTML、Markdown 或解释。
 函数同名时以 target_id 和 source_hash 区分；HTML 块 replacement 必须保留根标签及原有 id、data-role、data-region，不得加入 script；css_rule 必须保留原 selector，只修改声明。
+修改已有 CSS 属性或增删少量属性时必须优先使用 css_edits，由服务端安全序列化；只有新增嵌套规则、伪类、关键帧或其他结构性变化时才输出 css_rule/style 块原文替换。同一 target_id 不得同时出现在 css_edits 和 blocks。
 根据用户反馈修复运行时行为，保留函数声明形式、签名、页面结构、教学语义和未点名行为。
 错误信息包含具体失败表达式时，必须修改包含该表达式的目标并消除原失败调用，不能只调整播放、暂停、重置等旁支函数。
 动画必须使用独立连续 progress/elapsed/accumulator 推进；离散显示值只能由连续量派生，禁止把 Math.floor/round 后的业务状态作为下一帧累加起点。
@@ -71,6 +73,9 @@ class EditPatchResult:
     output_tokens: int | None = None
     issue_types: tuple[str, ...] = ()
     selection_details: tuple[dict[str, Any], ...] = ()
+    applied_operations: tuple[str, ...] = ()
+    css_parse_statuses: tuple[str, ...] = ()
+    allow_full_html_fallback: bool = True
 
 
 def stream_edit_patch(
@@ -141,6 +146,18 @@ def _stream_edit_patch_impl(
     ]
     selected_target_ids = tuple(str(item["target_id"]) for item in descriptions)
     selected_block_ids = tuple(str(item["target_id"]) for item in block_descriptions)
+    css_parse_statuses = tuple(
+        dict.fromkeys(
+            str(item.get("parse_status") or "not_applicable")
+            for item in block_descriptions
+            if item.get("kind") in {"css_rule", "style"}
+        )
+    )
+    allow_full_html_fallback = _allow_full_html_fallback(
+        descriptions,
+        block_descriptions,
+        edit_evidence.issue_types,
+    )
     if not descriptions and not block_descriptions:
         yield EditPatchResult(
             html=raw_html,
@@ -148,6 +165,8 @@ def _stream_edit_patch_impl(
             errors=("no_patch_targets",),
             fallback_reason="no_patch_targets",
             issue_types=edit_evidence.issue_types,
+            css_parse_statuses=css_parse_statuses,
+            allow_full_html_fallback=allow_full_html_fallback,
         )
         return
 
@@ -185,9 +204,10 @@ def _stream_edit_patch_impl(
                 break
         function_replacements = parse_function_replacements(raw_text)
         content_replacements = parse_content_replacements(raw_text)
+        css_declaration_edits = parse_css_declaration_edits(raw_text)
         combined_replacement_chars = sum(
             len(item.get("replacement", "")) for item in (*function_replacements, *content_replacements)
-        )
+        ) + len(json.dumps(css_declaration_edits, ensure_ascii=False, separators=(",", ":")))
         if combined_replacement_chars > MAX_CONTENT_REPLACEMENT_CHARS:
             yield EditPatchResult(
                 html=raw_html,
@@ -201,28 +221,31 @@ def _stream_edit_patch_impl(
                 output_tokens=output_tokens,
                 issue_types=edit_evidence.issue_types,
                 selection_details=_selection_details(descriptions, block_descriptions),
+                css_parse_statuses=css_parse_statuses,
+                allow_full_html_fallback=allow_full_html_fallback,
             )
             return
-        if function_replacements:
+        content_patch = apply_content_replacements(
+            raw_html,
+            content_replacements,
+            allowed_descriptions=block_descriptions,
+            declaration_edits=css_declaration_edits,
+        )
+        if function_replacements and not content_patch.errors:
             function_patch = apply_function_replacements(
-                raw_html,
+                content_patch.html,
                 function_replacements,
                 allowed_functions=tuple(item["function"] for item in descriptions),
                 allowed_targets=tuple((str(item["function"]), str(item["source_hash"])) for item in descriptions),
                 allowed_target_ids=tuple(str(item["target_id"]) for item in descriptions),
             )
         else:
-            function_patch = FunctionPatchResult(html=raw_html, applied=())
-        content_patch = apply_content_replacements(
-            function_patch.html,
-            content_replacements,
-            allowed_descriptions=block_descriptions,
-        )
+            function_patch = FunctionPatchResult(html=content_patch.html, applied=())
         patch_errors = (*function_patch.errors, *content_patch.errors)
         applied_functions = function_patch.applied
         applied_blocks = content_patch.applied
         applied = (*applied_functions, *applied_blocks)
-        patched_html = content_patch.html
+        patched_html = function_patch.html
         if patch_errors:
             applied = ()
             applied_functions = ()
@@ -268,6 +291,9 @@ def _stream_edit_patch_impl(
             output_tokens=output_tokens,
             issue_types=edit_evidence.issue_types,
             selection_details=_selection_details(descriptions, block_descriptions),
+            applied_operations=content_patch.operations,
+            css_parse_statuses=css_parse_statuses,
+            allow_full_html_fallback=allow_full_html_fallback,
         )
     except GeneratorExit:
         raise
@@ -285,6 +311,8 @@ def _stream_edit_patch_impl(
             output_tokens=output_tokens,
             issue_types=edit_evidence.issue_types,
             selection_details=_selection_details(descriptions, block_descriptions),
+            css_parse_statuses=css_parse_statuses,
+            allow_full_html_fallback=allow_full_html_fallback,
         )
 
 
@@ -318,6 +346,9 @@ def _summarize(items: list[dict[str, Any] | EditPatchResult]) -> dict[str, Any]:
         "selected_by_kind": _count_by_field(result.selection_details, "kind"),
         "selected_by_evidence": _count_selection_evidence(result.selection_details),
         "applied_by_kind": _count_applied_by_kind(result),
+        "applied_operations": list(result.applied_operations),
+        "css_parse_statuses": list(result.css_parse_statuses),
+        "allow_full_html_fallback": result.allow_full_html_fallback,
     }
 
 
@@ -371,6 +402,8 @@ def _selection_details(functions: list[dict[str, Any]], blocks: list[dict[str, A
             "evidence": list(item.get("evidence") or []),
             "region": str(item.get("region") or ""),
             "selector": str(item.get("selector") or ""),
+            "parse_status": str(item.get("parse_status") or "not_applicable"),
+            "at_rule_path": list(item.get("at_rule_path") or []),
         }
         for item in blocks
     )
@@ -400,3 +433,17 @@ def _count_applied_by_kind(result: EditPatchResult) -> dict[str, int]:
         tuple(item for item in result.selection_details if item.get("target_id") in applied_ids),
         "kind",
     )
+
+
+def _allow_full_html_fallback(
+    functions: list[dict[str, Any]],
+    blocks: list[dict[str, Any]],
+    issue_types: tuple[str, ...],
+) -> bool:
+    css_targets = [item for item in blocks if item.get("kind") in {"css_rule", "style"}]
+    if not css_targets:
+        return True
+    cross_runtime = bool(functions) and any(
+        issue in issue_types for issue in ("runtime_error", "control_issue", "visual_not_visible")
+    )
+    return cross_runtime
