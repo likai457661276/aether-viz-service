@@ -233,9 +233,21 @@ def _select_edit_function_sources_with_evidence(
         identifiers = {selector_text}
         if selector_text.startswith("#"):
             identifiers.add(selector_text[1:])
+        selector_variables = _top_level_selector_variables(source, selector_text, all_functions)
         for function in all_functions:
             if any(identifier in function.source for identifier in identifiers):
                 add(function, f"dom_dependency:{selector_text}")
+                continue
+            matched_variable = next(
+                (
+                    variable
+                    for variable in selector_variables
+                    if re.search(rf"(?<![\w$]){re.escape(variable)}(?![\w$])", function.source)
+                ),
+                None,
+            )
+            if matched_variable:
+                add(function, f"dom_variable_dependency:{selector_text}:{matched_variable}")
 
     semantic_slice, semantic_evidence = _runtime_control_slice(source, text, functions)
     for function in semantic_slice:
@@ -248,6 +260,69 @@ def _select_edit_function_sources_with_evidence(
                 add(matches[0], "legacy_name_fallback")
     frozen_evidence = {span: tuple(values) for span, values in selection_evidence.items()}
     return tuple(targets[:MAX_FUNCTION_REPLACEMENTS]), frozen_evidence
+
+
+def _top_level_selector_variables(
+    html: str,
+    selector: str,
+    functions: list[FunctionSource],
+) -> tuple[str, ...]:
+    """Resolve selector-bound globals and a bounded chain of derived globals.
+
+    Generated widgets commonly bind the main visual once at script scope and
+    reference only that variable from build/render functions. Literal-selector
+    matching alone cannot connect those functions back to the selected DOM node.
+    """
+    function_spans = tuple((item.start, item.end) for item in functions)
+
+    def is_top_level(position: int) -> bool:
+        return not any(start <= position < end for start, end in function_spans)
+
+    selector_patterns = [
+        re.compile(
+            r"\b(?:const|let|var)\s+(?P<name>[A-Za-z_$][\w$]*)\s*=\s*"
+            r"document\.querySelector(?:All)?\s*\(\s*(?P<quote>['\"])"
+            + re.escape(selector)
+            + r"(?P=quote)\s*\)"
+        )
+    ]
+    if selector.startswith("#") and len(selector) > 1:
+        selector_patterns.append(
+            re.compile(
+                r"\b(?:const|let|var)\s+(?P<name>[A-Za-z_$][\w$]*)\s*=\s*"
+                r"document\.getElementById\s*\(\s*(?P<quote>['\"])"
+                + re.escape(selector[1:])
+                + r"(?P=quote)\s*\)"
+            )
+        )
+
+    variables: list[str] = []
+    for pattern in selector_patterns:
+        for match in pattern.finditer(html):
+            name = match.group("name")
+            if is_top_level(match.start()) and name not in variables:
+                variables.append(name)
+
+    declaration_re = re.compile(
+        r"\b(?:const|let|var)\s+(?P<name>[A-Za-z_$][\w$]*)\s*=\s*(?P<value>[^;\n]{1,600})"
+    )
+    for _depth in range(2):
+        added = False
+        for match in declaration_re.finditer(html):
+            if not is_top_level(match.start()):
+                continue
+            name = match.group("name")
+            value = match.group("value")
+            if name in variables or not any(
+                re.search(rf"(?<![\w$]){re.escape(variable)}(?![\w$])", value)
+                for variable in variables
+            ):
+                continue
+            variables.append(name)
+            added = True
+        if not added:
+            break
+    return tuple(variables)
 
 
 def patch_causal_error(before: str, after: str, instruction: str) -> str | None:

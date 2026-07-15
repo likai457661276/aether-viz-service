@@ -186,6 +186,165 @@ function initializeSpecialView() {
     assert {item["function"] for item in functions} == {"initializeSpecialView"}
 
 
+def test_dom_dependency_follows_top_level_visual_variables() -> None:
+    html = """<html><body><div data-role="main-visual"></div><script>
+const visualMount = document.querySelector('[data-role="main-visual"]');
+const scene = { mount: visualMount };
+function renderDots() {
+  const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+  circle.setAttribute('r', '4');
+  scene.mount.appendChild(circle);
+}
+</script></body></html>"""
+    blocks = select_content_descriptions(html, "生成 HTML 的圆点尺寸有问题，现在显示非常大")
+    selectors = tuple(item["selector"] for item in blocks if item["selector"])
+
+    functions = select_edit_function_descriptions(
+        html,
+        "生成 HTML 的圆点尺寸有问题，现在显示非常大",
+        target_selectors=selectors,
+    )
+
+    render = next(item for item in functions if item["function"] == "renderDots")
+    assert any(
+        value.startswith('dom_variable_dependency:[data-role="main-visual"]:scene')
+        for value in render["evidence"]
+    )
+
+
+def test_dynamic_visual_patch_failure_allows_full_html_fallback(monkeypatch) -> None:
+    html = """<html><head><style>[data-role="main-visual"]{width:100%;height:100%}</style></head>
+<body><div data-role="main-visual" style="width:100%;height:100%"></div><script>
+const mount = document.querySelector('[data-role="main-visual"]');
+mount.appendChild(document.createElement('canvas'));
+</script></body></html>"""
+    descriptions = select_content_descriptions(html, "生成 HTML 的圆点尺寸有问题，现在显示非常大")
+    visual = next(item for item in descriptions if item["kind"] == "visual")
+    response = json.dumps(
+        {
+            "replacements": [],
+            "css_edits": [
+                {
+                    "target_id": visual["target_id"],
+                    "source_hash": visual["source_hash"],
+                    "set": {"style": "--dot-size:4px"},
+                    "remove": [],
+                }
+            ],
+            "blocks": [
+                {
+                    "kind": "css_rule",
+                    "target_id": visual["target_id"],
+                    "source_hash": visual["source_hash"],
+                    "replacement": '<div data-role="main-visual" style="--dot-size:4px"></div>',
+                }
+            ],
+        }
+    )
+
+    class PatchModel:
+        def stream(self, messages):
+            yield MagicMock(content=response, response_metadata={"finish_reason": "stop"})
+
+    monkeypatch.setattr(edit_patch_agent, "create_chat_model", lambda kind: PatchModel())
+    result = next(
+        item
+        for item in edit_patch_agent._stream_edit_patch_impl(
+            raw_html=html,
+            instruction="生成 HTML 的圆点尺寸有问题，现在显示非常大",
+            topic="二次函数",
+        )
+        if isinstance(item, EditPatchResult)
+    )
+
+    assert result.applied == ()
+    assert any(error.startswith("content_kind_mismatch:") for error in result.errors)
+    assert any(error.startswith("duplicate_content_replacement:") for error in result.errors)
+    assert result.allow_full_html_fallback is True
+
+
+def test_dynamic_visual_schema_error_retries_once_with_function_patch(monkeypatch) -> None:
+    html = """<html><head><style>[data-role="main-visual"]{width:100%;height:100%}</style></head>
+<body><div data-role="main-visual"></div><script>
+const mount = document.querySelector('[data-role="main-visual"]');
+function renderDots() {
+  const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+  circle.setAttribute('r', '40');
+  mount.appendChild(circle);
+}
+</script></body></html>"""
+    blocks = select_content_descriptions(html, "圆点尺寸太大")
+    selectors = tuple(item["selector"] for item in blocks if item["selector"])
+    render = next(
+        item
+        for item in select_edit_function_descriptions(
+            html,
+            "圆点尺寸太大",
+            target_selectors=selectors,
+        )
+        if item["function"] == "renderDots"
+    )
+    visual = next(item for item in blocks if item["kind"] == "visual")
+    invalid = json.dumps(
+        {
+            "replacements": [],
+            "css_edits": [
+                {
+                    "target_id": visual["target_id"],
+                    "source_hash": visual["source_hash"],
+                    "set": {"style": "--dot-size:4px"},
+                    "remove": [],
+                }
+            ],
+            "blocks": [],
+        }
+    )
+    valid = json.dumps(
+        {
+            "replacements": [
+                {
+                    "function": "renderDots",
+                    "target_id": render["target_id"],
+                    "source_hash": render["source_hash"],
+                    "replacement": render["source"].replace("'40'", "'4'"),
+                }
+            ],
+            "css_edits": [],
+            "blocks": [],
+        }
+    )
+
+    class PatchModel:
+        calls = 0
+
+        def stream(self, messages):
+            response = invalid if self.calls == 0 else valid
+            self.calls += 1
+            yield MagicMock(
+                content=response,
+                response_metadata={"finish_reason": "stop"},
+                usage_metadata={"input_tokens": 100, "output_tokens": 20},
+            )
+
+    model = PatchModel()
+    monkeypatch.setattr(edit_patch_agent, "create_chat_model", lambda kind: model)
+    result = next(
+        item
+        for item in edit_patch_agent._stream_edit_patch_impl(
+            raw_html=html,
+            instruction="圆点尺寸太大",
+            topic="二次函数",
+        )
+        if isinstance(item, EditPatchResult)
+    )
+
+    assert model.calls == 2
+    assert result.applied_functions == ("renderDots",)
+    assert "circle.setAttribute('r', '4')" in result.html
+    assert result.input_tokens == 200
+    assert result.output_tokens == 40
+
+
 def test_edit_evidence_is_bounded_to_supported_report_fields() -> None:
     evidence = extract_edit_evidence(
         "修复它",

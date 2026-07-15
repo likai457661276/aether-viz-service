@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -124,20 +124,12 @@ def _stream_edit_patch_impl(
     instruction: str,
     topic: str,
     context: dict[str, Any] | None = None,
+    _allow_schema_retry: bool = True,
+    _retry_errors: tuple[str, ...] = (),
 ) -> Iterator[dict[str, Any] | EditPatchResult]:
     edit_evidence = extract_edit_evidence(instruction, context)
     block_descriptions = select_content_descriptions(raw_html, instruction, context)
-    target_selectors = tuple(
-        dict.fromkeys(
-            selector
-            for item in block_descriptions
-            for selector in (
-                str(item.get("selector") or ""),
-                *(str(value) for value in item.get("dependencies", [])),
-            )
-            if selector
-        )
-    )
+    target_selectors = _function_target_selectors(block_descriptions)
     descriptions = [
         item
         for item in select_edit_function_descriptions(
@@ -191,6 +183,8 @@ def _stream_edit_patch_impl(
         "edit_intent": edit_evidence.as_prompt_payload(),
         "quality_report": compact_report_context(context),
     }
+    if _retry_errors:
+        payload["previous_patch_errors"] = list(_retry_errors[:8])
     raw_text = ""
     finish_reason: str | None = None
     input_tokens: int | None = None
@@ -285,7 +279,7 @@ def _stream_edit_patch_impl(
         if not applied:
             fallback_reason = causal_error or (patch_errors[0] if patch_errors else "patch_not_applied")
         yield build_html_progress_payload([{"content": "定位并补丁修复相关运行时函数", "status": "completed"}])
-        yield EditPatchResult(
+        result = EditPatchResult(
             html=patched_html,
             attempted=True,
             applied=tuple(applied),
@@ -308,6 +302,25 @@ def _stream_edit_patch_impl(
             css_stylesheet_statuses=css_stylesheet_statuses,
             allow_full_html_fallback=allow_full_html_fallback,
         )
+        if _allow_schema_retry and _should_retry_schema_errors(patch_errors, finish_reason):
+            for retry_item in _stream_edit_patch_impl(
+                raw_html=raw_html,
+                instruction=instruction,
+                topic=topic,
+                context=context,
+                _allow_schema_retry=False,
+                _retry_errors=tuple(patch_errors),
+            ):
+                if isinstance(retry_item, EditPatchResult):
+                    retry_item = replace(
+                        retry_item,
+                        output_chars=result.output_chars + retry_item.output_chars,
+                        input_tokens=_sum_optional(result.input_tokens, retry_item.input_tokens),
+                        output_tokens=_sum_optional(result.output_tokens, retry_item.output_tokens),
+                    )
+                yield retry_item
+            return
+        yield result
     except GeneratorExit:
         raise
     except Exception as exc:
@@ -372,7 +385,7 @@ def _trace_targeting_inputs(inputs: dict[str, Any]) -> dict[str, Any]:
     instruction = inputs.get("instruction") or ""
     context = inputs.get("context") if isinstance(inputs.get("context"), dict) else None
     blocks = select_content_descriptions(raw_html, instruction, context)
-    selectors = tuple(str(item.get("selector") or "") for item in blocks if item.get("selector"))
+    selectors = _function_target_selectors(blocks)
     functions = select_edit_function_descriptions(
         raw_html,
         instruction,
@@ -462,7 +475,64 @@ def _allow_full_html_fallback(
     css_targets = [item for item in blocks if item.get("kind") in {"css_rule", "style"}]
     if not css_targets:
         return True
+    dynamic_visual = any(
+        item.get("kind") == "visual"
+        and any(str(value).startswith("javascript_reference:") for value in item.get("evidence") or [])
+        for item in blocks
+    ) and any(issue in issue_types for issue in ("visual_not_visible", "visual_change"))
+    if dynamic_visual:
+        return True
     cross_runtime = bool(functions) and any(
-        issue in issue_types for issue in ("runtime_error", "control_issue", "visual_not_visible")
+        issue in issue_types
+        for issue in ("runtime_error", "control_issue", "visual_not_visible", "visual_change")
     )
     return cross_runtime
+
+
+def _function_target_selectors(blocks: list[dict[str, Any]]) -> tuple[str, ...]:
+    """Prioritize JavaScript-backed visual selectors before generic CSS regions."""
+
+    def priority(item: dict[str, Any]) -> tuple[int, int]:
+        evidence = tuple(str(value) for value in item.get("evidence") or [])
+        javascript_backed = any(value.startswith("javascript_reference:") for value in evidence)
+        if item.get("kind") == "visual" and javascript_backed:
+            return (0, -int(item.get("score") or 0))
+        if javascript_backed:
+            return (1, -int(item.get("score") or 0))
+        return (2, -int(item.get("score") or 0))
+
+    selectors: list[str] = []
+    for item in sorted(blocks, key=priority):
+        for value in (item.get("selector"), *(item.get("dependencies") or [])):
+            selector = str(value or "").strip()
+            if selector and selector not in selectors:
+                selectors.append(selector)
+    return tuple(selectors)
+
+
+_SCHEMA_RETRY_ERROR_PREFIXES = (
+    "content_kind_mismatch:",
+    "css_declaration_target_kind_mismatch:",
+    "duplicate_content_replacement:",
+    "content_target_not_allowed:",
+    "content_source_hash_mismatch:",
+    "function_target_id_not_allowed:",
+    "function_target_id_mismatch:",
+    "function_target_not_allowed:",
+    "source_hash_mismatch:",
+)
+
+
+def _should_retry_schema_errors(errors: tuple[str, ...], finish_reason: str | None) -> bool:
+    if finish_reason in {"length", "max_tokens", "local_length_guard"}:
+        return False
+    return bool(errors) and all(
+        any(str(error).startswith(prefix) for prefix in _SCHEMA_RETRY_ERROR_PREFIXES)
+        for error in errors
+    )
+
+
+def _sum_optional(first: int | None, second: int | None) -> int | None:
+    if first is None and second is None:
+        return None
+    return int(first or 0) + int(second or 0)

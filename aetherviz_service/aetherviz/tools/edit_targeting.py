@@ -111,7 +111,10 @@ def _classify_issue_types(text: str) -> tuple[str, ...]:
         ("text_change", r"文案|文字|标题|说明|结论|公式|步骤|caption|formula|title"),
         ("layout_issue", r"布局|位置|尺寸|宽度|高度|间距|边距|对齐|溢出|遮挡|layout|overflow"),
         ("style_change", r"颜色|字号|字体|样式|主题|背景|css|style"),
-        ("visual_change", r"图像|图形|动画|主视觉|舞台|svg|canvas|visual|render"),
+        (
+            "visual_change",
+            r"图像|图形|动画|主视觉|舞台|圆点|点位|半径|svg|canvas|circle|radius|dot|point|visual|render",
+        ),
     )
     return tuple(name for name, pattern in patterns if re.search(pattern, text, re.IGNORECASE))
 

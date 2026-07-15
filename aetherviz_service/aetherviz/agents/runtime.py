@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import uuid
 from collections.abc import Iterator
@@ -73,7 +74,7 @@ def agent_runtime_stream(
     run_type="chain",
     metadata={"component": "aetherviz"},
     process_inputs=lambda inputs: {"phase": inputs.get("phase"), "topic": inputs.get("topic")},
-    reduce_fn=lambda chunks: {"sse_event_count": len(chunks)},
+    reduce_fn=lambda chunks: _summarize_runtime_sse(chunks),
 )
 def _traced_agent_runtime_stream(**kwargs: Any) -> Iterator[str]:
     yield from _agent_runtime_stream_impl(**kwargs)
@@ -138,3 +139,28 @@ def _agent_runtime_stream_impl(
         )
     finally:
         unregister_langsmith_trace_id(run_id)
+
+
+def _summarize_runtime_sse(chunks: list[str]) -> dict[str, Any]:
+    events: list[str] = []
+    error_code: str | None = None
+    for chunk in chunks:
+        event = next((line[7:] for line in chunk.splitlines() if line.startswith("event: ")), "")
+        if event:
+            events.append(event)
+        if event != "error":
+            continue
+        data_line = next((line[6:] for line in chunk.splitlines() if line.startswith("data: ")), "")
+        if not data_line:
+            continue
+        try:
+            payload = json.loads(data_line)
+        except ValueError:
+            continue
+        error_code = str((payload.get("data") or {}).get("code") or "") or None
+    return {
+        "sse_event_count": len(events),
+        "outcome": "error" if "error" in events else "success",
+        "completed": "error" not in events,
+        "error_code": error_code,
+    }

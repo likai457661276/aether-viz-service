@@ -8,6 +8,7 @@ from aetherviz_service.aetherviz.agents.planner_agent import (
     PlanningStreamResult,
     _summarize_planning_trace,
 )
+from aetherviz_service.aetherviz.agents.runtime import _summarize_runtime_sse
 from aetherviz_service.aetherviz.api.sse import (
     agent_sse_event,
     register_langsmith_trace_id,
@@ -65,6 +66,24 @@ def test_generate_trace_summary_excludes_complete_html() -> None:
     assert summary["events"] == ["html.done"]
     assert summary["final"] == {"event": "html.done", "chars": 58, "bytes": 58, "repaired": True}
     assert "private output" not in str(summary)
+
+
+def test_request_trace_summary_marks_sse_error_outcome() -> None:
+    chunk = agent_sse_event(
+        "error",
+        run_id="run_trace",
+        phase="edit_html",
+        data={"code": "edit_local_patch_rejected", "message": "局部补丁失败"},
+    )
+
+    summary = _summarize_runtime_sse([chunk])
+
+    assert summary == {
+        "sse_event_count": 1,
+        "outcome": "error",
+        "completed": False,
+        "error_code": "edit_local_patch_rejected",
+    }
 
 
 def test_sse_event_includes_current_langsmith_trace_id() -> None:
