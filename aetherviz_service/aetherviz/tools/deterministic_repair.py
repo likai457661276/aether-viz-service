@@ -27,6 +27,40 @@ _INDEXED_ANGLE_PAIR_RE = re.compile(
     rf"\(\s*(?P=index)\s*\+\s*1\s*\)\s*\*\s*(?P=step)\s*;"
 )
 
+# Hard errors that deterministic_repair_html can address. Other hard errors
+# (for example empty_main_visual_mount) require model/function repair; running
+# deterministic repair for them only burns an attempt on trivial wrappers.
+DETERMINISTIC_HARD_ERROR_TYPES = frozenset(
+    {
+        "missing_widget_config",
+        "missing_control",
+        "inline_event",
+        "missing_runtime",
+        "missing_runtime_method",
+        "non_node_append_child",
+        "unstable_preserved_child",
+        "html_length_hard_limit",
+        "missing_layout_contract",
+        "missing_layout_shell",
+        "invalid_layout_slot",
+        "invalid_layout_styles",
+        "invalid_range_control_contract",
+        "missing_message_listener",
+        "missing_runtime_ready",
+    }
+)
+
+
+def deterministic_can_address(report: dict[str, Any] | None) -> bool:
+    """Return True when the report contains hard errors this module can fix."""
+
+    error_types = {
+        str(error.get("type"))
+        for error in ((report or {}).get("errors") or [])
+        if isinstance(error, dict)
+    }
+    return bool(error_types & DETERMINISTIC_HARD_ERROR_TYPES)
+
 
 def deterministic_repair_html(
     html: str,

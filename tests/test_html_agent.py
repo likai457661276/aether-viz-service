@@ -19,6 +19,7 @@ from aetherviz_service.aetherviz.agents.html_agent import (
     stream_generate_html,
 )
 from aetherviz_service.aetherviz.agents.instructions import (
+    REPAIR_SYSTEM_PROMPT,
     build_interactive_generation_prompt,
     system_prompt_for_interactive_type,
 )
@@ -56,6 +57,10 @@ def test_generation_prompt_compacts_plan_json_without_dropping_content() -> None
     assert "禁止在逐帧函数中用 while/for" in system_prompt
     assert "静态 HTML" in prompt
     assert 'data-role="main-visual"' in prompt
+    assert "getElementById" in system_prompt
+    assert "MOUNT_ID" in system_prompt
+    assert "empty_main_visual_mount" in REPAIR_SYSTEM_PROMPT
+    assert "getElementById" in REPAIR_SYSTEM_PROMPT
 
 
 def test_deterministic_repair_inserts_body_close_before_html_close() -> None:

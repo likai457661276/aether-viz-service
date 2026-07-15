@@ -61,3 +61,5 @@ uv run python evals/datasets/build_visual.py /tmp/trace.json \
 ```
 
 `datasets/recomposition/legacy-topics.jsonl` 保留早期开发/保留/挑战主题；当前跨维度回归入口默认使用 `datasets/recomposition/dataset.jsonl`。
+
+`datasets/html_contract/` 存放 HTML 运行时契约的失败模式样本（按互动类型与通用模式组织，不绑定单个知识点）。例如 `mount_lookup_false_positive.json` 回归 `getElementById` + 字符串常量挂载写法，避免再次误报 `empty_main_visual_mount`。

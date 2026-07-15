@@ -1,0 +1,20 @@
+{
+  "id": "mount-lookup-id-constant-cache",
+  "source": {
+    "kind": "langsmith_trace",
+    "trace_id": "fca017c8-0748-4750-8218-0ad58298cbba",
+    "project": "deepagents-v4-html",
+    "failure_mode": "empty_main_visual_mount_false_positive"
+  },
+  "interactive_type": "simulation",
+  "representation": "svg",
+  "pattern": "getElementById + one-hop string constant + nested object cache appendChild",
+  "notes": "Mirrors the repaired HTML from the cut-circle / pi approximation failure: empty static main-visual mount, SVG created in initSVG and appended via els.mount after MOUNT_ID constant lookup. Sensitive PII/keys stripped; geometry/topic labels removed.",
+  "expected": {
+    "hard_errors": [],
+    "must_not_contain_error_types": [
+      "empty_main_visual_mount"
+    ]
+  },
+  "html_fragment": "<!DOCTYPE html><html><body>\n<main id=\"aetherviz-stage\"><div data-role=\"main-visual\" id=\"main-visual-mount\" style=\"width:100%;height:100%;\"></div></main>\n<script type=\"application/json\" id=\"widget-config\">{\"type\":\"simulation\",\"concept\":\"demo\",\"variables\":[{\"name\":\"sides\",\"default\":6}],\"presets\":[]}</script>\n<button id=\"play-animation\"></button><button id=\"pause-animation\"></button><button id=\"reset-animation\"></button>\n<div id=\"animation-caption\"></div>\n<script>\n(function () {\n  const MOUNT_ID = 'main-visual-mount';\n  const els = {\n    mount: document.getElementById(MOUNT_ID),\n    caption: document.getElementById('animation-caption'),\n    playBtn: document.getElementById('play-animation'),\n    stats: {\n      n: document.getElementById('val-n'),\n      error: document.getElementById('val-error')\n    }\n  };\n  let svgNS = 'http://www.w3.org/2000/svg';\n  let svgRoot;\n  function initSVG() {\n    svgRoot = document.createElementNS(svgNS, 'svg');\n    svgRoot.setAttribute('viewBox', '0 0 400 400');\n    els.mount.appendChild(svgRoot);\n  }\n  initSVG();\n  window.addEventListener('message', function () {});\n  window.AetherVizRuntime = {\n    play() {}, pause() {}, reset() {}, setSpeed() {}, update() {}, getState() { return {}; }\n  };\n  window.__AETHERVIZ_RUNTIME_READY__ = true;\n})();\n</script>\n</body></html>"
+}

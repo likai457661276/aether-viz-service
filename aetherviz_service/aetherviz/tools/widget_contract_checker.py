@@ -44,18 +44,15 @@ _STAGE_LOOKUP_RE = re.compile(
 )
 _JS_IDENTIFIER = r"[A-Za-z_$][\w$]*"
 _JS_MEMBER = rf"{_JS_IDENTIFIER}(?:\s*\.\s*{_JS_IDENTIFIER}|\s*\[\s*['\"]{_JS_IDENTIFIER}['\"]\s*\])*"
-_MAIN_VISUAL_QUERY = (
+_MAIN_VISUAL_ROLE_QUERY = (
     r"(?:document|" + _JS_MEMBER + r")\.querySelector\(\s*"
     r"['\"]\[data-role=(?:\\?['\"])?main-visual(?:\\?['\"])?\]['\"]\s*\)"
-)
-_MAIN_VISUAL_ASSIGNMENT_RE = re.compile(
-    rf"(?:const|let|var)?\s*(?P<target>{_JS_MEMBER})\s*=\s*{_MAIN_VISUAL_QUERY}"
 )
 _OBJECT_DECLARATION_RE = re.compile(
     rf"(?:const|let|var)\s+(?P<base>{_JS_IDENTIFIER})\s*=\s*\{{(?P<body>[\s\S]{{0,5000}}?)\}}\s*;"
 )
-_MAIN_VISUAL_OBJECT_PROPERTY_RE = re.compile(
-    rf"(?P<property>{_JS_IDENTIFIER}|['\"]{_JS_IDENTIFIER}['\"])\s*:\s*{_MAIN_VISUAL_QUERY}"
+_STRING_CONST_RE = re.compile(
+    rf"(?:const|let|var)\s+(?P<name>{_JS_IDENTIFIER})\s*=\s*['\"](?P<value>[^'\"]+)['\"]\s*;?"
 )
 _VISUAL_CREATION_RE = re.compile(
     rf"(?:const|let|var)?\s*(?P<target>{_JS_MEMBER})\s*=\s*document\.createElement(?:NS)?\("
@@ -848,7 +845,8 @@ def _check_stage(
     if mount is not None:
         if mount.find() is not None or mount.get_text(strip=True):
             return
-        mount_names = _find_main_visual_references(script_text)
+        mount_ids = {str(mount.get("id"))} if mount.get("id") else set()
+        mount_names = _find_main_visual_references(script_text, mount_ids=mount_ids)
         if _has_created_visual_appended_to(script_text, mount_names):
             return
         errors.append(
@@ -859,6 +857,11 @@ def _check_stage(
                     "scope": "#aetherviz-stage [data-role='main-visual']",
                     "phase": "static_dom_or_provable_runtime_mount",
                     "content": "non-empty DOM visual or appended svg/canvas",
+                    "accepted_mount_lookups": [
+                        "document.querySelector(\"[data-role='main-visual']\")",
+                        "document.getElementById(\"<mount-id>\")",
+                        "document.getElementById(MOUNT_ID) where MOUNT_ID is a string constant",
+                    ],
                 },
             )
         )
@@ -908,25 +911,66 @@ def _has_created_visual_appended_to(script_text: str, target_names: set[str]) ->
     return False
 
 
-def _find_main_visual_references(script_text: str) -> set[str]:
+def _find_main_visual_references(
+    script_text: str,
+    *,
+    mount_ids: set[str] | None = None,
+) -> set[str]:
     """Return simple JS references that resolve to the static main-visual mount.
 
     Besides direct variables, generated pages frequently cache DOM nodes inside a
     plain object (for example ``const elements = { stage: querySelector(...) }``).
     Recognizing that generic member path keeps this check data-flow based without
     depending on a topic, identifier spelling, or visual coordinates.
+
+    Mount lookups may use ``[data-role='main-visual']``, the mount node's actual
+    ``id`` via ``getElementById`` / ``querySelector('#id')``, or a one-hop string
+    constant holding that id (``const MOUNT_ID = 'main-visual-mount'``).
     """
 
+    query = _main_visual_lookup_pattern(script_text, mount_ids=mount_ids or set())
+    assignment_re = re.compile(
+        rf"(?:const|let|var)?\s*(?P<target>{_JS_MEMBER})\s*=\s*{query}"
+    )
+    object_property_re = re.compile(
+        rf"(?P<property>{_JS_IDENTIFIER}|['\"]{_JS_IDENTIFIER}['\"])\s*:\s*{query}"
+    )
     references = {
         _normalize_reference(match.group("target"))
-        for match in _MAIN_VISUAL_ASSIGNMENT_RE.finditer(script_text)
+        for match in assignment_re.finditer(script_text)
     }
     for declaration in _OBJECT_DECLARATION_RE.finditer(script_text):
         base = declaration.group("base")
-        for prop_match in _MAIN_VISUAL_OBJECT_PROPERTY_RE.finditer(declaration.group("body")):
+        for prop_match in object_property_re.finditer(declaration.group("body")):
             prop = prop_match.group("property").strip("'\"")
             references.add(f"{base}.{prop}")
     return references
+
+
+def _main_visual_lookup_pattern(script_text: str, *, mount_ids: set[str]) -> str:
+    lookups = [_MAIN_VISUAL_ROLE_QUERY]
+    aliases = {
+        match.group("name")
+        for match in _STRING_CONST_RE.finditer(script_text)
+        if match.group("value") in mount_ids
+    }
+    for mount_id in sorted(mount_ids):
+        escaped = re.escape(mount_id)
+        lookups.append(
+            rf"(?:document|{_JS_MEMBER})\.getElementById\(\s*['\"]{escaped}['\"]\s*\)"
+        )
+        lookups.append(
+            rf"(?:document|{_JS_MEMBER})\.querySelector\(\s*['\"]#{escaped}['\"]\s*\)"
+        )
+    for alias in sorted(aliases):
+        escaped_alias = re.escape(alias)
+        lookups.append(
+            rf"(?:document|{_JS_MEMBER})\.getElementById\(\s*{escaped_alias}\s*\)"
+        )
+        lookups.append(
+            rf"(?:document|{_JS_MEMBER})\.querySelector\(\s*['\"]#['\"]\s*\+\s*{escaped_alias}\s*\)"
+        )
+    return "(?:" + "|".join(lookups) + ")"
 
 
 def _normalize_reference(reference: str) -> str:

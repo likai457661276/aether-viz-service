@@ -22,7 +22,7 @@ WIDGET_CORE_PROMPT = """互动 widget 核心契约：
 - widget-config 必须承载本页核心互动配置：simulation 写 concept/description/variables/presets；diagram 写 nodes/edges/revealOrder；game 写 gameType/description/gameConfig/successCondition/feedbackRules。
 - 必须实现 `window.addEventListener("message", ...)`，至少处理 SET_WIDGET_STATE、HIGHLIGHT_ELEMENT、ANNOTATE_ELEMENT、REVEAL_ELEMENT 四类 iframe-local widget action。
 - 变量控件 ID 使用 `{variable_name}-slider` 或 `data-var="{variable_name}"`；按钮 ID 使用 `{action}-btn` 或计划中的稳定 id；可被高亮/标注的元素必须有 id 或 data-role。
-- `#aetherviz-stage` 必须在静态 HTML 中直接包含主 SVG、Canvas 或 `[data-role="main-visual"]` 挂载节点。若 SVG/Canvas 由 JavaScript 创建，必须追加到这个静态 main-visual 节点内且不得删除或替换挂载节点；禁止只留下空舞台并依赖运行时注入。
+- `#aetherviz-stage` 必须在静态 HTML 中直接包含主 SVG、Canvas 或 `[data-role="main-visual"]` 挂载节点。若 SVG/Canvas 由 JavaScript 创建，必须：1) 用 `document.querySelector("[data-role='main-visual']")` 或 `document.getElementById("<挂载节点 id>")`（允许一层字符串常量，如 `const MOUNT_ID = "..." ; getElementById(MOUNT_ID)`）获取该静态挂载节点；2) `createElementNS`/`createElement` 创建 svg/canvas 后立刻对该节点 `appendChild`/`append`/`replaceChildren`；禁止删除或替换挂载节点，禁止只留下空舞台并依赖运行时向 `#aetherviz-stage` 直接注入。
 - 主舞台、控件、说明、公式和教学流程只作为语义槽位输出；最终 Grid、响应式断点、区域顺序和滚动归属由服务端装配。
 - 计算对象位置时必须预留 TOP_MARGIN/BOTTOM_MARGIN 或等价安全区，不能把对象画到控制区、HUD、caption、公式区下面。
 - 舞台内只放短标签和图形标注；公式、读数、caption、推导步骤放独立面板。禁止把公式/读数渲染成主舞台超大文本；SVG text 的屏幕视觉字号必须继承页面正文/辅助文字的排版层级，不得因坐标系缩放显著大于舞台外同级文字。
@@ -203,6 +203,7 @@ REPAIR_SYSTEM_PROMPT = f"""你是 HTML 最小变更修复器。
 若风险是 gsap_mutates_serialized_state，禁止直接 tween 会由 getState 返回的业务 state/model；改为独立 progress/proxy，getState 只显式复制可序列化业务字段，不返回 GSAP tween、DOM 节点或 `_gsap` 缓存。
 若风险是 duplicate_geometry_transform_encoding，把可变换对象重建为一份统一局部坐标几何；删除 path/points 中按实例序号预编码的世界方向，实例方向只由初态/目标态 transform 表达，并复核 progress=0/1 的包围盒与对象数量。
 若错误是 unstable_preserved_child，不要依赖父容器当前 firstChild/lastChild 一定存在；改用稳定节点引用/独立图层，或在清空后仅对 `instanceof Node` 的节点执行重新挂载。
+若错误是 empty_main_visual_mount，保留现有几何与互动逻辑：确认静态 `[data-role="main-visual"]` 挂载节点存在；用 `querySelector("[data-role='main-visual']")` 或 `getElementById(<挂载节点 id>)`（允许一层字符串常量）获取节点；将已创建的 svg/canvas 对该节点执行 appendChild/append/replaceChildren；不得删除或替换挂载节点，也不得只把视觉挂到 `#aetherviz-stage`。
 若必须补代码，复用现有函数和状态，不引入新框架、外部接口或 GSAP 插件。
 输出必须可解析、可运行且不超过 {HTML_OUTPUT_HARD_LIMIT_CHARS} 字符。
 """

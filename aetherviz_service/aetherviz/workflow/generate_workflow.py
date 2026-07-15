@@ -16,7 +16,10 @@ from aetherviz_service.aetherviz.agents.html_agent import HtmlGenerationError, H
 from aetherviz_service.aetherviz.agents.recomposition_scene_agent import stream_generate_recomposition_html
 from aetherviz_service.aetherviz.agents.repair_agent import RepairStreamResult, stream_repair_html
 from aetherviz_service.aetherviz.api.sse import agent_error_event, agent_sse_event
-from aetherviz_service.aetherviz.tools.deterministic_repair import deterministic_repair_html
+from aetherviz_service.aetherviz.tools.deterministic_repair import (
+    deterministic_can_address,
+    deterministic_repair_html,
+)
 from aetherviz_service.aetherviz.tools.function_patch import (
     repair_function_targets,
     target_functions_from_report,
@@ -540,7 +543,9 @@ def _attempt_repair_loop(
 ) -> Iterator[str]:
     repaired = False
     hard_report = _hard_error_only_report(report)
-    deterministic_html = _run_deterministic_repair(html, hard_report, plan)
+    deterministic_html = html
+    if deterministic_can_address(hard_report):
+        deterministic_html = _run_deterministic_repair(html, hard_report, plan)
     if deterministic_html != html:
         previous_html = html
         previous_report = report
@@ -693,7 +698,10 @@ def _attempt_repair_loop(
             stage="repair",
         )
         if not candidate_report["ok"] and not repair_truncated:
-            post_model_html = _run_deterministic_repair(html, _hard_error_only_report(candidate_report), plan)
+            post_hard_report = _hard_error_only_report(candidate_report)
+            post_model_html = html
+            if deterministic_can_address(post_hard_report):
+                post_model_html = _run_deterministic_repair(html, post_hard_report, plan)
             if post_model_html != html:
                 html = post_model_html
                 assembled_html = assemble_layout_contract(html, plan)

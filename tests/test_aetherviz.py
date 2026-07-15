@@ -648,6 +648,113 @@ const state = { progress: 0 };""",
     assert any(error["type"] == "empty_main_visual_mount" for error in report["errors"])
 
 
+def test_widget_contract_accepts_get_element_by_id_mount_lookup() -> None:
+    from aetherviz_service.aetherviz.tools.widget_contract_checker import check_widget_runtime_contract
+
+    html = sample_html().replace(
+        '<svg viewBox="0 0 100 100"><circle id="dot" cx="20" cy="50" r="8"></circle></svg>',
+        '<div data-role="main-visual" id="main-visual-mount"></div>',
+    ).replace(
+        "const state = { progress: 0 };",
+        "const state = { progress: 0 };\n"
+        "const mount = document.getElementById('main-visual-mount');\n"
+        "const visual = document.createElementNS('http://www.w3.org/2000/svg', 'svg');\n"
+        "mount.appendChild(visual);",
+    )
+
+    report = check_widget_runtime_contract(html)
+
+    assert report["ok"] is True
+    assert not any(error["type"] == "empty_main_visual_mount" for error in report["errors"])
+
+
+def test_widget_contract_accepts_mount_id_constant_cache_pattern() -> None:
+    """Regression for getElementById + string-constant mount lookups (LangSmith fca017c8)."""
+    from aetherviz_service.aetherviz.tools.widget_contract_checker import check_widget_runtime_contract
+
+    html = sample_html().replace(
+        '<svg viewBox="0 0 100 100"><circle id="dot" cx="20" cy="50" r="8"></circle></svg>',
+        '<div data-role="main-visual" id="main-visual-mount" style="width:100%;height:100%;"></div>',
+    ).replace(
+        "const state = { progress: 0 };",
+        """const MOUNT_ID = 'main-visual-mount';
+const els = {
+  mount: document.getElementById(MOUNT_ID),
+  caption: document.getElementById('animation-caption'),
+  stats: {
+    n: document.getElementById('val-n'),
+    error: document.getElementById('val-error')
+  }
+};
+let svgRoot;
+function initSVG() {
+  svgRoot = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  els.mount.appendChild(svgRoot);
+}
+initSVG();
+const state = { progress: 0 };""",
+    )
+
+    report = check_widget_runtime_contract(html)
+
+    assert report["ok"] is True
+    assert not any(error["type"] == "empty_main_visual_mount" for error in report["errors"])
+
+
+def test_html_contract_dataset_rejects_mount_lookup_false_positive() -> None:
+    """Offline dataset sample must not reintroduce empty_main_visual_mount false positives."""
+    import json
+    from pathlib import Path
+
+    from aetherviz_service.aetherviz.tools.widget_contract_checker import check_widget_runtime_contract
+
+    sample_path = (
+        Path(__file__).resolve().parents[1]
+        / "evals"
+        / "datasets"
+        / "html_contract"
+        / "mount_lookup_false_positive.json"
+    )
+    sample = json.loads(sample_path.read_text(encoding="utf-8"))
+    report = check_widget_runtime_contract(sample["html_fragment"])
+
+    forbidden = set(sample["expected"]["must_not_contain_error_types"])
+    assert not forbidden.intersection(error["type"] for error in report["errors"])
+    assert report["ok"] is True or not any(
+        error["type"] == "empty_main_visual_mount" for error in report["errors"]
+    )
+
+
+def test_widget_contract_accepts_query_selector_hash_mount_id() -> None:
+    from aetherviz_service.aetherviz.tools.widget_contract_checker import check_widget_runtime_contract
+
+    html = sample_html().replace(
+        '<svg viewBox="0 0 100 100"><circle id="dot" cx="20" cy="50" r="8"></circle></svg>',
+        '<div data-role="main-visual" id="main-visual-mount"></div>',
+    ).replace(
+        "const state = { progress: 0 };",
+        "const state = { progress: 0 };\n"
+        "const mount = document.querySelector('#main-visual-mount');\n"
+        "const visual = document.createElement('canvas');\n"
+        "mount.replaceChildren(visual);",
+    )
+
+    report = check_widget_runtime_contract(html)
+
+    assert report["ok"] is True
+
+
+def test_deterministic_can_address_skips_empty_main_visual_only() -> None:
+    from aetherviz_service.aetherviz.tools.deterministic_repair import deterministic_can_address
+
+    assert deterministic_can_address(
+        {"errors": [{"type": "empty_main_visual_mount"}], "warnings": []}
+    ) is False
+    assert deterministic_can_address(
+        {"errors": [{"type": "missing_runtime_ready"}], "warnings": []}
+    ) is True
+
+
 def test_widget_contract_warns_about_hardcoded_formatter_step_and_raw_formula_state() -> None:
     from aetherviz_service.aetherviz.tools.widget_contract_checker import check_widget_runtime_contract
 
@@ -903,6 +1010,63 @@ def test_generate_phase_triggers_repair_when_validation_fails(monkeypatch) -> No
     assert repair_done["data"]["chars"] == done["data"]["metadata"]["chars"]
     assert done["data"]["metadata"]["repaired"] is True
     assert done["data"]["metadata"]["attempts"] >= 2
+
+
+def test_generate_phase_skips_deterministic_when_only_model_fixable_errors(monkeypatch) -> None:
+    """empty_main_visual_mount alone must not burn a deterministic repair attempt."""
+    from aetherviz_service.aetherviz.agents.html_agent import HtmlStreamResult
+    from aetherviz_service.aetherviz.agents.repair_agent import RepairStreamResult
+    from aetherviz_service.aetherviz.workflow import generate_workflow
+
+    empty_mount = sample_html().replace(
+        '<svg viewBox="0 0 100 100"><circle id="dot" cx="20" cy="50" r="8"></circle></svg>',
+        '<div data-role="main-visual" id="main-visual-mount"></div>',
+    )
+    fixed = sample_html().replace(
+        '<svg viewBox="0 0 100 100"><circle id="dot" cx="20" cy="50" r="8"></circle></svg>',
+        '<div data-role="main-visual" id="main-visual-mount"></div>',
+    ).replace(
+        "const state = { progress: 0 };",
+        "const MOUNT_ID = 'main-visual-mount';\n"
+        "const els = { mount: document.getElementById(MOUNT_ID) };\n"
+        "svgRoot = document.createElementNS('http://www.w3.org/2000/svg', 'svg');\n"
+        "els.mount.appendChild(svgRoot);\n"
+        "const state = { progress: 0 };",
+    )
+    deterministic_calls = 0
+
+    def fake_stream(topic, plan):
+        yield HtmlStreamResult(html=empty_mount, degraded=False)
+
+    def fake_repair_stream(**kwargs):
+        yield RepairStreamResult(html=fixed, degraded=False)
+
+    original_run = generate_workflow._run_deterministic_repair
+
+    def counting_run(html, report, plan):
+        nonlocal deterministic_calls
+        deterministic_calls += 1
+        return original_run(html, report, plan)
+
+    monkeypatch.setattr(settings, "aetherviz_max_repair_attempts", 1)
+    monkeypatch.setattr(generate_workflow, "stream_generate_html", fake_stream)
+    monkeypatch.setattr(generate_workflow, "stream_repair_html", fake_repair_stream)
+    monkeypatch.setattr(generate_workflow, "_run_deterministic_repair", counting_run)
+
+    response = client.post(
+        AETHERVIZ_ENDPOINT,
+        json={"topic": "割圆法", "phase": "generate", "approved_plan": sample_plan("割圆法")},
+    )
+    events = parse_sse_events(response)
+    strategies = [
+        data["data"].get("strategy")
+        for event, data in events
+        if event == "repair.started"
+    ]
+
+    assert "deterministic" not in strategies
+    assert deterministic_calls == 0
+    assert any(event == "html.done" for event, _ in events)
 
 
 def test_generate_phase_rejects_stalled_model_repair_and_preserves_previous_html(monkeypatch) -> None:
