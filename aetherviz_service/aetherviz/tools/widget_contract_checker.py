@@ -52,7 +52,8 @@ _OBJECT_DECLARATION_RE = re.compile(
     rf"(?:const|let|var)\s+(?P<base>{_JS_IDENTIFIER})\s*=\s*\{{(?P<body>[\s\S]{{0,5000}}?)\}}\s*;"
 )
 _STRING_CONST_RE = re.compile(
-    rf"(?:const|let|var)\s+(?P<name>{_JS_IDENTIFIER})\s*=\s*['\"](?P<value>[^'\"]+)['\"]\s*;?"
+    rf"(?:const|let|var)\s+(?P<name>{_JS_IDENTIFIER})\s*=\s*"
+    rf"(?P<quote>['\"])(?P<value>[^\r\n]*?)(?P=quote)\s*;?"
 )
 _VISUAL_CREATION_RE = re.compile(
     rf"(?:const|let|var)?\s*(?P<target>{_JS_MEMBER})\s*=\s*document\.createElement(?:NS)?\("
@@ -883,6 +884,7 @@ def _check_stage(
                     "content": "non-empty DOM visual or appended svg/canvas",
                     "accepted_mount_lookups": [
                         "document.querySelector(\"[data-role='main-visual']\")",
+                        "document.querySelector(MOUNT_SELECTOR) where MOUNT_SELECTOR is the exact main-visual selector",
                         "document.getElementById(\"<mount-id>\")",
                         "document.getElementById(MOUNT_ID) where MOUNT_ID is a string constant",
                     ],
@@ -949,7 +951,7 @@ def _find_main_visual_references(
 
     Mount lookups may use ``[data-role='main-visual']``, the mount node's actual
     ``id`` via ``getElementById`` / ``querySelector('#id')``, or a one-hop string
-    constant holding that id (``const MOUNT_ID = 'main-visual-mount'``).
+    constant holding either the exact role selector or that id.
     """
 
     query = _main_visual_lookup_pattern(script_text, mount_ids=mount_ids or set())
@@ -973,11 +975,24 @@ def _find_main_visual_references(
 
 def _main_visual_lookup_pattern(script_text: str, *, mount_ids: set[str]) -> str:
     lookups = [_MAIN_VISUAL_ROLE_QUERY]
+    selector_aliases = {
+        match.group("name")
+        for match in _STRING_CONST_RE.finditer(script_text)
+        if re.fullmatch(
+            r"\[\s*data-role\s*=\s*['\"]main-visual['\"]\s*\]",
+            match.group("value"),
+        )
+    }
     aliases = {
         match.group("name")
         for match in _STRING_CONST_RE.finditer(script_text)
         if match.group("value") in mount_ids
     }
+    for alias in sorted(selector_aliases):
+        escaped_alias = re.escape(alias)
+        lookups.append(
+            rf"(?:document|{_JS_MEMBER})\.querySelector\(\s*{escaped_alias}\s*\)"
+        )
     for mount_id in sorted(mount_ids):
         escaped = re.escape(mount_id)
         lookups.append(

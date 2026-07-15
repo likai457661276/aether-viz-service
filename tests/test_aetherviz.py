@@ -703,6 +703,58 @@ const state = { progress: 0 };""",
     assert not any(error["type"] == "empty_main_visual_mount" for error in report["errors"])
 
 
+def test_widget_contract_accepts_mount_selector_constant_cache_pattern() -> None:
+    """Regression for the selector-constant mount flow from LangSmith trace 13c07e7d."""
+    from aetherviz_service.aetherviz.tools.widget_contract_checker import check_widget_runtime_contract
+
+    html = sample_html().replace(
+        '<svg viewBox="0 0 100 100"><circle id="dot" cx="20" cy="50" r="8"></circle></svg>',
+        '<div data-role="main-visual"></div>',
+    ).replace(
+        "const state = { progress: 0 };",
+        """const MOUNT_SELECTOR = "[data-role='main-visual']";
+const els = {
+  mount: document.querySelector(MOUNT_SELECTOR),
+  caption: document.getElementById('animation-caption')
+};
+let svgRoot;
+function initSVG() {
+  svgRoot = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  if (els.mount && els.mount instanceof Node) {
+    els.mount.appendChild(svgRoot);
+  }
+}
+initSVG();
+const state = { progress: 0 };""",
+    )
+
+    report = check_widget_runtime_contract(html)
+
+    assert report["ok"] is True
+    assert not any(error["type"] == "empty_main_visual_mount" for error in report["errors"])
+
+
+def test_widget_contract_rejects_unrelated_selector_constant_mount() -> None:
+    from aetherviz_service.aetherviz.tools.widget_contract_checker import check_widget_runtime_contract
+
+    html = sample_html().replace(
+        '<svg viewBox="0 0 100 100"><circle id="dot" cx="20" cy="50" r="8"></circle></svg>',
+        '<div data-role="main-visual"></div><div id="other"></div>',
+    ).replace(
+        "const state = { progress: 0 };",
+        """const MOUNT_SELECTOR = '#other';
+const mount = document.querySelector(MOUNT_SELECTOR);
+const visual = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+mount.appendChild(visual);
+const state = { progress: 0 };""",
+    )
+
+    report = check_widget_runtime_contract(html)
+
+    assert report["ok"] is False
+    assert any(error["type"] == "empty_main_visual_mount" for error in report["errors"])
+
+
 def test_html_contract_dataset_rejects_mount_lookup_false_positive() -> None:
     """Offline dataset sample must not reintroduce empty_main_visual_mount false positives."""
     import json
