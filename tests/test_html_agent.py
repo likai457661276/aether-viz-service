@@ -5,6 +5,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 import pytest
+from httpx import RemoteProtocolError
 
 from aetherviz_service.aetherviz.agents import html_agent
 from aetherviz_service.aetherviz.tools.deterministic_repair import deterministic_repair_html
@@ -188,7 +189,7 @@ def test_stream_generate_html_reports_accumulated_size_while_streaming(monkeypat
     assert size_events[-1]["bytes"] == len(SAMPLE_HTML.encode("utf-8"))
 
 
-def test_stream_generate_html_uses_valid_partial_output_after_stream_failure(monkeypatch) -> None:
+def test_stream_generate_html_accepts_complete_output_after_stream_close_failure(monkeypatch) -> None:
     class FailingModel:
         def stream(self, messages):
             yield MagicMock(content=SAMPLE_HTML, additional_kwargs={})
@@ -203,8 +204,82 @@ def test_stream_generate_html_uses_valid_partial_output_after_stream_failure(mon
         if isinstance(item, HtmlStreamResult)
     )
 
-    assert result.degraded is True
+    assert result.degraded is False
+    assert result.truncated is False
     assert "aetherviz-stage" in result.html
+
+
+def test_stream_generate_html_retries_incomplete_stream_once(monkeypatch) -> None:
+    midpoint = len(SAMPLE_HTML) // 2
+    attempts = 0
+
+    class RetryModel:
+        def stream(self, messages):
+            nonlocal attempts
+            attempts += 1
+            if attempts == 1:
+                yield MagicMock(content=SAMPLE_HTML[:midpoint], additional_kwargs={})
+                raise RemoteProtocolError("incomplete chunked read")
+            yield MagicMock(content=SAMPLE_HTML, additional_kwargs={})
+
+    monkeypatch.setattr(html_agent, "has_primary_llm_config", lambda: True)
+    monkeypatch.setattr(html_agent, "create_chat_model", lambda kind: RetryModel())
+    monkeypatch.setattr(html_agent.settings, "aetherviz_html_stream_max_retries", 1)
+
+    items = list(stream_generate_html("测试主题", {"title": "测试", "goal": "目标", "interactive_type": "diagram"}))
+    result = next(item for item in items if isinstance(item, HtmlStreamResult))
+
+    assert attempts == 2
+    assert result.html == SAMPLE_HTML
+    assert result.degraded is False
+    assert any(isinstance(item, dict) and item.get("generation_attempt") == 2 for item in items)
+
+
+def test_stream_generate_html_fails_after_retry_without_partial_fallback(monkeypatch) -> None:
+    midpoint = len(SAMPLE_HTML) // 2
+    attempts = 0
+
+    class AlwaysFailingModel:
+        def stream(self, messages):
+            nonlocal attempts
+            attempts += 1
+            yield MagicMock(content=SAMPLE_HTML[:midpoint], additional_kwargs={})
+            raise RemoteProtocolError("incomplete chunked read")
+
+    monkeypatch.setattr(html_agent, "has_primary_llm_config", lambda: True)
+    monkeypatch.setattr(html_agent, "create_chat_model", lambda kind: AlwaysFailingModel())
+    monkeypatch.setattr(html_agent.settings, "aetherviz_html_stream_max_retries", 1)
+
+    with pytest.raises(HtmlGenerationError, match="重试后仍未获得完整页面"):
+        list(stream_generate_html("测试主题", {"title": "测试", "goal": "目标", "interactive_type": "diagram"}))
+
+    assert attempts == 2
+
+
+def test_stream_generate_html_retries_normally_ended_truncated_output(monkeypatch) -> None:
+    attempts = 0
+
+    class TruncatedThenCompleteModel:
+        def stream(self, messages):
+            nonlocal attempts
+            attempts += 1
+            yield MagicMock(
+                content=SAMPLE_HTML.replace("</body>\n</html>", "" if attempts == 1 else "</body>\n</html>"),
+                additional_kwargs={},
+            )
+
+    monkeypatch.setattr(html_agent, "has_primary_llm_config", lambda: True)
+    monkeypatch.setattr(html_agent, "create_chat_model", lambda kind: TruncatedThenCompleteModel())
+    monkeypatch.setattr(html_agent.settings, "aetherviz_html_stream_max_retries", 1)
+
+    result = next(
+        item
+        for item in stream_generate_html("测试主题", {"title": "测试", "goal": "目标", "interactive_type": "diagram"})
+        if isinstance(item, HtmlStreamResult)
+    )
+
+    assert attempts == 2
+    assert result.truncated is False
 
 
 def test_stream_generate_html_propagates_generator_exit(monkeypatch) -> None:
@@ -236,8 +311,12 @@ def test_stream_generate_html_closes_without_yielding_after_generator_exit(monke
 
 
 def test_stream_generate_html_raises_on_complete_failure(monkeypatch) -> None:
+    attempts = 0
+
     class EmptyFailingModel:
         def stream(self, messages):
+            nonlocal attempts
+            attempts += 1
             raise RuntimeError("boom")
 
     monkeypatch.setattr(html_agent, "has_primary_llm_config", lambda: True)
@@ -249,6 +328,7 @@ def test_stream_generate_html_raises_on_complete_failure(monkeypatch) -> None:
     except HtmlGenerationError as exc:
         raised = True
         assert exc.code == "generation_failed"
-        assert "未获得可用页面" in exc.message
+        assert "未获得完整页面" in exc.message
 
     assert raised
+    assert attempts == 1

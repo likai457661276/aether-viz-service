@@ -33,6 +33,8 @@ _INDEXED_ANGLE_PAIR_RE = re.compile(
 DETERMINISTIC_HARD_ERROR_TYPES = frozenset(
     {
         "missing_widget_config",
+        "invalid_widget_config",
+        "invalid_widget_type",
         "missing_control",
         "inline_event",
         "missing_runtime",
@@ -93,7 +95,7 @@ def deterministic_repair_html(
         # Keep hard-error repair minimal. Quality normalization runs in the
         # dedicated quality phase after the repaired document validates.
         warning_types = set()
-    if plan is not None or "missing_widget_config" in error_types:
+    if error_types & {"missing_widget_config", "invalid_widget_config", "invalid_widget_type"}:
         repaired = _insert_widget_config(repaired, plan)
     if plan is not None or "missing_control" in error_types:
         repaired = _insert_runtime_controls(repaired)
@@ -321,15 +323,27 @@ def _insert_widget_config(html: str, plan: dict[str, Any] | None) -> str:
     if interactive_type not in {"simulation", "diagram", "game"}:
         interactive_type = "diagram"
     spec = source.get("interactive_spec")
-    payload = dict(spec) if isinstance(spec, dict) else {}
-    payload["type"] = interactive_type
-    config_json = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/")
-    markup = f'<script type="application/json" id="widget-config">{config_json}</script>\n'
     existing = re.search(
-        r"<script\b(?=[^>]*\bid\s*=\s*(['\"])widget-config\1)[^>]*>[\s\S]*?</script\s*>",
+        r"<script\b(?=[^>]*\bid\s*=\s*(['\"])widget-config\1)[^>]*>(?P<payload>[\s\S]*?)</script\s*>",
         html,
         re.IGNORECASE,
     )
+    payload: dict[str, Any] = {}
+    if existing:
+        try:
+            existing_payload = json.loads(existing.group("payload"))
+        except (TypeError, ValueError):
+            existing_payload = None
+        if isinstance(existing_payload, dict):
+            # Model-authored config may contain runtime-only state consumed by
+            # the business script. Preserve those keys while restoring the
+            # canonical plan fields that the widget contract requires.
+            payload.update(existing_payload)
+    if isinstance(spec, dict):
+        payload.update(spec)
+    payload["type"] = interactive_type
+    config_json = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/")
+    markup = f'<script type="application/json" id="widget-config">{config_json}</script>\n'
     if existing:
         return html[: existing.start()] + markup.rstrip() + html[existing.end() :]
     head_close = re.search(r"</head\s*>", html, re.IGNORECASE)

@@ -35,6 +35,22 @@ DEFAULT_HTML_PROGRESS_STEPS: list[dict[str, str]] = [
 ]
 HTML_SIZE_EVENT_INTERVAL_BYTES = 512
 HTML_REASONING_EVENT_INTERVAL_MS = 250
+_RETRYABLE_STREAM_ERROR_NAMES = frozenset(
+    {
+        "APIConnectionError",
+        "APITimeoutError",
+        "ConnectError",
+        "ConnectTimeout",
+        "NetworkError",
+        "PoolTimeout",
+        "ReadError",
+        "ReadTimeout",
+        "RemoteProtocolError",
+        "TimeoutException",
+        "WriteError",
+        "WriteTimeout",
+    }
+)
 
 
 class HtmlGenerationError(Exception):
@@ -45,6 +61,10 @@ class HtmlGenerationError(Exception):
         self.message = message
         self.detail = detail
         super().__init__(message)
+
+
+class _IncompleteHtmlStreamError(Exception):
+    """Raised when a model stream ends without a complete HTML document."""
 
 
 @dataclass(frozen=True)
@@ -92,109 +112,149 @@ def _stream_generate_html_impl(topic: str, plan: dict[str, Any]) -> Iterator[dic
 
     prompt = build_interactive_generation_prompt(topic, plan)
     system_prompt = system_prompt_for_interactive_type(plan)
-    raw_html = ""
-    last_size_event_bytes = 0
-    timed_out = False
-    degraded = False
-    reasoning_started_at = time.monotonic()
-    reasoning_elapsed_ms = 0
-    first_chunk_elapsed_ms = 0
-    generation_elapsed_ms = 0
-    last_reasoning_event_ms = -HTML_REASONING_EVENT_INTERVAL_MS
     deadline = time.monotonic() + max(settings.aetherviz_html_timeout_seconds, 1)
-    try:
-        yield from _iter_initial_html_progress()
-        model = create_chat_model("html")
-        messages = [SystemMessage(content=system_prompt), HumanMessage(content=prompt)]
+    workflow_started_at = time.monotonic()
+    messages = [SystemMessage(content=system_prompt), HumanMessage(content=prompt)]
+    max_attempts = 1 + max(settings.aetherviz_html_stream_max_retries, 0)
+    attempts_started = 0
+    yield from _iter_initial_html_progress()
+    last_error: Exception | None = None
+    for attempt_index in range(max_attempts):
+        attempts_started += 1
+        raw_html = ""
+        last_size_event_bytes = 0
         reasoning_started_at = time.monotonic()
+        reasoning_elapsed_ms = 0
+        first_chunk_elapsed_ms = 0
+        last_reasoning_event_ms = -HTML_REASONING_EVENT_INTERVAL_MS
         stream_started_at = reasoning_started_at
         extraction_progress_emitted = False
-        for chunk in model.stream(messages):
-            if first_chunk_elapsed_ms == 0:
-                first_chunk_elapsed_ms = max(int((time.monotonic() - stream_started_at) * 1000), 1)
-            if time.monotonic() > deadline:
-                timed_out = True
-                degraded = True
-                logger.warning(
-                    "html model timed out after %ss; using best available output",
-                    settings.aetherviz_html_timeout_seconds,
-                )
-                break
-            reasoning = extract_llm_reasoning(chunk)
-            if settings.aetherviz_html_enable_thinking and reasoning:
-                reasoning_elapsed_ms = int((time.monotonic() - reasoning_started_at) * 1000)
-                if reasoning_elapsed_ms - last_reasoning_event_ms >= HTML_REASONING_EVENT_INTERVAL_MS:
-                    yield build_html_reasoning_payload(reasoning_elapsed_ms, active=True)
-                    last_reasoning_event_ms = reasoning_elapsed_ms
-            text = extract_llm_text(chunk)
-            if text:
-                if settings.aetherviz_html_enable_thinking:
-                    reasoning_elapsed_ms = max(
-                        reasoning_elapsed_ms,
-                        int((time.monotonic() - reasoning_started_at) * 1000),
+        try:
+            model = create_chat_model("html")
+            for chunk in model.stream(messages):
+                if first_chunk_elapsed_ms == 0:
+                    first_chunk_elapsed_ms = max(int((time.monotonic() - stream_started_at) * 1000), 1)
+                if time.monotonic() > deadline:
+                    raise HtmlGenerationError(
+                        "HTML 生成超时，未获得完整页面",
+                        code="generation_timeout",
+                        detail=f"html model timed out after {settings.aetherviz_html_timeout_seconds}s",
                     )
+                reasoning = extract_llm_reasoning(chunk)
+                if settings.aetherviz_html_enable_thinking and reasoning:
+                    reasoning_elapsed_ms = int((time.monotonic() - reasoning_started_at) * 1000)
+                    if reasoning_elapsed_ms - last_reasoning_event_ms >= HTML_REASONING_EVENT_INTERVAL_MS:
+                        yield build_html_reasoning_payload(reasoning_elapsed_ms, active=True)
+                        last_reasoning_event_ms = reasoning_elapsed_ms
+                text = extract_llm_text(chunk)
+                if text:
+                    if settings.aetherviz_html_enable_thinking:
+                        reasoning_elapsed_ms = max(
+                            reasoning_elapsed_ms,
+                            int((time.monotonic() - reasoning_started_at) * 1000),
+                        )
+                        if not extraction_progress_emitted:
+                            yield build_html_reasoning_payload(reasoning_elapsed_ms, active=False)
+                    raw_html += text
+                    current_bytes = len(raw_html.encode("utf-8"))
                     if not extraction_progress_emitted:
-                        yield build_html_reasoning_payload(reasoning_elapsed_ms, active=False)
-                raw_html += text
-                current_bytes = len(raw_html.encode("utf-8"))
-                if not extraction_progress_emitted:
-                    extraction_progress_emitted = True
-                    first_content_payload = build_html_progress_payload(
-                        [
-                            {**DEFAULT_HTML_PROGRESS_STEPS[0], "status": "completed"},
-                            {**DEFAULT_HTML_PROGRESS_STEPS[1], "status": "in_progress"},
-                        ],
-                        html_content=raw_html,
-                    )
-                    first_content_payload["first_chunk_elapsed_ms"] = first_chunk_elapsed_ms
-                    yield first_content_payload
-                    last_size_event_bytes = current_bytes
-                elif current_bytes - last_size_event_bytes >= HTML_SIZE_EVENT_INTERVAL_BYTES:
-                    yield build_html_size_payload(raw_html)
-                    last_size_event_bytes = current_bytes
+                        extraction_progress_emitted = True
+                        first_content_payload = build_html_progress_payload(
+                            [
+                                {**DEFAULT_HTML_PROGRESS_STEPS[0], "status": "completed"},
+                                {**DEFAULT_HTML_PROGRESS_STEPS[1], "status": "in_progress"},
+                            ],
+                            html_content=raw_html,
+                        )
+                        first_content_payload["first_chunk_elapsed_ms"] = first_chunk_elapsed_ms
+                        first_content_payload["generation_attempt"] = attempt_index + 1
+                        yield first_content_payload
+                        last_size_event_bytes = current_bytes
+                    elif current_bytes - last_size_event_bytes >= HTML_SIZE_EVENT_INTERVAL_BYTES:
+                        size_payload = build_html_size_payload(raw_html)
+                        size_payload["generation_attempt"] = attempt_index + 1
+                        yield size_payload
+                        last_size_event_bytes = current_bytes
 
-        if not raw_html.strip():
-            raise HtmlGenerationError(
-                "HTML 生成失败，模型未产出可用页面",
-                detail="html model did not produce HTML output",
+            if not raw_html.strip():
+                raise _IncompleteHtmlStreamError("html model did not produce HTML output")
+            if "</html" not in raw_html.lower():
+                raise _IncompleteHtmlStreamError("html model output is missing </html>")
+            parsed_html = sanitize_aetherviz_html(parse_interactive_html(raw_html))
+            completed = _completed_html_progress_payload(parsed_html)
+            completed["generation_attempt"] = attempt_index + 1
+            yield completed
+            yield HtmlStreamResult(
+                html=parsed_html,
+                degraded=False,
+                truncated=False,
+                reasoning_elapsed_ms=reasoning_elapsed_ms,
+                first_chunk_elapsed_ms=first_chunk_elapsed_ms,
+                generation_elapsed_ms=int((time.monotonic() - workflow_started_at) * 1000),
             )
-        generation_elapsed_ms = int((time.monotonic() - stream_started_at) * 1000)
-        truncated = "</html" not in raw_html.lower()
-        parsed_html = sanitize_aetherviz_html(parse_interactive_html(raw_html))
-        yield _completed_html_progress_payload(parsed_html)
-        yield HtmlStreamResult(
-            html=parsed_html,
-            degraded=timed_out or degraded,
-            truncated=truncated,
-            reasoning_elapsed_ms=reasoning_elapsed_ms,
-            first_chunk_elapsed_ms=first_chunk_elapsed_ms,
-            generation_elapsed_ms=generation_elapsed_ms,
-        )
-    except HtmlGenerationError:
-        raise
-    except GeneratorExit:
-        raise
-    except Exception as exc:
-        logger.warning("html_agent failed: %s", exc)
-        if raw_html.strip():
-            try:
-                parsed_html = sanitize_aetherviz_html(parse_interactive_html(raw_html))
-                yield _completed_html_progress_payload(parsed_html)
-                yield HtmlStreamResult(
-                    html=parsed_html,
-                    degraded=True,
-                    truncated="</html" not in raw_html.lower(),
-                    reasoning_elapsed_ms=reasoning_elapsed_ms,
-                    first_chunk_elapsed_ms=first_chunk_elapsed_ms,
-                    generation_elapsed_ms=int((time.monotonic() - reasoning_started_at) * 1000),
+            return
+        except GeneratorExit:
+            raise
+        except HtmlGenerationError:
+            raise
+        except Exception as exc:
+            # A transport may fail after the complete closing tag has already
+            # arrived. In that case the document is complete and can be used.
+            if raw_html.strip() and "</html" in raw_html.lower():
+                try:
+                    parsed_html = sanitize_aetherviz_html(parse_interactive_html(raw_html))
+                except Exception:
+                    pass
+                else:
+                    completed = _completed_html_progress_payload(parsed_html)
+                    completed["generation_attempt"] = attempt_index + 1
+                    yield completed
+                    yield HtmlStreamResult(
+                        html=parsed_html,
+                        degraded=False,
+                        truncated=False,
+                        reasoning_elapsed_ms=reasoning_elapsed_ms,
+                        first_chunk_elapsed_ms=first_chunk_elapsed_ms,
+                        generation_elapsed_ms=int((time.monotonic() - workflow_started_at) * 1000),
+                    )
+                    return
+            last_error = exc
+            if _is_retryable_stream_error(exc) and attempt_index + 1 < max_attempts:
+                logger.warning(
+                    "html stream attempt %s/%s failed; retrying complete generation: %s",
+                    attempt_index + 1,
+                    max_attempts,
+                    exc,
                 )
-                return
-            except Exception:
-                logger.warning("html model partial output failed parsing")
-        raise HtmlGenerationError(
-            "HTML 生成失败，未获得可用页面",
-            detail=str(exc),
-        ) from exc
+                yield {
+                    "delta": "HTML 传输中断，正在重新生成完整页面",
+                    "generation_attempt": attempt_index + 2,
+                    "retry_reason": type(exc).__name__,
+                }
+                continue
+            break
+    failure_message = (
+        "HTML 生成失败，重试后仍未获得完整页面"
+        if attempts_started > 1
+        else "HTML 生成失败，未获得完整页面"
+    )
+    raise HtmlGenerationError(
+        failure_message,
+        detail=str(last_error or "html generation failed"),
+    ) from last_error
+
+
+def _is_retryable_stream_error(exc: Exception) -> bool:
+    if isinstance(exc, _IncompleteHtmlStreamError):
+        return True
+    current: BaseException | None = exc
+    visited: set[int] = set()
+    while current is not None and id(current) not in visited:
+        visited.add(id(current))
+        if type(current).__name__ in _RETRYABLE_STREAM_ERROR_NAMES:
+            return True
+        current = current.__cause__ or current.__context__
+    return False
 
 
 def _summarize_html_stream(items: list[dict[str, Any] | HtmlStreamResult]) -> dict[str, Any]:

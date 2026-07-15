@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     aetherviz_plan_max_retries: int = 1
     aetherviz_html_timeout_seconds: int = 600
     aetherviz_html_max_retries: int = 1
+    aetherviz_html_stream_max_retries: int = 1
     aetherviz_repair_timeout_seconds: int = 300
     aetherviz_repair_max_retries: int = 1
     langsmith_tracing: bool = False

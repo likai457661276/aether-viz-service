@@ -281,6 +281,7 @@ def test_generate_phase_streams_html_size_validates_in_memory_and_returns_html()
 
 def test_generate_phase_returns_error_when_html_agent_fails_completely(monkeypatch) -> None:
     from aetherviz_service.aetherviz.agents import html_agent
+    from aetherviz_service.aetherviz.workflow import generate_workflow
 
     monkeypatch.setattr(settings, "openai_api_key", "test-key")
 
@@ -288,6 +289,7 @@ def test_generate_phase_returns_error_when_html_agent_fails_completely(monkeypat
         raise html_agent.HtmlGenerationError("HTML 生成失败，未获得可用页面", detail="boom")
 
     monkeypatch.setattr(html_agent, "stream_generate_html", failing_stream)
+    monkeypatch.setattr(generate_workflow, "stream_generate_html", failing_stream)
 
     response = client.post(
         AETHERVIZ_ENDPOINT,

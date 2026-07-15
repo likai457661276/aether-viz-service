@@ -192,6 +192,50 @@ def test_deterministic_repair_adds_guarded_runtime_ready_marker() -> None:
     assert not any(error["type"] == "missing_runtime_ready" for error in repaired_report["errors"])
 
 
+def test_runtime_ready_repair_preserves_model_widget_config() -> None:
+    html = sample_html().replace(
+        '{"type":"simulation","concept":"熵增"}',
+        '{"type":"simulation","concept":"熵增","initial_state":{"sides":6}}',
+    ).replace("window.__AETHERVIZ_RUNTIME_READY__ = true;", "")
+    report = _validate(assemble_layout_contract(html, sample_plan()), plan=sample_plan(), model_html=html)
+
+    repaired = deterministic_repair_html(html, {"errors": report["errors"]}, plan=sample_plan())
+
+    assert '"initial_state":{"sides":6}' in repaired
+    assert '"variables"' not in repaired
+
+
+def test_missing_widget_config_repair_merges_runtime_only_fields() -> None:
+    html = sample_html().replace(
+        '{"type":"simulation","concept":"熵增"}',
+        '{"interactive_type":"simulation","initial_state":{"sides":6},'
+        '"animation_config":{"max_sides":96}}',
+    )
+
+    repaired = deterministic_repair_html(
+        html,
+        {"errors": [{"type": "missing_widget_config"}]},
+        plan=sample_plan("割圆法"),
+    )
+
+    assert '"type":"simulation"' in repaired
+    assert '"concept":"割圆法"' in repaired
+    assert '"initial_state":{"sides":6}' in repaired
+    assert '"animation_config":{"max_sides":96}' in repaired
+
+
+def test_widget_contract_rejects_missing_direct_config_key() -> None:
+    html = sample_html().replace(
+        "const state = { progress: 0 };",
+        "const CONFIG = JSON.parse(document.getElementById('widget-config').textContent);\n"
+        "const state = { progress: 0, sides: CONFIG.initial_state.sides };",
+    )
+
+    report = check_widget_runtime_contract(html)
+
+    assert any(error["type"] == "missing_widget_config_key" for error in report["errors"])
+
+
 def test_planning_context_is_included_and_reports_compression(monkeypatch) -> None:
     captured_messages = []
     plan_json = (

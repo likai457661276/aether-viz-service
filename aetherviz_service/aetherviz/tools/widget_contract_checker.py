@@ -63,6 +63,10 @@ _PRESERVED_CHILD_RE = re.compile(
     rf"(?:const|let|var)\s+(?P<child>{_JS_IDENTIFIER})\s*=\s*"
     rf"(?P<parent>{_JS_MEMBER})\.(?:firstChild|lastChild)\s*;"
 )
+_WIDGET_CONFIG_ALIAS_RE = re.compile(
+    r"(?:const|let|var)\s+(?P<alias>[A-Za-z_$][\w$]*)\s*=\s*JSON\.parse\(\s*"
+    r"document\.getElementById\(\s*['\"]widget-config['\"]\s*\)\.textContent\s*\)"
+)
 
 
 def check_widget_runtime_contract(html: str, *, soup: BeautifulSoup | None = None) -> dict:
@@ -83,7 +87,7 @@ def check_widget_runtime_contract(html: str, *, soup: BeautifulSoup | None = Non
         and not script.get("data-aetherviz-animation-contract")
         and not script.get("data-aetherviz-control-contract")
     )
-    _check_widget_config(parsed, errors)
+    _check_widget_config(parsed, script_text, errors)
     _check_stage(parsed, script_text, errors, warnings)
     _check_controls(parsed, errors)
     if not re.search(r"\bAetherVizRuntime\s*=", script_text):
@@ -809,7 +813,7 @@ def _check_duplicate_label_positions(
             )
 
 
-def _check_widget_config(parsed: BeautifulSoup, errors: list[dict]) -> None:
+def _check_widget_config(parsed: BeautifulSoup, script_text: str, errors: list[dict]) -> None:
     config = parsed.find("script", id="widget-config")
     if config is None or str(config.get("type") or "").lower() != "application/json":
         errors.append(_error("missing_widget_config", "缺少 script#widget-config[type=application/json]"))
@@ -821,6 +825,26 @@ def _check_widget_config(parsed: BeautifulSoup, errors: list[dict]) -> None:
         return
     if not isinstance(payload, dict) or payload.get("type") not in ALLOWED_WIDGET_TYPES:
         errors.append(_error("invalid_widget_type", "widget-config.type 必须是 simulation、diagram 或 game"))
+        return
+    for alias_match in _WIDGET_CONFIG_ALIAS_RE.finditer(script_text):
+        alias = alias_match.group("alias")
+        direct_access = re.compile(
+            rf"(?<![\w$?.]){re.escape(alias)}\s*\.\s*(?P<key>[A-Za-z_$][\w$]*)"
+        )
+        missing = sorted(
+            {
+                match.group("key")
+                for match in direct_access.finditer(script_text, alias_match.end())
+                if match.group("key") not in payload
+            }
+        )
+        for key in missing:
+            errors.append(
+                _error(
+                    "missing_widget_config_key",
+                    f"脚本直接读取 {alias}.{key}，但 widget-config 缺少顶层字段 {key}",
+                )
+            )
 
 
 def _check_stage(
