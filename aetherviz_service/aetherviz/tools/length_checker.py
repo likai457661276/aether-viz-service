@@ -7,9 +7,10 @@ import re
 from aetherviz_service.aetherviz.constants import (
     ASSEMBLED_HTML_SAFETY_LIMIT_CHARS,
     MODEL_HTML_HARD_LIMIT_CHARS,
+    MODEL_HTML_TARGET_CHARS,
 )
 
-TARGET_LIMIT_CHARS = 36000
+TARGET_LIMIT_CHARS = MODEL_HTML_TARGET_CHARS
 _SERVICE_OWNED_TAG_RE = re.compile(
     r"<(script|style)\b(?=[^>]*\bdata-aetherviz-(?:"
     r"layout-contract|layout-guard|control-contract|animation-contract|"

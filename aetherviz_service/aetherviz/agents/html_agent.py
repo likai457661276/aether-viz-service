@@ -22,6 +22,7 @@ from aetherviz_service.aetherviz.agents.model_factory import (
     create_chat_model,
     extract_llm_reasoning,
     extract_llm_text,
+    extract_llm_usage,
     has_primary_llm_config,
 )
 from aetherviz_service.aetherviz.tools.html_output import parse_interactive_html, sanitize_aetherviz_html
@@ -79,6 +80,10 @@ class HtmlStreamResult:
     finish_reason: str | None = None
     source_chars: int = 0
     patch_functions: tuple[str, ...] = ()
+    patch_blocks: tuple[str, ...] = ()
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    output_chars: int = 0
 
 
 def stream_generate_html(topic: str, plan: dict[str, Any]) -> Iterator[dict[str, Any] | HtmlStreamResult]:
@@ -133,9 +138,14 @@ def _stream_generate_html_impl(topic: str, plan: dict[str, Any]) -> Iterator[dic
         last_reasoning_event_ms = -HTML_REASONING_EVENT_INTERVAL_MS
         stream_started_at = reasoning_started_at
         extraction_progress_emitted = False
+        input_tokens: int | None = None
+        output_tokens: int | None = None
         try:
             model = create_chat_model("html")
             for chunk in model.stream(messages):
+                chunk_input_tokens, chunk_output_tokens = extract_llm_usage(chunk)
+                input_tokens = chunk_input_tokens or input_tokens
+                output_tokens = chunk_output_tokens or output_tokens
                 if first_chunk_elapsed_ms == 0:
                     first_chunk_elapsed_ms = max(int((time.monotonic() - stream_started_at) * 1000), 1)
                 if time.monotonic() > deadline:
@@ -195,6 +205,9 @@ def _stream_generate_html_impl(topic: str, plan: dict[str, Any]) -> Iterator[dic
                 reasoning_elapsed_ms=reasoning_elapsed_ms,
                 first_chunk_elapsed_ms=first_chunk_elapsed_ms,
                 generation_elapsed_ms=int((time.monotonic() - workflow_started_at) * 1000),
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                output_chars=len(raw_html),
             )
             return
         except GeneratorExit:
@@ -220,6 +233,9 @@ def _stream_generate_html_impl(topic: str, plan: dict[str, Any]) -> Iterator[dic
                         reasoning_elapsed_ms=reasoning_elapsed_ms,
                         first_chunk_elapsed_ms=first_chunk_elapsed_ms,
                         generation_elapsed_ms=int((time.monotonic() - workflow_started_at) * 1000),
+                        input_tokens=input_tokens,
+                        output_tokens=output_tokens,
+                        output_chars=len(raw_html),
                     )
                     return
             last_error = exc
@@ -274,6 +290,14 @@ def _summarize_html_stream(items: list[dict[str, Any] | HtmlStreamResult]) -> di
         "reasoning_elapsed_ms": result.reasoning_elapsed_ms,
         "first_chunk_elapsed_ms": result.first_chunk_elapsed_ms,
         "generation_elapsed_ms": result.generation_elapsed_ms,
+        "input_tokens": result.input_tokens,
+        "output_tokens": result.output_tokens,
+        "output_chars": result.output_chars or len(result.html),
+        "chars_per_output_token": (
+            round((result.output_chars or len(result.html)) / result.output_tokens, 3)
+            if result.output_tokens
+            else None
+        ),
         "progress_events": sum(isinstance(item, dict) for item in items),
     }
 

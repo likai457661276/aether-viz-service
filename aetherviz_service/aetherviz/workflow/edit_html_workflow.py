@@ -23,7 +23,12 @@ from aetherviz_service.aetherviz.agents.instructions import EDIT_HTML_SYSTEM_PRO
 from aetherviz_service.aetherviz.agents.model_factory import (
     create_chat_model,
     extract_llm_text,
+    extract_llm_usage,
     has_primary_llm_config,
+)
+from aetherviz_service.aetherviz.limits import (
+    FULL_HTML_OUTPUT_RESERVE_CHARS,
+    estimated_output_capacity_chars,
 )
 from aetherviz_service.aetherviz.tools.html_output import parse_interactive_html, sanitize_aetherviz_html
 from aetherviz_service.aetherviz.tools.layout_contract import extract_business_html
@@ -134,7 +139,7 @@ def _stream_edit_html(
         "topic": inputs.get("topic"),
         "business_chars": len(inputs.get("current_html") or ""),
         "instruction_chars": len(inputs.get("message") or ""),
-        "full_output_budget_chars": settings.aetherviz_edit_max_tokens * 3,
+        "full_output_budget_chars": estimated_output_capacity_chars(settings.aetherviz_edit_max_tokens),
     },
     reduce_fn=lambda items: _summarize_edit_stream(items),
 )
@@ -181,10 +186,18 @@ def _stream_edit_html_impl(
         yield HtmlStreamResult(
             html=patch_result.html,
             degraded=False,
-            strategy="function_patch",
+            strategy=patch_result.strategy,
             finish_reason=patch_result.finish_reason,
             source_chars=len(current_html),
-            patch_functions=patch_result.applied,
+            patch_functions=(
+                patch_result.applied_functions
+                if patch_result.applied_blocks
+                else patch_result.applied
+            ),
+            patch_blocks=patch_result.applied_blocks,
+            input_tokens=patch_result.input_tokens,
+            output_tokens=patch_result.output_tokens,
+            output_chars=patch_result.output_chars,
         )
         return
     if patch_result and patch_result.finish_reason in {"length", "max_tokens", "local_length_guard"}:
@@ -210,6 +223,8 @@ def _stream_edit_html_impl(
     last_size_event_bytes = 0
     timed_out = False
     finish_reason: str | None = None
+    input_tokens: int | None = None
+    output_tokens: int | None = None
     deadline = time.monotonic() + max(settings.aetherviz_html_timeout_seconds, 1)
     yield build_html_progress_payload(
         [
@@ -222,6 +237,9 @@ def _stream_edit_html_impl(
         messages = [SystemMessage(content=EDIT_HTML_SYSTEM_PROMPT), HumanMessage(content=prompt)]
         output_started = False
         for chunk in model.stream(messages):
+            chunk_input_tokens, chunk_output_tokens = extract_llm_usage(chunk)
+            input_tokens = chunk_input_tokens or input_tokens
+            output_tokens = chunk_output_tokens or output_tokens
             if time.monotonic() > deadline:
                 timed_out = True
                 logger.warning(
@@ -273,6 +291,9 @@ def _stream_edit_html_impl(
             strategy="full_html",
             finish_reason=finish_reason,
             source_chars=len(current_html),
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            output_chars=len(raw_text),
         )
     except GeneratorExit:
         raise
@@ -288,8 +309,8 @@ def _stream_edit_html_impl(
 
 
 def _has_full_edit_budget(current_html: str) -> bool:
-    estimated_capacity = max(settings.aetherviz_edit_max_tokens, 512) * 3
-    return len(current_html) + 2_048 <= estimated_capacity
+    estimated_capacity = estimated_output_capacity_chars(settings.aetherviz_edit_max_tokens)
+    return len(current_html) + FULL_HTML_OUTPUT_RESERVE_CHARS <= estimated_capacity
 
 
 def _summarize_edit_stream(items: list[dict[str, Any] | HtmlStreamResult]) -> dict[str, Any]:
@@ -306,6 +327,15 @@ def _summarize_edit_stream(items: list[dict[str, Any] | HtmlStreamResult]) -> di
         "finish_reason": result.finish_reason,
         "truncated": result.truncated,
         "patch_functions": list(result.patch_functions),
+        "patch_blocks": list(result.patch_blocks),
+        "input_tokens": result.input_tokens,
+        "output_tokens": result.output_tokens,
+        "output_chars": result.output_chars or len(result.html),
+        "chars_per_output_token": (
+            round((result.output_chars or len(result.html)) / result.output_tokens, 3)
+            if result.output_tokens
+            else None
+        ),
     }
 
 

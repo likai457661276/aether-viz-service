@@ -17,12 +17,21 @@ def test_html_generation_thinking_disabled_by_default() -> None:
     assert settings.openai_plan_model == "deepseek-v4-flash"
     assert settings.openai_html_model == "qwen3.7-plus"
     assert settings.aetherviz_plan_max_tokens == 3072
-    assert settings.aetherviz_html_max_tokens == 8192
-    assert settings.aetherviz_edit_max_tokens == 9216
-    assert settings.aetherviz_edit_patch_max_tokens == 3072
-    assert settings.aetherviz_repair_max_tokens == 9216
+    assert settings.aetherviz_html_max_tokens == 16384
+    assert settings.aetherviz_edit_max_tokens == 16384
+    assert settings.aetherviz_edit_patch_max_tokens == 4096
+    assert settings.aetherviz_repair_max_tokens == 16384
     assert settings.aetherviz_html_enable_thinking is False
     assert settings.aetherviz_html_reasoning_effort is None
+
+
+@pytest.mark.parametrize(
+    "field",
+    ["aetherviz_html_max_tokens", "aetherviz_edit_max_tokens", "aetherviz_repair_max_tokens"],
+)
+def test_full_html_output_budget_must_cover_hard_limit(field: str) -> None:
+    with pytest.raises(ValidationError, match="完整 HTML 输出预算不足"):
+        Settings(_env_file=None, **{field: 12_288})
 
 
 def test_gsap_cdn_url_accepts_https() -> None:

@@ -1,7 +1,9 @@
 from urllib.parse import urlsplit
 
-from pydantic import field_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from aetherviz_service.aetherviz.limits import MIN_FULL_HTML_OUTPUT_TOKENS
 
 
 class Settings(BaseSettings):
@@ -16,11 +18,11 @@ class Settings(BaseSettings):
     aetherviz_katex_js_url: str = "https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"
     aetherviz_html_enable_thinking: bool = False
     aetherviz_html_reasoning_effort: str | None = None
-    aetherviz_html_max_tokens: int = 8192
+    aetherviz_html_max_tokens: int = 16384
     aetherviz_scene_max_tokens: int = 12288
-    aetherviz_edit_max_tokens: int = 9216
-    aetherviz_edit_patch_max_tokens: int = 3072
-    aetherviz_repair_max_tokens: int = 9216
+    aetherviz_edit_max_tokens: int = 16384
+    aetherviz_edit_patch_max_tokens: int = 4096
+    aetherviz_repair_max_tokens: int = 16384
     aetherviz_max_repair_attempts: int = 1
     aetherviz_plan_max_tokens: int = 3072
     aetherviz_plan_timeout_seconds: int = 180
@@ -50,6 +52,25 @@ class Settings(BaseSettings):
         if parsed.username or parsed.password or parsed.query or parsed.fragment:
             raise ValueError("AetherViz CDN 地址不允许包含凭据、query 或 fragment")
         return normalized
+
+    @model_validator(mode="after")
+    def validate_full_html_output_budgets(self) -> "Settings":
+        undersized = {
+            name: value
+            for name, value in {
+                "AETHERVIZ_HTML_MAX_TOKENS": self.aetherviz_html_max_tokens,
+                "AETHERVIZ_EDIT_MAX_TOKENS": self.aetherviz_edit_max_tokens,
+                "AETHERVIZ_REPAIR_MAX_TOKENS": self.aetherviz_repair_max_tokens,
+            }.items()
+            if value < MIN_FULL_HTML_OUTPUT_TOKENS
+        }
+        if undersized:
+            configured = ", ".join(f"{name}={value}" for name, value in undersized.items())
+            raise ValueError(
+                "完整 HTML 输出预算不足："
+                f"{configured}；每项至少需要 {MIN_FULL_HTML_OUTPUT_TOKENS} token，建议配置为 16384"
+            )
+        return self
 
     model_config = SettingsConfigDict(
         env_file=".env",

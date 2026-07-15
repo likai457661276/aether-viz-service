@@ -22,6 +22,7 @@ from aetherviz_service.aetherviz.agents.instructions import REPAIR_SYSTEM_PROMPT
 from aetherviz_service.aetherviz.agents.model_factory import (
     create_chat_model,
     extract_llm_text,
+    extract_llm_usage,
     has_primary_llm_config,
 )
 from aetherviz_service.aetherviz.constants import HTML_OUTPUT_HARD_LIMIT_CHARS
@@ -41,6 +42,9 @@ class RepairStreamResult:
     html: str
     degraded: bool
     truncated: bool = False
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    output_chars: int = 0
 
 
 def stream_repair_html(
@@ -105,6 +109,8 @@ def _stream_repair_html_impl(
     raw_text = ""
     last_size_event_bytes = 0
     timed_out = False
+    input_tokens: int | None = None
+    output_tokens: int | None = None
     deadline = time.monotonic() + max(settings.aetherviz_repair_timeout_seconds, 1)
     yield build_html_progress_payload(
         [
@@ -117,6 +123,9 @@ def _stream_repair_html_impl(
         messages = [SystemMessage(content=REPAIR_SYSTEM_PROMPT), HumanMessage(content=prompt)]
         output_started = False
         for chunk in model.stream(messages):
+            chunk_input_tokens, chunk_output_tokens = extract_llm_usage(chunk)
+            input_tokens = chunk_input_tokens or input_tokens
+            output_tokens = chunk_output_tokens or output_tokens
             if time.monotonic() > deadline:
                 timed_out = True
                 logger.warning(
@@ -156,6 +165,9 @@ def _stream_repair_html_impl(
             html=repaired_html,
             degraded=timed_out,
             truncated="</html" not in raw_text.lower(),
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            output_chars=len(raw_text),
         )
     except GeneratorExit:
         raise
@@ -171,6 +183,9 @@ def _stream_repair_html_impl(
                     ),
                     degraded=True,
                     truncated="</html" not in raw_text.lower(),
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    output_chars=len(raw_text),
                 )
                 return
             except Exception:
@@ -192,6 +207,14 @@ def _summarize_repair_stream(items: list[dict[str, Any] | RepairStreamResult]) -
         "bytes": len(result.html.encode("utf-8")),
         "degraded": result.degraded,
         "truncated": result.truncated,
+        "input_tokens": result.input_tokens,
+        "output_tokens": result.output_tokens,
+        "output_chars": result.output_chars or len(result.html),
+        "chars_per_output_token": (
+            round((result.output_chars or len(result.html)) / result.output_tokens, 3)
+            if result.output_tokens
+            else None
+        ),
         "progress_events": sum(isinstance(item, dict) for item in items),
     }
 

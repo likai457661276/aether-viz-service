@@ -175,6 +175,10 @@ def _run_html_workflow(
                 metadata["model_finish_reason"] = item.finish_reason
                 metadata["source_business_chars"] = item.source_chars
                 metadata["patch_functions"] = list(item.patch_functions)
+                metadata["patch_blocks"] = list(item.patch_blocks)
+                metadata["model_input_tokens"] = item.input_tokens
+                metadata["model_output_tokens"] = item.output_tokens
+                metadata["model_output_chars"] = item.output_chars or len(item.html)
                 yield agent_sse_event(
                     "html.delta",
                     run_id=run_id,
@@ -311,6 +315,15 @@ def _run_html_workflow(
                 "model_finish_reason": metadata.get("model_finish_reason"),
                 "source_business_chars": metadata.get("source_business_chars", 0),
                 "patch_functions": metadata.get("patch_functions", []),
+                "patch_blocks": metadata.get("patch_blocks", []),
+                "model_input_tokens": metadata.get("model_input_tokens"),
+                "model_output_tokens": metadata.get("model_output_tokens"),
+                "model_output_chars": metadata.get("model_output_chars", len(business_html)),
+                "chars_per_output_token": (
+                    round(metadata.get("model_output_chars", len(business_html)) / metadata["model_output_tokens"], 3)
+                    if metadata.get("model_output_tokens")
+                    else None
+                ),
             },
         },
         metadata=_metadata(metadata, started_at, stage="done"),

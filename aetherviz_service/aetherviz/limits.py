@@ -1,0 +1,20 @@
+"""Pure size and output-budget limits shared by settings and workflows."""
+
+from __future__ import annotations
+
+import math
+
+MODEL_HTML_TARGET_CHARS = 28_000
+MODEL_HTML_HARD_LIMIT_CHARS = 40_000
+ASSEMBLED_HTML_SAFETY_LIMIT_CHARS = 64_000
+
+FULL_HTML_OUTPUT_RESERVE_CHARS = 2_048
+ESTIMATED_OUTPUT_CHARS_PER_TOKEN = 3
+MIN_FULL_HTML_OUTPUT_TOKENS = math.ceil(
+    (MODEL_HTML_HARD_LIMIT_CHARS + FULL_HTML_OUTPUT_RESERVE_CHARS)
+    / ESTIMATED_OUTPUT_CHARS_PER_TOKEN
+)
+
+
+def estimated_output_capacity_chars(max_tokens: int) -> int:
+    return max(max_tokens, 512) * ESTIMATED_OUTPUT_CHARS_PER_TOKEN

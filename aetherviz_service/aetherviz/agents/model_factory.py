@@ -34,6 +34,7 @@ def _html_model_kwargs(*, max_tokens: int | None = None) -> dict[str, Any]:
         ),
         "timeout": max(settings.aetherviz_html_timeout_seconds, 1),
         "max_retries": max(settings.aetherviz_html_max_retries, 0),
+        "stream_usage": True,
     }
     if settings.aetherviz_html_enable_thinking:
         kwargs["extra_body"] = {"enable_thinking": True}
@@ -137,3 +138,20 @@ def extract_llm_reasoning(message: Any) -> str:
         if value:
             return str(value)
     return ""
+
+
+def extract_llm_usage(message: Any) -> tuple[int | None, int | None]:
+    usage = getattr(message, "usage_metadata", None)
+    if not isinstance(usage, dict) and isinstance(message, dict):
+        usage = message.get("usage_metadata")
+    if not isinstance(usage, dict):
+        return None, None
+    return _positive_int(usage.get("input_tokens")), _positive_int(usage.get("output_tokens"))
+
+
+def _positive_int(value: Any) -> int | None:
+    try:
+        normalized = int(value)
+    except (TypeError, ValueError):
+        return None
+    return normalized if normalized > 0 else None
