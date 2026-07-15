@@ -601,6 +601,7 @@ def _attempt_repair_loop(
             plan=plan,
             raw_html=html,
             report=hard_report,
+            include_plan_context=phase != "edit_html",
         ):
             if isinstance(item, RepairStreamResult):
                 html, repair_degraded = item.html, item.degraded

@@ -11,7 +11,6 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langsmith import traceable
 from langsmith.run_helpers import get_current_run_tree
 
-from aetherviz_service.aetherviz.agents.edit_patch_agent import EditPatchResult, stream_edit_patch
 from aetherviz_service.aetherviz.agents.html_agent import (
     HTML_SIZE_EVENT_INTERVAL_BYTES,
     HtmlGenerationError,
@@ -147,7 +146,7 @@ def _stream_edit_html(
         "business_chars": len(inputs.get("current_html") or ""),
         "instruction_chars": len(inputs.get("message") or ""),
         "full_output_budget_chars": estimated_output_capacity_chars(settings.aetherviz_edit_max_tokens),
-        "full_html_fallback_enabled": settings.aetherviz_edit_full_html_fallback_enabled,
+        "edit_strategy": "full_html_regeneration",
     },
     reduce_fn=lambda items: _summarize_edit_stream(items),
 )
@@ -176,56 +175,18 @@ def _stream_edit_html_impl(
     if not has_primary_llm_config():
         yield build_html_progress_payload(
             [
-                {"content": "分析用户修改意见与当前 HTML", "status": "completed"},
-                {"content": "必要时更新页面文件", "status": "completed"},
-                {"content": "输出修改后的完整 HTML", "status": "completed"},
+                {"content": "分析当前 HTML 与修改意见", "status": "completed"},
+                {"content": "重新生成完整 HTML", "status": "completed"},
             ]
         )
-        yield HtmlStreamResult(html=current_html, degraded=True, source_chars=len(current_html))
+        yield HtmlStreamResult(
+            html=current_html,
+            degraded=True,
+            strategy="full_html_regeneration",
+            source_chars=len(current_html),
+        )
         return
 
-    patch_result: EditPatchResult | None = None
-    for item in stream_edit_patch(
-        raw_html=current_html,
-        instruction=message,
-        topic=topic,
-        context=context,
-    ):
-        if isinstance(item, EditPatchResult):
-            patch_result = item
-        else:
-            yield item
-    if patch_result and patch_result.applied and patch_result.html != current_html:
-        yield HtmlStreamResult(
-            html=patch_result.html,
-            degraded=False,
-            strategy=patch_result.strategy,
-            finish_reason=patch_result.finish_reason,
-            source_chars=len(current_html),
-            patch_functions=(patch_result.applied_functions if patch_result.applied_blocks else patch_result.applied),
-            patch_blocks=patch_result.applied_blocks,
-            input_tokens=patch_result.input_tokens,
-            output_tokens=patch_result.output_tokens,
-            output_chars=patch_result.output_chars,
-        )
-        return
-    fallback_enabled = settings.aetherviz_edit_full_html_fallback_enabled
-    if (
-        patch_result
-        and patch_result.finish_reason in {"length", "max_tokens", "local_length_guard"}
-        and not fallback_enabled
-    ):
-        raise HtmlGenerationError(
-            "HTML 修改失败，函数补丁输出不完整，原页面已保留",
-            code="edit_truncated",
-            detail=f"finish_reason={patch_result.finish_reason}",
-        )
-    if patch_result and not patch_result.allow_full_html_fallback and not fallback_enabled:
-        raise HtmlGenerationError(
-            "HTML 修改失败，局部样式补丁未通过安全校验，原页面已保留",
-            code="edit_local_patch_rejected",
-            detail=f"fallback_reason={patch_result.fallback_reason or 'patch_not_applied'}",
-        )
     if not _has_full_edit_budget(current_html):
         raise HtmlGenerationError(
             "HTML 修改失败，完整编辑输出预算不足，原页面已保留",
@@ -246,17 +207,10 @@ def _stream_edit_html_impl(
     input_tokens: int | None = None
     output_tokens: int | None = None
     deadline = time.monotonic() + max(settings.aetherviz_html_timeout_seconds, 1)
-    full_html_fallback = patch_result is not None
-    fallback_progress = (
-        [{"content": "局部修改未通过，改为重新生成完整 HTML", "status": "completed"}]
-        if full_html_fallback
-        else []
-    )
     yield build_html_progress_payload(
         [
-            *fallback_progress,
-            {"content": "分析用户修改意见与当前 HTML", "status": "in_progress"},
-            {"content": "输出修改后的完整 HTML", "status": "pending"},
+            {"content": "分析当前 HTML 与修改意见", "status": "in_progress"},
+            {"content": "重新生成完整 HTML", "status": "pending"},
         ]
     )
     try:
@@ -285,9 +239,8 @@ def _stream_edit_html_impl(
                     output_started = True
                     yield build_html_progress_payload(
                         [
-                            *fallback_progress,
-                            {"content": "分析用户修改意见与当前 HTML", "status": "completed"},
-                            {"content": "输出修改后的完整 HTML", "status": "in_progress"},
+                            {"content": "分析当前 HTML 与修改意见", "status": "completed"},
+                            {"content": "重新生成完整 HTML", "status": "in_progress"},
                         ],
                         html_content=raw_text,
                     )
@@ -307,9 +260,8 @@ def _stream_edit_html_impl(
         edited_html = sanitize_aetherviz_html(parse_interactive_html(raw_text))
         yield build_html_progress_payload(
             [
-                *fallback_progress,
-                {"content": "分析用户修改意见与当前 HTML", "status": "completed"},
-                {"content": "输出修改后的完整 HTML", "status": "completed"},
+                {"content": "分析当前 HTML 与修改意见", "status": "completed"},
+                {"content": "重新生成完整 HTML", "status": "completed"},
             ],
             html_content=edited_html,
         )
@@ -317,7 +269,7 @@ def _stream_edit_html_impl(
             html=edited_html,
             degraded=timed_out,
             truncated=False,
-            strategy="full_html_fallback" if full_html_fallback else "full_html",
+            strategy="full_html_regeneration",
             finish_reason=finish_reason,
             source_chars=len(current_html),
             input_tokens=input_tokens,

@@ -53,13 +53,20 @@ def stream_repair_html(
     plan: dict[str, Any],
     raw_html: str,
     report: dict[str, Any],
+    include_plan_context: bool = True,
 ) -> Iterator[dict[str, Any] | RepairStreamResult]:
     runner = (
         _traced_stream_repair_html
         if settings.langsmith_tracing and get_current_run_tree() is not None
         else _stream_repair_html_impl
     )
-    yield from runner(topic=topic, plan=plan, raw_html=raw_html, report=report)
+    yield from runner(
+        topic=topic,
+        plan=plan,
+        raw_html=raw_html,
+        report=report,
+        include_plan_context=include_plan_context,
+    )
 
 
 @traceable(
@@ -72,6 +79,7 @@ def stream_repair_html(
         "source_chars": len(inputs.get("raw_html") or ""),
         "error_types": [error.get("type") for error in (inputs.get("report") or {}).get("errors", [])],
         "warning_types": [warning.get("type") for warning in (inputs.get("report") or {}).get("warnings", [])],
+        "include_plan_context": inputs.get("include_plan_context", True),
     },
     reduce_fn=lambda items: _summarize_repair_stream(items),
 )
@@ -81,8 +89,15 @@ def _traced_stream_repair_html(
     plan: dict[str, Any],
     raw_html: str,
     report: dict[str, Any],
+    include_plan_context: bool = True,
 ) -> Iterator[dict[str, Any] | RepairStreamResult]:
-    yield from _stream_repair_html_impl(topic=topic, plan=plan, raw_html=raw_html, report=report)
+    yield from _stream_repair_html_impl(
+        topic=topic,
+        plan=plan,
+        raw_html=raw_html,
+        report=report,
+        include_plan_context=include_plan_context,
+    )
 
 
 def _stream_repair_html_impl(
@@ -91,6 +106,7 @@ def _stream_repair_html_impl(
     plan: dict[str, Any],
     raw_html: str,
     report: dict[str, Any],
+    include_plan_context: bool = True,
 ) -> Iterator[dict[str, Any] | RepairStreamResult]:
     if not has_primary_llm_config():
         yield RepairStreamResult(
@@ -105,6 +121,7 @@ def _stream_repair_html_impl(
         raw_html=raw_html[:HTML_OUTPUT_HARD_LIMIT_CHARS],
         error_detail=json.dumps(_compact_report(report), ensure_ascii=False),
         source_label="确定性检查",
+        include_plan_context=include_plan_context,
     )
     raw_text = ""
     last_size_event_bytes = 0

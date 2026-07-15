@@ -329,6 +329,8 @@ def test_edit_html_generates_new_branch_events() -> None:
     assert "html.delta" in names
     assert "validation.report" in names
     assert "html.done" in names
+    done = next(data for event, data in events if event == "html.done")
+    assert done["metadata"]["edit_strategy"] == "full_html_regeneration"
 
 
 def test_validation_report_rejects_dangerous_external_resource() -> None:
@@ -1372,7 +1374,6 @@ def test_edit_phase_applies_deterministic_quality_repair_without_model_rewrite(m
 def test_edit_html_stream_propagates_generator_exit(monkeypatch) -> None:
     from unittest.mock import MagicMock
 
-    from aetherviz_service.aetherviz.agents.edit_patch_agent import EditPatchResult
     from aetherviz_service.aetherviz.workflow import edit_html_workflow
 
     monkeypatch.setattr(settings, "openai_api_key", "test-key")
@@ -1383,11 +1384,6 @@ def test_edit_html_stream_propagates_generator_exit(monkeypatch) -> None:
             raise GeneratorExit()
 
     monkeypatch.setattr(edit_html_workflow, "create_chat_model", lambda kind: GeneratorExitModel())
-    monkeypatch.setattr(
-        edit_html_workflow,
-        "stream_edit_patch",
-        lambda **kwargs: iter([EditPatchResult(html=kwargs["raw_html"], attempted=False)]),
-    )
 
     with pytest.raises(GeneratorExit):
         list(
@@ -1400,26 +1396,22 @@ def test_edit_html_stream_propagates_generator_exit(monkeypatch) -> None:
         )
 
 
-def test_edit_html_prefers_hash_guarded_function_patch(monkeypatch) -> None:
-    from aetherviz_service.aetherviz.agents.edit_patch_agent import EditPatchResult
+def test_edit_html_always_regenerates_full_html_from_current_page(monkeypatch) -> None:
+    from unittest.mock import MagicMock
+
     from aetherviz_service.aetherviz.agents.html_agent import HtmlStreamResult
     from aetherviz_service.aetherviz.workflow import edit_html_workflow
 
     source = sample_html()
-    patched = source.replace("function play(){", "function play(){ window.__PATCHED__=true;")
+    regenerated = source.replace("<title>熵增演示</title>", "<title>重新生成的熵增演示</title>")
+
+    class RegenerationModel:
+        def stream(self, messages):
+            assert source in messages[1].content
+            yield MagicMock(content=regenerated, response_metadata={"finish_reason": "stop"})
+
     monkeypatch.setattr(settings, "openai_api_key", "test-key")
-    monkeypatch.setattr(
-        edit_html_workflow,
-        "stream_edit_patch",
-        lambda **kwargs: iter(
-            [EditPatchResult(html=patched, attempted=True, applied=("play",), finish_reason="stop")]
-        ),
-    )
-    monkeypatch.setattr(
-        edit_html_workflow,
-        "create_chat_model",
-        lambda kind: (_ for _ in ()).throw(AssertionError("补丁成功后不应整页重写")),
-    )
+    monkeypatch.setattr(edit_html_workflow, "create_chat_model", lambda kind: RegenerationModel())
 
     result = next(
         item
@@ -1429,12 +1421,12 @@ def test_edit_html_prefers_hash_guarded_function_patch(monkeypatch) -> None:
         if isinstance(item, HtmlStreamResult)
     )
 
-    assert result.strategy == "function_patch"
-    assert result.patch_functions == ("play",)
-    assert "__PATCHED__" in result.html
+    assert result.strategy == "full_html_regeneration"
+    assert result.patch_functions == ()
+    assert "重新生成的熵增演示" in result.html
 
 
-def test_edit_workflow_adds_current_validation_report_to_patch_context(monkeypatch) -> None:
+def test_edit_workflow_adds_current_validation_report_to_regeneration_context(monkeypatch) -> None:
     from aetherviz_service.aetherviz.agents.html_agent import HtmlStreamResult
     from aetherviz_service.aetherviz.workflow import edit_html_workflow
 
@@ -1526,7 +1518,6 @@ def test_edit_patch_rolls_back_non_causal_runtime_change(monkeypatch) -> None:
 def test_edit_html_rejects_truncated_full_output_without_partial_repair(monkeypatch) -> None:
     from unittest.mock import MagicMock
 
-    from aetherviz_service.aetherviz.agents.edit_patch_agent import EditPatchResult
     from aetherviz_service.aetherviz.agents.html_agent import HtmlGenerationError
     from aetherviz_service.aetherviz.workflow import edit_html_workflow
 
@@ -1538,11 +1529,6 @@ def test_edit_html_rejects_truncated_full_output_without_partial_repair(monkeypa
             )
 
     monkeypatch.setattr(settings, "openai_api_key", "test-key")
-    monkeypatch.setattr(
-        edit_html_workflow,
-        "stream_edit_patch",
-        lambda **kwargs: iter([EditPatchResult(html=kwargs["raw_html"], attempted=False)]),
-    )
     monkeypatch.setattr(edit_html_workflow, "create_chat_model", lambda kind: TruncatedModel())
 
     with pytest.raises(HtmlGenerationError) as exc_info:
@@ -1556,10 +1542,9 @@ def test_edit_html_rejects_truncated_full_output_without_partial_repair(monkeypa
     assert "原页面已保留" in exc_info.value.message
 
 
-def test_edit_html_escalates_rejected_local_css_patch_to_full_html_by_default(monkeypatch) -> None:
+def test_edit_html_reports_full_html_regeneration_strategy(monkeypatch) -> None:
     from unittest.mock import MagicMock
 
-    from aetherviz_service.aetherviz.agents.edit_patch_agent import EditPatchResult
     from aetherviz_service.aetherviz.agents.html_agent import HtmlStreamResult
     from aetherviz_service.aetherviz.workflow import edit_html_workflow
 
@@ -1571,22 +1556,6 @@ def test_edit_html_escalates_rejected_local_css_patch_to_full_html_by_default(mo
             yield MagicMock(content=edited, response_metadata={"finish_reason": "stop"})
 
     monkeypatch.setattr(settings, "openai_api_key", "test-key")
-    monkeypatch.setattr(
-        edit_html_workflow,
-        "stream_edit_patch",
-        lambda **kwargs: iter(
-            [
-                EditPatchResult(
-                    html=kwargs["raw_html"],
-                    attempted=True,
-                    errors=("css_declaration_result_invalid",),
-                    fallback_reason="css_declaration_result_invalid",
-                    css_parse_statuses=("exact",),
-                    allow_full_html_fallback=False,
-                )
-            ]
-        ),
-    )
     monkeypatch.setattr(edit_html_workflow, "create_chat_model", lambda kind: FullEditModel())
 
     items = list(
@@ -1599,53 +1568,9 @@ def test_edit_html_escalates_rejected_local_css_patch_to_full_html_by_default(mo
     )
     result = next(item for item in items if isinstance(item, HtmlStreamResult))
 
-    assert result.strategy == "full_html_fallback"
+    assert result.strategy == "full_html_regeneration"
     assert "<title>已完整编辑</title>" in result.html
-    assert any("局部修改未通过" in str(item) for item in items if isinstance(item, dict))
-
-
-def test_edit_html_can_disable_full_html_fallback(monkeypatch) -> None:
-    from aetherviz_service.aetherviz.agents.edit_patch_agent import EditPatchResult
-    from aetherviz_service.aetherviz.agents.html_agent import HtmlGenerationError
-    from aetherviz_service.aetherviz.workflow import edit_html_workflow
-
-    source = sample_html()
-    monkeypatch.setattr(settings, "openai_api_key", "test-key")
-    monkeypatch.setattr(settings, "aetherviz_edit_full_html_fallback_enabled", False)
-    monkeypatch.setattr(
-        edit_html_workflow,
-        "stream_edit_patch",
-        lambda **kwargs: iter(
-            [
-                EditPatchResult(
-                    html=kwargs["raw_html"],
-                    attempted=True,
-                    errors=("css_declaration_result_invalid",),
-                    fallback_reason="css_declaration_result_invalid",
-                    css_parse_statuses=("exact",),
-                    allow_full_html_fallback=False,
-                )
-            ]
-        ),
-    )
-    monkeypatch.setattr(
-        edit_html_workflow,
-        "create_chat_model",
-        lambda kind: (_ for _ in ()).throw(AssertionError("已关闭完整 HTML 兜底")),
-    )
-
-    with pytest.raises(HtmlGenerationError) as exc_info:
-        list(
-            edit_html_workflow._stream_edit_html(
-                topic="动画",
-                message="修改 #stage 的颜色",
-                current_html=source,
-                context=None,
-            )
-        )
-
-    assert exc_info.value.code == "edit_local_patch_rejected"
-    assert "原页面已保留" in exc_info.value.message
+    assert any("重新生成完整 HTML" in str(item) for item in items if isinstance(item, dict))
 
 
 def test_repair_stream_propagates_generator_exit(monkeypatch) -> None:
@@ -2076,7 +2001,7 @@ def test_edit_html_prompt_has_quantified_convergence_guidance() -> None:
     assert "70%" in EDIT_HTML_SYSTEM_PROMPT
 
 
-def test_build_edit_html_prompt_trims_plan_summary_to_whitelist() -> None:
+def test_build_edit_html_prompt_excludes_plan_and_conversation_context() -> None:
     from aetherviz_service.aetherviz.agents.instructions import build_edit_html_prompt
 
     context = {
@@ -2092,6 +2017,8 @@ def test_build_edit_html_prompt_trims_plan_summary_to_whitelist() -> None:
             "formulas": ["a^2+b^2=c^2"],
         },
         "selected_file": {"id": "html-1"},
+        "memory": "旧的页面改版要求",
+        "recent_messages": ["把主题改成一次函数"],
     }
 
     prompt = build_edit_html_prompt(
@@ -2101,13 +2028,30 @@ def test_build_edit_html_prompt_trims_plan_summary_to_whitelist() -> None:
         context=context,
     )
 
-    assert '"title": "勾股定理互动模拟"' in prompt
-    assert '"design_brief"' in prompt
-    assert '"interactive_spec"' in prompt
-    assert '"teaching_flow"' not in prompt
-    assert '"widget_actions"' not in prompt
-    assert '"scene_outline"' not in prompt
-    assert '"formulas"' not in prompt
+    assert "居中问题" in prompt
+    assert "<html></html>" in prompt
+    assert "勾股定理互动模拟" not in prompt
+    assert "selected_file" not in prompt
+    assert "旧的页面改版要求" not in prompt
+    assert "把主题改成一次函数" not in prompt
+    assert "可选上下文" not in prompt
+
+
+def test_build_repair_prompt_can_exclude_plan_context_for_edit_phase() -> None:
+    from aetherviz_service.aetherviz.agents.instructions import build_repair_prompt
+
+    prompt = build_repair_prompt(
+        topic="旧主题",
+        plan={"goal": "旧目标", "interactive_type": "simulation"},
+        raw_html="<html></html>",
+        error_detail='{"errors":[]}',
+        source_label="确定性检查",
+        include_plan_context=False,
+    )
+
+    assert "旧主题" not in prompt
+    assert "旧目标" not in prompt
+    assert "<html></html>" in prompt
 
 
 def test_knowledge_profile_routes_reusable_math_representations() -> None:

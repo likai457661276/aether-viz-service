@@ -77,8 +77,10 @@ def test_planning_and_html_models_are_configured_separately(monkeypatch) -> None
     assert captured[0]["stream_usage"] is True
     assert "reasoning_effort" not in captured[0]
     assert captured[2]["timeout"] == settings.aetherviz_html_timeout_seconds
+    assert captured[2]["temperature"] == 0.0
     assert captured[2]["extra_body"] == {"enable_thinking": False}
     assert captured[3]["model_kwargs"] == {"response_format": {"type": "json_object"}}
+    assert captured[4]["temperature"] == 0.0
 
 
 def test_scene_model_uses_strict_response_schema_when_provided(monkeypatch) -> None:

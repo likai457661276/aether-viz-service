@@ -87,7 +87,7 @@ def create_chat_model(kind: str, *, response_schema: dict[str, Any] | None = Non
         return ChatOpenAI(**kwargs)
     if kind == "edit":
         kwargs = _html_model_kwargs(max_tokens=settings.aetherviz_edit_max_tokens)
-        kwargs["temperature"] = 0.08
+        kwargs["temperature"] = 0.0
         kwargs["extra_body"] = {"enable_thinking": False}
         kwargs.pop("reasoning_effort", None)
         return ChatOpenAI(**kwargs)
@@ -102,7 +102,7 @@ def create_chat_model(kind: str, *, response_schema: dict[str, Any] | None = Non
         model=settings.openai_html_model,
         api_key=_blank_to_none(settings.openai_api_key),
         base_url=_blank_to_none(settings.openai_base_url),
-        temperature=0.08,
+        temperature=0.0,
         max_tokens=max(settings.aetherviz_repair_max_tokens, 512),
         timeout=max(settings.aetherviz_repair_timeout_seconds, 1),
         max_retries=max(settings.aetherviz_repair_max_retries, 0),

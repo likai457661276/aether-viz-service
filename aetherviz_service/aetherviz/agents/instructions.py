@@ -211,7 +211,7 @@ REPAIR_SYSTEM_PROMPT = f"""你是 HTML 最小变更修复器。
 输出必须可解析、可运行且不超过 {HTML_OUTPUT_HARD_LIMIT_CHARS} 字符。
 """
 
-EDIT_HTML_SYSTEM_PROMPT = f"""你是资深单页互动 HTML 修改工程师。
+EDIT_HTML_SYSTEM_PROMPT = f"""你是资深单页互动 HTML 重生成工程师。
 你会收到一个现有 HTML 文件、用户修改意见和可选教案上下文。
 
 {VISUAL_DESIGN_SYSTEM_PROMPT}
@@ -224,15 +224,15 @@ EDIT_HTML_SYSTEM_PROMPT = f"""你是资深单页互动 HTML 修改工程师。
 
 {STAGE_CENTERING_AND_LABEL_PROMPT}
 要求：
-- 只输出修改后的完整 <!DOCTYPE html>...</html>，不输出 Markdown 或解释。
-- 以传入的 HTML 文件为唯一修改基线，不要推倒重写，不要生成全新无关页面。
-- 保留原页面已有的教学主题、主要结构、交互控件、动画逻辑和可运行脚本。
+- 只输出重新生成后的完整 <!DOCTYPE html>...</html>，不输出 Markdown 或解释。
+- 把传入 HTML 作为唯一事实基线，只实施本次用户意见要求的定向改进；允许为实现改进而重组相关 DOM、CSS、SVG/Canvas 和业务 JavaScript，但不得顺带改动无关区域。
+- 必须保持用户未要求修改的教学内容、视觉层级、交互行为和功能一致；不得依据计划摘要、历史消息或其他旧上下文重新解释页面。
 - 只编辑数学内容、主视觉、业务控件和运行时；不得修改、删除或仿制 math-shell-v1 的 .av-* 外壳。布局诉求只转化为内容优先级，最终布局由服务端重新装配。
 - 按用户修改意见调整 HTML、CSS、SVG/Canvas/DOM 和业务 JS；若用户反馈配色、组件风格、拥挤、裁切、响应式、居中或标签重叠问题，按上方视觉系统、自适应布局、动态包围盒和标签视觉字号规则定位并修正，不要只替换一个背景色或调整样式表层属性。
 - 所有修改都产出新的 HTML 分支，不覆盖旧 HTML。
 - 修复明显语法问题，确保内联 JavaScript 可解析。
 - 允许且优先使用 GSAP core UMD CDN（{GSAP_CORE_CDN}）；若原页面已有白名单固定版本 KaTeX，可在公式仍存在时保留并维持纯文本 fallback；不引入 Tailwind、Three.js、D3、GSAP 插件、其他外部时间线库或外部业务接口。
-- 若用户要求优化演示效果，可在现有结构上补充或重构 GSAP timeline，但不要推倒重写。
+- 若用户要求优化演示效果，可重新设计主视觉和 GSAP timeline，但必须保持教学目标和核心交互完整。
 - 修改动画时优先使用服务端预置的 AetherVizAnimationController.create 驱动单一 progress，并让 GSAP 与 RAF fallback 共用 deriveView/applyView；完成后必须可重播，reset 必须恢复 widget-config 默认参数与原生控件值。
 - 不得在业务 HTML 中声明或覆盖 AetherVizAnimationController；只能复用 window.AetherVizAnimationController.create。GSAP 回调若使用 bind(this)，不得再把 this 当作 Tween 调用 targets()。
 - 修改 timeline 时禁止只连续追加零时长 `call()`；必须保留有持续时间的 tween 或明确的 position 间隔。
@@ -278,36 +278,19 @@ def build_repair_prompt(
     raw_html: str,
     error_detail: str,
     source_label: str,
+    include_plan_context: bool = True,
 ) -> str:
+    context_line = (
+        f'上下文：{_compact_json({"topic": topic, "goal": plan.get("goal", ""), "interactive_type": plan.get("interactive_type", "")})}\n'
+        if include_plan_context
+        else ""
+    )
     return f"""修复以下{source_label}失败的 HTML。
-上下文：{_compact_json({"topic": topic, "goal": plan.get("goal", ""), "interactive_type": plan.get("interactive_type", "")})}
-检查问题：{error_detail}
+{context_line}检查问题：{error_detail}
 执行原则：逐项修复错误并满足每个错误中的 expected 验收条件；expected.phase=static_dom 表示对应结构必须直接出现在输出 HTML，而不能只在 JavaScript 运行后创建。未被错误点名的布局、坐标、动画、文案和交互保持不变。
 原始 HTML：
 {raw_html}
 只输出修复后的完整 HTML。"""
-
-
-EDIT_PLAN_SUMMARY_FIELDS = (
-    "title",
-    "goal",
-    "interactive_type",
-    "design_brief",
-    "interactive_spec",
-)
-
-
-def _trim_plan_summary_for_edit(plan_summary: object) -> object:
-    """Keep only fields that materially help HTML edit/bug-fix prompts.
-
-    edit_html 只是在已有 HTML 上做局部修改，不需要完整的 scene_outline、
-    widget_actions、teaching_flow、formulas 等生成阶段蓝图字段；裁剪后可
-    显著降低 prompt 体积，缩短首 token 延迟。
-    """
-    if not isinstance(plan_summary, dict):
-        return plan_summary
-    trimmed = {field: plan_summary[field] for field in EDIT_PLAN_SUMMARY_FIELDS if field in plan_summary}
-    return trimmed or plan_summary
 
 
 def build_edit_html_prompt(
@@ -317,24 +300,14 @@ def build_edit_html_prompt(
     current_html: str,
     context: dict | None,
 ) -> str:
-    context_payload = {
-        "selected_file": (context or {}).get("selected_file"),
-        "plan_summary": _trim_plan_summary_for_edit((context or {}).get("plan_summary")),
-        "memory": (context or {}).get("memory"),
-        "recent_messages": (context or {}).get("recent_messages"),
-    }
-    return f"""请根据用户修改意见编辑当前 HTML 文件，并输出编辑后的完整 HTML。
+    return f"""请以当前 HTML 为唯一事实基线，根据本次用户修改意见定向改进，并重新输出完整业务 HTML。
 
-教学主题：{topic}
 用户修改意见：{instruction}
 
-可选上下文：
-{json.dumps(context_payload, ensure_ascii=False, indent=2)}
-
-当前 HTML 文件：
+当前 HTML：
 {current_html[:40000]}
 
-请直接输出修改后的完整 HTML。"""
+只实施本次修改意见要求的变化；用户未要求修改的教学内容、交互行为、视觉层级和功能必须保持一致。请直接输出重新生成后的完整 HTML。"""
 
 
 def build_interactive_generation_prompt(topic: str, plan: dict) -> str:

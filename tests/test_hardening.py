@@ -11,6 +11,7 @@ from aetherviz_service.aetherviz.agents.planner_agent import PlanningStreamResul
 from aetherviz_service.aetherviz.tools.animation_lifecycle_checker import check_animation_lifecycle
 from aetherviz_service.aetherviz.tools.deterministic_repair import deterministic_repair_html
 from aetherviz_service.aetherviz.tools.layout_contract import assemble_layout_contract
+from aetherviz_service.aetherviz.tools.length_checker import check_length
 from aetherviz_service.aetherviz.tools.security_checker import check_security
 from aetherviz_service.aetherviz.tools.widget_contract_checker import check_widget_runtime_contract
 from aetherviz_service.aetherviz.workflow.generate_workflow import _validate
@@ -306,6 +307,13 @@ def test_model_length_ignores_server_assembly_overhead() -> None:
     assert len(assembled_html) > 40000
     assert report["ok"] is True
     assert not any(error["type"] == "html_length_hard_limit" for error in report["errors"])
+
+
+def test_model_length_accepts_previous_29365_character_warning_case() -> None:
+    report = check_length("x" * 29365)
+
+    assert report["ok"] is True
+    assert report["warnings"] == []
 
 
 def test_model_length_ignores_deterministic_guard_overhead() -> None:
