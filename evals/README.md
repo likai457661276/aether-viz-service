@@ -53,6 +53,18 @@ uv run python evals/targets/visual.py /path/to/generated.html \
   --report /tmp/visual-report.json
 ```
 
+对 CSS 编辑执行修改前后语义门禁：
+
+```bash
+uv run python evals/targets/css_edit.py /path/to/before.html /path/to/after.html \
+  --selector '#target' \
+  --expected-style 'display=grid' \
+  --interaction-selector '#action' \
+  --report /tmp/css-edit-report.json
+```
+
+门禁会检查目标数量和可见性、computed style、主视觉、新增浏览器异常与交互动作，并通过目标打码截图阻断目标区域之外的意外变化。修改本身预期影响整体布局时使用 `--allow-outside-target-changes` 显式放宽截图约束。
+
 从已脱敏的本地 Trace 导出构建视觉 Dataset：
 
 ```bash

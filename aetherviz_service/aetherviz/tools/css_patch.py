@@ -9,15 +9,31 @@ from typing import Any, Literal
 import tinycss2
 
 CssParseStatus = Literal["exact", "unsupported", "malformed"]
+AtRuleCapability = Literal["grouping", "declarations", "keyframes", "statement", "preserve"]
 
-_GROUPING_AT_RULES = {"container", "document", "layer", "media", "scope", "starting-style", "supports"}
-_DECLARATION_AT_RULES = {
-    "counter-style",
-    "font-face",
-    "page",
-    "property",
+AT_RULE_CAPABILITIES: dict[str, AtRuleCapability] = {
+    "-webkit-keyframes": "keyframes",
+    "charset": "statement",
+    "container": "grouping",
+    "color-profile": "declarations",
+    "counter-style": "declarations",
+    "document": "grouping",
+    "font-face": "declarations",
+    "font-feature-values": "preserve",
+    "font-palette-values": "declarations",
+    "import": "statement",
+    "keyframes": "keyframes",
+    "layer": "grouping",
+    "media": "grouping",
+    "namespace": "statement",
+    "page": "declarations",
+    "position-try": "declarations",
+    "property": "declarations",
+    "scope": "grouping",
+    "starting-style": "grouping",
+    "supports": "grouping",
+    "view-transition": "declarations",
 }
-_KEYFRAME_AT_RULES = {"keyframes", "-webkit-keyframes"}
 _PROPERTY_RE = re.compile(r"(?:--[A-Za-z0-9_-]+|-?[A-Za-z_][A-Za-z0-9_-]*)\Z")
 _EXTERNAL_URL_RE = re.compile(r"url\s*\(\s*['\"]?https?://", re.IGNORECASE)
 
@@ -36,6 +52,7 @@ class CssParseResult:
     status: CssParseStatus
     rules: tuple[CssRuleSpan, ...]
     errors: tuple[str, ...] = ()
+    unsupported_at_rules: tuple[str, ...] = ()
 
 
 def parse_css_rules(css: str) -> CssParseResult:
@@ -48,6 +65,7 @@ def parse_css_rules(css: str) -> CssParseResult:
     rules: list[CssRuleSpan] = []
     errors: list[str] = []
     unsupported = False
+    unsupported_at_rules: list[str] = []
     occurrences: dict[tuple[tuple[str, ...], str], int] = {}
 
     def walk(items: list[Any], path: tuple[str, ...]) -> None:
@@ -83,31 +101,38 @@ def parse_css_rules(css: str) -> CssParseResult:
                 unsupported = True
                 continue
             keyword = node.lower_at_keyword
+            capability = AT_RULE_CAPABILITIES.get(keyword, "preserve")
             if node.content is None:
-                if keyword not in {"charset", "import", "layer", "namespace"}:
+                if capability not in {"statement", "grouping"}:
                     unsupported = True
+                    unsupported_at_rules.append(f"@{keyword}")
                 continue
-            if keyword in _GROUPING_AT_RULES:
+            if capability == "grouping":
                 label = f"@{keyword} {tinycss2.serialize(node.prelude).strip()}".strip()
                 children = tinycss2.parse_rule_list(node.content, skip_comments=False, skip_whitespace=False)
                 walk(children, (*path, label))
-            elif keyword in _DECLARATION_AT_RULES:
+            elif capability == "declarations":
                 declarations = tinycss2.parse_declaration_list(
                     node.content,
                     skip_comments=False,
                     skip_whitespace=False,
                 )
                 errors.extend(_parse_errors(declarations))
-            elif keyword in _KEYFRAME_AT_RULES:
+            elif capability == "keyframes":
                 keyframes = tinycss2.parse_rule_list(node.content, skip_comments=False, skip_whitespace=False)
                 errors.extend(_parse_errors(keyframes))
             else:
                 unsupported = True
+                unsupported_at_rules.append(f"@{keyword}")
 
     walk(nodes, ())
     if errors:
         return CssParseResult(status="malformed", rules=(), errors=tuple(dict.fromkeys(errors)))
-    return CssParseResult(status="unsupported" if unsupported else "exact", rules=tuple(rules))
+    return CssParseResult(
+        status="unsupported" if unsupported else "exact",
+        rules=tuple(rules),
+        unsupported_at_rules=tuple(dict.fromkeys(unsupported_at_rules)),
+    )
 
 
 def apply_declaration_edit(

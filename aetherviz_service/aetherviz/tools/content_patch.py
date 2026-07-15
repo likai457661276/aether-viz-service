@@ -58,7 +58,9 @@ class ContentSource:
     evidence: tuple[str, ...] = ()
     dependencies: tuple[str, ...] = ()
     parse_status: str = "not_applicable"
+    stylesheet_parse_status: str = "not_applicable"
     at_rule_path: tuple[str, ...] = ()
+    unsupported_at_rules: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -104,15 +106,19 @@ def select_content_descriptions(
             if block is None or len(block.source) > MAX_CONTENT_SOURCE_CHARS:
                 continue
             css = tag.get_text()
-            parse_status = parse_css_rules(css).status
+            parsed = parse_css_rules(css)
+            parse_status = parsed.status
             if not css_candidates or parse_status != "exact":
+                has_isolated_rules = parse_status == "unsupported" and bool(parsed.rules)
                 _merge_candidate(
                     candidates,
                     replace(
                         block,
-                        score=30 if parse_status != "exact" else 20,
+                        score=15 if has_isolated_rules else (30 if parse_status != "exact" else 20),
                         evidence=(f"style_block_fallback:{parse_status}",),
                         parse_status=parse_status,
+                        stylesheet_parse_status=parse_status,
+                        unsupported_at_rules=parsed.unsupported_at_rules,
                     ),
                 )
 
@@ -363,7 +369,7 @@ def _css_rule_candidates(
             continue
         css = html[opening_end + 1 : closing_start]
         parsed = parse_css_rules(css)
-        if parsed.status != "exact":
+        if parsed.status == "malformed":
             continue
         style_hash = hashlib.sha256(css.encode("utf-8")).hexdigest()[:12]
         for rule in parsed.rules:
@@ -398,6 +404,8 @@ def _css_rule_candidates(
                 reasons.append("generic_style_intent")
             if score == 0:
                 continue
+            if parsed.status == "unsupported" and score < 60:
+                continue
             source_hash = hashlib.sha256(rule_source.encode("utf-8")).hexdigest()
             path_key = ">".join(rule.at_rule_path) or "root"
             identity_hash = hashlib.sha256(
@@ -419,8 +427,10 @@ def _css_rule_candidates(
                     score=score,
                     evidence=tuple(dict.fromkeys(reasons)),
                     dependencies=tuple(dict.fromkeys(dependencies)),
-                    parse_status=parsed.status,
+                    parse_status="exact",
+                    stylesheet_parse_status=parsed.status,
                     at_rule_path=rule.at_rule_path,
+                    unsupported_at_rules=parsed.unsupported_at_rules,
                 )
             )
     return result
@@ -711,7 +721,9 @@ def _description_payload(item: ContentSource, html: str) -> dict[str, Any]:
         "evidence": list(item.evidence),
         "dependencies": list(item.dependencies),
         "parse_status": item.parse_status,
+        "stylesheet_parse_status": item.stylesheet_parse_status,
         "at_rule_path": list(item.at_rule_path),
+        "unsupported_at_rules": list(item.unsupported_at_rules),
         "start": item.start,
         "end": item.end,
     }

@@ -238,7 +238,7 @@ HTML 文件编辑阶段请求示例：
 }
 ```
 
-`phase=edit_html` 必须携带选中的 HTML 文件全文。后端先剥离 `math-shell-v1`、控件契约和动画控制器，只把业务 HTML 作为修改基线；同时对当前装配 HTML 生成一次确定性质量报告，作为区域定位证据。编辑优先采用“源码位置 + 稳定目标 ID + SHA-256 源哈希”的受限 JSON 补丁：从用户明确 selector、质量报告 scope、语义区域、CSS→DOM 和 JavaScript→DOM 依赖中为候选评分，并以分类型配额选择 JavaScript 函数、单条 CSS 规则、主视觉和说明/公式等语义区域。CSS 由 `tinycss2` 区分 `exact`、`unsupported` 和 `malformed`；普通属性增删优先使用服务端声明操作，结构变化才允许规则原文替换，复杂或异常语法只暴露有界 `<style>` 回退。规则目标由 style 哈希、at-rule 路径、selector 和同名 occurrence 标识，重复规则不再依赖原文唯一性。关键词分类只作为低权重兜底；规则替换必须保留原 selector，HTML replacement 必须保留目标身份，且统一拒绝 script 注入、外部 CSS 和无实际变化。所有内容与函数补丁先应用到内存副本，再重解析完整样式表并执行因果检查；任一失败都会整体回滚。局部 CSS 目标仍可安全编辑时不会升级为完整 HTML 重写，只有无局部目标或明确跨 CSS/DOM/运行时的修改才允许进入完整编辑。前端保存结果为新的时间线分支，不覆盖原文件。模型生成、编辑和修复的业务 HTML 常规目标为 28000 字符、硬上限为 40000 字符；服务端装配开销不计入模型上限，最终装配 HTML 仅受 64000 字符异常膨胀安全上限约束。完整编辑会在调用前检查输出预算；模型 `finish_reason=length/max_tokens` 或原始输出缺少 `</html>` 时立即返回 `edit_truncated`，保留原页面，不解析、确定性修复或基于残片继续整页修复。LangSmith 子 Trace 会记录补丁回退原因、目标类型、选择证据、CSS 解析状态、操作类型、输入/输出 token、输出字符数及字符/token 比率，便于离线校准预算与结构化补丁成功率。
+`phase=edit_html` 必须携带选中的 HTML 文件全文。后端先剥离 `math-shell-v1`、控件契约和动画控制器，只把业务 HTML 作为修改基线；同时对当前装配 HTML 生成一次确定性质量报告，作为区域定位证据。编辑优先采用“源码位置 + 稳定目标 ID + SHA-256 源哈希”的受限 JSON 补丁：从用户明确 selector、质量报告 scope、语义区域、CSS→DOM 和 JavaScript→DOM 依赖中为候选评分，并以分类型配额选择 JavaScript 函数、单条 CSS 规则、主视觉和说明/公式等语义区域。CSS 由 `tinycss2` 区分 `exact`、`unsupported` 和 `malformed`，并通过显式 at-rule 能力矩阵区分可递归分组、声明块、关键帧、语句和仅保留语法。未知 at-rule 只封闭自身子树，位于同一 `<style>` 其他位置的精确规则仍可局部编辑；只有目标落入未知子树或整块 CSS 异常时才暴露有界 `<style>` 回退。普通属性增删优先使用服务端声明操作，结构变化才允许规则原文替换。规则目标由 style 哈希、at-rule 路径、selector 和同名 occurrence 标识，重复规则不再依赖原文唯一性。关键词分类只作为低权重兜底；规则替换必须保留原 selector，HTML replacement 必须保留目标身份，且统一拒绝 script 注入、外部 CSS 和无实际变化。所有内容与函数补丁先应用到内存副本，再重解析完整样式表并执行因果检查；任一失败都会整体回滚。局部 CSS 目标仍可安全编辑时不会升级为完整 HTML 重写，只有无局部目标或明确跨 CSS/DOM/运行时的修改才允许进入完整编辑。前端保存结果为新的时间线分支，不覆盖原文件。模型生成、编辑和修复的业务 HTML 常规目标为 28000 字符、硬上限为 40000 字符；服务端装配开销不计入模型上限，最终装配 HTML 仅受 64000 字符异常膨胀安全上限约束。完整编辑会在调用前检查输出预算；模型 `finish_reason=length/max_tokens` 或原始输出缺少 `</html>` 时立即返回 `edit_truncated`，保留原页面，不解析、确定性修复或基于残片继续整页修复。LangSmith 子 Trace 会分别记录目标规则与所属样式表的解析状态、未知 at-rule、补丁回退原因、目标类型、选择证据、操作类型、输入/输出 token、输出字符数及字符/token 比率，便于离线校准预算与结构化补丁成功率。
 
 响应类型为 `text/event-stream`。事件包括：
 
@@ -298,10 +298,13 @@ HTML 文件编辑阶段请求示例：
 ```bash
 uv run playwright install chromium
 uv run python evals/targets/visual.py /path/to/generated.html --report /tmp/visual-report.json
+uv run python evals/targets/css_edit.py /path/to/before.html /path/to/after.html \
+  --selector '#target' --expected-style 'display=grid' \
+  --interaction-selector '#action' --report /tmp/css-edit-report.json
 uv run python evals/run_eval.py --repetitions 4 --max-runs 35 --live-model --browser --output-dir /tmp/recomposition-35
 ```
 
-脚本除视觉布局外，还检查槽位重叠、range 的 44~64px 命中高度和槽位内包含关系、播放后的可见变化、暂停稳定性、参数修改后的完整重置、完成状态与再次播放、重复播放节点数稳定性，并收集页面异常和每个运行时动作的调用异常；单个动作抛错会形成失败报告而不会中断整轮回归。脚本还通过阻断 GSAP CDN 验证 native fallback，且只用于离线验证，不进入生产同步链路。
+完整页面脚本除视觉布局外，还检查槽位重叠、range 的 44~64px 命中高度和槽位内包含关系、播放后的可见变化、暂停稳定性、参数修改后的完整重置、完成状态与再次播放、重复播放节点数稳定性，并收集页面异常和每个运行时动作的调用异常；单个动作抛错会形成失败报告而不会中断整轮回归。CSS 编辑前后门禁额外检查目标 selector 数量与可见性、预期 computed style、主视觉可见性、新增浏览器异常和指定交互动作，并对目标区域打码后比较整页截图，默认阻断目标区域之外的意外变化；明确允许整体布局变化时可传入 `--allow-outside-target-changes`。这些脚本只用于离线验证，不进入生产同步链路。
 
 `evals/datasets/html_contract/playback_progress.html` 是通用播放进度回归夹具；`tests/evals/test_playback_regression.py` 会真实点击播放按钮，并在 native fallback 与本地 GSAP stub 两种路径下验证 500ms 内 `getState()` 的连续进度及可见画面均发生变化。该检查只在本地测试执行，不进入生产请求。
 

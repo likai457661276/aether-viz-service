@@ -11,7 +11,7 @@ from aetherviz_service.aetherviz.tools.content_patch import (
     parse_css_declaration_edits,
     select_content_descriptions,
 )
-from aetherviz_service.aetherviz.tools.css_patch import parse_css_rules
+from aetherviz_service.aetherviz.tools.css_patch import AT_RULE_CAPABILITIES, parse_css_rules
 from aetherviz_service.aetherviz.tools.edit_targeting import extract_edit_evidence
 from aetherviz_service.aetherviz.tools.function_patch import select_edit_function_descriptions
 
@@ -274,6 +274,65 @@ def test_unsupported_css_uses_bounded_style_fallback() -> None:
     assert not any(item["kind"] == "css_rule" for item in descriptions)
 
 
+def test_unsupported_at_rule_is_isolated_from_exact_sibling_rule() -> None:
+    html = """<html><head><style>
+@unknown-layout demo { .inside { color:purple; } }
+#stage { color:red; display:block; }
+</style></head><body><main id="stage" data-role="main-visual"></main></body></html>"""
+
+    descriptions = select_content_descriptions(html, "把 #stage 的颜色改成蓝色")
+    rule = next(item for item in descriptions if item["kind"] == "css_rule")
+
+    assert rule["selector"] == "#stage"
+    assert rule["parse_status"] == "exact"
+    assert rule["stylesheet_parse_status"] == "unsupported"
+    assert rule["unsupported_at_rules"] == ["@unknown-layout"]
+    result = apply_content_replacements(
+        html,
+        [],
+        allowed_descriptions=descriptions,
+        declaration_edits=[
+            {
+                "target_id": rule["target_id"],
+                "source_hash": rule["source_hash"],
+                "set": {"color": "blue"},
+                "remove": [],
+            }
+        ],
+    )
+
+    assert result.errors == ()
+    assert "@unknown-layout demo { .inside { color:purple; } }" in result.html
+    assert "#stage { color:blue; display:block; }" in result.html
+
+
+def test_target_inside_unsupported_subtree_uses_style_fallback_in_mixed_stylesheet() -> None:
+    html = """<html><head><style>
+@unknown-layout demo { #inside { color:purple; } }
+#stage { color:red; }
+</style></head><body><main id="stage"></main><div id="inside">目标</div></body></html>"""
+
+    descriptions = select_content_descriptions(html, "把 #inside 的颜色改成蓝色")
+
+    style = next(item for item in descriptions if item["kind"] == "style")
+    assert style["parse_status"] == "unsupported"
+    assert style["unsupported_at_rules"] == ["@unknown-layout"]
+    assert not any(item["kind"] == "css_rule" for item in descriptions)
+
+
+def test_at_rule_capability_matrix_separates_editable_and_preserved_syntax() -> None:
+    assert AT_RULE_CAPABILITIES["media"] == "grouping"
+    assert AT_RULE_CAPABILITIES["font-face"] == "declarations"
+    assert AT_RULE_CAPABILITIES["keyframes"] == "keyframes"
+    assert AT_RULE_CAPABILITIES["import"] == "statement"
+    assert AT_RULE_CAPABILITIES["font-feature-values"] == "preserve"
+
+    parsed = parse_css_rules("@view-transition { navigation:auto; } #stage{color:red}")
+
+    assert parsed.status == "exact"
+    assert [rule.selector for rule in parsed.rules] == ["#stage"]
+
+
 def test_malformed_css_uses_bounded_style_fallback() -> None:
     html = """<html><head><style>#stage { color:red;</style></head>
 <body><main id="stage" data-role="main-visual"></main></body></html>"""
@@ -391,6 +450,7 @@ def test_edit_agent_prefers_structured_css_declaration_operation(monkeypatch) ->
     )
 
     assert result.applied_operations == ("css_declarations",)
+    assert result.css_stylesheet_statuses == ("exact",)
     assert result.allow_full_html_fallback is False
     assert "display:grid" in result.html
 
@@ -448,3 +508,44 @@ def test_successive_css_declaration_edits_retarget_current_source() -> None:
     assert "color:blue" in second.html
     assert "display:grid" in second.html
     assert second_rule["target_id"] != first_rule["target_id"]
+
+
+def test_successive_css_edits_survive_nested_rules_custom_properties_and_unsupported_sibling() -> None:
+    current = """<html><head><style>
+@unknown-layout demo { .future { color:purple; } }
+@media (width <= 700px) { #stage { --accent:red; color:var(--accent); display:block; } }
+</style></head><body><main id="stage" data-role="main-visual"></main></body></html>"""
+    operations = (
+        ({"--accent": "blue"}, []),
+        ({"display": "grid"}, []),
+        ({"gap": "1rem"}, []),
+        ({}, ["color"]),
+    )
+
+    target_ids: list[str] = []
+    for set_values, remove in operations:
+        descriptions = select_content_descriptions(current, "修改 #stage 的样式")
+        rule = next(item for item in descriptions if item["kind"] == "css_rule")
+        target_ids.append(rule["target_id"])
+        result = apply_content_replacements(
+            current,
+            [],
+            allowed_descriptions=descriptions,
+            declaration_edits=[
+                {
+                    "target_id": rule["target_id"],
+                    "source_hash": rule["source_hash"],
+                    "set": set_values,
+                    "remove": remove,
+                }
+            ],
+        )
+        assert result.errors == ()
+        current = result.html
+
+    assert len(set(target_ids)) == len(operations)
+    assert "@unknown-layout demo { .future { color:purple; } }" in current
+    assert "--accent:blue" in current
+    assert "display:grid" in current
+    assert "gap:1rem" in current
+    assert "color:var(--accent)" not in current

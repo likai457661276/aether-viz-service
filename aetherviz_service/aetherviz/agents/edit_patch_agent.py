@@ -75,6 +75,7 @@ class EditPatchResult:
     selection_details: tuple[dict[str, Any], ...] = ()
     applied_operations: tuple[str, ...] = ()
     css_parse_statuses: tuple[str, ...] = ()
+    css_stylesheet_statuses: tuple[str, ...] = ()
     allow_full_html_fallback: bool = True
 
 
@@ -153,6 +154,13 @@ def _stream_edit_patch_impl(
             if item.get("kind") in {"css_rule", "style"}
         )
     )
+    css_stylesheet_statuses = tuple(
+        dict.fromkeys(
+            str(item.get("stylesheet_parse_status") or "not_applicable")
+            for item in block_descriptions
+            if item.get("kind") in {"css_rule", "style"}
+        )
+    )
     allow_full_html_fallback = _allow_full_html_fallback(
         descriptions,
         block_descriptions,
@@ -166,6 +174,7 @@ def _stream_edit_patch_impl(
             fallback_reason="no_patch_targets",
             issue_types=edit_evidence.issue_types,
             css_parse_statuses=css_parse_statuses,
+            css_stylesheet_statuses=css_stylesheet_statuses,
             allow_full_html_fallback=allow_full_html_fallback,
         )
         return
@@ -222,6 +231,7 @@ def _stream_edit_patch_impl(
                 issue_types=edit_evidence.issue_types,
                 selection_details=_selection_details(descriptions, block_descriptions),
                 css_parse_statuses=css_parse_statuses,
+                css_stylesheet_statuses=css_stylesheet_statuses,
                 allow_full_html_fallback=allow_full_html_fallback,
             )
             return
@@ -293,6 +303,7 @@ def _stream_edit_patch_impl(
             selection_details=_selection_details(descriptions, block_descriptions),
             applied_operations=content_patch.operations,
             css_parse_statuses=css_parse_statuses,
+            css_stylesheet_statuses=css_stylesheet_statuses,
             allow_full_html_fallback=allow_full_html_fallback,
         )
     except GeneratorExit:
@@ -312,6 +323,7 @@ def _stream_edit_patch_impl(
             issue_types=edit_evidence.issue_types,
             selection_details=_selection_details(descriptions, block_descriptions),
             css_parse_statuses=css_parse_statuses,
+            css_stylesheet_statuses=css_stylesheet_statuses,
             allow_full_html_fallback=allow_full_html_fallback,
         )
 
@@ -348,6 +360,7 @@ def _summarize(items: list[dict[str, Any] | EditPatchResult]) -> dict[str, Any]:
         "applied_by_kind": _count_applied_by_kind(result),
         "applied_operations": list(result.applied_operations),
         "css_parse_statuses": list(result.css_parse_statuses),
+        "css_stylesheet_statuses": list(result.css_stylesheet_statuses),
         "allow_full_html_fallback": result.allow_full_html_fallback,
     }
 
@@ -403,7 +416,11 @@ def _selection_details(functions: list[dict[str, Any]], blocks: list[dict[str, A
             "region": str(item.get("region") or ""),
             "selector": str(item.get("selector") or ""),
             "parse_status": str(item.get("parse_status") or "not_applicable"),
+            "stylesheet_parse_status": str(
+                item.get("stylesheet_parse_status") or "not_applicable"
+            ),
             "at_rule_path": list(item.get("at_rule_path") or []),
+            "unsupported_at_rules": list(item.get("unsupported_at_rules") or []),
         }
         for item in blocks
     )
