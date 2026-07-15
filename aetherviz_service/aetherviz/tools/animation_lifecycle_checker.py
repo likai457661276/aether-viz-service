@@ -6,6 +6,11 @@ import re
 
 from bs4 import BeautifulSoup
 
+from aetherviz_service.aetherviz.tools.javascript_object import (
+    matching_brace,
+    top_level_object_properties,
+)
+
 _FUNCTION_START_RE = re.compile(r"\bfunction\s+([A-Za-z_$][\w$]*)\s*\([^)]*\)\s*\{")
 _OBJECT_FUNCTION_START_RE = re.compile(
     r"\b([A-Za-z_$][\w$]*)\s*:\s*function\s*\([^)]*\)\s*\{"
@@ -31,6 +36,9 @@ _STRUCTURAL_MUTATION_RE = re.compile(
 )
 _CALL_RE = re.compile(r"\b([A-Za-z_$][\w$]*)\s*\(")
 _IGNORED_CALLS = {"if", "for", "while", "switch", "catch", "function"}
+_LEADING_NUMBER_RE = re.compile(
+    r"(?:\s|//[^\r\n]*(?:\r?\n|$)|/\*[\s\S]*?\*/)*(\d+(?:\.\d+)?)\b"
+)
 
 
 def check_animation_lifecycle(html: str, *, soup: BeautifulSoup | None = None) -> dict:
@@ -109,7 +117,7 @@ def check_animation_lifecycle(html: str, *, soup: BeautifulSoup | None = None) -
     _check_duplicate_geometry_transform_encoding(script_text, warnings)
     _check_quantized_animation_accumulator(business_script_text, warnings)
     _check_playback_api_effects(business_script_text, warnings)
-    _check_animation_controller_contract(business_script_text, errors)
+    _check_animation_controller_contract(business_script_text, errors, warnings)
 
     return {
         "ok": not errors,
@@ -169,26 +177,76 @@ def _check_playback_api_effects(script_text: str, warnings: list[dict]) -> None:
         )
 
 
-def _check_animation_controller_contract(script_text: str, errors: list[dict]) -> None:
+def _check_animation_controller_contract(
+    script_text: str,
+    errors: list[dict],
+    warnings: list[dict],
+) -> None:
     create_re = re.compile(r"(?:window\.)?AetherVizAnimationController\.create\s*\(\s*\{")
     for match in create_re.finditer(script_text):
         opening = script_text.find("{", match.start(), match.end())
-        closing = _matching_brace(script_text, opening)
+        closing = matching_brace(script_text, opening)
         if closing is None:
+            warnings.append(
+                _issue(
+                    "animation_controller_contract_uncertain",
+                    "无法可靠解析 AetherVizAnimationController.create 的 options；"
+                    "已保留页面并将该项降级为质量提示。",
+                    confidence="low",
+                    blocking=False,
+                    line=_line_number(script_text, match.start()),
+                    source_span={"start": match.start(), "end": match.end()},
+                )
+            )
             continue
-        options = script_text[opening + 1 : closing]
-        has_update = bool(re.search(r"(?:^|,)\s*update\s*(?=:|,|$)", options))
-        has_on_update = bool(re.search(r"(?:^|,)\s*onUpdate\s*:", options))
+        properties = top_level_object_properties(script_text, opening, closing)
+        if properties is None:
+            warnings.append(
+                _issue(
+                    "animation_controller_contract_uncertain",
+                    "无法可靠识别动画控制器 options 的顶层字段；"
+                    "已保留页面并将该项降级为质量提示。",
+                    confidence="low",
+                    blocking=False,
+                    line=_line_number(script_text, match.start()),
+                    source_span={"start": match.start(), "end": closing + 1},
+                )
+            )
+            continue
+        property_names = {prop.name for prop in properties}
+        has_update = "update" in property_names
+        has_on_update = "onUpdate" in property_names
         if not has_update:
+            message = (
+                "AetherVizAnimationController.create 收到 onUpdate，但控制器契约要求 update(progress)；"
+                "该字段错误会导致播放状态推进但画面不更新。"
+                if has_on_update
+                else "AetherVizAnimationController.create 缺少必需的 update(progress) 回调；"
+                "播放状态会推进但画面不会更新。"
+            )
             errors.append(
                 _issue(
                     "animation_controller_missing_update",
-                    "AetherVizAnimationController.create 必须传入 update(progress)；onUpdate 不是控制器契约字段，"
-                    "会导致播放状态推进但画面不更新。",
+                    message,
                     received="onUpdate" if has_on_update else None,
+                    confidence="high",
+                    blocking=True,
+                    line=_line_number(script_text, match.start()),
+                    source_span={"start": match.start(), "end": closing + 1},
+                    evidence={"properties": sorted(property_names)},
                 )
             )
-        duration = re.search(r"(?:^|,)\s*duration\s*:\s*(\d+(?:\.\d+)?)", options)
+        duration_property = next(
+            (prop for prop in properties if prop.name == "duration" and prop.value_start is not None),
+            None,
+        )
+        duration = (
+            _LEADING_NUMBER_RE.match(
+                script_text[duration_property.value_start : duration_property.segment_end]
+            )
+            if duration_property is not None
+            else None
+        )
         if duration and float(duration.group(1)) > 600:
             errors.append(
                 _issue(
@@ -196,6 +254,13 @@ def _check_animation_controller_contract(script_text: str, errors: list[dict]) -
                     "AetherVizAnimationController 的 duration 单位是秒；当前常量异常偏大，"
                     "疑似把毫秒直接传入，播放会看起来静止。",
                     duration=float(duration.group(1)),
+                    confidence="high",
+                    blocking=True,
+                    line=_line_number(script_text, duration_property.start),
+                    source_span={
+                        "start": duration_property.start,
+                        "end": duration_property.segment_end,
+                    },
                 )
             )
 
@@ -247,60 +312,13 @@ def _matches_with_bodies(script: str, pattern: re.Pattern[str]):
         opening = script.find("{", match.start(), match.end())
         if opening < 0:
             continue
-        closing = _matching_brace(script, opening)
+        closing = matching_brace(script, opening)
         if closing is not None:
             yield match, script[opening + 1 : closing]
 
 
-def _matching_brace(script: str, opening: int) -> int | None:
-    depth = 0
-    quote = None
-    escaped = False
-    line_comment = False
-    block_comment = False
-    index = opening
-    while index < len(script):
-        char = script[index]
-        next_char = script[index + 1] if index + 1 < len(script) else ""
-        if line_comment:
-            if char in "\r\n":
-                line_comment = False
-            index += 1
-            continue
-        if block_comment:
-            if char == "*" and next_char == "/":
-                block_comment = False
-                index += 2
-                continue
-            index += 1
-            continue
-        if quote:
-            if escaped:
-                escaped = False
-            elif char == "\\":
-                escaped = True
-            elif char == quote:
-                quote = None
-            index += 1
-            continue
-        if char == "/" and next_char == "/":
-            line_comment = True
-            index += 2
-            continue
-        if char == "/" and next_char == "*":
-            block_comment = True
-            index += 2
-            continue
-        if char in {"'", '"', "`"}:
-            quote = char
-        elif char == "{":
-            depth += 1
-        elif char == "}":
-            depth -= 1
-            if depth == 0:
-                return index
-        index += 1
-    return None
+def _line_number(source: str, offset: int) -> int:
+    return source.count("\n", 0, max(0, offset)) + 1
 
 
 def _calls_structural_function(

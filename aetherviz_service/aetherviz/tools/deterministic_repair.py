@@ -7,6 +7,10 @@ import json
 import re
 from typing import Any
 
+from aetherviz_service.aetherviz.tools.javascript_object import (
+    matching_brace,
+    top_level_object_properties,
+)
 from aetherviz_service.aetherviz.tools.widget_contract_checker import REQUIRED_RUNTIME_METHODS
 
 _JS_IDENTIFIER = r"[A-Za-z_$][\w$]*"
@@ -25,6 +29,9 @@ _INDEXED_ANGLE_PAIR_RE = re.compile(
     rf"(?P<between>\s*)"
     rf"(?P<end_decl>(?:const|let|var)\s+(?P<end>{_JS_IDENTIFIER})\s*=)\s*"
     rf"\(\s*(?P=index)\s*\+\s*1\s*\)\s*\*\s*(?P=step)\s*;"
+)
+_ANIMATION_CONTROLLER_CREATE_RE = re.compile(
+    r"(?:window\.)?AetherVizAnimationController\.create\s*\(\s*\{"
 )
 
 # Hard errors that deterministic_repair_html can address. Other hard errors
@@ -49,6 +56,7 @@ DETERMINISTIC_HARD_ERROR_TYPES = frozenset(
         "invalid_range_control_contract",
         "missing_message_listener",
         "missing_runtime_ready",
+        "animation_controller_missing_update",
     }
 )
 
@@ -107,6 +115,8 @@ def deterministic_repair_html(
         repaired = _rewrite_assignment_append_child(repaired)
     if "unstable_preserved_child" in error_types:
         repaired = _guard_unstable_preserved_children(repaired)
+    if "animation_controller_missing_update" in error_types:
+        repaired = _rename_controller_on_update(repaired)
     if "html_length_hard_limit" in error_types:
         repaired = re.sub(r"<!--(?!\[if)[\s\S]*?-->", "", repaired, flags=re.IGNORECASE)
         repaired = re.sub(r">\s+<", "><", repaired)
@@ -139,6 +149,27 @@ def deterministic_repair_html(
         if "missing_runtime_ready" in error_types:
             repaired = _insert_runtime_ready_guard(repaired)
     return repaired
+
+
+def _rename_controller_on_update(html: str) -> str:
+    """Rename only a proven top-level controller ``onUpdate`` option."""
+    replacements: list[tuple[int, int]] = []
+    for match in _ANIMATION_CONTROLLER_CREATE_RE.finditer(html):
+        opening = html.find("{", match.start(), match.end())
+        closing = matching_brace(html, opening)
+        if closing is None:
+            continue
+        properties = top_level_object_properties(html, opening, closing)
+        if properties is None or any(prop.name == "update" for prop in properties):
+            continue
+        replacements.extend(
+            (prop.start, prop.end)
+            for prop in properties
+            if prop.name == "onUpdate" and prop.syntax == "property"
+        )
+    for start, end in sorted(replacements, reverse=True):
+        html = html[:start] + "update" + html[end:]
+    return html
 
 
 def _insert_svg_scale_guard(html: str) -> str:

@@ -457,6 +457,32 @@ def test_validation_report_rejects_inline_script_syntax_error() -> None:
     assert any(error["type"] == "js_syntax" for error in report["errors"])
 
 
+def test_validation_report_downgrades_explicit_low_confidence_error() -> None:
+    from aetherviz_service.aetherviz.tools.validation_report import _normalize_check_confidence
+
+    normalized = _normalize_check_confidence(
+        {
+            "ok": False,
+            "severity": "error",
+            "summary": "uncertain",
+            "errors": [
+                {
+                    "type": "heuristic_failure",
+                    "message": "无法可靠定位",
+                    "confidence": "low",
+                    "blocking": False,
+                }
+            ],
+            "warnings": [],
+        }
+    )
+
+    assert normalized["ok"] is True
+    assert normalized["errors"] == []
+    assert normalized["warnings"][0]["type"] == "validator_uncertain"
+    assert normalized["warnings"][0]["original_type"] == "heuristic_failure"
+
+
 def test_validation_report_rejects_missing_widget_runtime_contract() -> None:
     from aetherviz_service.aetherviz.tools.validation_report import build_validation_report
 
@@ -1193,9 +1219,45 @@ def test_generate_phase_rejects_stalled_model_repair_and_preserves_previous_html
     assert not any(event == "html.done" for event, _ in events)
 
 
-def test_generate_phase_accepts_quality_repair_only_when_warning_is_reduced(monkeypatch) -> None:
+def test_generate_phase_marks_unchanged_model_repair(monkeypatch) -> None:
     from aetherviz_service.aetherviz.agents.html_agent import HtmlStreamResult
     from aetherviz_service.aetherviz.agents.repair_agent import RepairStreamResult
+    from aetherviz_service.aetherviz.workflow import generate_workflow
+
+    missing_visual = sample_html().replace(
+        '<svg viewBox="0 0 100 100"><circle id="dot" cx="20" cy="50" r="8"></circle></svg>',
+        "",
+    )
+
+    def fake_stream(topic, plan):
+        yield HtmlStreamResult(html=missing_visual, degraded=False)
+
+    def fake_repair_stream(**kwargs):
+        yield RepairStreamResult(html=kwargs["raw_html"], degraded=False)
+
+    monkeypatch.setattr(settings, "aetherviz_max_repair_attempts", 1)
+    monkeypatch.setattr(generate_workflow, "stream_generate_html", fake_stream)
+    monkeypatch.setattr(generate_workflow, "stream_repair_html", fake_repair_stream)
+
+    response = client.post(
+        AETHERVIZ_ENDPOINT,
+        json={"topic": "变量变化", "phase": "generate", "approved_plan": sample_plan("变量变化")},
+    )
+
+    events = parse_sse_events(response)
+    model_done = next(
+        data
+        for event, data in events
+        if event == "repair.done" and data["data"].get("strategy") == "model"
+    )
+
+    assert model_done["data"]["accepted"] is False
+    assert model_done["data"]["stalled"] is True
+    assert model_done["data"]["rejection_reason"] == "unchanged_candidate"
+
+
+def test_generate_phase_does_not_model_rewrite_quality_warning(monkeypatch) -> None:
+    from aetherviz_service.aetherviz.agents.html_agent import HtmlStreamResult
     from aetherviz_service.aetherviz.workflow import generate_workflow
 
     risky_html = sample_html().replace(
@@ -1206,12 +1268,13 @@ def test_generate_phase_accepts_quality_repair_only_when_warning_is_reduced(monk
     def fake_stream(topic, plan):
         yield HtmlStreamResult(html=risky_html, degraded=False)
 
-    def fake_repair_stream(**kwargs):
-        yield RepairStreamResult(html=sample_html(), degraded=False)
-
     monkeypatch.setattr(settings, "aetherviz_max_repair_attempts", 1)
     monkeypatch.setattr(generate_workflow, "stream_generate_html", fake_stream)
-    monkeypatch.setattr(generate_workflow, "stream_repair_html", fake_repair_stream)
+    monkeypatch.setattr(
+        generate_workflow,
+        "stream_repair_html",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("warning 不应触发模型重写")),
+    )
 
     response = client.post(
         AETHERVIZ_ENDPOINT,
@@ -1219,70 +1282,12 @@ def test_generate_phase_accepts_quality_repair_only_when_warning_is_reduced(monk
     )
 
     events = parse_sse_events(response)
-    quality_done = next(
-        data
-        for event, data in events
-        if event == "repair.done" and data["data"].get("strategy") == "quality-model"
-    )
     done = next(data for event, data in events if event == "html.done")
 
-    assert quality_done["data"]["accepted"] is True
-    assert quality_done["data"]["bytes"] == done["data"]["metadata"]["bytes"]
-    assert quality_done["data"]["chars"] == done["data"]["metadata"]["chars"]
     assert 'data-layout-contract="math-shell-v1"' in done["data"]["html"]
-    assert "label.textContent = `value=${state.progress}`" not in done["data"]["html"]
-    assert done["data"]["metadata"]["repaired"] is True
-
-
-def test_generate_phase_accepts_generic_svg_centering_repair_with_dynamic_labels(monkeypatch) -> None:
-    from aetherviz_service.aetherviz.agents.html_agent import HtmlStreamResult
-    from aetherviz_service.aetherviz.agents.repair_agent import RepairStreamResult
-    from aetherviz_service.aetherviz.workflow import generate_workflow
-
-    original_svg = '<svg viewBox="0 0 100 100"><circle id="dot" cx="20" cy="50" r="8"></circle></svg>'
-    off_center_svg = (
-        '<svg viewBox="0 0 800 450"><g id="visual-root">'
-        '<circle id="dot" cx="0" cy="0" r="150"></circle>'
-        '<line x1="-150" y1="0" x2="150" y2="0"></line></g></svg>'
-    )
-    centered_svg = off_center_svg.replace('viewBox="0 0 800 450"', 'viewBox="-200 -200 400 400"')
-    dynamic_label_script = (
-        "const label = document.createElementNS('http://www.w3.org/2000/svg', 'text'); "
-        "document.getElementById('visual-root').appendChild(label);"
-    )
-    risky_html = sample_html().replace(original_svg, off_center_svg).replace(
-        "function updateVisualization(){", f"function updateVisualization(){{ {dynamic_label_script}"
-    )
-    repaired_html = sample_html().replace(original_svg, centered_svg).replace(
-        "function updateVisualization(){", f"function updateVisualization(){{ {dynamic_label_script}"
-    )
-
-    def fake_stream(topic, plan):
-        yield HtmlStreamResult(html=risky_html, degraded=False)
-
-    def fake_repair_stream(**kwargs):
-        yield RepairStreamResult(html=repaired_html, degraded=False)
-
-    monkeypatch.setattr(settings, "aetherviz_max_repair_attempts", 1)
-    monkeypatch.setattr(generate_workflow, "stream_generate_html", fake_stream)
-    monkeypatch.setattr(generate_workflow, "stream_repair_html", fake_repair_stream)
-
-    response = client.post(
-        AETHERVIZ_ENDPOINT,
-        json={"topic": "变量变化", "phase": "generate", "approved_plan": sample_plan("变量变化")},
-    )
-
-    events = parse_sse_events(response)
-    quality_done = next(
-        data
-        for event, data in events
-        if event == "repair.done" and data["data"].get("strategy") == "quality-model"
-    )
-    done = next(data for event, data in events if event == "html.done")
-
-    assert quality_done["data"]["accepted"] is True
-    assert 'viewbox="-200 -200 400 400"' in done["data"]["html"]
-    assert done["data"]["metadata"]["repaired"] is True
+    assert "label.textContent = `value=${state.progress}`" in done["data"]["html"]
+    assert done["data"]["metadata"]["repaired"] is False
+    assert done["data"]["metadata"]["validation_warnings"]
 
 
 def test_generate_phase_runs_quality_repair_after_hard_error_is_repaired(monkeypatch) -> None:
@@ -1319,8 +1324,7 @@ def test_generate_phase_runs_quality_repair_after_hard_error_is_repaired(monkeyp
     ]
     done = next(data for event, data in events if event == "html.done")
 
-    assert strategies[:2] == ["deterministic", "quality-deterministic"]
-    assert strategies[-1] == "quality-model"
+    assert strategies == ["deterministic", "quality-deterministic"]
     assert 'data-aetherviz-scale-guard="true"' in done["data"]["html"]
 
 
@@ -1552,13 +1556,62 @@ def test_edit_html_rejects_truncated_full_output_without_partial_repair(monkeypa
     assert "原页面已保留" in exc_info.value.message
 
 
-def test_edit_html_does_not_escalate_rejected_local_css_patch_to_full_html(monkeypatch) -> None:
+def test_edit_html_escalates_rejected_local_css_patch_to_full_html_by_default(monkeypatch) -> None:
+    from unittest.mock import MagicMock
+
+    from aetherviz_service.aetherviz.agents.edit_patch_agent import EditPatchResult
+    from aetherviz_service.aetherviz.agents.html_agent import HtmlStreamResult
+    from aetherviz_service.aetherviz.workflow import edit_html_workflow
+
+    source = sample_html()
+    edited = source.replace("<title>熵增演示</title>", "<title>已完整编辑</title>")
+
+    class FullEditModel:
+        def stream(self, messages):
+            yield MagicMock(content=edited, response_metadata={"finish_reason": "stop"})
+
+    monkeypatch.setattr(settings, "openai_api_key", "test-key")
+    monkeypatch.setattr(
+        edit_html_workflow,
+        "stream_edit_patch",
+        lambda **kwargs: iter(
+            [
+                EditPatchResult(
+                    html=kwargs["raw_html"],
+                    attempted=True,
+                    errors=("css_declaration_result_invalid",),
+                    fallback_reason="css_declaration_result_invalid",
+                    css_parse_statuses=("exact",),
+                    allow_full_html_fallback=False,
+                )
+            ]
+        ),
+    )
+    monkeypatch.setattr(edit_html_workflow, "create_chat_model", lambda kind: FullEditModel())
+
+    items = list(
+        edit_html_workflow._stream_edit_html(
+            topic="动画",
+            message="修改 #stage 的颜色",
+            current_html=source,
+            context=None,
+        )
+    )
+    result = next(item for item in items if isinstance(item, HtmlStreamResult))
+
+    assert result.strategy == "full_html_fallback"
+    assert "<title>已完整编辑</title>" in result.html
+    assert any("局部修改未通过" in str(item) for item in items if isinstance(item, dict))
+
+
+def test_edit_html_can_disable_full_html_fallback(monkeypatch) -> None:
     from aetherviz_service.aetherviz.agents.edit_patch_agent import EditPatchResult
     from aetherviz_service.aetherviz.agents.html_agent import HtmlGenerationError
     from aetherviz_service.aetherviz.workflow import edit_html_workflow
 
     source = sample_html()
     monkeypatch.setattr(settings, "openai_api_key", "test-key")
+    monkeypatch.setattr(settings, "aetherviz_edit_full_html_fallback_enabled", False)
     monkeypatch.setattr(
         edit_html_workflow,
         "stream_edit_patch",
@@ -1578,7 +1631,7 @@ def test_edit_html_does_not_escalate_rejected_local_css_patch_to_full_html(monke
     monkeypatch.setattr(
         edit_html_workflow,
         "create_chat_model",
-        lambda kind: (_ for _ in ()).throw(AssertionError("局部 CSS 失败后不应整页重写")),
+        lambda kind: (_ for _ in ()).throw(AssertionError("已关闭完整 HTML 兜底")),
     )
 
     with pytest.raises(HtmlGenerationError) as exc_info:

@@ -408,7 +408,10 @@ def test_animation_lifecycle_detects_no_op_arrow_set_speed() -> None:
 def test_animation_lifecycle_rejects_invalid_controller_options() -> None:
     html = """<script>
     function applyFrame(progress){stage.style.opacity=progress;}
-    const controller=window.AetherVizAnimationController.create({duration:8000,onUpdate:applyFrame});
+    const controller=window.AetherVizAnimationController.create({
+      duration: /* milliseconds */ 8000,
+      onUpdate:applyFrame
+    });
     </script>"""
 
     error_types = {item["type"] for item in check_animation_lifecycle(html)["errors"]}
@@ -417,6 +420,74 @@ def test_animation_lifecycle_rejects_invalid_controller_options() -> None:
         "animation_controller_missing_update",
         "animation_controller_duration_unit",
     }
+
+
+def test_animation_lifecycle_accepts_update_after_line_comment() -> None:
+    html = """<script>
+    function applyFrame(progress){stage.style.opacity=progress;}
+    const controller=window.AetherVizAnimationController.create({
+      duration:10, // seconds for one cycle
+      update:(progress)=>{applyFrame(progress);}
+    });
+    </script>"""
+
+    error_types = {item["type"] for item in check_animation_lifecycle(html)["errors"]}
+
+    assert "animation_controller_missing_update" not in error_types
+
+
+def test_animation_lifecycle_reads_only_top_level_controller_properties() -> None:
+    html = """<script>
+    const controller=window.AetherVizAnimationController.create({
+      duration:10,
+      nested:{update:draw,duration:8000},
+      label:'update: draw',
+      onUpdate:draw
+    });
+    </script>"""
+
+    errors = check_animation_lifecycle(html)["errors"]
+
+    missing = next(item for item in errors if item["type"] == "animation_controller_missing_update")
+    assert missing["received"] == "onUpdate"
+    assert missing["confidence"] == "high"
+    assert missing["evidence"]["properties"] == ["duration", "label", "nested", "onUpdate"]
+    assert missing["source_span"]["end"] > missing["source_span"]["start"]
+    assert not any(item["type"] == "animation_controller_duration_unit" for item in errors)
+
+
+def test_animation_lifecycle_accepts_method_and_computed_update_properties() -> None:
+    method_html = """<script>
+    window.AetherVizAnimationController.create({duration:1,update(progress){draw(progress);}});
+    </script>"""
+    computed_html = """<script>
+    window.AetherVizAnimationController.create({duration:1,['update']:(progress)=>draw(progress)});
+    </script>"""
+
+    for html in (method_html, computed_html):
+        error_types = {item["type"] for item in check_animation_lifecycle(html)["errors"]}
+        assert "animation_controller_missing_update" not in error_types
+
+
+def test_deterministic_repair_renames_only_controller_on_update_option() -> None:
+    html = """<!DOCTYPE html><html><body><script>
+    function draw(progress){stage.style.opacity=progress;}
+    const unrelated={onUpdate:draw};
+    const controller=window.AetherVizAnimationController.create({
+      duration:8, // seconds
+      nested:{onUpdate:draw},
+      onUpdate:draw
+    });
+    </script></body></html>"""
+    report = check_animation_lifecycle(html)
+
+    repaired = deterministic_repair_html(html, report)
+    repaired_report = check_animation_lifecycle(repaired)
+
+    assert "const unrelated={onUpdate:draw}" in repaired
+    assert "nested:{onUpdate:draw}" in repaired
+    assert "update:draw" in repaired
+    assert not repaired_report["errors"]
 
 
 def test_animation_lifecycle_rejects_ephemeral_controller_across_actions() -> None:

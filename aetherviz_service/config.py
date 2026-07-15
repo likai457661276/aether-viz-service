@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     aetherviz_scene_max_tokens: int = 12288
     aetherviz_edit_max_tokens: int = 16384
     aetherviz_edit_patch_max_tokens: int = 4096
+    aetherviz_edit_full_html_fallback_enabled: bool = True
     aetherviz_repair_max_tokens: int = 16384
     aetherviz_max_repair_attempts: int = 1
     aetherviz_plan_max_tokens: int = 3072

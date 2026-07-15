@@ -43,7 +43,7 @@ def run_validation_checks(
     model_html: str | None = None,
 ) -> dict[str, dict[str, Any]]:
     parsed = BeautifulSoup(html or "", "html.parser")
-    return {
+    checks = {
         "layout_contract": check_layout_contract(html, soup=parsed),
         "length_checker": check_length(model_html if model_html is not None else html, scope="model"),
         "assembled_length_checker": check_length(html, scope="assembled"),
@@ -53,4 +53,48 @@ def run_validation_checks(
         "widget_contract_checker": check_widget_runtime_contract(html, soup=parsed),
         "animation_lifecycle_checker": check_animation_lifecycle(html, soup=parsed),
         "discipline_consistency_checker": check_discipline_consistency(html, plan=plan, soup=parsed),
+    }
+    return {name: _normalize_check_confidence(check) for name, check in checks.items()}
+
+
+def _normalize_check_confidence(check: dict[str, Any]) -> dict[str, Any]:
+    """Do not block delivery on issues a checker explicitly marks uncertain."""
+    blocking_errors: list[dict[str, Any]] = []
+    downgraded: list[dict[str, Any]] = []
+    for error in check.get("errors", []):
+        if not isinstance(error, dict):
+            continue
+        if error.get("blocking") is False or error.get("confidence") == "low":
+            downgraded.append(
+                {
+                    **error,
+                    "type": "validator_uncertain",
+                    "original_type": error.get("type"),
+                    "severity": "warning",
+                }
+            )
+        else:
+            blocking_errors.append(error)
+    warnings: list[dict[str, Any]] = []
+    for warning in check.get("warnings", []):
+        if not isinstance(warning, dict):
+            continue
+        if warning.get("blocking") is False or warning.get("confidence") == "low":
+            warnings.append(
+                {
+                    **warning,
+                    "type": "validator_uncertain",
+                    "original_type": warning.get("type"),
+                    "severity": "warning",
+                }
+            )
+        else:
+            warnings.append(warning)
+    warnings.extend(downgraded)
+    return {
+        **check,
+        "ok": not blocking_errors,
+        "severity": "error" if blocking_errors else "warning" if warnings else "info",
+        "errors": blocking_errors,
+        "warnings": warnings,
     }

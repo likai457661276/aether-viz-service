@@ -147,6 +147,7 @@ def _stream_edit_html(
         "business_chars": len(inputs.get("current_html") or ""),
         "instruction_chars": len(inputs.get("message") or ""),
         "full_output_budget_chars": estimated_output_capacity_chars(settings.aetherviz_edit_max_tokens),
+        "full_html_fallback_enabled": settings.aetherviz_edit_full_html_fallback_enabled,
     },
     reduce_fn=lambda items: _summarize_edit_stream(items),
 )
@@ -208,13 +209,18 @@ def _stream_edit_html_impl(
             output_chars=patch_result.output_chars,
         )
         return
-    if patch_result and patch_result.finish_reason in {"length", "max_tokens", "local_length_guard"}:
+    fallback_enabled = settings.aetherviz_edit_full_html_fallback_enabled
+    if (
+        patch_result
+        and patch_result.finish_reason in {"length", "max_tokens", "local_length_guard"}
+        and not fallback_enabled
+    ):
         raise HtmlGenerationError(
             "HTML 修改失败，函数补丁输出不完整，原页面已保留",
             code="edit_truncated",
             detail=f"finish_reason={patch_result.finish_reason}",
         )
-    if patch_result and not patch_result.allow_full_html_fallback:
+    if patch_result and not patch_result.allow_full_html_fallback and not fallback_enabled:
         raise HtmlGenerationError(
             "HTML 修改失败，局部样式补丁未通过安全校验，原页面已保留",
             code="edit_local_patch_rejected",
@@ -240,8 +246,15 @@ def _stream_edit_html_impl(
     input_tokens: int | None = None
     output_tokens: int | None = None
     deadline = time.monotonic() + max(settings.aetherviz_html_timeout_seconds, 1)
+    full_html_fallback = patch_result is not None
+    fallback_progress = (
+        [{"content": "局部修改未通过，改为重新生成完整 HTML", "status": "completed"}]
+        if full_html_fallback
+        else []
+    )
     yield build_html_progress_payload(
         [
+            *fallback_progress,
             {"content": "分析用户修改意见与当前 HTML", "status": "in_progress"},
             {"content": "输出修改后的完整 HTML", "status": "pending"},
         ]
@@ -272,6 +285,7 @@ def _stream_edit_html_impl(
                     output_started = True
                     yield build_html_progress_payload(
                         [
+                            *fallback_progress,
                             {"content": "分析用户修改意见与当前 HTML", "status": "completed"},
                             {"content": "输出修改后的完整 HTML", "status": "in_progress"},
                         ],
@@ -293,6 +307,7 @@ def _stream_edit_html_impl(
         edited_html = sanitize_aetherviz_html(parse_interactive_html(raw_text))
         yield build_html_progress_payload(
             [
+                *fallback_progress,
                 {"content": "分析用户修改意见与当前 HTML", "status": "completed"},
                 {"content": "输出修改后的完整 HTML", "status": "completed"},
             ],
@@ -302,7 +317,7 @@ def _stream_edit_html_impl(
             html=edited_html,
             degraded=timed_out,
             truncated=False,
-            strategy="full_html",
+            strategy="full_html_fallback" if full_html_fallback else "full_html",
             finish_reason=finish_reason,
             source_chars=len(current_html),
             input_tokens=input_tokens,
