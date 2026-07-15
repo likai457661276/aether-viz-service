@@ -237,7 +237,7 @@ HTML 文件编辑阶段请求示例：
 }
 ```
 
-`phase=edit_html` 必须携带选中的 HTML 文件全文。后端先剥离 `math-shell-v1`、控件契约和动画控制器，编辑模型只接收当前业务 HTML 与本次用户修改意见，不接收计划摘要、memory、历史消息或文件上下文。当前 HTML 是唯一事实基线；模型以 `temperature=0` 直接重新生成完整业务 HTML，只实施本次意见要求的定向变化，并保持其余教学内容、视觉层级、交互行为和功能一致。前端把结果保存为新的时间线分支，不覆盖原文件。模型生成、编辑和修复的业务 HTML 常规目标为 32000 字符、硬上限为 40000 字符；服务端装配开销不计入模型上限，最终装配 HTML 仅受 64000 字符异常膨胀安全上限约束。整页重生成会在调用前检查输出预算；模型 `finish_reason=length/max_tokens` 或原始输出缺少 `</html>` 时立即返回 `edit_truncated`，保留原页面，不解析、确定性修复或基于残片继续整页修复。最终 metadata 使用 `edit_strategy=full_html_regeneration`，LangSmith 子 Trace 记录输入/输出 token、输出字符数及字符/token 比率。计划仍仅在服务端用于布局装配和结果校验。
+`phase=edit_html` 必须携带选中的 HTML 文件全文。后端先剥离 `math-shell-v1`、控件契约和动画控制器，编辑模型只接收当前业务 HTML 与本次用户修改意见，不接收计划摘要、memory、历史消息或文件上下文。当前 HTML 是唯一事实基线；模型以 `temperature=0` 直接重新生成完整业务 HTML，只实施本次意见要求的定向变化，并保持其余教学内容、视觉层级、交互行为和功能一致。前端把结果保存为新的时间线分支，不覆盖原文件。模型生成、编辑和修复的业务 HTML 常规目标为 32000 字符、硬上限为 40000 字符；服务端装配开销不计入模型上限，最终装配 HTML 仅受 64000 字符异常膨胀安全上限约束。整页重生成会在调用前检查输出预算；模型未配置、未产生实际变化、改变 `widget-config.type`、丢失已有 iframe action、`finish_reason=length/max_tokens` 或原始输出缺少 `</html>` 时均明确失败并保留原页面。最终 metadata 使用 `edit_strategy=full_html_regeneration`，LangSmith 子 Trace 记录输入/输出 token、输出字符数及字符/token 比率。计划仍仅在服务端用于布局装配和结果校验。
 
 响应类型为 `text/event-stream`。事件包括：
 
@@ -313,7 +313,7 @@ uv run python evals/run_eval.py --repetitions 4 --max-runs 35 --live-model --bro
 uv run python evals/datasets/build_visual.py /tmp/trace.json --output /tmp/aetherviz-visual-dataset.json
 ```
 
-`evals/evaluators/visual.py` 提供视觉总通过、舞台可见性、SVG 尺度、动画变化、暂停、重置、参数同步、节点稳定和 GSAP fallback 等单指标确定性 evaluator，仅用于本地或离线回归；Dataset、Evaluator 和经确认的评测报告均可提交到 Git，禁止通过 LangSmith CLI/SDK/API/UI 创建或上传远端 Dataset/Evaluator。
+`evals/evaluators/visual.py` 提供视觉总通过、舞台可见性、SVG 尺度、动画变化、暂停、重置、参数同步、节点稳定和 GSAP fallback 等单指标确定性 evaluator，仅用于本地或离线回归；Dataset 与 Evaluator 可按需提交，运行生成的评测报告保留在本地忽略目录 `evals/reports/`，禁止通过 LangSmith CLI/SDK/API/UI 创建或上传远端 Dataset/Evaluator。
 
 `evals/datasets/recomposition/legacy-topics.jsonl` 保留早期的 4 个开发主题、3 个保留主题和 4 个挑战主题。当前统一入口 `evals/run_eval.py` 分别统计分类、首次候选集中是否存在合格 IR、首次 Scene 契约、一次受限 JSON 修复后的最终契约、教学语义约束、目标拼合约束、完整 HTML 硬校验、通用 fallback 和浏览器 Runtime，并保存每个候选的硬失败、分项得分、稳定指纹、目标拼合指标及排序。LangSmith 子 Run `aetherviz.geometry_ir_ranking` 仅记录脱敏后的候选数量、分数、硬失败、拼合指标、不可计算关系和选择原因，不记录候选 IR 正文。首稿 IR 门槛为 95%，无通用 fallback 门槛为 97%；可用 `--max-runs` 精确限制调用次数。
 
@@ -324,7 +324,7 @@ uv run python evals/run_eval.py
 uv run python evals/run_eval.py --live-model --browser
 ```
 
-确定性 evaluator 检查 Dataset 矩阵、分类、Geometry IR/Scene/HTML 契约、数学不变量、教学阶段、无效案例检测和受控 completion；`piece_count` 与主要变换的主题意图对齐作为诊断项单独汇总，避免把启发式语义当作生产硬裁决。真实模型回归的 summary 额外统计 `raw_candidate`、`deterministic_target_bounds_completion`、`deterministic_waypoint_completion` 策略次数，以及确定性候选修复的尝试与成功数。结果默认写入并可提交到 `evals/reports/latest/`。脚本不实例化 LangSmith Client，也不调用 Dataset/Evaluator 远端 API；真实模型与浏览器仅在显式传入参数时运行。模块职责与更多命令见 `evals/README.md`。
+确定性 evaluator 检查 Dataset 矩阵、分类、Geometry IR/Scene/HTML 契约、数学不变量、教学阶段、无效案例检测和受控 completion；`piece_count` 与主要变换的主题意图对齐作为诊断项单独汇总，避免把启发式语义当作生产硬裁决。真实模型回归的 summary 额外统计 `raw_candidate`、`deterministic_target_bounds_completion`、`deterministic_waypoint_completion` 策略次数，以及确定性候选修复的尝试与成功数。结果默认写入本地忽略目录 `evals/reports/latest/`；如需形成可审查基线，应显式复制到非忽略目录并记录 Git revision 与工作区状态。脚本不实例化 LangSmith Client，也不调用 Dataset/Evaluator 远端 API；真实模型与浏览器仅在显式传入参数时运行。模块职责与更多命令见 `evals/README.md`。
 
 完整 72～90 次真实模型回归可用 `--workers 2`～`--workers 4` 启用有界并发；默认值仍为 `1`。并发只缩短本地生成耗时，报告按 Dataset 与 repetition 的固定顺序汇总，不改变生产请求链路。
 

@@ -19,7 +19,6 @@ def test_html_generation_thinking_disabled_by_default() -> None:
     assert settings.aetherviz_plan_max_tokens == 3072
     assert settings.aetherviz_html_max_tokens == 16384
     assert settings.aetherviz_edit_max_tokens == 16384
-    assert settings.aetherviz_edit_patch_max_tokens == 4096
     assert settings.aetherviz_repair_max_tokens == 16384
     assert settings.aetherviz_html_enable_thinking is False
     assert settings.aetherviz_html_reasoning_effort is None

@@ -939,4 +939,4 @@ uv run python scripts/recomposition_regression.py \
 - 4 条失败记录中，候选硬失败累计以 `missing_intermediate_geometry_stage` 为主，其次为源/目标 transform 相同的 IR 语义错误；2 条经受限修复恢复，2 条进入通用 fallback。
 - 本轮没有历史真实模型基线。`regression-report.json` 仅将同版本确定性脚手架作为公共契约基线，不能把真实模型专属指标解释为跨代码版本升降。
 
-结果保存在 `artifacts/evaluation/stage6/`。后续最高优先级是让单块、多步旋转计划的每个 intermediate stage 都产生独立 transform 证据。
+结果保存在本地忽略目录 `evals/reports/stage6/`。后续最高优先级是让单块、多步旋转计划的每个 intermediate stage 都产生独立 transform 证据。

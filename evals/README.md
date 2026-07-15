@@ -10,7 +10,7 @@ evals/
 ├── evaluators/               # 单指标确定性和视觉 evaluator
 ├── targets/                  # 被测生成链路与浏览器执行封装
 ├── reporting/                # 基线比较和失败聚合
-├── reports/                  # 可提交的基线、评测结果和阶段报告
+├── reports/                  # 本地忽略的评测结果和阶段报告
 └── run_eval.py               # 统一的重组链路评测入口
 ```
 

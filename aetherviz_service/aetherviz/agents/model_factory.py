@@ -91,13 +91,6 @@ def create_chat_model(kind: str, *, response_schema: dict[str, Any] | None = Non
         kwargs["extra_body"] = {"enable_thinking": False}
         kwargs.pop("reasoning_effort", None)
         return ChatOpenAI(**kwargs)
-    if kind == "edit_patch":
-        kwargs = _html_model_kwargs(max_tokens=settings.aetherviz_edit_patch_max_tokens)
-        kwargs["temperature"] = 0.0
-        kwargs["extra_body"] = {"enable_thinking": False}
-        kwargs["model_kwargs"] = {"response_format": {"type": "json_object"}}
-        kwargs.pop("reasoning_effort", None)
-        return ChatOpenAI(**kwargs)
     return ChatOpenAI(
         model=settings.openai_html_model,
         api_key=_blank_to_none(settings.openai_api_key),

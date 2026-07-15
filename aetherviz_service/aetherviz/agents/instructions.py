@@ -212,7 +212,7 @@ REPAIR_SYSTEM_PROMPT = f"""你是 HTML 最小变更修复器。
 """
 
 EDIT_HTML_SYSTEM_PROMPT = f"""你是资深单页互动 HTML 重生成工程师。
-你会收到一个现有 HTML 文件、用户修改意见和可选教案上下文。
+你会收到一个现有 HTML 文件和本次用户修改意见。
 
 {VISUAL_DESIGN_SYSTEM_PROMPT}
 
@@ -295,10 +295,8 @@ def build_repair_prompt(
 
 def build_edit_html_prompt(
     *,
-    topic: str,
     instruction: str,
     current_html: str,
-    context: dict | None,
 ) -> str:
     return f"""请以当前 HTML 为唯一事实基线，根据本次用户修改意见定向改进，并重新输出完整业务 HTML。
 

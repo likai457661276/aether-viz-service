@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 from collections.abc import Iterator
 from typing import Any
 
+from bs4 import BeautifulSoup
 from langchain_core.messages import HumanMessage, SystemMessage
 from langsmith import traceable
 from langsmith.run_helpers import get_current_run_tree
@@ -31,12 +33,18 @@ from aetherviz_service.aetherviz.limits import (
 )
 from aetherviz_service.aetherviz.tools.html_output import parse_interactive_html, sanitize_aetherviz_html
 from aetherviz_service.aetherviz.tools.layout_contract import extract_business_html
-from aetherviz_service.aetherviz.tools.validation_report import build_validation_report
 from aetherviz_service.aetherviz.workflow.generate_workflow import _run_html_workflow
 from aetherviz_service.aetherviz.workflow.plan_contract import normalize_plan
 from aetherviz_service.config import settings
 
 logger = logging.getLogger(__name__)
+
+_REQUIRED_WIDGET_ACTIONS = (
+    "SET_WIDGET_STATE",
+    "HIGHLIGHT_ELEMENT",
+    "ANNOTATE_ELEMENT",
+    "REVEAL_ELEMENT",
+)
 
 
 def run_edit_html_workflow(
@@ -102,11 +110,6 @@ def _run_edit_html_workflow_impl(
     topic = _topic_from_context(context)
     plan = normalize_plan((context or {}).get("plan_summary") if isinstance(context, dict) else None, topic)
     business_html = extract_business_html(current_html)
-    edit_context = dict(context or {})
-    edit_context.setdefault(
-        "validation_report",
-        build_validation_report(current_html, plan=plan, model_html=business_html),
-    )
     yield from _run_html_workflow(
         run_id=run_id,
         phase="edit_html",
@@ -117,7 +120,6 @@ def _run_edit_html_workflow_impl(
             topic=topic,
             message=message,
             current_html=business_html,
-            context=edit_context,
         ),
     )
 
@@ -127,14 +129,13 @@ def _stream_edit_html(
     topic: str,
     message: str,
     current_html: str,
-    context: dict[str, Any] | None,
 ) -> Iterator[dict[str, Any] | HtmlStreamResult]:
     runner = (
         _traced_stream_edit_html
         if settings.langsmith_tracing and get_current_run_tree() is not None
         else _stream_edit_html_impl
     )
-    yield from runner(topic=topic, message=message, current_html=current_html, context=context)
+    yield from runner(topic=topic, message=message, current_html=current_html)
 
 
 @traceable(
@@ -155,13 +156,11 @@ def _traced_stream_edit_html(
     topic: str,
     message: str,
     current_html: str,
-    context: dict[str, Any] | None,
 ) -> Iterator[dict[str, Any] | HtmlStreamResult]:
     yield from _stream_edit_html_impl(
         topic=topic,
         message=message,
         current_html=current_html,
-        context=context,
     )
 
 
@@ -170,22 +169,13 @@ def _stream_edit_html_impl(
     topic: str,
     message: str,
     current_html: str,
-    context: dict[str, Any] | None,
 ) -> Iterator[dict[str, Any] | HtmlStreamResult]:
     if not has_primary_llm_config():
-        yield build_html_progress_payload(
-            [
-                {"content": "分析当前 HTML 与修改意见", "status": "completed"},
-                {"content": "重新生成完整 HTML", "status": "completed"},
-            ]
+        raise HtmlGenerationError(
+            "HTML 修改失败，未配置可用的模型服务，原页面已保留",
+            code="model_unavailable",
+            detail="OPENAI_API_KEY is not configured",
         )
-        yield HtmlStreamResult(
-            html=current_html,
-            degraded=True,
-            strategy="full_html_regeneration",
-            source_chars=len(current_html),
-        )
-        return
 
     if not _has_full_edit_budget(current_html):
         raise HtmlGenerationError(
@@ -195,10 +185,8 @@ def _stream_edit_html_impl(
         )
 
     prompt = build_edit_html_prompt(
-        topic=topic,
         instruction=message,
         current_html=current_html,
-        context=context,
     )
     raw_text = ""
     last_size_event_bytes = 0
@@ -258,6 +246,19 @@ def _stream_edit_html_impl(
                 detail=f"finish_reason={finish_reason or 'missing_html_end'}; chars={len(raw_text)}",
             )
         edited_html = sanitize_aetherviz_html(parse_interactive_html(raw_text))
+        if _normalized_html(current_html) == _normalized_html(edited_html):
+            raise HtmlGenerationError(
+                "HTML 修改失败，模型未产生实际变化，原页面已保留",
+                code="edit_no_change",
+                detail="candidate_unchanged",
+            )
+        contract_errors = _edit_contract_errors(current_html, edited_html)
+        if contract_errors:
+            raise HtmlGenerationError(
+                "HTML 修改失败，重生成结果破坏了原页面核心契约，原页面已保留",
+                code="edit_contract_changed",
+                detail="; ".join(contract_errors),
+            )
         yield build_html_progress_payload(
             [
                 {"content": "分析当前 HTML 与修改意见", "status": "completed"},
@@ -292,6 +293,37 @@ def _stream_edit_html_impl(
 def _has_full_edit_budget(current_html: str) -> bool:
     estimated_capacity = estimated_output_capacity_chars(settings.aetherviz_edit_max_tokens)
     return len(current_html) + FULL_HTML_OUTPUT_RESERVE_CHARS <= estimated_capacity
+
+
+def _edit_contract_errors(source_html: str, candidate_html: str) -> list[str]:
+    errors: list[str] = []
+    source_type = _widget_type(source_html)
+    candidate_type = _widget_type(candidate_html)
+    if source_type and candidate_type != source_type:
+        errors.append(f"widget_type_changed:{source_type}->{candidate_type or 'missing'}")
+
+    missing_actions = [
+        action for action in _REQUIRED_WIDGET_ACTIONS if action in source_html and action not in candidate_html
+    ]
+    if missing_actions:
+        errors.append(f"widget_actions_missing:{','.join(missing_actions)}")
+    return errors
+
+
+def _widget_type(html: str) -> str | None:
+    config = BeautifulSoup(html or "", "html.parser").find("script", id="widget-config")
+    if config is None:
+        return None
+    try:
+        payload = json.loads(config.get_text())
+    except (TypeError, ValueError):
+        return None
+    value = payload.get("type") if isinstance(payload, dict) else None
+    return str(value) if value else None
+
+
+def _normalized_html(html: str) -> str:
+    return "".join((html or "").split())
 
 
 def _summarize_edit_stream(items: list[dict[str, Any] | HtmlStreamResult]) -> dict[str, Any]:

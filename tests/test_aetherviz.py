@@ -317,7 +317,7 @@ def test_generate_phase_escapes_special_topic_in_deterministic_html() -> None:
     assert "<\\/script>" in generated_html
 
 
-def test_edit_html_generates_new_branch_events() -> None:
+def test_edit_html_without_model_returns_explicit_error() -> None:
     response = client.post(
         AETHERVIZ_ENDPOINT,
         json={"phase": "edit_html", "current_html": sample_html(), "message": "把按钮改大", "context": {"topic": "熵增演示"}},
@@ -326,11 +326,9 @@ def test_edit_html_generates_new_branch_events() -> None:
     events = parse_sse_events(response)
     names = [event for event, _ in events]
     assert "html.edit_started" in names
-    assert "html.delta" in names
-    assert "validation.report" in names
-    assert "html.done" in names
-    done = next(data for event, data in events if event == "html.done")
-    assert done["metadata"]["edit_strategy"] == "full_html_regeneration"
+    assert names[-1] == "error"
+    assert "html.done" not in names
+    assert events[-1][1]["data"]["code"] == "model_unavailable"
 
 
 def test_validation_report_rejects_dangerous_external_resource() -> None:
@@ -1391,7 +1389,6 @@ def test_edit_html_stream_propagates_generator_exit(monkeypatch) -> None:
                 topic="熵增演示",
                 message="把按钮改大",
                 current_html=sample_html(),
-                context=None,
             )
         )
 
@@ -1416,7 +1413,7 @@ def test_edit_html_always_regenerates_full_html_from_current_page(monkeypatch) -
     result = next(
         item
         for item in edit_html_workflow._stream_edit_html(
-            topic="动画", message="点击播放没反应", current_html=source, context=None
+            topic="动画", message="点击播放没反应", current_html=source
         )
         if isinstance(item, HtmlStreamResult)
     )
@@ -1426,14 +1423,14 @@ def test_edit_html_always_regenerates_full_html_from_current_page(monkeypatch) -
     assert "重新生成的熵增演示" in result.html
 
 
-def test_edit_workflow_adds_current_validation_report_to_regeneration_context(monkeypatch) -> None:
+def test_edit_workflow_only_passes_current_business_html_to_regeneration(monkeypatch) -> None:
     from aetherviz_service.aetherviz.agents.html_agent import HtmlStreamResult
     from aetherviz_service.aetherviz.workflow import edit_html_workflow
 
     captured: dict[str, object] = {}
 
     def fake_stream_edit_html(**kwargs):
-        captured["context"] = kwargs["context"]
+        captured.update(kwargs)
         yield HtmlStreamResult(html=kwargs["current_html"], degraded=False)
 
     def fake_run_html_workflow(**kwargs):
@@ -1453,66 +1450,8 @@ def test_edit_workflow_adds_current_validation_report_to_regeneration_context(mo
     )
 
     assert result == ["done"]
-    context = captured["context"]
-    assert isinstance(context, dict)
-    assert isinstance(context["validation_report"], dict)
-    assert "errors" in context["validation_report"]
-
-
-def test_edit_patch_rolls_back_non_causal_runtime_change(monkeypatch) -> None:
-    import json
-    from unittest.mock import MagicMock
-
-    from aetherviz_service.aetherviz.agents import edit_patch_agent
-    from aetherviz_service.aetherviz.agents.edit_patch_agent import EditPatchResult
-    from aetherviz_service.aetherviz.tools.function_patch import select_edit_function_descriptions
-
-    source = """<script>
-    const controller={play:function(){
-      gsap.to({p:0},{onUpdate:function(){this.update(this.targets()[0].p);}.bind(this)});
-    }};
-    window.AetherVizRuntime={pause:function(){},reset:function(){},setSpeed:function(){}};
-    </script>"""
-    reset = next(
-        item
-        for item in select_edit_function_descriptions(
-            source, "TypeError: this.targets is not a function；请修复播放和重置"
-        )
-        if item["function"] == "reset"
-    )
-    response = json.dumps(
-        {
-            "replacements": [
-                {
-                    "function": "reset",
-                    "target_id": reset["target_id"],
-                    "source_hash": reset["source_hash"],
-                    "replacement": "reset:function(){window.resetCalled=true;}",
-                }
-            ]
-        }
-    )
-
-    class PatchModel:
-        def stream(self, messages):
-            yield MagicMock(content=response, response_metadata={"finish_reason": "stop"})
-
-    monkeypatch.setattr(edit_patch_agent, "create_chat_model", lambda kind: PatchModel())
-    result = next(
-        item
-        for item in edit_patch_agent._stream_edit_patch_impl(
-            raw_html=source,
-            instruction="TypeError: this.targets is not a function；请修复播放和重置",
-            topic="动画",
-        )
-        if isinstance(item, EditPatchResult)
-    )
-
-    assert result.html == source
-    assert result.applied == ()
-    assert result.causal_check == "failed"
-    assert result.fallback_reason == "reported_error_signature_unchanged:this.targets"
-    assert "reported_error_signature_unchanged:this.targets" in result.errors
+    assert captured["message"] == "修复画面"
+    assert "context" not in captured
 
 
 def test_edit_html_rejects_truncated_full_output_without_partial_repair(monkeypatch) -> None:
@@ -1534,7 +1473,7 @@ def test_edit_html_rejects_truncated_full_output_without_partial_repair(monkeypa
     with pytest.raises(HtmlGenerationError) as exc_info:
         list(
             edit_html_workflow._stream_edit_html(
-                topic="动画", message="修改说明文字", current_html=sample_html(), context=None
+                topic="动画", message="修改说明文字", current_html=sample_html()
             )
         )
 
@@ -1563,7 +1502,6 @@ def test_edit_html_reports_full_html_regeneration_strategy(monkeypatch) -> None:
             topic="动画",
             message="修改 #stage 的颜色",
             current_html=source,
-            context=None,
         )
     )
     result = next(item for item in items if isinstance(item, HtmlStreamResult))
@@ -1571,6 +1509,63 @@ def test_edit_html_reports_full_html_regeneration_strategy(monkeypatch) -> None:
     assert result.strategy == "full_html_regeneration"
     assert "<title>已完整编辑</title>" in result.html
     assert any("重新生成完整 HTML" in str(item) for item in items if isinstance(item, dict))
+
+
+def test_edit_html_rejects_unchanged_regeneration(monkeypatch) -> None:
+    from unittest.mock import MagicMock
+
+    from aetherviz_service.aetherviz.agents.html_agent import HtmlGenerationError
+    from aetherviz_service.aetherviz.workflow import edit_html_workflow
+
+    class UnchangedModel:
+        def stream(self, messages):
+            yield MagicMock(content=sample_html(), response_metadata={"finish_reason": "stop"})
+
+    monkeypatch.setattr(settings, "openai_api_key", "test-key")
+    monkeypatch.setattr(edit_html_workflow, "create_chat_model", lambda kind: UnchangedModel())
+
+    with pytest.raises(HtmlGenerationError) as exc_info:
+        list(
+            edit_html_workflow._stream_edit_html(
+                topic="动画", message="把按钮改大", current_html=sample_html()
+            )
+        )
+
+    assert exc_info.value.code == "edit_no_change"
+    assert "candidate_unchanged" in exc_info.value.detail
+
+
+def test_edit_html_requires_model_configuration(monkeypatch) -> None:
+    from aetherviz_service.aetherviz.agents.html_agent import HtmlGenerationError
+    from aetherviz_service.aetherviz.workflow import edit_html_workflow
+
+    monkeypatch.setattr(settings, "openai_api_key", "")
+
+    with pytest.raises(HtmlGenerationError) as exc_info:
+        list(
+            edit_html_workflow._stream_edit_html(
+                topic="动画", message="把按钮改大", current_html=sample_html()
+            )
+        )
+
+    assert exc_info.value.code == "model_unavailable"
+
+
+def test_edit_html_preserves_widget_type_and_actions() -> None:
+    from aetherviz_service.aetherviz.workflow.edit_html_workflow import _edit_contract_errors
+
+    source = sample_html().replace(
+        "window.addEventListener('message', handleMessage);",
+        "window.addEventListener('message', handleMessage); // SET_WIDGET_STATE HIGHLIGHT_ELEMENT",
+    )
+    candidate = source.replace('"type":"simulation"', '"type":"diagram"').replace(
+        "HIGHLIGHT_ELEMENT", ""
+    )
+
+    errors = _edit_contract_errors(source, candidate)
+
+    assert "widget_type_changed:simulation->diagram" in errors
+    assert "widget_actions_missing:HIGHLIGHT_ELEMENT" in errors
 
 
 def test_repair_stream_propagates_generator_exit(monkeypatch) -> None:
@@ -2004,36 +1999,13 @@ def test_edit_html_prompt_has_quantified_convergence_guidance() -> None:
 def test_build_edit_html_prompt_excludes_plan_and_conversation_context() -> None:
     from aetherviz_service.aetherviz.agents.instructions import build_edit_html_prompt
 
-    context = {
-        "plan_summary": {
-            "title": "勾股定理互动模拟",
-            "goal": "理解勾股定理",
-            "interactive_type": "simulation",
-            "design_brief": {"layout": "单屏"},
-            "interactive_spec": {"type": "simulation"},
-            "teaching_flow": [{"id": "step-1"}],
-            "widget_actions": [{"type": "widget_setState"}],
-            "scene_outline": {"id": "scene_1"},
-            "formulas": ["a^2+b^2=c^2"],
-        },
-        "selected_file": {"id": "html-1"},
-        "memory": "旧的页面改版要求",
-        "recent_messages": ["把主题改成一次函数"],
-    }
-
     prompt = build_edit_html_prompt(
-        topic="勾股定理",
         instruction="居中问题",
         current_html="<html></html>",
-        context=context,
     )
 
     assert "居中问题" in prompt
     assert "<html></html>" in prompt
-    assert "勾股定理互动模拟" not in prompt
-    assert "selected_file" not in prompt
-    assert "旧的页面改版要求" not in prompt
-    assert "把主题改成一次函数" not in prompt
     assert "可选上下文" not in prompt
 
 
