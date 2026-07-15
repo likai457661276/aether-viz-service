@@ -1,28 +1,43 @@
-"""Hash-guarded replacements for bounded CSS and semantic HTML regions."""
+"""Evidence-ranked, hash-guarded replacements for bounded HTML and CSS regions."""
 
 from __future__ import annotations
 
 import hashlib
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from bs4 import BeautifulSoup, Tag
 
+from aetherviz_service.aetherviz.tools.edit_targeting import (
+    EditEvidence,
+    extract_edit_evidence,
+    selector_identity,
+)
+
 MAX_CONTENT_REPLACEMENTS = 4
 MAX_CONTENT_SOURCE_CHARS = 8_000
 MAX_CONTENT_REPLACEMENT_CHARS = 12_000
+MAX_CSS_RULE_REPLACEMENTS = 2
 
-_VISUAL_REQUEST_RE = re.compile(
-    r"空白|显示|图像|图形|动画|主视觉|舞台|svg|canvas|visual|render|布局|位置|尺寸",
-    re.IGNORECASE,
+_VISUAL_SELECTORS = (
+    '[data-role="main-visual"]',
+    '[data-region="main-visual"]',
+    "#aetherviz-stage",
+    '[data-region="stage"]',
+    "svg",
+    "canvas",
 )
-_STYLE_REQUEST_RE = re.compile(
-    r"颜色|字号|字体|大小|宽度|高度|间距|边距|样式|主题|对齐|布局|位置|尺寸|css|style",
-    re.IGNORECASE,
+_SEMANTIC_SELECTORS = (
+    '[data-region="controls"]',
+    '[data-region="caption"]',
+    '[data-region="formula"]',
+    '[data-region="teaching-flow"]',
+    "h1",
+    "h2",
 )
-_TEXT_REQUEST_RE = re.compile(r"文案|文字|标题|说明|结论|公式|步骤|caption|formula|title", re.IGNORECASE)
+_CSS_CONTAINER_AT_RULES = ("@media", "@supports", "@container", "@layer", "@document")
 
 
 @dataclass(frozen=True)
@@ -35,6 +50,11 @@ class ContentSource:
     end: int
     tag_name: str
     identity: tuple[tuple[str, str], ...]
+    selector: str = ""
+    region: str = ""
+    score: int = 0
+    evidence: tuple[str, ...] = ()
+    dependencies: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -44,63 +64,46 @@ class ContentPatchResult:
     errors: tuple[str, ...] = ()
 
 
-def select_content_descriptions(html: str, instruction: str) -> list[dict[str, Any]]:
+def select_content_descriptions(
+    html: str,
+    instruction: str,
+    context: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
     source = html or ""
     soup = BeautifulSoup(source, "html.parser")
-    text = instruction or ""
-    candidates: list[tuple[str, Tag]] = []
+    edit_evidence = extract_edit_evidence(instruction, context)
+    candidates: dict[tuple[int, int], ContentSource] = {}
 
-    if _STYLE_REQUEST_RE.search(text) or _VISUAL_REQUEST_RE.search(text):
-        candidates.extend(("style", tag) for tag in soup.find_all("style"))
+    for selector in edit_evidence.explicit_selectors:
+        _add_selector_candidates(candidates, source, soup, selector, score=100, reason=f"explicit_selector:{selector}")
+    for selector in edit_evidence.report_selectors:
+        _add_selector_candidates(candidates, source, soup, selector, score=90, reason=f"report_selector:{selector}")
 
-    if _VISUAL_REQUEST_RE.search(text):
-        visual = next(
-            (
-                tag
-                for selector in (
-                    '[data-role="main-visual"]',
-                    '[data-region="main-visual"]',
-                    "#aetherviz-stage",
-                    "svg",
-                    "canvas",
+    if _has_issue(edit_evidence, "visual_not_visible", "visual_change", "layout_issue"):
+        for selector in _VISUAL_SELECTORS:
+            _add_selector_candidates(candidates, source, soup, selector, score=50, reason=f"semantic_visual:{selector}")
+    semantic_selectors = _semantic_selectors_for_intent(edit_evidence)
+    for selector in semantic_selectors:
+        _add_selector_candidates(candidates, source, soup, selector, score=40, reason=f"semantic_region:{selector}")
+
+    _add_javascript_dependency_evidence(candidates, soup)
+    css_candidates = _css_rule_candidates(source, soup, candidates, edit_evidence)
+    for candidate in css_candidates:
+        _merge_candidate(candidates, candidate)
+
+    if not css_candidates and _has_issue(
+        edit_evidence, "style_change", "layout_issue", "visual_not_visible", "visual_change"
+    ):
+        for tag in soup.find_all("style"):
+            block = _describe_tag(source, "style", tag)
+            if block is not None:
+                _merge_candidate(
+                    candidates,
+                    replace(block, score=20, evidence=("style_block_fallback",)),
                 )
-                if isinstance((tag := soup.select_one(selector)), Tag)
-            ),
-            None,
-        )
-        if visual is not None:
-            candidates.append(("visual", visual))
 
-    if _TEXT_REQUEST_RE.search(text):
-        for selector in ('[data-region="caption"]', '[data-region="formula"]', "h1", "h2"):
-            tag = soup.select_one(selector)
-            if isinstance(tag, Tag):
-                candidates.append(("semantic", tag))
-
-    selected: list[ContentSource] = []
-    occupied: list[tuple[int, int]] = []
-    for kind, tag in candidates:
-        block = _describe_tag(source, kind, tag)
-        if block is None or len(block.source) > MAX_CONTENT_SOURCE_CHARS:
-            continue
-        if any(block.start < end and start < block.end for start, end in occupied):
-            continue
-        selected.append(block)
-        occupied.append((block.start, block.end))
-        if len(selected) >= MAX_CONTENT_REPLACEMENTS:
-            break
-
-    return [
-        {
-            "kind": item.kind,
-            "target_id": item.target_id,
-            "source_hash": item.source_hash,
-            "source": item.source,
-            "tag": item.tag_name,
-            "line": source.count("\n", 0, item.start) + 1,
-        }
-        for item in selected
-    ]
+    selected = _select_ranked_candidates(tuple(candidates.values()), edit_evidence)
+    return [_description_payload(item, source) for item in selected]
 
 
 def parse_content_replacements(raw_text: str) -> list[dict[str, str]]:
@@ -147,7 +150,8 @@ def apply_content_replacements(
         if description is None:
             errors.append(f"content_target_not_allowed:{target_id}")
             continue
-        if item.get("kind") != description.get("kind"):
+        kind = str(description.get("kind") or "")
+        if item.get("kind") != kind:
             errors.append(f"content_kind_mismatch:{target_id}")
             continue
         if item.get("source_hash") != description.get("source_hash"):
@@ -159,7 +163,7 @@ def apply_content_replacements(
             errors.append(f"content_source_not_unique:{target_id}")
             continue
         replacement = item.get("replacement", "").strip()
-        validation_error = _validate_replacement(original, replacement, target_id)
+        validation_error = _validate_replacement(original, replacement, target_id, kind)
         if validation_error:
             errors.append(validation_error)
             continue
@@ -179,6 +183,226 @@ def apply_content_replacements(
     )
 
 
+def content_patch_causal_error(
+    before: str,
+    after: str,
+    instruction: str,
+    *,
+    context: dict[str, Any] | None,
+    applied_descriptions: list[dict[str, Any]],
+    function_changed: bool,
+) -> str | None:
+    """Reject patches that do not touch a region capable of causing the reported issue."""
+    if before == after:
+        return "content_patch_unchanged"
+    evidence = extract_edit_evidence(instruction, context)
+    kinds = {str(item.get("kind") or "") for item in applied_descriptions}
+    regions = {str(item.get("region") or "") for item in applied_descriptions}
+    if "visual_not_visible" in evidence.issue_types:
+        if not function_changed and not kinds.intersection({"css_rule", "style", "visual"}):
+            return "visual_issue_cause_not_modified"
+        visual = BeautifulSoup(after, "html.parser").select_one(
+            '[data-role="main-visual"], #aetherviz-stage svg, #aetherviz-stage canvas'
+        )
+        if visual is None:
+            return "visual_target_missing_after_patch"
+    content_only_text_change = (
+        "text_change" in evidence.issue_types
+        and "style_change" not in evidence.issue_types
+        and "layout_issue" not in evidence.issue_types
+    )
+    if content_only_text_change and not function_changed:
+        if "semantic" not in kinds and not regions.intersection({"caption", "formula", "teaching-flow"}):
+            return "text_issue_cause_not_modified"
+    behavior_control_issue = (
+        "control_issue" in evidence.issue_types
+        and "style_change" not in evidence.issue_types
+        and "layout_issue" not in evidence.issue_types
+    )
+    if behavior_control_issue and not function_changed:
+        if "controls" not in regions and "semantic" not in kinds:
+            return "control_issue_cause_not_modified"
+    if "style_change" in evidence.issue_types and not kinds.intersection({"css_rule", "style", "visual", "semantic"}):
+        return "style_issue_cause_not_modified"
+    return None
+
+
+def _add_selector_candidates(
+    candidates: dict[tuple[int, int], ContentSource],
+    html: str,
+    soup: BeautifulSoup,
+    selector: str,
+    *,
+    score: int,
+    reason: str,
+) -> None:
+    try:
+        tags = soup.select(selector)
+    except Exception:
+        return
+    for tag in tags[:8]:
+        if not isinstance(tag, Tag) or tag.name in {"html", "body", "script", "style"}:
+            continue
+        block = _describe_tag(html, _kind_for_tag(tag), tag)
+        if block is None or len(block.source) > MAX_CONTENT_SOURCE_CHARS:
+            continue
+        identities = selector_identity(tag)
+        candidate = replace(
+            block,
+            selector=identities[0] if identities else selector,
+            region=_region_for_tag(tag),
+            score=score,
+            evidence=(reason,),
+            dependencies=identities,
+        )
+        _merge_candidate(candidates, candidate)
+
+
+def _add_javascript_dependency_evidence(candidates: dict[tuple[int, int], ContentSource], soup: BeautifulSoup) -> None:
+    script_text = "\n".join(tag.get_text("\n") for tag in soup.find_all("script"))
+    if not script_text:
+        return
+    for span, candidate in tuple(candidates.items()):
+        matched = next(
+            (
+                selector
+                for selector in candidate.dependencies
+                if selector in script_text or (selector.startswith("#") and selector[1:] in script_text)
+            ),
+            None,
+        )
+        if matched:
+            candidates[span] = replace(
+                candidate,
+                score=max(candidate.score, 70),
+                evidence=(*candidate.evidence, f"javascript_reference:{matched}"),
+            )
+
+
+def _css_rule_candidates(
+    html: str,
+    soup: BeautifulSoup,
+    dom_candidates: dict[tuple[int, int], ContentSource],
+    evidence: EditEvidence,
+) -> list[ContentSource]:
+    result: list[ContentSource] = []
+    for tag in soup.find_all("style"):
+        span = _tag_source_span(html, tag)
+        if span is None:
+            continue
+        opening_end = html.find(">", span[0], span[1])
+        closing_start = html.rfind("</", opening_end, span[1])
+        if opening_end < 0 or closing_start < 0:
+            continue
+        css = html[opening_end + 1 : closing_start]
+        for start, end, selector in _iter_css_rules(css, opening_end + 1):
+            rule_source = html[start:end]
+            if len(rule_source) > MAX_CONTENT_SOURCE_CHARS:
+                continue
+            score = 0
+            reasons: list[str] = []
+            dependencies: list[str] = []
+            for anchor in evidence.explicit_selectors:
+                if _selector_mentions(selector, anchor):
+                    score = max(score, 100)
+                    reasons.append(f"explicit_selector:{anchor}")
+                    dependencies.append(anchor)
+            for anchor in evidence.report_selectors:
+                if _selector_mentions(selector, anchor):
+                    score = max(score, 90)
+                    reasons.append(f"report_selector:{anchor}")
+                    dependencies.append(anchor)
+            matched_dom = _matched_dom_candidates(soup, selector, dom_candidates)
+            if matched_dom:
+                score = max(score, max(60, max(item.score for item in matched_dom) - 20))
+                reasons.extend(f"css_dependency:{item.selector}" for item in matched_dom[:3])
+                dependencies.extend(item.selector for item in matched_dom[:3] if item.selector)
+            if score == 0 and _has_issue(
+                evidence, "style_change", "layout_issue", "visual_not_visible", "visual_change"
+            ):
+                score = 25
+                reasons.append("generic_style_intent")
+            if score == 0:
+                continue
+            source_hash = hashlib.sha256(rule_source.encode("utf-8")).hexdigest()
+            target_id = f"css_rule:rule:{start}:{source_hash[:12]}"
+            result.append(
+                ContentSource(
+                    kind="css_rule",
+                    target_id=target_id,
+                    source_hash=source_hash,
+                    source=rule_source,
+                    start=start,
+                    end=end,
+                    tag_name="css-rule",
+                    identity=(),
+                    selector=selector,
+                    region=_region_from_selectors(dependencies),
+                    score=score,
+                    evidence=tuple(dict.fromkeys(reasons)),
+                    dependencies=tuple(dict.fromkeys(dependencies)),
+                )
+            )
+    return result
+
+
+def _matched_dom_candidates(
+    soup: BeautifulSoup,
+    selector: str,
+    candidates: dict[tuple[int, int], ContentSource],
+) -> list[ContentSource]:
+    try:
+        matched_tags = {id(tag) for tag in soup.select(selector)}
+    except Exception:
+        return []
+    if not matched_tags:
+        return []
+    result: list[ContentSource] = []
+    for candidate in candidates.values():
+        if not candidate.dependencies:
+            continue
+        for identity in candidate.dependencies:
+            try:
+                if any(id(tag) in matched_tags for tag in soup.select(identity)):
+                    result.append(candidate)
+                    break
+            except Exception:
+                continue
+    return result
+
+
+def _select_ranked_candidates(candidates: tuple[ContentSource, ...], evidence: EditEvidence) -> list[ContentSource]:
+    ranked = sorted(candidates, key=lambda item: (-item.score, len(item.source), item.start))
+    selected: list[ContentSource] = []
+
+    def add(item: ContentSource) -> bool:
+        if len(selected) >= MAX_CONTENT_REPLACEMENTS:
+            return False
+        if item.kind == "css_rule" and sum(x.kind == "css_rule" for x in selected) >= MAX_CSS_RULE_REPLACEMENTS:
+            return False
+        if item.kind == "semantic" and sum(x.kind == "semantic" for x in selected) >= 1:
+            return False
+        if any(item.start < other.end and other.start < item.end for other in selected):
+            return False
+        selected.append(item)
+        return True
+
+    if _has_issue(evidence, "visual_not_visible", "visual_change", "layout_issue"):
+        visual = next((item for item in ranked if item.kind == "visual"), None)
+        if visual is not None:
+            add(visual)
+    for item in ranked:
+        if item.kind == "css_rule":
+            add(item)
+    if _has_issue(evidence, "text_change", "control_issue"):
+        semantic = next((item for item in ranked if item.kind == "semantic"), None)
+        if semantic is not None:
+            add(semantic)
+    for item in ranked:
+        add(item)
+    return sorted(selected, key=lambda item: item.start)
+
+
 def _describe_tag(html: str, kind: str, tag: Tag) -> ContentSource | None:
     span = _tag_source_span(html, tag)
     if span is None:
@@ -187,9 +411,7 @@ def _describe_tag(html: str, kind: str, tag: Tag) -> ContentSource | None:
     source = html[start:end]
     source_hash = hashlib.sha256(source.encode("utf-8")).hexdigest()
     identity = tuple(
-        (name, str(tag.get(name)))
-        for name in ("id", "data-role", "data-region")
-        if tag.get(name) is not None
+        (name, str(tag.get(name))) for name in ("id", "data-role", "data-region") if tag.get(name) is not None
     )
     target_id = f"{kind}:{tag.name}:{start}:{source_hash[:12]}"
     return ContentSource(
@@ -222,11 +444,117 @@ def _tag_source_span(html: str, tag: Tag) -> tuple[int, int] | None:
     return None
 
 
-def _validate_replacement(original: str, replacement: str, target_id: str) -> str | None:
+def _iter_css_rules(css: str, base_offset: int) -> list[tuple[int, int, str]]:
+    rules: list[tuple[int, int, str]] = []
+    cursor = 0
+    while cursor < len(css):
+        opening = _find_css_token(css, "{", cursor)
+        if opening is None:
+            break
+        closing = _matching_css_brace(css, opening)
+        if closing is None:
+            break
+        header_start = cursor
+        semicolon = _last_css_token(css, ";", cursor, opening)
+        if semicolon is not None:
+            header_start = semicolon + 1
+        while header_start < opening and css[header_start].isspace():
+            header_start += 1
+        header = css[header_start:opening].strip()
+        if not header:
+            cursor = closing + 1
+            continue
+        lowered = header.lower()
+        if lowered.startswith(_CSS_CONTAINER_AT_RULES):
+            rules.extend(_iter_css_rules(css[opening + 1 : closing], base_offset + opening + 1))
+        elif not lowered.startswith("@"):
+            rules.append((base_offset + header_start, base_offset + closing + 1, header))
+        cursor = closing + 1
+    return rules
+
+
+def _find_css_token(text: str, token: str, start: int) -> int | None:
+    quote: str | None = None
+    escaped = False
+    comment = False
+    index = start
+    while index < len(text):
+        char = text[index]
+        next_char = text[index + 1] if index + 1 < len(text) else ""
+        if comment:
+            if char == "*" and next_char == "/":
+                comment = False
+                index += 2
+            else:
+                index += 1
+            continue
+        if quote:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == quote:
+                quote = None
+            index += 1
+            continue
+        if char == "/" and next_char == "*":
+            comment = True
+            index += 2
+            continue
+        if char in {"'", '"'}:
+            quote = char
+        elif char == token:
+            return index
+        index += 1
+    return None
+
+
+def _last_css_token(text: str, token: str, start: int, end: int) -> int | None:
+    found: int | None = None
+    cursor = start
+    while (position := _find_css_token(text[:end], token, cursor)) is not None:
+        found = position
+        cursor = position + 1
+    return found
+
+
+def _matching_css_brace(text: str, opening: int) -> int | None:
+    depth = 0
+    cursor = opening
+    while cursor < len(text):
+        next_opening = _find_css_token(text, "{", cursor)
+        next_closing = _find_css_token(text, "}", cursor)
+        if next_closing is None:
+            return None
+        if next_opening is not None and next_opening < next_closing:
+            depth += 1
+            cursor = next_opening + 1
+            continue
+        depth -= 1
+        if depth == 0:
+            return next_closing
+        cursor = next_closing + 1
+    return None
+
+
+def _validate_replacement(original: str, replacement: str, target_id: str, kind: str) -> str | None:
     if not replacement:
         return f"empty_content_replacement:{target_id}"
-    if "<script" in replacement.lower() or "</script" in replacement.lower():
+    lowered = replacement.lower()
+    if "<script" in lowered or "</script" in lowered:
         return f"content_script_not_allowed:{target_id}"
+    if kind == "css_rule":
+        if "@import" in lowered or re.search(r"url\s*\(\s*['\"]?https?://", lowered):
+            return f"content_external_css_not_allowed:{target_id}"
+        original_selector = _css_rule_selector(original)
+        replacement_selector = _css_rule_selector(replacement)
+        if not original_selector or _normalize_css_selector(original_selector) != _normalize_css_selector(
+            replacement_selector
+        ):
+            return f"content_css_selector_mismatch:{target_id}"
+        if _matching_css_brace(replacement, replacement.find("{")) != len(replacement) - 1:
+            return f"content_css_rule_invalid:{target_id}"
+        return None
     original_root = _single_root(original)
     replacement_root = _single_root(replacement)
     if original_root is None or replacement_root is None or original_root.name != replacement_root.name:
@@ -237,10 +565,98 @@ def _validate_replacement(original: str, replacement: str, target_id: str) -> st
     return None
 
 
+def _css_rule_selector(source: str) -> str:
+    opening = _find_css_token(source, "{", 0)
+    return source[:opening].strip() if opening is not None else ""
+
+
+def _normalize_css_selector(selector: str) -> str:
+    return re.sub(r"\s+", " ", selector.strip())
+
+
+def _selector_mentions(selector: str, anchor: str) -> bool:
+    return _normalize_css_selector(anchor) in _normalize_css_selector(selector)
+
+
 def _single_root(source: str) -> Tag | None:
     soup = BeautifulSoup(source, "html.parser")
     roots = [item for item in soup.contents if isinstance(item, Tag)]
     return roots[0] if len(roots) == 1 else None
+
+
+def _kind_for_tag(tag: Tag) -> str:
+    if tag.name in {"svg", "canvas"} or tag.get("data-role") == "main-visual":
+        return "visual"
+    if tag.get("data-region") in {"stage", "main-visual"} or tag.get("id") == "aetherviz-stage":
+        return "visual"
+    return "semantic"
+
+
+def _region_for_tag(tag: Tag) -> str:
+    if tag.get("data-region"):
+        return str(tag.get("data-region"))
+    if tag.get("data-role") == "main-visual" or tag.name in {"svg", "canvas"}:
+        return "main-visual"
+    if tag.get("id") == "aetherviz-stage":
+        return "stage"
+    return tag.name
+
+
+def _region_from_selectors(selectors: list[str]) -> str:
+    for selector in selectors:
+        for region in ("main-visual", "stage", "controls", "caption", "formula", "teaching-flow"):
+            if region in selector:
+                return region
+    return "style"
+
+
+def _semantic_selectors_for_intent(evidence: EditEvidence) -> tuple[str, ...]:
+    selected: list[str] = []
+    if "control_issue" in evidence.issue_types:
+        selected.append('[data-region="controls"]')
+    if "text_change" in evidence.issue_types:
+        selected.extend(_SEMANTIC_SELECTORS[1:])
+    if "layout_issue" in evidence.issue_types:
+        selected.extend(('[data-region="controls"]', '[data-region="caption"]', '[data-region="formula"]'))
+    return tuple(dict.fromkeys(selected))
+
+
+def _has_issue(evidence: EditEvidence, *issues: str) -> bool:
+    return any(issue in evidence.issue_types for issue in issues)
+
+
+def _merge_candidate(candidates: dict[tuple[int, int], ContentSource], candidate: ContentSource) -> None:
+    key = (candidate.start, candidate.end)
+    existing = candidates.get(key)
+    if existing is None:
+        candidates[key] = candidate
+        return
+    candidates[key] = replace(
+        existing,
+        score=max(existing.score, candidate.score),
+        evidence=tuple(dict.fromkeys((*existing.evidence, *candidate.evidence))),
+        dependencies=tuple(dict.fromkeys((*existing.dependencies, *candidate.dependencies))),
+        selector=existing.selector or candidate.selector,
+        region=existing.region or candidate.region,
+    )
+
+
+def _description_payload(item: ContentSource, html: str) -> dict[str, Any]:
+    return {
+        "kind": item.kind,
+        "target_id": item.target_id,
+        "source_hash": item.source_hash,
+        "source": item.source,
+        "tag": item.tag_name,
+        "line": html.count("\n", 0, item.start) + 1,
+        "selector": item.selector,
+        "region": item.region,
+        "score": item.score,
+        "evidence": list(item.evidence),
+        "dependencies": list(item.dependencies),
+        "start": item.start,
+        "end": item.end,
+    }
 
 
 def _parse_json_object(raw_text: str) -> dict[str, Any]:

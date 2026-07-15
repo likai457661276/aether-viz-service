@@ -32,11 +32,13 @@ from aetherviz_service.aetherviz.limits import (
 )
 from aetherviz_service.aetherviz.tools.html_output import parse_interactive_html, sanitize_aetherviz_html
 from aetherviz_service.aetherviz.tools.layout_contract import extract_business_html
+from aetherviz_service.aetherviz.tools.validation_report import build_validation_report
 from aetherviz_service.aetherviz.workflow.generate_workflow import _run_html_workflow
 from aetherviz_service.aetherviz.workflow.plan_contract import normalize_plan
 from aetherviz_service.config import settings
 
 logger = logging.getLogger(__name__)
+
 
 def run_edit_html_workflow(
     *,
@@ -101,6 +103,11 @@ def _run_edit_html_workflow_impl(
     topic = _topic_from_context(context)
     plan = normalize_plan((context or {}).get("plan_summary") if isinstance(context, dict) else None, topic)
     business_html = extract_business_html(current_html)
+    edit_context = dict(context or {})
+    edit_context.setdefault(
+        "validation_report",
+        build_validation_report(current_html, plan=plan, model_html=business_html),
+    )
     yield from _run_html_workflow(
         run_id=run_id,
         phase="edit_html",
@@ -111,7 +118,7 @@ def _run_edit_html_workflow_impl(
             topic=topic,
             message=message,
             current_html=business_html,
-            context=context,
+            context=edit_context,
         ),
     )
 
@@ -177,7 +184,12 @@ def _stream_edit_html_impl(
         return
 
     patch_result: EditPatchResult | None = None
-    for item in stream_edit_patch(raw_html=current_html, instruction=message, topic=topic):
+    for item in stream_edit_patch(
+        raw_html=current_html,
+        instruction=message,
+        topic=topic,
+        context=context,
+    ):
         if isinstance(item, EditPatchResult):
             patch_result = item
         else:
@@ -189,11 +201,7 @@ def _stream_edit_html_impl(
             strategy=patch_result.strategy,
             finish_reason=patch_result.finish_reason,
             source_chars=len(current_html),
-            patch_functions=(
-                patch_result.applied_functions
-                if patch_result.applied_blocks
-                else patch_result.applied
-            ),
+            patch_functions=(patch_result.applied_functions if patch_result.applied_blocks else patch_result.applied),
             patch_blocks=patch_result.applied_blocks,
             input_tokens=patch_result.input_tokens,
             output_tokens=patch_result.output_tokens,
@@ -332,20 +340,13 @@ def _summarize_edit_stream(items: list[dict[str, Any] | HtmlStreamResult]) -> di
         "output_tokens": result.output_tokens,
         "output_chars": result.output_chars or len(result.html),
         "chars_per_output_token": (
-            round((result.output_chars or len(result.html)) / result.output_tokens, 3)
-            if result.output_tokens
-            else None
+            round((result.output_chars or len(result.html)) / result.output_tokens, 3) if result.output_tokens else None
         ),
     }
 
 
 def _summarize_edit_sse(chunks: list[str]) -> dict[str, Any]:
-    events = [
-        line[7:]
-        for chunk in chunks
-        for line in chunk.splitlines()
-        if line.startswith("event: ")
-    ]
+    events = [line[7:] for chunk in chunks for line in chunk.splitlines() if line.startswith("event: ")]
     return {"event_count": len(events), "events": events, "completed": "html.done" in events}
 
 

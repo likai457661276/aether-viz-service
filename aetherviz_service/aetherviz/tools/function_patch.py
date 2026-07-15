@@ -29,9 +29,7 @@ _OBJECT_FUNCTION_START_RE = re.compile(
     r"(?P<name>[A-Za-z_$][\w$]*)\s*:\s*"
     r"(?:async\s+)?function(?:\s+[A-Za-z_$][\w$]*)?\s*\([^)]*\)\s*\{"
 )
-_OBJECT_METHOD_START_RE = re.compile(
-    r"(?:(?<=\{)|(?<=,))\s*(?:async\s+)?(?P<name>[A-Za-z_$][\w$]*)\s*\([^)]*\)\s*\{"
-)
+_OBJECT_METHOD_START_RE = re.compile(r"(?:(?<=\{)|(?<=,))\s*(?:async\s+)?(?P<name>[A-Za-z_$][\w$]*)\s*\([^)]*\)\s*\{")
 _STANDALONE_METHOD_START_RE = re.compile(
     r"^(?!\s*(?:if|for|while|switch|catch)\b)\s*(?:async\s+)?"
     r"(?P<name>[A-Za-z_$][\w$]*)\s*\([^)]*\)\s*\{",
@@ -100,11 +98,7 @@ def repair_function_targets(html: str, report: dict[str, Any]) -> tuple[str, ...
     targets = list(target_functions_from_report(report))
     functions = extract_named_functions(html)
     builder = next(
-        (
-            name
-            for name in _SCENE_BUILDER_NAMES
-            if name not in targets and len(functions.get(name, [])) == 1
-        ),
+        (name for name in _SCENE_BUILDER_NAMES if name not in targets and len(functions.get(name, [])) == 1),
         None,
     )
     if builder is None:
@@ -120,15 +114,18 @@ def describe_target_functions(html: str, targets: tuple[str, ...]) -> list[dict[
         if len(matches) != 1:
             continue
         function = matches[0]
-        descriptions.append(
-            {"function": name, "source_hash": function.source_hash, "source": function.source}
-        )
+        descriptions.append({"function": name, "source_hash": function.source_hash, "source": function.source})
     return descriptions
 
 
-def select_edit_function_descriptions(html: str, instruction: str) -> list[dict[str, str | int]]:
+def select_edit_function_descriptions(
+    html: str,
+    instruction: str,
+    *,
+    target_selectors: tuple[str, ...] = (),
+) -> list[dict[str, str | int]]:
     """Describe runtime-edit targets, including duplicate names selected by source position."""
-    selected = _select_edit_function_sources(html, instruction)
+    selected = _select_edit_function_sources(html, instruction, target_selectors=target_selectors)
     return [
         {
             "function": item.name,
@@ -179,7 +176,12 @@ def select_edit_function_targets(html: str, instruction: str) -> tuple[str, ...]
     return tuple(item.name for item in _select_edit_function_sources(html, instruction))
 
 
-def _select_edit_function_sources(html: str, instruction: str) -> tuple[FunctionSource, ...]:
+def _select_edit_function_sources(
+    html: str,
+    instruction: str,
+    *,
+    target_selectors: tuple[str, ...] = (),
+) -> tuple[FunctionSource, ...]:
     functions = extract_named_functions(html)
     text = instruction or ""
     targets: list[FunctionSource] = []
@@ -202,6 +204,16 @@ def _select_edit_function_sources(html: str, instruction: str) -> tuple[Function
     for name, matches in functions.items():
         if len(matches) == 1 and re.search(rf"(?<![\w$]){re.escape(name)}(?![\w$])", text):
             add(matches[0])
+    for selector in target_selectors:
+        selector_text = str(selector or "").strip()
+        if not selector_text:
+            continue
+        identifiers = {selector_text}
+        if selector_text.startswith("#"):
+            identifiers.add(selector_text[1:])
+        for function in all_functions:
+            if any(identifier in function.source for identifier in identifiers):
+                add(function)
     playback_request = bool(
         re.search(
             r"播放|暂停|重置|速度|动画|不动|无响应|没反应|play|pause|reset|speed|animation",

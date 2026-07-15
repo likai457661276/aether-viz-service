@@ -76,7 +76,7 @@ LANGSMITH_API_KEY="你的 LangSmith API Key"
 LANGSMITH_PROJECT="aetherviz-direct-html"
 ```
 
-`LANGSMITH_TRACING=false` 或未配置 `LANGSMITH_API_KEY` 时不会上报 trace。组织级 API Key 如需指定工作区，可额外设置 `LANGSMITH_WORKSPACE_ID`。每个 API phase 以 `aetherviz.request` 作为根 trace；计划生成会记录 `aetherviz.plan_generation` 子 run 及规范化计划，HTML 生成、确定性校验、确定性修复、模型修复和最终校验也分别作为子 run。函数编辑补丁额外记录带源码位置和哈希的目标、内容是否变化、因果检查结果与回退原因；metadata 记录业务 `run_id`、phase、互动类型、错误/警告类型、修复是否接受、耗时及最终大小。启用追踪时，每个 SSE 事件会额外返回真实的 `langsmith_trace_id`，供前端复制并定位完整调用树。工作流 trace 只保存摘要，不重复保存完整 SSE HTML；模型子 run 仍由 LangChain 自动采集。
+`LANGSMITH_TRACING=false` 或未配置 `LANGSMITH_API_KEY` 时不会上报 trace。组织级 API Key 如需指定工作区，可额外设置 `LANGSMITH_WORKSPACE_ID`。每个 API phase 以 `aetherviz.request` 作为根 trace；计划生成会记录 `aetherviz.plan_generation` 子 run 及规范化计划，HTML 生成、确定性校验、确定性修复、模型修复和最终校验也分别作为子 run。结构化编辑补丁额外记录带源码位置和哈希的目标、问题类型、候选评分、选择证据、候选/实际应用类型分布、内容是否变化、因果检查结果与回退原因；metadata 记录业务 `run_id`、phase、互动类型、错误/警告类型、修复是否接受、耗时及最终大小。启用追踪时，每个 SSE 事件会额外返回真实的 `langsmith_trace_id`，供前端复制并定位完整调用树。工作流 trace 只保存摘要，不重复保存完整 SSE HTML；模型子 run 仍由 LangChain 自动采集。
 
 ## 启动服务
 
@@ -238,7 +238,7 @@ HTML 文件编辑阶段请求示例：
 }
 ```
 
-`phase=edit_html` 必须携带选中的 HTML 文件全文。后端先剥离 `math-shell-v1`、控件契约和动画控制器，只把业务 HTML 作为修改基线；编辑优先采用“源码位置 + 目标 ID + SHA-256 源哈希”的受限 JSON 补丁，依次覆盖 JavaScript 函数、CSS `<style>` 和主视觉/说明/公式等语义区域。服务端要求 replacement 保留目标身份、拒绝 script 注入与无实际变化；错误信息包含可定位失败表达式时，还要求函数补丁消除原失败调用。任一补丁校验失败都会整体回滚，再进入完整业务 HTML 编辑。前端保存结果为新的时间线分支，不覆盖原文件。模型生成、编辑和修复的业务 HTML 常规目标为 28000 字符、硬上限为 40000 字符；服务端装配开销不计入模型上限，最终装配 HTML 仅受 64000 字符异常膨胀安全上限约束。完整编辑会在调用前检查输出预算；模型 `finish_reason=length/max_tokens` 或原始输出缺少 `</html>` 时立即返回 `edit_truncated`，保留原页面，不解析、确定性修复或基于残片继续整页修复。LangSmith 子 Trace 会记录补丁回退原因、目标类型、输入/输出 token、输出字符数及字符/token 比率，便于离线校准预算。
+`phase=edit_html` 必须携带选中的 HTML 文件全文。后端先剥离 `math-shell-v1`、控件契约和动画控制器，只把业务 HTML 作为修改基线；同时对当前装配 HTML 生成一次确定性质量报告，作为区域定位证据。编辑优先采用“源码位置 + 目标 ID + SHA-256 源哈希”的受限 JSON 补丁：从用户明确 selector、质量报告 scope、语义区域、CSS→DOM 和 JavaScript→DOM 依赖中为候选评分，并以分类型配额选择 JavaScript 函数、单条 CSS 规则、主视觉和说明/公式等语义区域。关键词分类只作为低权重兜底；CSS 规则级 replacement 必须保留原 selector，HTML replacement 必须保留目标身份，且统一拒绝 script 注入、外部 CSS 和无实际变化。运行时、空白视觉、文本、控件和样式问题执行对应的补丁后因果检查；任一补丁校验失败都会整体回滚，再进入完整业务 HTML 编辑。前端保存结果为新的时间线分支，不覆盖原文件。模型生成、编辑和修复的业务 HTML 常规目标为 28000 字符、硬上限为 40000 字符；服务端装配开销不计入模型上限，最终装配 HTML 仅受 64000 字符异常膨胀安全上限约束。完整编辑会在调用前检查输出预算；模型 `finish_reason=length/max_tokens` 或原始输出缺少 `</html>` 时立即返回 `edit_truncated`，保留原页面，不解析、确定性修复或基于残片继续整页修复。LangSmith 子 Trace 会记录补丁回退原因、目标类型、选择证据、输入/输出 token、输出字符数及字符/token 比率，便于离线校准预算与结构化补丁成功率。
 
 响应类型为 `text/event-stream`。事件包括：
 

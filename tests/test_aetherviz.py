@@ -1430,6 +1430,39 @@ def test_edit_html_prefers_hash_guarded_function_patch(monkeypatch) -> None:
     assert "__PATCHED__" in result.html
 
 
+def test_edit_workflow_adds_current_validation_report_to_patch_context(monkeypatch) -> None:
+    from aetherviz_service.aetherviz.agents.html_agent import HtmlStreamResult
+    from aetherviz_service.aetherviz.workflow import edit_html_workflow
+
+    captured: dict[str, object] = {}
+
+    def fake_stream_edit_html(**kwargs):
+        captured["context"] = kwargs["context"]
+        yield HtmlStreamResult(html=kwargs["current_html"], degraded=False)
+
+    def fake_run_html_workflow(**kwargs):
+        list(kwargs["html_stream_factory"]())
+        yield "done"
+
+    monkeypatch.setattr(edit_html_workflow, "_stream_edit_html", fake_stream_edit_html)
+    monkeypatch.setattr(edit_html_workflow, "_run_html_workflow", fake_run_html_workflow)
+
+    result = list(
+        edit_html_workflow._run_edit_html_workflow_impl(
+            run_id="run-edit-targeting",
+            current_html=sample_html(),
+            message="修复画面",
+            context={"topic": "动画"},
+        )
+    )
+
+    assert result == ["done"]
+    context = captured["context"]
+    assert isinstance(context, dict)
+    assert isinstance(context["validation_report"], dict)
+    assert "errors" in context["validation_report"]
+
+
 def test_edit_patch_rolls_back_non_causal_runtime_change(monkeypatch) -> None:
     import json
     from unittest.mock import MagicMock

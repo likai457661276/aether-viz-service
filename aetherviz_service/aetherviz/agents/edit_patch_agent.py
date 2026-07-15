@@ -21,8 +21,13 @@ from aetherviz_service.aetherviz.agents.model_factory import (
 from aetherviz_service.aetherviz.tools.content_patch import (
     MAX_CONTENT_REPLACEMENT_CHARS,
     apply_content_replacements,
+    content_patch_causal_error,
     parse_content_replacements,
     select_content_descriptions,
+)
+from aetherviz_service.aetherviz.tools.edit_targeting import (
+    compact_report_context,
+    extract_edit_evidence,
 )
 from aetherviz_service.aetherviz.tools.function_patch import (
     MAX_FUNCTION_REPLACEMENT_CHARS,
@@ -37,9 +42,9 @@ from aetherviz_service.config import settings
 logger = logging.getLogger(__name__)
 
 EDIT_PATCH_SYSTEM_PROMPT = """你是互动 HTML 的最小结构化补丁工程师。
-只输出 JSON：{"replacements":[{"function":"名称","target_id":"原目标 ID","source_hash":"原哈希","replacement":"完整函数源码"}],"blocks":[{"kind":"style|visual|semantic","target_id":"原目标 ID","source_hash":"原哈希","replacement":"完整目标块"}]}。
+只输出 JSON：{"replacements":[{"function":"名称","target_id":"原目标 ID","source_hash":"原哈希","replacement":"完整函数源码"}],"blocks":[{"kind":"css_rule|style|visual|semantic","target_id":"原目标 ID","source_hash":"原哈希","replacement":"完整目标块"}]}。
 只能替换输入列出的目标并原样返回 kind/function、target_id 与 source_hash；不需要修改的数组输出空数组。不得输出完整 HTML、Markdown 或解释。
-函数同名时以 target_id 和 source_hash 区分；块 replacement 必须保留根标签及原有 id、data-role、data-region，不得加入 script。
+函数同名时以 target_id 和 source_hash 区分；HTML 块 replacement 必须保留根标签及原有 id、data-role、data-region，不得加入 script；css_rule 必须保留原 selector，只修改声明。
 根据用户反馈修复运行时行为，保留函数声明形式、签名、页面结构、教学语义和未点名行为。
 错误信息包含具体失败表达式时，必须修改包含该表达式的目标并消除原失败调用，不能只调整播放、暂停、重置等旁支函数。
 动画必须使用独立连续 progress/elapsed/accumulator 推进；离散显示值只能由连续量派生，禁止把 Math.floor/round 后的业务状态作为下一帧累加起点。
@@ -64,64 +69,76 @@ class EditPatchResult:
     output_chars: int = 0
     input_tokens: int | None = None
     output_tokens: int | None = None
+    issue_types: tuple[str, ...] = ()
+    selection_details: tuple[dict[str, Any], ...] = ()
 
 
 def stream_edit_patch(
-    *, raw_html: str, instruction: str, topic: str
+    *,
+    raw_html: str,
+    instruction: str,
+    topic: str,
+    context: dict[str, Any] | None = None,
 ) -> Iterator[dict[str, Any] | EditPatchResult]:
     runner = (
         _traced_stream_edit_patch
         if settings.langsmith_tracing and get_current_run_tree() is not None
         else _stream_edit_patch_impl
     )
-    yield from runner(raw_html=raw_html, instruction=instruction, topic=topic)
+    yield from runner(raw_html=raw_html, instruction=instruction, topic=topic, context=context)
 
 
 @traceable(
     name="aetherviz.html_edit_patch",
     run_type="chain",
     metadata={"component": "aetherviz", "stage": "edit_patch"},
-    process_inputs=lambda inputs: {
-        "source_chars": len(inputs.get("raw_html") or ""),
-        "instruction_chars": len(inputs.get("instruction") or ""),
-        "targets": [
-            {
-                "function": item["function"],
-                "target_id": item["target_id"],
-                "line": item["line"],
-            }
-            for item in select_edit_function_descriptions(
-                inputs.get("raw_html") or "", inputs.get("instruction") or ""
-            )
-        ],
-        "block_targets": [
-            {
-                "kind": item["kind"],
-                "target_id": item["target_id"],
-                "line": item["line"],
-            }
-            for item in select_content_descriptions(
-                inputs.get("raw_html") or "", inputs.get("instruction") or ""
-            )
-        ],
-    },
+    process_inputs=lambda inputs: _trace_targeting_inputs(inputs),
     reduce_fn=lambda items: _summarize(items),
 )
 def _traced_stream_edit_patch(
-    *, raw_html: str, instruction: str, topic: str
+    *,
+    raw_html: str,
+    instruction: str,
+    topic: str,
+    context: dict[str, Any] | None = None,
 ) -> Iterator[dict[str, Any] | EditPatchResult]:
-    yield from _stream_edit_patch_impl(raw_html=raw_html, instruction=instruction, topic=topic)
+    yield from _stream_edit_patch_impl(
+        raw_html=raw_html,
+        instruction=instruction,
+        topic=topic,
+        context=context,
+    )
 
 
 def _stream_edit_patch_impl(
-    *, raw_html: str, instruction: str, topic: str
+    *,
+    raw_html: str,
+    instruction: str,
+    topic: str,
+    context: dict[str, Any] | None = None,
 ) -> Iterator[dict[str, Any] | EditPatchResult]:
+    edit_evidence = extract_edit_evidence(instruction, context)
+    block_descriptions = select_content_descriptions(raw_html, instruction, context)
+    target_selectors = tuple(
+        dict.fromkeys(
+            selector
+            for item in block_descriptions
+            for selector in (
+                str(item.get("selector") or ""),
+                *(str(value) for value in item.get("dependencies", [])),
+            )
+            if selector
+        )
+    )
     descriptions = [
         item
-        for item in select_edit_function_descriptions(raw_html, instruction)
+        for item in select_edit_function_descriptions(
+            raw_html,
+            instruction,
+            target_selectors=target_selectors,
+        )
         if len(item["source"]) <= MAX_FUNCTION_REPLACEMENT_CHARS
     ]
-    block_descriptions = select_content_descriptions(raw_html, instruction)
     selected_target_ids = tuple(str(item["target_id"]) for item in descriptions)
     selected_block_ids = tuple(str(item["target_id"]) for item in block_descriptions)
     if not descriptions and not block_descriptions:
@@ -130,18 +147,19 @@ def _stream_edit_patch_impl(
             attempted=False,
             errors=("no_patch_targets",),
             fallback_reason="no_patch_targets",
+            issue_types=edit_evidence.issue_types,
         )
         return
 
-    yield build_html_progress_payload(
-        [{"content": "定位并补丁修复相关运行时函数", "status": "in_progress"}]
-    )
+    yield build_html_progress_payload([{"content": "定位并补丁修复相关运行时函数", "status": "in_progress"}])
     payload = {
         "topic": topic,
         "instruction": instruction,
         "functions": descriptions,
         "blocks": block_descriptions,
         "allowed_functions": [item["function"] for item in descriptions],
+        "edit_intent": edit_evidence.as_prompt_payload(),
+        "quality_report": compact_report_context(context),
     }
     raw_text = ""
     finish_reason: str | None = None
@@ -168,8 +186,7 @@ def _stream_edit_patch_impl(
         function_replacements = parse_function_replacements(raw_text)
         content_replacements = parse_content_replacements(raw_text)
         combined_replacement_chars = sum(
-            len(item.get("replacement", ""))
-            for item in (*function_replacements, *content_replacements)
+            len(item.get("replacement", "")) for item in (*function_replacements, *content_replacements)
         )
         if combined_replacement_chars > MAX_CONTENT_REPLACEMENT_CHARS:
             yield EditPatchResult(
@@ -182,6 +199,8 @@ def _stream_edit_patch_impl(
                 output_chars=len(raw_text),
                 input_tokens=input_tokens,
                 output_tokens=output_tokens,
+                issue_types=edit_evidence.issue_types,
+                selection_details=_selection_details(descriptions, block_descriptions),
             )
             return
         if function_replacements:
@@ -189,9 +208,7 @@ def _stream_edit_patch_impl(
                 raw_html,
                 function_replacements,
                 allowed_functions=tuple(item["function"] for item in descriptions),
-                allowed_targets=tuple(
-                    (str(item["function"]), str(item["source_hash"])) for item in descriptions
-                ),
+                allowed_targets=tuple((str(item["function"]), str(item["source_hash"])) for item in descriptions),
                 allowed_target_ids=tuple(str(item["target_id"]) for item in descriptions),
             )
         else:
@@ -211,9 +228,17 @@ def _stream_edit_patch_impl(
             applied_functions = ()
             applied_blocks = ()
             patched_html = raw_html
-        causal_error = (
-            patch_causal_error(raw_html, patched_html, instruction) if function_patch.applied else None
-        )
+        causal_error = patch_causal_error(raw_html, patched_html, instruction) if function_patch.applied else None
+        if not causal_error and applied_blocks:
+            applied_block_descriptions = [item for item in block_descriptions if item["target_id"] in applied_blocks]
+            causal_error = content_patch_causal_error(
+                raw_html,
+                patched_html,
+                instruction,
+                context=context,
+                applied_descriptions=applied_block_descriptions,
+                function_changed=bool(applied_functions),
+            )
         if causal_error:
             patch_errors = (*patch_errors, causal_error)
             applied = ()
@@ -224,9 +249,7 @@ def _stream_edit_patch_impl(
         fallback_reason = None
         if not applied:
             fallback_reason = causal_error or (patch_errors[0] if patch_errors else "patch_not_applied")
-        yield build_html_progress_payload(
-            [{"content": "定位并补丁修复相关运行时函数", "status": "completed"}]
-        )
+        yield build_html_progress_payload([{"content": "定位并补丁修复相关运行时函数", "status": "completed"}])
         yield EditPatchResult(
             html=patched_html,
             attempted=True,
@@ -236,13 +259,15 @@ def _stream_edit_patch_impl(
             selected_targets=(*selected_target_ids, *selected_block_ids),
             content_changed=content_changed,
             fallback_reason=fallback_reason,
-            causal_check="failed" if causal_error else "passed" if function_patch.applied else "not_applicable",
+            causal_check="failed" if causal_error else "passed" if applied else "not_applicable",
             strategy="structured_patch" if applied_blocks else "function_patch",
             applied_functions=applied_functions,
             applied_blocks=applied_blocks,
             output_chars=len(raw_text),
             input_tokens=input_tokens,
             output_tokens=output_tokens,
+            issue_types=edit_evidence.issue_types,
+            selection_details=_selection_details(descriptions, block_descriptions),
         )
     except GeneratorExit:
         raise
@@ -258,6 +283,8 @@ def _stream_edit_patch_impl(
             output_chars=len(raw_text),
             input_tokens=input_tokens,
             output_tokens=output_tokens,
+            issue_types=edit_evidence.issue_types,
+            selection_details=_selection_details(descriptions, block_descriptions),
         )
 
 
@@ -286,4 +313,90 @@ def _summarize(items: list[dict[str, Any] | EditPatchResult]) -> dict[str, Any]:
         "chars_per_output_token": (
             round(result.output_chars / result.output_tokens, 3) if result.output_tokens else None
         ),
+        "issue_types": list(result.issue_types),
+        "selection_details": list(result.selection_details),
+        "selected_by_kind": _count_by_field(result.selection_details, "kind"),
+        "selected_by_evidence": _count_selection_evidence(result.selection_details),
+        "applied_by_kind": _count_applied_by_kind(result),
     }
+
+
+def _trace_targeting_inputs(inputs: dict[str, Any]) -> dict[str, Any]:
+    raw_html = inputs.get("raw_html") or ""
+    instruction = inputs.get("instruction") or ""
+    context = inputs.get("context") if isinstance(inputs.get("context"), dict) else None
+    blocks = select_content_descriptions(raw_html, instruction, context)
+    selectors = tuple(str(item.get("selector") or "") for item in blocks if item.get("selector"))
+    functions = select_edit_function_descriptions(
+        raw_html,
+        instruction,
+        target_selectors=selectors,
+    )
+    evidence = extract_edit_evidence(instruction, context)
+    return {
+        "source_chars": len(raw_html),
+        "instruction_chars": len(instruction),
+        "issue_types": list(evidence.issue_types),
+        "report_context": compact_report_context(context),
+        "targets": [
+            {
+                "function": item["function"],
+                "target_id": item["target_id"],
+                "line": item["line"],
+            }
+            for item in functions
+        ],
+        "block_targets": _selection_details([], blocks),
+    }
+
+
+def _selection_details(functions: list[dict[str, Any]], blocks: list[dict[str, Any]]) -> tuple[dict[str, Any], ...]:
+    function_details = tuple(
+        {
+            "kind": "function",
+            "target_id": str(item["target_id"]),
+            "line": int(item["line"]),
+            "score": None,
+            "evidence": [],
+            "region": "runtime",
+        }
+        for item in functions
+    )
+    block_details = tuple(
+        {
+            "kind": str(item["kind"]),
+            "target_id": str(item["target_id"]),
+            "line": int(item["line"]),
+            "score": int(item.get("score") or 0),
+            "evidence": list(item.get("evidence") or []),
+            "region": str(item.get("region") or ""),
+            "selector": str(item.get("selector") or ""),
+        }
+        for item in blocks
+    )
+    return (*function_details, *block_details)
+
+
+def _count_by_field(items: tuple[dict[str, Any], ...], field: str) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for item in items:
+        key = str(item.get(field) or "unknown")
+        counts[key] = counts.get(key, 0) + 1
+    return counts
+
+
+def _count_selection_evidence(items: tuple[dict[str, Any], ...]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for item in items:
+        for evidence in item.get("evidence") or []:
+            key = str(evidence).split(":", 1)[0]
+            counts[key] = counts.get(key, 0) + 1
+    return counts
+
+
+def _count_applied_by_kind(result: EditPatchResult) -> dict[str, int]:
+    applied_ids = set(result.applied)
+    return _count_by_field(
+        tuple(item for item in result.selection_details if item.get("target_id") in applied_ids),
+        "kind",
+    )
