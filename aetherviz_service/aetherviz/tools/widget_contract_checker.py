@@ -115,9 +115,11 @@ def check_widget_runtime_contract(html: str, *, soup: BeautifulSoup | None = Non
     _check_unformatted_dynamic_numbers(script_text, warnings)
 
     external_gsap = any("gsap" in str(script.get("src") or "").lower() for script in parsed.find_all("script"))
-    if external_gsap and not re.search(r"window\.gsap|typeof\s+gsap|typeof\s+window\.gsap", business_script_text):
-        warnings.append(_warning("missing_gsap_fallback_guard", "使用 GSAP CDN，但未检测到 native fallback 判断"))
     uses_direct_gsap = bool(re.search(r"(?:window\.)?gsap\.(?:set|to|from|fromTo|timeline)\s*\(", business_script_text))
+    if external_gsap and uses_direct_gsap and not re.search(
+        r"window\.gsap|typeof\s+gsap|typeof\s+window\.gsap", business_script_text
+    ):
+        warnings.append(_warning("missing_gsap_fallback_guard", "使用 GSAP CDN，但未检测到 native fallback 判断"))
     has_shared_controller = "AetherVizAnimationController" in business_script_text
     has_native_animation = bool(re.search(r"requestAnimationFrame\s*\(", business_script_text))
     if external_gsap and uses_direct_gsap and not (has_shared_controller or has_native_animation):

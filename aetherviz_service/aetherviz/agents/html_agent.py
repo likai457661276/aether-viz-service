@@ -75,6 +75,10 @@ class HtmlStreamResult:
     reasoning_elapsed_ms: int = 0
     first_chunk_elapsed_ms: int = 0
     generation_elapsed_ms: int = 0
+    strategy: str = "full_html"
+    finish_reason: str | None = None
+    source_chars: int = 0
+    patch_functions: tuple[str, ...] = ()
 
 
 def stream_generate_html(topic: str, plan: dict[str, Any]) -> Iterator[dict[str, Any] | HtmlStreamResult]:
@@ -347,7 +351,7 @@ def _iter_deterministic_html_progress() -> Iterator[dict[str, Any]]:
 
 
 def _deterministic_html(topic: str, plan: dict[str, Any]) -> str:
-    raw_title = str(plan.get("title") or topic or "AI互动实验")
+    raw_title = str(plan.get("title") or topic or "AI教学动画")
     raw_goal = str(plan.get("goal") or f"理解{topic}的核心概念")
     title = html.escape(raw_title)
     goal = html.escape(raw_goal)

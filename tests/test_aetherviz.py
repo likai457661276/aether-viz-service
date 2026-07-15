@@ -858,6 +858,24 @@ def test_server_layout_contract_replaces_model_shell_and_is_idempotent() -> None
     assert parsed.body["data-layout-contract"] == "math-shell-v1"
 
 
+def test_extract_business_html_removes_server_shell_and_round_trips() -> None:
+    from aetherviz_service.aetherviz.tools.layout_contract import (
+        assemble_layout_contract,
+        extract_business_html,
+    )
+
+    assembled = assemble_layout_contract(sample_html(), sample_plan())
+    business = extract_business_html(assembled)
+    round_tripped = assemble_layout_contract(business, sample_plan())
+
+    assert len(business) < len(assembled)
+    assert "data-aetherviz-layout-contract" not in business
+    assert "data-aetherviz-animation-contract" not in business
+    assert "function updateVisualization" in business
+    assert "function updateVisualization" in round_tripped
+    assert 'id="aetherviz-app-shell"' in round_tripped
+
+
 def test_server_range_contract_owns_track_progress_and_touch_target() -> None:
     from bs4 import BeautifulSoup
 
@@ -1350,6 +1368,7 @@ def test_edit_phase_applies_deterministic_quality_repair_without_model_rewrite(m
 def test_edit_html_stream_propagates_generator_exit(monkeypatch) -> None:
     from unittest.mock import MagicMock
 
+    from aetherviz_service.aetherviz.agents.edit_patch_agent import EditPatchResult
     from aetherviz_service.aetherviz.workflow import edit_html_workflow
 
     monkeypatch.setattr(settings, "openai_api_key", "test-key")
@@ -1360,6 +1379,11 @@ def test_edit_html_stream_propagates_generator_exit(monkeypatch) -> None:
             raise GeneratorExit()
 
     monkeypatch.setattr(edit_html_workflow, "create_chat_model", lambda kind: GeneratorExitModel())
+    monkeypatch.setattr(
+        edit_html_workflow,
+        "stream_edit_patch",
+        lambda **kwargs: iter([EditPatchResult(html=kwargs["raw_html"], attempted=False)]),
+    )
 
     with pytest.raises(GeneratorExit):
         list(
@@ -1370,6 +1394,73 @@ def test_edit_html_stream_propagates_generator_exit(monkeypatch) -> None:
                 context=None,
             )
         )
+
+
+def test_edit_html_prefers_hash_guarded_function_patch(monkeypatch) -> None:
+    from aetherviz_service.aetherviz.agents.edit_patch_agent import EditPatchResult
+    from aetherviz_service.aetherviz.agents.html_agent import HtmlStreamResult
+    from aetherviz_service.aetherviz.workflow import edit_html_workflow
+
+    source = sample_html()
+    patched = source.replace("function play(){", "function play(){ window.__PATCHED__=true;")
+    monkeypatch.setattr(settings, "openai_api_key", "test-key")
+    monkeypatch.setattr(
+        edit_html_workflow,
+        "stream_edit_patch",
+        lambda **kwargs: iter(
+            [EditPatchResult(html=patched, attempted=True, applied=("play",), finish_reason="stop")]
+        ),
+    )
+    monkeypatch.setattr(
+        edit_html_workflow,
+        "create_chat_model",
+        lambda kind: (_ for _ in ()).throw(AssertionError("补丁成功后不应整页重写")),
+    )
+
+    result = next(
+        item
+        for item in edit_html_workflow._stream_edit_html(
+            topic="动画", message="点击播放没反应", current_html=source, context=None
+        )
+        if isinstance(item, HtmlStreamResult)
+    )
+
+    assert result.strategy == "function_patch"
+    assert result.patch_functions == ("play",)
+    assert "__PATCHED__" in result.html
+
+
+def test_edit_html_rejects_truncated_full_output_without_partial_repair(monkeypatch) -> None:
+    from unittest.mock import MagicMock
+
+    from aetherviz_service.aetherviz.agents.edit_patch_agent import EditPatchResult
+    from aetherviz_service.aetherviz.agents.html_agent import HtmlGenerationError
+    from aetherviz_service.aetherviz.workflow import edit_html_workflow
+
+    class TruncatedModel:
+        def stream(self, messages):
+            yield MagicMock(
+                content="<!DOCTYPE html><html><body><script>function loop(){",
+                response_metadata={"finish_reason": "length"},
+            )
+
+    monkeypatch.setattr(settings, "openai_api_key", "test-key")
+    monkeypatch.setattr(
+        edit_html_workflow,
+        "stream_edit_patch",
+        lambda **kwargs: iter([EditPatchResult(html=kwargs["raw_html"], attempted=False)]),
+    )
+    monkeypatch.setattr(edit_html_workflow, "create_chat_model", lambda kind: TruncatedModel())
+
+    with pytest.raises(HtmlGenerationError) as exc_info:
+        list(
+            edit_html_workflow._stream_edit_html(
+                topic="动画", message="修改说明文字", current_html=sample_html(), context=None
+            )
+        )
+
+    assert exc_info.value.code == "edit_truncated"
+    assert "原页面已保留" in exc_info.value.message
 
 
 def test_repair_stream_propagates_generator_exit(monkeypatch) -> None:

@@ -10,10 +10,56 @@ from typing import Any
 
 from aetherviz_service.aetherviz.tools.javascript_syntax import check_javascript_syntax
 
-MAX_FUNCTION_REPLACEMENTS = 3
+MAX_FUNCTION_REPLACEMENTS = 5
 MAX_FUNCTION_REPLACEMENT_CHARS = 6_000
 _FUNCTION_START_RE = re.compile(r"\bfunction\s+([A-Za-z_$][\w$]*)\s*\([^)]*\)\s*\{")
+_VARIABLE_ARROW_START_RE = re.compile(
+    r"\b(?:const|let|var)\s+(?P<name>[A-Za-z_$][\w$]*)\s*=\s*"
+    r"(?:async\s*)?(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*=>\s*\{"
+)
+_VARIABLE_FUNCTION_START_RE = re.compile(
+    r"\b(?:const|let|var)\s+(?P<name>[A-Za-z_$][\w$]*)\s*=\s*"
+    r"(?:async\s+)?function(?:\s+[A-Za-z_$][\w$]*)?\s*\([^)]*\)\s*\{"
+)
+_OBJECT_ARROW_START_RE = re.compile(
+    r"(?P<name>[A-Za-z_$][\w$]*)\s*:\s*"
+    r"(?:async\s*)?(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*=>\s*\{"
+)
+_OBJECT_FUNCTION_START_RE = re.compile(
+    r"(?P<name>[A-Za-z_$][\w$]*)\s*:\s*"
+    r"(?:async\s+)?function(?:\s+[A-Za-z_$][\w$]*)?\s*\([^)]*\)\s*\{"
+)
+_OBJECT_METHOD_START_RE = re.compile(
+    r"(?:(?<=\{)|(?<=,))\s*(?:async\s+)?(?P<name>[A-Za-z_$][\w$]*)\s*\([^)]*\)\s*\{"
+)
+_STANDALONE_METHOD_START_RE = re.compile(
+    r"^(?!\s*(?:if|for|while|switch|catch)\b)\s*(?:async\s+)?"
+    r"(?P<name>[A-Za-z_$][\w$]*)\s*\([^)]*\)\s*\{",
+    re.MULTILINE,
+)
+_FUNCTION_PATTERNS = (
+    _FUNCTION_START_RE,
+    _VARIABLE_ARROW_START_RE,
+    _VARIABLE_FUNCTION_START_RE,
+    _OBJECT_ARROW_START_RE,
+    _OBJECT_FUNCTION_START_RE,
+    _OBJECT_METHOD_START_RE,
+    _STANDALONE_METHOD_START_RE,
+)
 _SCENE_BUILDER_NAMES = ("buildScene", "rebuildScene", "createScene", "initScene", "initializeScene")
+_PLAYBACK_FUNCTION_NAMES = (
+    "play",
+    "loop",
+    "animate",
+    "nativeFrame",
+    "tick",
+    "setSpeed",
+    "pause",
+    "reset",
+    "applyView",
+    "render",
+    "updateView",
+)
 
 
 @dataclass(frozen=True)
@@ -82,22 +128,55 @@ def describe_target_functions(html: str, targets: tuple[str, ...]) -> list[dict[
 
 def extract_named_functions(html: str) -> dict[str, list[FunctionSource]]:
     functions: dict[str, list[FunctionSource]] = {}
-    for match in _FUNCTION_START_RE.finditer(html or ""):
-        opening = (html or "").find("{", match.start(), match.end())
-        closing = _matching_brace(html or "", opening)
-        if closing is None:
-            continue
-        end = closing + 1
-        source = (html or "")[match.start() : end]
-        item = FunctionSource(
-            name=match.group(1),
-            source=source,
-            source_hash=hashlib.sha256(source.encode("utf-8")).hexdigest(),
-            start=match.start(),
-            end=end,
-        )
-        functions.setdefault(item.name, []).append(item)
+    seen_spans: set[tuple[int, int]] = set()
+    source_html = html or ""
+    for pattern in _FUNCTION_PATTERNS:
+        for match in pattern.finditer(source_html):
+            opening = source_html.find("{", match.start(), match.end())
+            closing = _matching_brace(source_html, opening)
+            if closing is None:
+                continue
+            start = match.start()
+            if pattern in {_OBJECT_METHOD_START_RE, _STANDALONE_METHOD_START_RE}:
+                while start < match.end() and source_html[start].isspace():
+                    start += 1
+            end = closing + 1
+            if (start, end) in seen_spans:
+                continue
+            seen_spans.add((start, end))
+            name = match.groupdict().get("name") or match.group(1)
+            source = source_html[start:end]
+            item = FunctionSource(
+                name=name,
+                source=source,
+                source_hash=hashlib.sha256(source.encode("utf-8")).hexdigest(),
+                start=start,
+                end=end,
+            )
+            functions.setdefault(item.name, []).append(item)
     return functions
+
+
+def select_edit_function_targets(html: str, instruction: str) -> tuple[str, ...]:
+    """Select a bounded set of unique functions for a runtime-focused edit."""
+    functions = extract_named_functions(html)
+    text = instruction or ""
+    targets: list[str] = []
+    for name, matches in functions.items():
+        if len(matches) == 1 and re.search(rf"(?<![\w$]){re.escape(name)}(?![\w$])", text):
+            targets.append(name)
+    playback_request = bool(
+        re.search(
+            r"播放|暂停|重置|速度|动画|不动|无响应|没反应|play|pause|reset|speed|animation",
+            text,
+            re.IGNORECASE,
+        )
+    )
+    if playback_request:
+        for name in _PLAYBACK_FUNCTION_NAMES:
+            if name not in targets and len(functions.get(name, [])) == 1:
+                targets.append(name)
+    return tuple(targets[:MAX_FUNCTION_REPLACEMENTS])
 
 
 def parse_function_replacements(raw_text: str) -> list[dict[str, str]]:
@@ -164,14 +243,18 @@ def apply_function_replacements(
         if item.get("source_hash") != original.source_hash:
             errors.append(f"source_hash_mismatch:{name}")
             continue
-        replacement_match = _FUNCTION_START_RE.match(replacement)
-        if not replacement_match or replacement_match.group(1) != name:
+        replacement_functions = extract_named_functions(replacement)
+        replacement_matches = replacement_functions.get(name, [])
+        if len(replacement_matches) != 1 or replacement_matches[0].source.strip() != replacement:
             errors.append(f"replacement_name_mismatch:{name}")
             continue
         if "</script" in replacement.lower():
             errors.append(f"script_escape:{name}")
             continue
-        syntax_error = check_javascript_syntax(replacement)
+        syntax_source = replacement
+        if not re.match(r"^(?:async\s+)?function\b|^(?:const|let|var)\b", replacement):
+            syntax_source = f"const __aetherviz_patch__={{ {replacement} }};"
+        syntax_error = check_javascript_syntax(syntax_source)
         if syntax_error:
             errors.append(f"replacement_js_syntax:{name}:{syntax_error}")
             continue

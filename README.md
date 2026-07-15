@@ -1,6 +1,6 @@
-# AI互动实验
+# AI教学动画
 
-`AI互动实验` 是一个基于 Python 3.12 和 FastAPI 的后端服务，用于根据教学主题生成完整、可直接打开的互动教学 HTML。
+`AI教学动画` 是一个基于 Python 3.12 和 FastAPI 的后端服务，用于根据教学主题生成完整、可直接打开的互动教学 HTML。
 
 当前生成链路使用 LangChain `ChatOpenAI` 生成动态单页互动课件：先生成可确认的 `interactive` 教案计划，用户可多轮修订计划，确认后再生成 HTML。服务端根据主题生成通用 `knowledge_profile`（学科、概念族、表征类型、教学模式）；普通主题沿用直接 HTML 链路，`geometric_recomposition` 几何切分重排主题只由模型生成纯 JSON 几何 IR（通用图元模板、有限循环、受限表达式、源/目标 transform 和教学帧），模型不再生成 JavaScript。DOM、SVG 注册表、IR 解释器、动画控制器、参数生命周期和 iframe Runtime 全部由服务端脚手架提供。最终页面统一按 `math-shell-v1` 布局契约装配，不为单独知识点维护硬编码模板。HTML 只在请求内存中完成装配、检查和修复，通过 SSE 返回前端渲染与会话缓存；后端不落盘缓存 HTML、修复稿或检查报告。
 
@@ -28,7 +28,7 @@ aether-viz-service/
 └── docker-compose.prod.yml
 ```
 
-Python 包名为 `aetherviz_service`，服务标题为 `AI互动实验`。
+Python 包名为 `aetherviz_service`，服务标题为 `AI教学动画`。
 
 ## 安装依赖
 
@@ -131,7 +131,7 @@ pnpm build
 
 ### POST /bingo-ai/generate-aetherviz-spec
 
-根据教学主题生成 AI互动实验风格的完整独立互动教学 HTML。接口采用同端 SSE 和确定性工作流，计划类型固定为单页 `interactive`，并通过 `interactive_type` 分流为 `simulation`、`diagram` 或 `game`。
+根据教学主题生成 AI教学动画风格的完整独立互动教学 HTML。接口采用同端 SSE 和确定性工作流，计划类型固定为单页 `interactive`，并通过 `interactive_type` 分流为 `simulation`、`diagram` 或 `game`。
 
 计划阶段请求示例：
 
@@ -237,7 +237,7 @@ HTML 文件编辑阶段请求示例：
 }
 ```
 
-`phase=edit_html` 必须携带选中的 HTML 文件全文。后端以该文件为修改基线，根据 `message` 生成新的完整 HTML，前端保存为新的时间线分支，不覆盖原文件。模型生成、编辑和修复的业务 HTML 目标为 32000 字符、硬上限为 40000 字符，用于控制模型耗时、上下文和代码复杂度；服务端布局骨架、控件契约和运行时 guard 的确定性装配开销不计入模型上限。最终装配 HTML 仅受 64000 字符异常膨胀安全上限约束。模型原始输出缺少 `</html>` 时会标记为截断并强制进入一次模型修复，不会把自动闭合结果静默当成正常页面。
+`phase=edit_html` 必须携带选中的 HTML 文件全文。后端先剥离 `math-shell-v1`、控件契约和动画控制器，只把业务 HTML 作为修改基线；运行时/动画反馈优先采用“候选函数 + SHA-256 源哈希”的受限 JSON 补丁，服务端应用后重新装配和校验，其他修改才回退到完整业务 HTML 编辑。前端保存结果为新的时间线分支，不覆盖原文件。模型生成、编辑和修复的业务 HTML 目标为 32000 字符、硬上限为 40000 字符；服务端装配开销不计入模型上限，最终装配 HTML 仅受 64000 字符异常膨胀安全上限约束。完整编辑会在调用前检查输出预算；模型 `finish_reason=length/max_tokens` 或原始输出缺少 `</html>` 时立即返回 `edit_truncated`，保留原页面，不解析、确定性修复或基于残片继续整页修复。
 
 响应类型为 `text/event-stream`。事件包括：
 
@@ -252,6 +252,7 @@ HTML 文件编辑阶段请求示例：
 - `html.edit_started`
 - `validation.started`
 - `validation.report`
+- `validation.candidate`：仅表示尚未接受的修复候选，固定包含 `accepted=false`、`rolled_back=true`、`rejection_reason`，前端不得用其覆盖当前有效报告
 - `repair.started`
 - `repair.done`：修复结束状态，`data` 同时返回修复后最终 `bytes` 和 `chars`
 - `html.done`：返回完整 HTML；metadata 额外包含最终 `bytes`、`chars`、`model_chars`、`assembled_chars`、`assembly_overhead_chars`、`assembly_count` 和 `truncated`
@@ -280,9 +281,9 @@ HTML 文件编辑阶段请求示例：
 3. `phase=approve_plan` 将计划状态置为 `approved`。
 4. `phase=generate` 根据 `knowledge_profile.representation_type` 路由：`geometric_recomposition` 由 `recomposition_scene_agent` 一次生成 3 个结构化几何 IR 候选，不生成多个 HTML；服务端淘汰确定性硬校验失败候选，对其余候选按固定权重和稳定指纹排序，只编译最高分 IR 并装配生命周期脚手架。目标拼合已满足连通、重叠和形状约束但仅整体越界时，服务端先对所有目标端点执行保持几何关系的统一平移归位；全部候选仅因中间 transform 证据不足而失败时，再用通用 waypoint 补全器生成有界、偏离首尾直线插值的独立中间状态并重新执行全部硬校验。仍失败才对最接近合格的 IR 做一次受限模型修复。计划声明显式 `target_assembly` 时，候选和修复均失败会明确终止生成，不再用无法证明原主题几何语义的通用 fallback 冒充正确结果。独立证据报告包含阶段、参数状态、piece id、失败原因、端点分离分数、直线路径偏离分数和各维度阈值；其他类型由 `html_agent` 直接生成业务 HTML。
 5. 模型业务 HTML 先执行 32000/40000 字符约束，再经过 `math-shell-v1` 服务端装配器；模型外层布局不会进入最终 HTML。装配器会过滤业务 CSS 中的页面级、布局槽位根节点和 range 外观规则，标准 range 由 `range-v1` 独占尺寸与渲染，播放、暂停、重置按钮及 select 由服务端提供统一的按压、状态、焦点反馈，`controller-v1` 在业务脚本执行前提供 GSAP/RAF 共用动画控制接口并广播播放状态。最终装配只执行 64000 字符异常膨胀检查。
-6. `validation_report` 聚合布局、HTML、JavaScript、安全、分阶段长度、Widget、动画生命周期和学科一致性检查。Widget 检查会识别主视觉挂载节点的直接查询及一层精确字符串常量查询，避免把可证明的 SVG/Canvas 动态挂载误判为空节点；动画检查会阻断 timeline/RAF 逐帧回调调用结构性 DOM/SVG 重建函数、可为空的 first/lastChild 清空后直接重挂载，并提示未清理或未经存在性校验的动态节点注册表、局部几何与世界 transform 重复编码，以及 GSAP 直接污染 getState 可序列化业务对象的风险；学科启发式检查仍只产生 warning。
-7. 检查失败时先确定性修复业务 HTML。生命周期错误优先使用“报告点名函数 + SHA-256 源哈希”的函数级替换，限制函数数量和总字符数，失败立即回滚；其他硬错误才进入整页修复。截断候选、引入 `js_syntax`/`missing_runtime_ready` 的候选、以及未严格减少硬错误的候选一律拒绝。硬错误修复 prompt 不携带质量 warning，attempt 事件统一单调编号。
-8. 生成、编辑和模型修复的候选结果都会重新经过同一个服务端布局装配器，`phase=edit_html` 不能改变布局外壳，只能修改数学内容、业务交互与槽位优先级；编辑候选会继续执行确定性视觉/动画质量收尾，但不会为 warning 额外发起一次完整模型重写。结果仍生成新 HTML 分支，不覆盖旧 HTML。
+6. `validation_report` 聚合布局、HTML、JavaScript、安全、分阶段长度、Widget、动画生命周期和学科一致性检查。Widget 检查会识别主视觉挂载节点的直接查询及一层精确字符串常量查询，避免把可证明的 SVG/Canvas 动态挂载误判为空节点；仅在业务脚本直接调用 GSAP 时要求 fallback guard。动画检查会阻断 timeline/RAF 逐帧回调调用结构性 DOM/SVG 重建函数、可为空的 first/lastChild 清空后直接重挂载，并提示未清理或未经存在性校验的动态节点注册表、量化状态反复吞掉逐帧增量、空实现 `setSpeed`、绕过统一动画控制器、局部几何与世界 transform 重复编码，以及 GSAP 直接污染 getState 可序列化业务对象的风险；学科启发式检查仍只产生 warning。
+7. 检查失败时先确定性修复业务 HTML。生命周期错误优先使用“报告点名函数/方法/箭头函数 + SHA-256 源哈希”的函数级替换，限制函数数量和总字符数，失败回滚后仍允许其他硬错误修复继续执行；其他硬错误才进入整页修复。截断源输出不进入修复循环；截断候选、引入 `js_syntax`/`missing_runtime_ready` 的候选、以及未严格减少硬错误的候选一律拒绝。候选检查只发送 `validation.candidate`，接受后才发送新的 `validation.report`。硬错误修复 prompt 不携带质量 warning，attempt 事件统一单调编号。
+8. 生成、编辑和模型修复的候选结果都会重新经过同一个服务端布局装配器。`phase=edit_html` 会先执行 `extract_business_html`，运行时问题优先走小输出补丁，完整编辑只处理业务 HTML；它不能改变布局外壳，只能修改数学内容、业务交互与槽位优先级。编辑候选会继续执行确定性视觉/动画质量收尾，但不会为 warning 额外发起一次完整模型重写。结果仍生成新 HTML 分支，不覆盖旧 HTML。
 9. 最终 HTML 仅通过 `html.done` 返回前端；服务端不保留 HTML 文件缓存或产物路径。
 
 生产同步链路不启动浏览器。几何 IR 只允许白名单 state/definition/local 引用、算术与几何操作符、SVG 图元和属性；通用 DSL 包含 `atan/atan2/hypot` 等角度与距离计算，并允许每个稳定图元声明 2~5 个 transform keyframes。计划中的 `recomposition_spec` 会由前后端类型和 approve/generate 请求契约完整传递；其中 `proof_constraints` 描述度量不变量、目标关系、目标拼合约束和教学阶段。每个 `stage_requirement` 由服务端归一化为唯一 `id`、`source/intermediate/target` 角色、确定时间点、几何证据类型和最小图元比例。IR 的教学帧必须用 `stage_id`/`at` 一一覆盖计划阶段；每个中间阶段必须有足够比例图元在同一时间点形成区别于首尾且偏离直接线性插值的几何关键状态，纯文字中间步骤会被阻断。`target_relations` 使用通用结构化关系 `equal_area` / `equal_length` / `equal_angle` / `parallel` / `perpendicular` / `coincident` / `collinear` / `congruent`，通过图元、顶点和线段引用表达；`target_assembly` 使用 `connected` / `non_overlapping` / `approximate_rectangle` 描述世界坐标下的连通性、重叠率、矩形度及参数趋势，不包含知识点分支。服务端会在默认、最小和最大状态展开图元，阻断无效尺寸、非有限值、重复 id、静止端点、源状态明显重叠、源/目标整体越界、缺失中间几何证据、明确违反度量不变量、结构化几何关系或显式目标拼合约束的结果；仅目标拼合整体越界且所有采样状态的联合包围盒可容纳于画布时，允许统一平移目标端点后重新执行完整校验。归一化计划始终保留 `piece_congruence`，因此 repeat 图元的局部几何不得直接或间接依赖 repeat 索引，索引只能用于 id、样式和 transform，防止局部角度与旋转重复编码。修复反馈只携带状态级拼合指标和阶段失败摘要，避免逐拼片诊断挤占模型上下文。未声明 `target_assembly` 时该评分项为 0，不再按满分处理。扇形 `sector_path` 支持确定性轮廓采样和面积计算，其他当前图元或引用不足以计算时产生 warning，且不可计算的显式关系不会获得完整数学评分。编译后的 Scene Module 还会在无 DOM/网络/动态代码能力的 Node `vm` 中执行低成本冒烟检查，检查器会从 IR 自动发现任意计划 state 名称并补齐采样值；真实浏览器布局与行为验证仍由离线流程负责。
@@ -300,6 +301,8 @@ uv run python evals/run_eval.py --repetitions 4 --max-runs 35 --live-model --bro
 ```
 
 脚本除视觉布局外，还检查槽位重叠、range 的 44~64px 命中高度和槽位内包含关系、播放后的可见变化、暂停稳定性、参数修改后的完整重置、完成状态与再次播放、重复播放节点数稳定性，并收集页面异常和每个运行时动作的调用异常；单个动作抛错会形成失败报告而不会中断整轮回归。脚本还通过阻断 GSAP CDN 验证 native fallback，且只用于离线验证，不进入生产同步链路。
+
+`evals/datasets/html_contract/playback_progress.html` 是通用播放进度回归夹具；`tests/evals/test_playback_regression.py` 会真实点击播放按钮，并在 native fallback 与本地 GSAP stub 两种路径下验证 500ms 内 `getState()` 的连续进度及可见画面均发生变化。该检查只在本地测试执行，不进入生产请求。
 
 可从 `langsmith trace get --full --format json --output ...` 的真实导出构建本地单步评估数据集：
 
@@ -356,7 +359,7 @@ uv run python evals/reporting/regression.py \
 
 ## 验证
 
-运行 AI互动实验测试：
+运行 AI教学动画测试：
 
 ```bash
 uv run pytest tests/test_aetherviz.py

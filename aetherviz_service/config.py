@@ -5,7 +5,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    app_name: str = "AI互动实验"
+    app_name: str = "AI教学动画"
     openai_api_key: str | None = None
     openai_base_url: str | None = "https://dashscope.aliyuncs.com/compatible-mode/v1"
     openai_plan_model: str = "deepseek-v4-flash"
@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     aetherviz_html_max_tokens: int = 8192
     aetherviz_scene_max_tokens: int = 12288
     aetherviz_edit_max_tokens: int = 9216
+    aetherviz_edit_patch_max_tokens: int = 3072
     aetherviz_repair_max_tokens: int = 9216
     aetherviz_max_repair_attempts: int = 1
     aetherviz_plan_max_tokens: int = 3072

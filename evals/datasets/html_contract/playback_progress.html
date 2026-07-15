@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head><meta charset="UTF-8"><title>动画播放进度回归</title></head>
+<body>
+<section id="aetherviz-stage"><svg data-role="main-visual" viewBox="0 0 100 100"><text id="value" x="50" y="50">6</text></svg></section>
+<div class="control-panel" data-region="controls">
+  <button id="play-animation">播放</button><button id="pause-animation">暂停</button><button id="reset-animation">重置</button>
+  <select id="animation-speed"><option value="1">1</option><option value="2">2</option></select>
+</div>
+<div data-region="caption">播放后边数应持续增加。</div><div data-region="formula">n ≥ 6</div>
+<script type="application/json" id="widget-config">{"type":"simulation","concept":"连续动画进度","variables":{},"presets":[]}</script>
+<script>
+const state={sides:6,progress:0,isPlaying:false};
+const value=document.getElementById('value');
+let controller;
+function applyProgress(progress){state.progress=progress;state.sides=6+Math.floor(progress*94);value.textContent=String(state.sides);}
+function play(){state.isPlaying=true;controller.play();}
+function pause(){state.isPlaying=false;controller.pause();}
+function reset(){state.isPlaying=false;controller.reset();}
+function setSpeed(speed){controller.setSpeed(speed);}
+function update(next){if(next&&Number.isFinite(Number(next.progress)))controller.setProgress(Number(next.progress));}
+function getState(){return{...state};}
+function handleWidgetAction(event){const action=event.data&&event.data.type;if(action==='SET_WIDGET_STATE')update(event.data.state);if(action==='HIGHLIGHT_ELEMENT'||action==='ANNOTATE_ELEMENT'||action==='REVEAL_ELEMENT')return;}
+controller=window.AetherVizAnimationController.create({duration:2,update:applyProgress});
+document.getElementById('play-animation').addEventListener('click',play);
+document.getElementById('pause-animation').addEventListener('click',pause);
+document.getElementById('reset-animation').addEventListener('click',reset);
+document.getElementById('animation-speed').addEventListener('change',event=>setSpeed(event.target.value));
+window.addEventListener('message',handleWidgetAction);
+window.AetherVizRuntime={play,pause,reset,setSpeed,update,getState};
+window.__AETHERVIZ_RUNTIME_READY__=true;
+</script>
+</body></html>

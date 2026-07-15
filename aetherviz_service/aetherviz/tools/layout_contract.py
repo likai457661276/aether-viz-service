@@ -184,6 +184,87 @@ def assemble_layout_contract(html: str, plan: dict[str, Any] | None = None) -> s
     return "<!DOCTYPE html>\n" + str(soup.html)
 
 
+def extract_business_html(html: str) -> str:
+    """Remove the server-owned shell before sending an existing page to a model.
+
+    ``assemble_layout_contract`` is intentionally idempotent but its result is
+    much larger than the model-authored document.  Editing the assembled page
+    wastes the completion budget reproducing CSS and runtime guards.  This
+    inverse keeps only the semantic regions, business assets and business
+    scripts needed to assemble the same page again.
+    """
+    soup = BeautifulSoup(html or "", "html.parser")
+    shell = soup.select_one("#aetherviz-app-shell")
+    if not isinstance(shell, Tag):
+        return html
+
+    for owned in soup.select(
+        '[data-aetherviz-layout-contract], [data-aetherviz-layout-guard="true"], '
+        '[data-aetherviz-control-contract], [data-aetherviz-animation-contract]'
+    ):
+        owned.decompose()
+
+    assert soup.body is not None
+    business_scripts = [script.extract() for script in list(soup.body.find_all("script"))]
+    regions: list[Tag] = []
+
+    stage = shell.select_one("#aetherviz-stage")
+    if isinstance(stage, Tag):
+        stage.extract()
+        for attribute in ("class", "data-layout-slot"):
+            stage.attrs.pop(attribute, None)
+        regions.append(stage)
+
+    primary = shell.select_one(".av-primary-controls")
+    if isinstance(primary, Tag):
+        controls = primary.select_one('[data-region="controls"], .control-panel, .controls')
+        if isinstance(controls, Tag):
+            regions.append(controls.extract())
+        else:
+            wrapper = soup.new_tag("div", attrs={"class": "control-panel", "data-region": "controls"})
+            for child in list(primary.contents):
+                if isinstance(child, Tag) and "av-empty" in child.get("class", []):
+                    continue
+                wrapper.append(child.extract())
+            if wrapper.contents:
+                regions.append(wrapper)
+
+    for selector, region_name in (
+        (".av-caption", "caption"),
+        (".av-formula", "formula"),
+    ):
+        slot = shell.select_one(selector)
+        if not isinstance(slot, Tag):
+            continue
+        source = slot.select_one(f'[data-region="{region_name}"]')
+        if isinstance(source, Tag) and source is not slot:
+            regions.append(source.extract())
+            continue
+        if slot.select_one(".av-empty") is None and slot.get_text(strip=True):
+            wrapper = soup.new_tag("div", attrs={"data-region": region_name})
+            for child in list(slot.contents):
+                wrapper.append(child.extract())
+            regions.append(wrapper)
+
+    details = shell.select_one(".av-details")
+    if isinstance(details, Tag):
+        for child in list(details.children):
+            if not isinstance(child, Tag):
+                continue
+            if child.get("data-region") in {"teaching-flow", "secondary-controls"} or child.select_one(
+                '[data-region="teaching-flow"]'
+            ):
+                regions.append(child.extract())
+
+    soup.body.clear()
+    soup.body.attrs = {}
+    for region in regions:
+        soup.body.append(region)
+    for script in business_scripts:
+        soup.body.append(script)
+    return "<!DOCTYPE html>\n" + str(soup.html)
+
+
 def business_css_ownership_violations(css: str) -> list[str]:
     """Return business selectors that attempt to own server layout or range chrome."""
     violations: list[str] = []
@@ -264,7 +345,7 @@ def _fill_slot(target: Tag | None, source: Tag | None, fallback: str = "") -> No
 
 
 def _shell_markup(plan: dict[str, Any]) -> str:
-    title = html_lib.escape(str(plan.get("title") or "AI互动实验"))
+    title = html_lib.escape(str(plan.get("title") or "AI教学动画"))
     goal = html_lib.escape(str(plan.get("goal") or "观察、操作并解释关键关系"))
     objectives = (
         plan.get("learning_objectives")

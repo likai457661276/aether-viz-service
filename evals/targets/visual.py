@@ -99,6 +99,34 @@ RUNTIME_SNAPSHOT_JS = r"""
 }
 """
 
+GSAP_TEST_STUB_JS = r"""
+(() => {
+  window.gsap = {
+    to(target, options) {
+      let killed = false, paused = false, scale = 1, started = 0;
+      const from = Number(target.p) || 0, to = Number(options.p) || 1;
+      const duration = Math.max(Number(options.duration) || .001, .001) * 1000;
+      const context = {targets: () => [target]};
+      function frame(now) {
+        if (killed || paused) return;
+        if (!started) started = now;
+        const progress = Math.min(1, (now - started) * scale / duration);
+        target.p = from + (to - from) * progress;
+        if (options.onUpdate) options.onUpdate.call(context);
+        if (progress >= 1) { if (options.onComplete) options.onComplete(); return; }
+        requestAnimationFrame(frame);
+      }
+      requestAnimationFrame(frame);
+      return {
+        kill() { killed = true; },
+        pause() { paused = true; },
+        timeScale(value) { scale = Math.max(Number(value) || 1, .01); return this; }
+      };
+    }
+  };
+})()
+"""
+
 
 def _runtime_behavior(page) -> dict:
     initial = page.evaluate(RUNTIME_SNAPSHOT_JS)
@@ -208,6 +236,48 @@ def _runtime_behavior(page) -> dict:
         "replay_after_completion": not completion_reached
         or replaying["visual_signature"] != completed["visual_signature"],
         "snapshots": {"initial": initial, "playing": playing, "paused": paused, "reset": reset},
+    }
+
+
+def evaluate_playback_progress(
+    html_path: Path, *, wait_ms: int = 500, use_gsap_stub: bool = False
+) -> dict:
+    """Low-cost offline regression for the play button and observable state progress."""
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        page = browser.new_page(viewport={"width": 960, "height": 720})
+        errors: list[str] = []
+        page.on("pageerror", lambda error: errors.append(str(error)))
+        if use_gsap_stub:
+            page.add_init_script(GSAP_TEST_STUB_JS)
+        else:
+            page.route("**/*gsap*", lambda route: route.abort())
+        page.goto(html_path.resolve().as_uri(), wait_until="load")
+        page.wait_for_function("window.__AETHERVIZ_RUNTIME_READY__ === true")
+        before = page.evaluate(RUNTIME_SNAPSHOT_JS)
+        page.click("#play-animation")
+        page.wait_for_timeout(wait_ms)
+        after = page.evaluate(RUNTIME_SNAPSHOT_JS)
+        browser.close()
+    before_state = before.get("state") if isinstance(before.get("state"), dict) else {}
+    after_state = after.get("state") if isinstance(after.get("state"), dict) else {}
+    numeric_progress = {
+        key: (before_state[key], after_state.get(key))
+        for key in before_state
+        if isinstance(before_state.get(key), (int, float))
+        and isinstance(after_state.get(key), (int, float))
+        and after_state[key] > before_state[key]
+    }
+    return {
+        "passed": not errors
+        and bool(numeric_progress)
+        and before["visual_signature"] != after["visual_signature"],
+        "use_gsap_stub": use_gsap_stub,
+        "wait_ms": wait_ms,
+        "numeric_progress": numeric_progress,
+        "browser_errors": errors,
+        "before": before,
+        "after": after,
     }
 
 

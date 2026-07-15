@@ -26,6 +26,14 @@ def check_animation_lifecycle(html: str, *, soup: BeautifulSoup | None = None) -
         for script in parsed.find_all("script")
         if not script.get("src") and str(script.get("type", "")).lower() != "application/json"
     )
+    business_script_text = "\n".join(
+        script.get_text("\n", strip=False)
+        for script in parsed.find_all("script")
+        if not script.get("src")
+        and str(script.get("type", "")).lower() != "application/json"
+        and not script.get("data-aetherviz-animation-contract")
+        and not script.get("data-aetherviz-control-contract")
+    )
     errors: list[dict] = []
     warnings: list[dict] = []
     functions = _extract_function_bodies(script_text)
@@ -71,6 +79,8 @@ def check_animation_lifecycle(html: str, *, soup: BeautifulSoup | None = None) -
 
     _check_unchecked_node_registries(registries, functions, warnings)
     _check_duplicate_geometry_transform_encoding(script_text, warnings)
+    _check_quantized_animation_accumulator(business_script_text, warnings)
+    _check_playback_api_effects(business_script_text, warnings)
 
     return {
         "ok": not errors,
@@ -79,6 +89,55 @@ def check_animation_lifecycle(html: str, *, soup: BeautifulSoup | None = None) -
         "errors": errors,
         "warnings": warnings,
     }
+
+
+def _check_quantized_animation_accumulator(script_text: str, warnings: list[dict]) -> None:
+    """Detect discrete state reused as the next frame's continuous accumulator."""
+    quantized_re = re.compile(
+        r"(?P<object>[A-Za-z_$][\w$]*)\.(?P<field>[A-Za-z_$][\w$]*)\s*=\s*"
+        r"Math\.(?:floor|round|ceil|trunc)\s*\(\s*(?P<next>[A-Za-z_$][\w$]*)\s*\)"
+    )
+    for match in quantized_re.finditer(script_text):
+        source_re = re.compile(
+            rf"(?:const|let|var)\s+{re.escape(match.group('next'))}\s*=\s*"
+            rf"{re.escape(match.group('object'))}\.{re.escape(match.group('field'))}\s*[+-]"
+        )
+        if not source_re.search(script_text[: match.start()]):
+            continue
+        warnings.append(
+            _issue(
+                "quantized_animation_accumulator",
+                f"动画把离散化后的 {match.group('object')}.{match.group('field')} 作为下一帧累加起点；"
+                "小于一个整数步长的逐帧增量会被反复丢弃，导致播放循环运行但画面不变化。"
+                "应保留独立连续 progress/elapsed/accumulator，仅在渲染时量化显示值。",
+                state_field=f"{match.group('object')}.{match.group('field')}",
+            )
+        )
+        return
+
+
+def _check_playback_api_effects(script_text: str, warnings: list[dict]) -> None:
+    functions = _extract_function_bodies(script_text)
+    set_speed = functions.get("setSpeed")
+    if set_speed is not None:
+        meaningful = bool(
+            re.search(r"(?:\.setSpeed\s*\(|\.timeScale\s*\(|\bspeed\s*=|\bplaybackRate\s*=)", set_speed)
+        )
+        if not meaningful:
+            warnings.append(
+                _issue(
+                    "no_op_set_speed",
+                    "setSpeed 未改变 controller、timeline、playbackRate 或动画速度状态，速度控件不会生效。",
+                )
+            )
+    if re.search(r"requestAnimationFrame\s*\(", script_text) and "AetherVizAnimationController" not in script_text:
+        warnings.append(
+            _issue(
+                "animation_controller_bypass",
+                "业务脚本自行维护 requestAnimationFrame 时间源，未复用 AetherVizAnimationController；"
+                "play/pause/reset/replay/setSpeed 语义容易分叉。",
+            )
+        )
 
 
 def _extract_function_bodies(script: str) -> dict[str, str]:

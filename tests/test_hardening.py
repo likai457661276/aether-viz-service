@@ -346,6 +346,25 @@ def test_animation_lifecycle_allows_attribute_only_frame_updates() -> None:
     assert report["ok"] is True
 
 
+def test_animation_lifecycle_warns_when_quantized_state_stalls_accumulation() -> None:
+    html = """<script>
+    const STATE={sides:6};
+    function loop(timestamp){
+      const dt=0.016;
+      let nextSides=STATE.sides+20*dt;
+      STATE.sides=Math.floor(nextSides);
+      requestAnimationFrame(loop);
+    }
+    function setSpeed(value){console.log(value);}
+    </script>"""
+
+    warning_types = {item["type"] for item in check_animation_lifecycle(html)["warnings"]}
+
+    assert "quantized_animation_accumulator" in warning_types
+    assert "no_op_set_speed" in warning_types
+    assert "animation_controller_bypass" in warning_types
+
+
 def test_animation_lifecycle_warns_about_unchecked_dynamic_node_registry() -> None:
     html = sample_html().replace(
         "function updateVisualization(){",

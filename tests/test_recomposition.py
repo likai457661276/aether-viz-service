@@ -1436,6 +1436,37 @@ def test_function_patch_requires_named_target_and_exact_hash() -> None:
     assert "source_hash_mismatch:updateLabels" in stale.errors
 
 
+def test_function_patch_supports_arrow_and_object_methods() -> None:
+    html = """<script>
+    const loop = (now) => { state.progress = now; };
+    const runtime = { setSpeed(value) { speed = value; } };
+    </script>"""
+    descriptions = {
+        item["function"]: item
+        for item in describe_target_functions(html, ("loop", "setSpeed"))
+    }
+    result = apply_function_replacements(
+        html,
+        [
+            {
+                "function": "loop",
+                "source_hash": descriptions["loop"]["source_hash"],
+                "replacement": "const loop = (now) => { elapsed = now; state.progress = elapsed; }",
+            },
+            {
+                "function": "setSpeed",
+                "source_hash": descriptions["setSpeed"]["source_hash"],
+                "replacement": "setSpeed(value) { speed = Math.max(Number(value) || 1, .01); }",
+            },
+        ],
+        allowed_functions=("loop", "setSpeed"),
+    )
+
+    assert result.applied == ("loop", "setSpeed")
+    assert "elapsed = now" in result.html
+    assert "Math.max" in result.html
+
+
 def test_function_repair_includes_scene_builder_for_variable_topology() -> None:
     html = """<script>
     function buildScene(){ dots.length=0; for(let i=0;i<96;i++){const dot=createDot();stage.appendChild(dot);dots.push(dot);} }

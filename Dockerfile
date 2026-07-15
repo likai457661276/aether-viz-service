@@ -20,4 +20,4 @@ RUN uv sync --frozen --no-dev
 
 EXPOSE 10095
 
-CMD ["uv", "run", "--frozen", "uvicorn", "aetherviz_service.main:app", "--host", "0.0.0.0", "--port", "10095"]
+CMD ["/opt/venv/bin/uvicorn", "aetherviz_service.main:app", "--host", "0.0.0.0", "--port", "10095"]
