@@ -51,7 +51,7 @@ def run_validation_checks(
         "js_checker": check_inline_javascript(html, soup=parsed),
         "security_checker": check_security(html, soup=parsed),
         "widget_contract_checker": check_widget_runtime_contract(html, soup=parsed),
-        "animation_lifecycle_checker": check_animation_lifecycle(html, soup=parsed),
+        "animation_lifecycle_checker": check_animation_lifecycle(html, plan=plan, soup=parsed),
         "discipline_consistency_checker": check_discipline_consistency(html, plan=plan, soup=parsed),
     }
     return {name: _normalize_check_confidence(check) for name, check in checks.items()}

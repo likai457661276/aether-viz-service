@@ -130,6 +130,26 @@ def test_scene_model_uses_strict_response_schema_when_provided(monkeypatch) -> N
     }
 
 
+def test_routing_model_has_independent_short_budget(monkeypatch) -> None:
+    captured: list[dict] = []
+
+    class FakeChatOpenAI:
+        def __init__(self, **kwargs) -> None:
+            captured.append(kwargs)
+
+    monkeypatch.setattr("langchain_openai.ChatOpenAI", FakeChatOpenAI)
+    monkeypatch.setattr(settings, "openai_router_model", "router-model")
+    monkeypatch.setattr(settings, "aetherviz_ir_router_max_tokens", 768)
+    monkeypatch.setattr(settings, "aetherviz_ir_router_timeout_seconds", 20)
+    model_factory.create_chat_model("routing", response_schema={"type": "object"})
+
+    assert captured[0]["model"] == "router-model"
+    assert captured[0]["max_tokens"] == 768
+    assert captured[0]["timeout"] == 20
+    assert captured[0]["temperature"] == 0
+    assert captured[0]["model_kwargs"]["response_format"]["type"] == "json_schema"
+
+
 def test_unknown_model_kind_is_rejected() -> None:
     with pytest.raises(ValueError, match="unsupported chat model kind"):
         model_factory.create_chat_model("repiar")

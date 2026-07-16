@@ -529,6 +529,35 @@ def test_animation_lifecycle_warns_when_quantized_state_stalls_accumulation() ->
     assert "animation_controller_bypass" in warning_types
 
 
+def test_svg_simulation_rejects_business_raf_controller_bypass() -> None:
+    html = sample_html().replace(
+        "function play(){ updateVisualization(); }",
+        "function frame(){ updateVisualization(); requestAnimationFrame(frame); }"
+        "function play(){ requestAnimationFrame(frame); }",
+    )
+
+    report = check_animation_lifecycle(html, plan=sample_plan())
+
+    assert any(error["type"] == "animation_controller_bypass" for error in report["errors"])
+    assert report["ok"] is False
+
+
+def test_canvas_simulation_keeps_custom_raf_as_non_blocking_warning() -> None:
+    html = sample_html().replace(
+        '<svg viewBox="0 0 100 100"><circle id="dot" cx="20" cy="50" r="8"></circle></svg>',
+        '<canvas id="stage-canvas"></canvas>',
+    ).replace(
+        "function play(){ updateVisualization(); }",
+        "function frame(){ updateVisualization(); requestAnimationFrame(frame); }"
+        "function play(){ requestAnimationFrame(frame); }",
+    )
+
+    report = check_animation_lifecycle(html, plan=sample_plan())
+
+    assert not any(error["type"] == "animation_controller_bypass" for error in report["errors"])
+    assert any(warning["type"] == "animation_controller_bypass" for warning in report["warnings"])
+
+
 def test_animation_lifecycle_rejects_bound_gsap_tween_context_mismatch() -> None:
     html = """<script>
     const controller = {

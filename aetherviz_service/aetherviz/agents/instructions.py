@@ -174,9 +174,10 @@ SUBJECT_PROMPT_MODULES = {
 }
 
 REPRESENTATION_PROMPT_MODULES = {
-    "coordinate_graph": "坐标图表征：使用唯一 data-to-screen 坐标变换；坐标轴、曲线、关键点、切线/辅助线与读数同步更新，并覆盖可见定义域边界。",
-    "geometric_construction": "几何构造表征：点、边、角、辅助线和度量来自统一几何模型；拖动或动画后重算依赖对象，不能以固定坐标伪造约束。",
+    "coordinate_graph": "坐标图表征：建立唯一 data-to-screen 坐标变换，坐标轴、整条曲线采样、动态关键点、切线/辅助线和读数必须全部调用该变换，禁止某条路径手工翻转 y 而其他对象不翻转。设置 ready 前在定义域边界、预设和动画端点验证关键点落在对应曲线且共享数据坐标映射到同一屏幕位置。",
+    "geometric_construction": "几何构造表征：点、边、角、辅助线和度量来自统一几何模型；同一数学点在多个表征中的投影必须先由 deriveModel/deriveView 计算，再分别通过显式坐标系变换映射，禁止在曲线、动点和连线中重复手写正负号或比例。拖动、预设、动画端点和边界状态都要重算依赖对象，并在设置 ready 前验证计划中的共点、共线、等值或落在轨迹等不变量。",
     "geometric_recomposition": "几何切分重排表征：同一组稳定 id 的图形块从源状态变换到目标状态；结构参数变化时暂停并重建，动画进度内只更新既有节点属性；切分、复制、旋转、平移、拼合和教学文本必须来自统一几何状态。",
+    "linked_coordinate_scene": "联动坐标表征：多个坐标系、完整函数曲线、轨迹、动态点和投影连线必须共享同一数学状态与 data-to-screen 变换；关键对应关系声明为 point_on_curve、equal_value 或 coincident 可计算不变量，并覆盖参数边界。",
     "symbolic_derivation": "符号推导表征：每一步同时展示变换前后表达式、使用的关系和成立条件；视觉过渡不能跳过关键逻辑步骤。",
     "data_chart": "数据图表征：样本、聚合值、图形标记和结论共用同一数据源；区分样本结果、统计量和理论预期。",
     "process_model": "过程模型表征：状态、转换条件、方向和当前步骤必须显式对应，重置与分支切换后保持因果链一致。",
@@ -195,6 +196,7 @@ REPAIR_SYSTEM_PROMPT = f"""你是 HTML 最小变更修复器。
 保留原有 DOM 顺序、CSS、SVG/Canvas 坐标、控件和业务逻辑；math-shell-v1 的 .av-* 外壳属于服务端，不得修改；没有对应错误时不得改动。
 若风险是动态数值格式，建立描述符驱动的唯一 display state，清除所有可见文本中的裸状态值和散落精度处理。若风险是 SVG 偏心/裁切：内容包络可由变量 min/max 和动画关键帧推知时，改为一个覆盖 worst-case 包络的固定 viewBox，并删除多余的运行时重拟合；仅当运行时增删图形节点导致包络不可预知时，才保留 visual-root getBBox + 居中 fitStage，且 viewBox 只在结构变化和容器 resize 后更新、ResizeObserver 回调经 requestAnimationFrame 调度并在值未变化时跳过写入。禁止在动画帧内重写 viewBox。修复必须通用于参数范围和动画关键帧，不按知识点、文本、元素 id、具体坐标或预设写特例。
 若风险是 missing_animation_controller_fallback，保留现有几何和教学步骤，把动画时间源收敛为 AetherVizAnimationController 驱动的单一 progress，并让 GSAP/RAF 共用原有 deriveView/applyView；删除轮询等待 CDN 的失败分支，同时补齐完成后重播和从 widget-config 默认值完整重置。
+若错误或风险是 animation_controller_bypass，保留现有参数范围和几何计算，删除业务脚本自维护的 RAF 时间累加器；改为 window.AetherVizAnimationController.create({{duration, update}}) 驱动唯一 progress，play/pause/reset/setSpeed、滑块、preset 和 Runtime.update 全部复用同一 deriveView/applyView 路径。
 若错误是 shadowed_animation_controller，删除业务脚本自定义或覆盖的同名控制器，改为调用服务端预置的 window.AetherVizAnimationController.create；不得复制控制器实现。
 若错误是 bound_gsap_callback_context_mismatch，移除对 Tween 回调 this 的混用：使用闭包 proxy 或箭头函数读取进度，不得在 bind(this) 后继续调用 this.targets()。
 若风险是 unchecked_animation_node_registry，保持教学几何不变，统一 buildScene 与 render 的节点数量来源；循环以实际注册表长度为边界，访问动态节点后先校验存在，并在参数变化、reset 和重复重建后校验注册表数量与有限属性。禁止按元素 id、主题或某个参数值补丁。

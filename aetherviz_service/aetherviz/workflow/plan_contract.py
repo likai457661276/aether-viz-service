@@ -21,6 +21,7 @@ from aetherviz_service.aetherviz.workflow.plan_detection import (
     select_interactive_type,
     select_render_stack,
 )
+from aetherviz_service.aetherviz.workflow.representation_spec import normalize_representation_spec
 
 DEFAULT_PRIMARY_COLOR = "#22D3EE"
 HEX_COLOR_RE = re.compile(r"^#[0-9A-Fa-f]{6}$")
@@ -46,6 +47,7 @@ def compact_plan_for_revision(plan: dict[str, Any]) -> dict[str, Any]:
         "controls",
         "formulas",
         "discipline_spec",
+        "representation_spec",
         "recomposition_spec",
     )
     return {field: plan[field] for field in semantic_fields if field in plan}
@@ -109,6 +111,22 @@ def normalize_plan(raw_plan: dict | None, topic: str, primary_color: str = DEFAU
     if not isinstance(raw.get("scene_outline"), dict):
         scene_outline["title"] = title
 
+    recomposition_spec = (
+        _normalize_recomposition_spec(raw.get("recomposition_spec"), interactive_spec)
+        if knowledge_profile.get("representation_type") == "geometric_recomposition"
+        or isinstance(raw.get("recomposition_spec"), dict)
+        else None
+    )
+    discipline_spec = _normalize_discipline_spec(raw.get("discipline_spec"), baseline["discipline_spec"])
+    representation_spec = normalize_representation_spec(
+        raw.get("representation_spec"),
+        topic=source_topic,
+        interactive_spec=interactive_spec,
+        discipline_spec=discipline_spec,
+        knowledge_profile=knowledge_profile,
+        recomposition_spec=recomposition_spec,
+    )
+
     return {
         "page_type": "interactive",
         "source_topic": source_topic,
@@ -118,10 +136,11 @@ def normalize_plan(raw_plan: dict | None, topic: str, primary_color: str = DEFAU
         "subject": subject,
         "knowledge_profile": knowledge_profile,
         **(
-            {"recomposition_spec": _normalize_recomposition_spec(raw.get("recomposition_spec"), interactive_spec)}
-            if knowledge_profile.get("representation_type") == "geometric_recomposition"
+            {"recomposition_spec": recomposition_spec}
+            if recomposition_spec is not None
             else {}
         ),
+        "representation_spec": representation_spec,
         "title": title,
         "goal": (_safe_str(raw.get("goal")) or baseline["goal"])[:180],
         "learner_level": (_safe_str(raw.get("learner_level")) or "初中/高中")[:24],
@@ -134,7 +153,7 @@ def normalize_plan(raw_plan: dict | None, topic: str, primary_color: str = DEFAU
         "teaching_flow": teaching_flow,
         "controls": _normalize_controls(raw.get("controls"), baseline["controls"], valid_bindings=variable_names),
         "formulas": formulas,
-        "discipline_spec": _normalize_discipline_spec(raw.get("discipline_spec"), baseline["discipline_spec"]),
+        "discipline_spec": discipline_spec,
         "runtime": {
             "render_stack": render_stack,
             "animation_runtime": animation_runtime,

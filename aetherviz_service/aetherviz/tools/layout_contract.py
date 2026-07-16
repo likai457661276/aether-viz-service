@@ -38,10 +38,13 @@ html,body{width:100%;height:100%;margin:0;overflow:hidden}body{font-family:PingF
 .av-primary-controls input[type="range"]::-webkit-slider-thumb,.av-secondary-controls input[type="range"]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:24px;height:24px;margin-top:-9px;border:2px solid var(--av-paper);border-radius:50%;background:var(--av-accent);box-shadow:0 1px 4px rgba(29,58,47,.28)}
 .av-primary-controls input[type="range"]::-moz-range-track,.av-secondary-controls input[type="range"]::-moz-range-track{height:6px;border:0;border-radius:999px;background:#dfe8e4}.av-primary-controls input[type="range"]::-moz-range-progress,.av-secondary-controls input[type="range"]::-moz-range-progress{height:6px;border-radius:999px;background:var(--av-accent)}.av-primary-controls input[type="range"]::-moz-range-thumb,.av-secondary-controls input[type="range"]::-moz-range-thumb{width:20px;height:20px;border:2px solid var(--av-paper);border-radius:50%;background:var(--av-accent);box-shadow:0 1px 4px rgba(29,58,47,.28)}
 .av-primary-controls input[type="range"]:focus-visible,.av-secondary-controls input[type="range"]:focus-visible{outline:2px solid color-mix(in srgb,var(--av-accent) 45%,transparent);outline-offset:2px}.av-primary-controls input[type="range"]:disabled,.av-secondary-controls input[type="range"]:disabled{cursor:not-allowed;opacity:.55}
+.av-primary-controls .action-buttons,.av-primary-controls .btn-group{width:100%;min-width:0}.av-primary-controls .action-buttons button,.av-primary-controls .btn-group button{flex:1 1 max(88px,calc((100% - 16px)/3));min-width:0}
 .av-status{grid-area:status;display:grid;grid-template-columns:minmax(0,1fr) minmax(180px,.7fr);gap:var(--av-gap);align-items:stretch}.av-caption,.av-formula{min-width:0;overflow:auto;scrollbar-gutter:stable}.av-caption{font-size:14px;line-height:1.55}.av-formula{font-variant-numeric:tabular-nums;white-space:normal}.av-empty{color:var(--av-muted);font-size:13px}
 @media(min-width:960px) and (max-height:620px){#aetherviz-stage{min-height:0}.av-status{max-height:32dvh}.av-caption,.av-formula{max-height:32dvh}}
 @media(max-width:959px){#aetherviz-app-shell{grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(260px,1fr) auto auto;grid-template-areas:"header" "stage" "status" "inspector";overflow:auto}.av-header{display:block}.av-objectives{max-width:none;margin-top:8px}.av-inspector{display:block;overflow:visible}.av-inspector>.av-panel{margin-top:10px}.av-details{max-height:32dvh}.av-primary-controls{overflow:visible}.av-primary-controls>.control-panel,.av-primary-controls>[data-region="controls"]{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:start}.av-primary-controls .action-buttons,.av-primary-controls .btn-group{grid-column:1/-1}.av-primary-controls input[type="range"]{width:100%;min-width:0}}
 @media(max-width:599px){#aetherviz-app-shell{height:100dvh;padding:10px;gap:10px;grid-template-rows:auto clamp(240px,45dvh,420px) auto auto}.av-goal{display:none}.av-objectives li:nth-child(n+3){display:none}.av-status{grid-template-columns:minmax(0,1fr)}.av-formula{max-height:92px}.av-primary-controls .control-panel,.av-primary-controls>[data-region="controls"]{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.av-primary-controls input[type="range"]{width:100%;min-width:0}.av-details{max-height:28dvh}}
+@media(max-width:959px){#aetherviz-app-shell{grid-template-rows:auto clamp(300px,56dvh,620px) auto auto;align-content:start}.av-inspector>.av-panel:first-child{margin-top:0}}
+@media(max-width:599px){#aetherviz-app-shell{grid-template-rows:auto clamp(240px,45dvh,420px) auto auto}.av-primary-controls .control-panel,.av-primary-controls>[data-region="controls"]{grid-template-columns:minmax(0,1fr)}.av-primary-controls .control-group,.av-primary-controls [data-control-group],.av-primary-controls .action-buttons,.av-primary-controls .btn-group{grid-column:1/-1}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}}
 </style>
 """
@@ -122,6 +125,8 @@ def assemble_layout_contract(html: str, plan: dict[str, Any] | None = None) -> s
             assert controls is not None
             for node in control_nodes:
                 controls.append(node)
+    if controls is not None:
+        _normalize_control_groups(controls)
     secondary_controls: list[Tag] = []
     if controls is not None:
         secondary_controls = [
@@ -316,6 +321,7 @@ def sanitize_business_css(css: str) -> str:
 
 
 def _is_server_owned_selector(selector: str) -> bool:
+    selector = re.sub(r"/\*[\s\S]*?\*/", "", selector).strip()
     return bool(selector) and bool(
         selector == ":root"
         or _RANGE_SELECTOR_RE.search(selector)
@@ -342,6 +348,19 @@ def _fill_slot(target: Tag | None, source: Tag | None, fallback: str = "") -> No
         empty = BeautifulSoup(f'<span class="av-empty">{html_lib.escape(fallback)}</span>', "html.parser").span
         if empty is not None:
             target.append(empty)
+
+
+def _normalize_control_groups(controls: Tag) -> None:
+    """Mark model-authored button rows so the server grid can budget a full row."""
+    for child in controls.find_all(recursive=False):
+        if not isinstance(child, Tag) or child.name == "button":
+            continue
+        if child.find("button") is None or child.find(["input", "select", "textarea"]) is not None:
+            continue
+        classes = list(child.get("class") or [])
+        if "action-buttons" not in classes and "btn-group" not in classes:
+            classes.append("action-buttons")
+            child["class"] = classes
 
 
 def _shell_markup(plan: dict[str, Any]) -> str:

@@ -13,9 +13,10 @@ from langsmith.run_helpers import get_current_run_tree
 
 from aetherviz_service.aetherviz.agents.function_repair_agent import FunctionRepairResult, stream_repair_functions
 from aetherviz_service.aetherviz.agents.html_agent import HtmlGenerationError, HtmlStreamResult, stream_generate_html
-from aetherviz_service.aetherviz.agents.recomposition_scene_agent import stream_generate_recomposition_html
 from aetherviz_service.aetherviz.agents.repair_agent import RepairStreamResult, stream_repair_html
 from aetherviz_service.aetherviz.api.sse import agent_error_event, agent_sse_event
+from aetherviz_service.aetherviz.ir.registry import DEFAULT_IR_REGISTRY
+from aetherviz_service.aetherviz.ir.router.service import resolve_generation_route
 from aetherviz_service.aetherviz.tools.deterministic_repair import (
     deterministic_can_address,
     deterministic_repair_html,
@@ -109,11 +110,11 @@ def _run_generate_workflow_impl(
     topic: str,
     approved_plan: dict[str, Any],
 ) -> Iterator[str]:
-    profile = approved_plan.get("knowledge_profile")
-    representation = profile.get("representation_type") if isinstance(profile, dict) else None
-    if representation == "geometric_recomposition":
-        html_stream_factory = partial(stream_generate_recomposition_html, topic, approved_plan)
-        generation_backend = "recomposition_scene"
+    route = resolve_generation_route(approved_plan)
+    ir_backend = DEFAULT_IR_REGISTRY.get(route.selected_backend) if route.selected_backend else None
+    if ir_backend is not None:
+        html_stream_factory = partial(ir_backend.stream, topic, approved_plan)
+        generation_backend = ir_backend.key
     else:
         html_stream_factory = partial(stream_generate_html, topic, approved_plan)
         generation_backend = "direct"
@@ -125,6 +126,14 @@ def _run_generate_workflow_impl(
         plan=approved_plan,
         html_stream_factory=html_stream_factory,
         generation_backend=generation_backend,
+        initial_metadata={
+            "generation_route_source": route.source,
+            "generation_route_confidence": route.confidence,
+            "generation_route_llm_invoked": route.llm_invoked,
+            "generation_route_llm_accepted": route.llm_accepted,
+            "generation_route_fallback": route.fallback,
+            "generation_route_elapsed_ms": route.elapsed_ms,
+        },
     )
 
 

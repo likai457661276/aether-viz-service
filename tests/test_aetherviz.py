@@ -937,6 +937,31 @@ def test_server_control_contract_provides_button_and_select_feedback() -> None:
     assert "emit('reset')" in animation_script.get_text()
 
 
+def test_layout_contract_promotes_model_button_rows_and_caps_compact_stage_height() -> None:
+    from bs4 import BeautifulSoup
+
+    from aetherviz_service.aetherviz.tools.layout_contract import assemble_layout_contract
+
+    source = sample_html().replace(
+        '<button id="play-animation">播放</button>\n'
+        '<button id="pause-animation">暂停</button>\n'
+        '<button id="reset-animation">重置</button>',
+        '<div data-region="controls"><div class="btn-row"><button id="play-animation">播放</button>'
+        '<button id="pause-animation">暂停</button><button id="reset-animation">重置</button></div>'
+        '<div class="btn-row"><button>0°</button><button>90°</button><button>180°</button></div></div>',
+    )
+    parsed = BeautifulSoup(assemble_layout_contract(source, sample_plan()), "html.parser")
+    rows = parsed.select('.av-primary-controls [data-region="controls"] > .btn-row')
+    contract_css = parsed.select_one('style[data-aetherviz-layout-contract="math-shell-v1"]')
+
+    assert len(rows) == 2
+    assert all("action-buttons" in row.get("class", []) for row in rows)
+    assert contract_css is not None
+    css = contract_css.get_text()
+    assert "clamp(300px,56dvh,620px)" in css
+    assert "grid-template-columns:minmax(0,1fr)" in css
+
+
 def test_server_layout_contract_sanitizes_model_owned_layout_and_range_css() -> None:
     from bs4 import BeautifulSoup
 
@@ -966,6 +991,23 @@ def test_server_layout_contract_sanitizes_model_owned_layout_and_range_css() -> 
     assert 'input[type="range"]' not in css
     assert "flex:0 0 44px" in contract_css.get_text()
     assert "minmax(260px,1fr)" in contract_css.get_text()
+
+
+def test_server_layout_contract_sanitizes_owned_selector_after_css_comment() -> None:
+    from bs4 import BeautifulSoup
+
+    from aetherviz_service.aetherviz.tools.layout_contract import assemble_layout_contract
+
+    source = sample_html().replace(
+        "#aetherviz-stage{display:grid;place-items:center;min-height:240px}",
+        "/* Main Stage Area */\n#aetherviz-stage{height:500px;display:flex}",
+    )
+    parsed = BeautifulSoup(assemble_layout_contract(source, sample_plan()), "html.parser")
+    business_css = parsed.select_one('style[data-aetherviz-business-style="true"]')
+
+    assert business_css is not None
+    assert "#aetherviz-stage" not in business_css.get_text()
+    assert "height:500px" not in business_css.get_text()
 
 
 def test_server_animation_controller_precedes_business_scripts_and_replays() -> None:
@@ -1844,6 +1886,9 @@ def test_deterministic_quality_repair_adds_generic_svg_guard_under_server_layout
     assert "abstract_svg_text_scale_risk" not in warning_types
     assert "abstract_svg_stroke_scale_risk" not in warning_types
     assert "missing_stage_shrink_guard" not in warning_types
+    assert "unguarded_resize_viewbox_write" not in warning_types
+    assert "target=authored*scale" in repaired
+    assert "aethervizScreenStroke" in repaired
 
 
 def test_discipline_checker_accepts_runtime_svg_mounted_in_stage() -> None:

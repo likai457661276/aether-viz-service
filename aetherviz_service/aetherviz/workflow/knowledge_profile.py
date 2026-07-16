@@ -66,6 +66,10 @@ GEOMETRIC_RECOMPOSITION_OPERATION_CUES = (
     "逼近",
 )
 GEOMETRIC_RECOMPOSITION_DERIVATION_CUES = ("推导", "证明", "导出")
+LINKED_COORDINATE_GRAPH_CUES = ("函数", "图像", "坐标", "曲线")
+LINKED_COORDINATE_TRAJECTORY_CUES = ("轨迹", "波形", "波", "圆周", "圆", "运动")
+LINKED_COORDINATE_RELATION_CUES = ("联动", "对应", "同步", "映射", "投影")
+LINKED_COORDINATE_COMPOSITION_CUES = ("与", "和", "到", "之间")
 
 PEDAGOGY_CUES: dict[str, tuple[str, ...]] = {
     "proof_animation": ("证明", "推导", "定理", "依据"),
@@ -100,6 +104,11 @@ def build_knowledge_profile(topic: str, *, subject: str | None = None) -> dict[s
         pedagogy = "decompose_recompose_proof"
         representation_score = max(representation_score, 2)
         pedagogy_score = max(pedagogy_score, 2)
+    elif resolved_subject == "math" and is_linked_coordinate_topic(text):
+        representation = "linked_coordinate_scene"
+        pedagogy = "parameter_exploration"
+        representation_score = max(representation_score, 2)
+        pedagogy_score = max(pedagogy_score, 2)
     evidence_count = family_score + representation_score + pedagogy_score
     confidence = min(0.95, 0.45 + evidence_count * 0.08) if evidence_count else 0.35
     return {
@@ -120,10 +129,11 @@ def normalize_knowledge_profile(raw: object, topic: str, subject: str) -> dict[s
         value = str(raw.get(key) or "").strip()
         if value and len(value) <= 48:
             result[key] = value
-    if baseline["representation_type"] == "geometric_recomposition":
-        result["representation_type"] = "geometric_recomposition"
-        result["pedagogy_pattern"] = "decompose_recompose_proof"
-    elif result["representation_type"] == "geometric_recomposition":
+    protected_representations = {"geometric_recomposition", "linked_coordinate_scene"}
+    if baseline["representation_type"] in protected_representations:
+        result["representation_type"] = baseline["representation_type"]
+        result["pedagogy_pattern"] = baseline["pedagogy_pattern"]
+    elif result["representation_type"] in protected_representations:
         result["representation_type"] = baseline["representation_type"]
         result["pedagogy_pattern"] = baseline["pedagogy_pattern"]
     result["subject"] = subject
@@ -138,6 +148,17 @@ def is_geometric_recomposition_topic(topic: str) -> bool:
     has_operation = any(cue in text for cue in GEOMETRIC_RECOMPOSITION_OPERATION_CUES)
     has_derivation = any(cue in text for cue in GEOMETRIC_RECOMPOSITION_DERIVATION_CUES)
     return has_operation and (has_measure or has_derivation) or has_measure and has_derivation
+
+
+def is_linked_coordinate_topic(topic: str) -> bool:
+    """Detect a reusable multi-representation mathematical linkage shape."""
+
+    text = (topic or "").lower()
+    graph_score = sum(1 for cue in LINKED_COORDINATE_GRAPH_CUES if cue in text)
+    has_trajectory = any(cue in text for cue in LINKED_COORDINATE_TRAJECTORY_CUES)
+    has_explicit_relation = any(cue in text for cue in LINKED_COORDINATE_RELATION_CUES)
+    has_composition = any(cue in text for cue in LINKED_COORDINATE_COMPOSITION_CUES)
+    return graph_score >= 2 and has_explicit_relation or graph_score >= 1 and has_trajectory and has_composition
 
 
 def _best_match(text: str, choices: dict[str, tuple[str, ...]], default: str) -> tuple[str, int]:

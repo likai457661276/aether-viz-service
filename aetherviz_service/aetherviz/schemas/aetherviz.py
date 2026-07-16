@@ -51,6 +51,7 @@ class AetherVizPlan(BaseModel):
     controls: list[AetherVizPlanControl] = Field(default_factory=list)
     formulas: list[str] = Field(default_factory=list)
     discipline_spec: dict[str, list[str]] = Field(default_factory=dict)
+    representation_spec: dict[str, Any] = Field(default_factory=dict)
     recomposition_spec: dict[str, Any] | None = None
     runtime: AetherVizRuntime = Field(default_factory=AetherVizRuntime)
     primary_color: str = "#22D3EE"

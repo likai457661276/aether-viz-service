@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     openai_html_model: str = "qwen3.7-plus"
     openai_repair_model: str = "deepseek-v4-flash"
     openai_edit_analysis_model: str = "deepseek-v4-flash"
+    openai_router_model: str = "deepseek-v4-flash"
     aetherviz_gsap_cdn_url: str = "https://cdn.jsdelivr.net/npm/gsap@3/dist/gsap.min.js"
     aetherviz_katex_enabled: bool = True
     aetherviz_katex_css_url: str = "https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css"
@@ -30,6 +31,14 @@ class Settings(BaseSettings):
     aetherviz_edit_analysis_max_tokens: int = 1536
     aetherviz_edit_analysis_timeout_seconds: int = 30
     aetherviz_edit_analysis_max_retries: int = 1
+    aetherviz_ir_router_enabled: bool = True
+    aetherviz_ir_router_shadow_mode: bool = True
+    aetherviz_ir_router_max_tokens: int = 768
+    aetherviz_ir_router_timeout_seconds: int = 20
+    aetherviz_ir_router_max_retries: int = 1
+    aetherviz_ir_router_confidence_threshold: float = 0.70
+    aetherviz_ir_router_deterministic_threshold: float = 0.80
+    aetherviz_ir_router_min_margin: float = 0.20
     aetherviz_plan_timeout_seconds: int = 180
     aetherviz_plan_max_retries: int = 1
     aetherviz_html_timeout_seconds: int = 600

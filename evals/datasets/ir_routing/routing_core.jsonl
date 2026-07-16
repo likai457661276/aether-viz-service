@@ -1,0 +1,17 @@
+{"inputs":{"topic":"单位圆上的点运动与正弦函数图像同步变化"},"outputs":{"selected_backend":"linked_coordinate_scene"},"tags":["linked","multi_view"]}
+{"inputs":{"topic":"旋转向量在纵轴的投影与正弦曲线联动"},"outputs":{"selected_backend":"linked_coordinate_scene"},"tags":["linked","known_false_negative"]}
+{"inputs":{"topic":"参数曲线上的动点与 x、y 坐标函数图像联动"},"outputs":{"selected_backend":"linked_coordinate_scene"},"tags":["linked","multi_graph"]}
+{"inputs":{"topic":"圆周运动投影到余弦曲线并同步显示对应点"},"outputs":{"selected_backend":"linked_coordinate_scene"},"tags":["linked","projection"]}
+{"inputs":{"topic":"两个坐标系共享参数，观察轨迹点与函数曲线的对应关系"},"outputs":{"selected_backend":"linked_coordinate_scene"},"tags":["linked","shared_parameter"]}
+{"inputs":{"topic":"圆的面积切割重排推导"},"outputs":{"selected_backend":"recomposition_scene"},"tags":["recomposition","area"]}
+{"inputs":{"topic":"把平行四边形切割并重新拼成长方形证明面积公式"},"outputs":{"selected_backend":"recomposition_scene"},"tags":["recomposition","assembly"]}
+{"inputs":{"topic":"将圆柱切割重排并拼合推导体积公式"},"outputs":{"selected_backend":"recomposition_scene"},"tags":["recomposition","volume"]}
+{"inputs":{"topic":"三角形割补重排推导面积公式"},"outputs":{"selected_backend":"recomposition_scene"},"tags":["recomposition","proof"]}
+{"inputs":{"topic":"一次函数图像"},"outputs":{"selected_backend":null},"tags":["direct","single_view"]}
+{"inputs":{"topic":"圆的标准方程与图像"},"outputs":{"selected_backend":null},"tags":["direct","known_false_positive"]}
+{"inputs":{"topic":"观察抛物线顶点随参数变化"},"outputs":{"selected_backend":null},"tags":["direct","single_graph"]}
+{"inputs":{"topic":"函数图像上一点的切线斜率变化"},"outputs":{"selected_backend":null},"tags":["direct","calculus"]}
+{"inputs":{"topic":"绘制正弦函数图像并调节振幅"},"outputs":{"selected_backend":null},"tags":["direct","single_graph"]}
+{"inputs":{"topic":"观察物体做圆周运动的轨迹"},"outputs":{"selected_backend":null},"tags":["direct","single_motion"]}
+{"inputs":{"topic":"抛体运动轨迹和速度变化"},"outputs":{"selected_backend":null},"tags":["direct","physics"]}
+{"inputs":{"topic":"用概率树展示随机事件分类"},"outputs":{"selected_backend":null},"tags":["direct","non_ir"]}

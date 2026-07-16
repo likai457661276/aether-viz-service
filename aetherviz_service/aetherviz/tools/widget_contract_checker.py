@@ -108,6 +108,7 @@ def check_widget_runtime_contract(html: str, *, soup: BeautifulSoup | None = Non
         and str(script.get("type", "")).lower() != "application/json"
         and not script.get("data-aetherviz-animation-contract")
         and not script.get("data-aetherviz-control-contract")
+        and not script.get("data-aetherviz-scale-guard")
     )
     _check_widget_config(parsed, script_text, errors)
     _check_stage(parsed, script_text, errors, warnings)
@@ -132,7 +133,7 @@ def check_widget_runtime_contract(html: str, *, soup: BeautifulSoup | None = Non
     _check_unstable_preserved_children(script_text, errors)
     _check_dynamic_nodes_used_before_initialization(business_script_text, errors)
     _check_duplicate_label_positions(parsed, script_text, warnings)
-    _check_layout_risks(parsed, script_text, warnings)
+    _check_layout_risks(parsed, business_script_text, warnings)
     _check_svg_unit_system(parsed, script_text, warnings)
     _check_unformatted_dynamic_numbers(script_text, warnings)
 

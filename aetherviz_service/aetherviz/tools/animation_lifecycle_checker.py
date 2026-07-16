@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from typing import Any
 
 from bs4 import BeautifulSoup
 
@@ -41,7 +42,12 @@ _LEADING_NUMBER_RE = re.compile(
 )
 
 
-def check_animation_lifecycle(html: str, *, soup: BeautifulSoup | None = None) -> dict:
+def check_animation_lifecycle(
+    html: str,
+    *,
+    plan: dict[str, Any] | None = None,
+    soup: BeautifulSoup | None = None,
+) -> dict:
     parsed = soup or BeautifulSoup(html or "", "html.parser")
     script_text = "\n".join(
         script.get_text("\n", strip=False)
@@ -55,6 +61,7 @@ def check_animation_lifecycle(html: str, *, soup: BeautifulSoup | None = None) -
         and str(script.get("type", "")).lower() != "application/json"
         and not script.get("data-aetherviz-animation-contract")
         and not script.get("data-aetherviz-control-contract")
+        and not script.get("data-aetherviz-scale-guard")
     )
     errors: list[dict] = []
     warnings: list[dict] = []
@@ -116,7 +123,20 @@ def check_animation_lifecycle(html: str, *, soup: BeautifulSoup | None = None) -
     _check_unchecked_node_registries(registries, functions, warnings)
     _check_duplicate_geometry_transform_encoding(script_text, warnings)
     _check_quantized_animation_accumulator(business_script_text, warnings)
-    _check_playback_api_effects(business_script_text, warnings)
+    has_canvas_runtime = parsed.find("canvas") is not None or bool(
+        re.search(r"createElement\s*\(\s*['\"]canvas['\"]", business_script_text, re.IGNORECASE)
+    )
+    enforce_shared_controller = (
+        isinstance(plan, dict)
+        and plan.get("interactive_type") == "simulation"
+        and not has_canvas_runtime
+    )
+    _check_playback_api_effects(
+        business_script_text,
+        errors,
+        warnings,
+        enforce_shared_controller=enforce_shared_controller,
+    )
     _check_animation_controller_contract(business_script_text, errors, warnings)
 
     return {
@@ -153,7 +173,13 @@ def _check_quantized_animation_accumulator(script_text: str, warnings: list[dict
         return
 
 
-def _check_playback_api_effects(script_text: str, warnings: list[dict]) -> None:
+def _check_playback_api_effects(
+    script_text: str,
+    errors: list[dict],
+    warnings: list[dict],
+    *,
+    enforce_shared_controller: bool,
+) -> None:
     functions = _extract_function_bodies(script_text)
     set_speed = functions.get("setSpeed")
     if set_speed is not None:
@@ -168,11 +194,17 @@ def _check_playback_api_effects(script_text: str, warnings: list[dict]) -> None:
                 )
             )
     if re.search(r"requestAnimationFrame\s*\(", script_text) and "AetherVizAnimationController" not in script_text:
-        warnings.append(
+        target = errors if enforce_shared_controller else warnings
+        target.append(
             _issue(
                 "animation_controller_bypass",
                 "业务脚本自行维护 requestAnimationFrame 时间源，未复用 AetherVizAnimationController；"
-                "play/pause/reset/replay/setSpeed 语义容易分叉。",
+                + (
+                    "当前 SVG simulation 必须收敛到共享 progress，否则 play/pause/reset/replay/setSpeed "
+                    "与参数状态会分叉。"
+                    if enforce_shared_controller
+                    else "play/pause/reset/replay/setSpeed 语义容易分叉。"
+                ),
             )
         )
 

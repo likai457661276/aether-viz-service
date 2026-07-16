@@ -1,0 +1,289 @@
+from __future__ import annotations
+
+from copy import deepcopy
+
+import pytest
+
+from aetherviz_service.aetherviz.ir.linked_coordinate.contract import (
+    LINKED_COORDINATE_IR_VERSION,
+    compile_linked_coordinate_ir,
+    linked_coordinate_ir_candidates_response_schema,
+    linked_coordinate_ir_response_schema,
+    rank_linked_coordinate_ir_candidates,
+    validate_linked_coordinate_ir,
+)
+from aetherviz_service.aetherviz.ir.linked_coordinate.runtime import (
+    assemble_linked_coordinate_business_html,
+)
+from aetherviz_service.aetherviz.ir.registry import (
+    DEFAULT_IR_REGISTRY,
+    IRBackend,
+    IRBackendRegistry,
+)
+from aetherviz_service.aetherviz.tools.layout_contract import assemble_layout_contract
+from aetherviz_service.aetherviz.tools.validation_report import build_validation_report
+from aetherviz_service.aetherviz.workflow.knowledge_profile import build_knowledge_profile
+from aetherviz_service.aetherviz.workflow.plan_contract import normalize_plan
+
+
+def _plan() -> dict:
+    return normalize_plan(
+        {
+            "interactive_type": "simulation",
+            "interactive_spec": {
+                "type": "simulation",
+                "concept": "多坐标表征",
+                "description": "观察同一参数在两个坐标系中的对应关系",
+                "variables": [
+                    {
+                        "name": "theta",
+                        "label": "参数",
+                        "min": 0,
+                        "max": 6.283185307179586,
+                        "step": 0.01,
+                        "default": 1,
+                        "unit": "rad",
+                    }
+                ],
+                "presets": [],
+                "observations": ["两个动态点共享相同纵坐标"],
+            },
+        },
+        "函数曲线与坐标轨迹参数联动",
+    )
+
+
+def _operand(kind: str, ref: str = "", *, at: object = 0, axis: str = "both", value: object = 0) -> dict:
+    return {"kind": kind, "ref": ref, "at": at, "axis": axis, "value": value}
+
+
+def _ir() -> dict:
+    theta = {"state": "theta"}
+    local_t = {"local": "t"}
+    sine_theta = {"op": "sin", "args": [theta]}
+    return {
+        "version": LINKED_COORDINATE_IR_VERSION,
+        "definitions": [{"name": "tau", "value": 6.283185307179586}],
+        "animation": {"variable": "theta", "from": 0, "to": {"var": "tau"}, "duration": 4},
+        "coordinate_systems": [
+            {
+                "id": "phase-space",
+                "x": 40,
+                "y": 110,
+                "width": 360,
+                "height": 360,
+                "x_domain": [-1.4, 1.4],
+                "y_domain": [-1.4, 1.4],
+                "label": "参数轨迹",
+            },
+            {
+                "id": "function-space",
+                "x": 470,
+                "y": 110,
+                "width": 450,
+                "height": 360,
+                "x_domain": [0, {"var": "tau"}],
+                "y_domain": [-1.4, 1.4],
+                "label": "函数图像",
+            },
+        ],
+        "curves": [
+            {
+                "id": "trajectory",
+                "system": "phase-space",
+                "parameter": "t",
+                "domain": [0, {"var": "tau"}],
+                "samples": 120,
+                "x": {"op": "cos", "args": [local_t]},
+                "y": {"op": "sin", "args": [local_t]},
+                "stroke": "#2563eb",
+            },
+            {
+                "id": "function-curve",
+                "system": "function-space",
+                "parameter": "t",
+                "domain": [0, {"var": "tau"}],
+                "samples": 120,
+                "x": local_t,
+                "y": {"op": "sin", "args": [local_t]},
+                "stroke": "#10b981",
+            },
+        ],
+        "points": [
+            {
+                "id": "trajectory-point",
+                "system": "phase-space",
+                "x": {"op": "cos", "args": [theta]},
+                "y": sine_theta,
+                "radius": 7,
+                "fill": "#ef4444",
+                "label": "P",
+            },
+            {
+                "id": "function-point",
+                "system": "function-space",
+                "x": theta,
+                "y": sine_theta,
+                "radius": 7,
+                "fill": "#ef4444",
+                "label": "Q",
+            },
+        ],
+        "links": [
+            {
+                "id": "value-projection",
+                "from": "trajectory-point",
+                "to": "function-point",
+                "stroke": "#94a3b8",
+                "dash": "6 5",
+            }
+        ],
+        "invariants": [
+            {
+                "id": "trajectory-membership",
+                "type": "point_on_curve",
+                "left": _operand("point", "trajectory-point"),
+                "right": _operand("curve_sample", "trajectory", at=theta),
+                "tolerance": 0.000001,
+            },
+            {
+                "id": "function-membership",
+                "type": "point_on_curve",
+                "left": _operand("point", "function-point"),
+                "right": _operand("curve_sample", "function-curve", at=theta),
+                "tolerance": 0.000001,
+            },
+            {
+                "id": "shared-value",
+                "type": "equal_value",
+                "left": _operand("point", "trajectory-point", axis="y"),
+                "right": _operand("point", "function-point", axis="y"),
+                "tolerance": 0.000001,
+            },
+        ],
+    }
+
+
+def test_default_ir_registry_routes_both_independent_ir_families() -> None:
+    recomposition = DEFAULT_IR_REGISTRY.resolve(
+        {"knowledge_profile": {"representation_type": "geometric_recomposition"}}
+    )
+    linked = DEFAULT_IR_REGISTRY.resolve(
+        {"knowledge_profile": {"representation_type": "linked_coordinate_scene"}}
+    )
+    assert recomposition and recomposition.key == "recomposition_scene"
+    assert linked and linked.key == "linked_coordinate_scene"
+    assert DEFAULT_IR_REGISTRY.resolve(
+        {"knowledge_profile": {"representation_type": "coordinate_graph"}}
+    ) is None
+
+
+def test_ir_registry_rejects_backend_and_representation_collisions() -> None:
+    def stream(_topic: str, _plan: dict):
+        yield from ()
+
+    registry = IRBackendRegistry((IRBackend("one", frozenset({"shared"}), stream),))
+    with pytest.raises(ValueError, match="duplicate_ir_backend"):
+        registry.register(IRBackend("one", frozenset({"other"}), stream))
+    with pytest.raises(ValueError, match="duplicate_ir_representation"):
+        registry.register(IRBackend("two", frozenset({"shared"}), stream))
+
+
+def test_linked_coordinate_profile_uses_generic_multi_representation_evidence() -> None:
+    assert build_knowledge_profile("函数曲线与坐标轨迹参数联动")["representation_type"] == "linked_coordinate_scene"
+    assert build_knowledge_profile("三角函数单位圆与正弦波")["representation_type"] == "linked_coordinate_scene"
+    assert build_knowledge_profile("一次函数图像")["representation_type"] == "coordinate_graph"
+
+
+def test_linked_coordinate_ir_schema_is_strict_and_contract_accepts_shared_model() -> None:
+    schema = linked_coordinate_ir_response_schema()
+    assert schema["additionalProperties"] is False
+    assert schema["properties"]["invariants"]["minItems"] == 1
+    report = validate_linked_coordinate_ir(_ir(), _plan())
+    assert report["ok"], report
+    assert compile_linked_coordinate_ir(_ir(), _plan()).startswith("{")
+
+
+def test_linked_coordinate_schema_separates_state_and_curve_expression_scopes() -> None:
+    schema = linked_coordinate_ir_response_schema()
+    state_variants = schema["$defs"]["state_expression"]["anyOf"]
+    curve_variants = schema["$defs"]["curve_expression"]["anyOf"]
+
+    assert not any("local" in item.get("properties", {}) for item in state_variants)
+    assert any("local" in item.get("properties", {}) for item in curve_variants)
+
+
+def test_linked_coordinate_ir_rejects_degree_state_without_explicit_conversion() -> None:
+    plan = _plan()
+    plan["interactive_spec"]["variables"][0].update(
+        {"min": 0, "max": 360, "default": 90, "unit": "°"}
+    )
+    broken = deepcopy(_ir())
+    broken["animation"]["to"] = 360
+    report = validate_linked_coordinate_ir(broken, plan)
+
+    assert not report["ok"]
+    assert any(error["type"] == "degree_trig_requires_conversion" for error in report["errors"])
+
+
+def test_linked_coordinate_ir_accepts_explicit_degree_to_radian_conversion() -> None:
+    plan = _plan()
+    plan["interactive_spec"]["variables"][0].update(
+        {"min": 0, "max": 360, "default": 90, "unit": "degree"}
+    )
+    converted = deepcopy(_ir())
+    converted["animation"]["to"] = 360
+    state_angle = {"op": "deg_to_rad", "args": [{"state": "theta"}]}
+    converted["points"][0]["x"] = {"op": "cos", "args": [state_angle]}
+    converted["points"][0]["y"] = {"op": "sin", "args": [state_angle]}
+    converted["points"][1]["x"] = {"state": "theta"}
+    converted["points"][1]["y"] = {"op": "sin", "args": [state_angle]}
+    for invariant in converted["invariants"][:2]:
+        invariant["right"]["at"] = {"state": "theta"}
+    for curve in converted["curves"]:
+        local = {"op": "deg_to_rad", "args": [{"local": "t"}]}
+        curve["domain"] = [0, 360]
+        if curve["id"] == "trajectory":
+            curve["x"] = {"op": "cos", "args": [local]}
+            curve["y"] = {"op": "sin", "args": [local]}
+        else:
+            curve["x"] = {"local": "t"}
+            curve["y"] = {"op": "sin", "args": [local]}
+
+    report = validate_linked_coordinate_ir(converted, plan)
+    assert report["ok"], report
+
+
+def test_linked_coordinate_candidate_schema_and_ranking_select_valid_ir() -> None:
+    schema = linked_coordinate_ir_candidates_response_schema()
+    assert schema["properties"]["candidates"]["minItems"] == 2
+    assert schema["properties"]["candidates"]["maxItems"] == 2
+    broken = deepcopy(_ir())
+    broken["points"][1]["y"] = 0
+    ranking = rank_linked_coordinate_ir_candidates([broken, _ir()], _plan())
+    assert ranking["ok"]
+    assert ranking["selected_index"] == 1
+    assert ranking["candidates"][0]["eligible"] is False
+
+
+def test_linked_coordinate_ir_rejects_point_with_duplicated_wrong_sign() -> None:
+    broken = deepcopy(_ir())
+    broken["points"][1]["y"] = {
+        "op": "neg",
+        "args": [{"op": "sin", "args": [{"state": "theta"}]}],
+    }
+    report = validate_linked_coordinate_ir(broken, _plan())
+    assert not report["ok"]
+    assert any(error["type"] == "linked_coordinate_ir_semantics" for error in report["errors"])
+    assert any("function-membership" in error["message"] for error in report["errors"])
+
+
+def test_linked_coordinate_runtime_is_server_owned_and_passes_html_contract() -> None:
+    plan = _plan()
+    business_html = assemble_linked_coordinate_business_html(_ir(), plan, "参数联动")
+    assert "requestAnimationFrame" not in business_html
+    assert "AetherVizAnimationController.create" in business_html
+    assert "aetherviz.linked-coordinate-ir.v1" in business_html
+    html = assemble_layout_contract(business_html, plan)
+    report = build_validation_report(html, plan=plan, model_html=business_html)
+    assert report["ok"], report["errors"]
