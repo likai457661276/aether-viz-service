@@ -294,8 +294,48 @@ def test_runtime_diagnosis_applies_hash_guarded_function_patch(monkeypatch) -> N
     assert result.patch_functions == ("play",)
     assert "window.playState='playing'" in result.html
     guard = build_diagnosis_guard(diagnosis, _html())
-    assert guard(_html()) == ["edit_function_not_changed:play"]
+    assert guard(_html()) == ["edit_runtime_not_changed"]
     assert guard(result.html) == []
+
+
+def test_runtime_guard_accepts_fix_in_function_other_than_diagnosed_target() -> None:
+    source = _html().replace(
+        "function play(){window.started=true}",
+        "function play(){window.started=true}"
+        "function renderFormula(selector){return document.querySelector(selector)}"
+        "document.querySelectorAll('span').forEach(element=>renderFormula(element))",
+    )
+    play = extract_named_functions(source)["play"][0]
+    diagnosis = EditDiagnosis(
+        intent="fix_runtime_error",
+        scope="business_runtime",
+        strategy="function_repair",
+        problem="诊断目标可能不是实际根因函数",
+        confidence=0.8,
+        targets=(
+            {
+                "kind": "function",
+                "function": "play",
+                "source_hash": play.source_hash,
+                "evidence": "运行时阶段推断",
+                "confidence": 0.8,
+            },
+        ),
+        assertions=(
+            {
+                "type": "runtime_error_absent",
+                "selector": "",
+                "property": "querySelector",
+                "expected": "querySelector 不再接收 DOM 元素",
+            },
+        ),
+    )
+    candidate = source.replace(
+        "return document.querySelector(selector)",
+        "return typeof selector==='string'?document.querySelector(selector):selector",
+    )
+
+    assert build_diagnosis_guard(diagnosis, source)(candidate) == []
 
 
 def test_runtime_dispatch_passes_structured_edit_target_and_error(monkeypatch) -> None:

@@ -261,7 +261,7 @@ HTML 文件编辑阶段请求示例：
 }
 ```
 
-`phase=edit_html` 必须携带选中的 HTML 文件全文。后端先剥离 `math-shell-v1`，再从当前业务 HTML 确定性提取有界 DOM、CSS、函数、事件与 widget 摘要，并将当前校验报告、可选 `edit_target`、可选 `runtime_error` 和精简会话上下文交给编辑诊断模型。诊断模型只输出目标证据、策略、允许范围和验收断言，不直接修改 HTML。明确 CSS、文案或安全属性修改优先通过受限事务应用；可定位到唯一函数的运行时问题优先使用源哈希保护的函数补丁；局部结构或整体调整才回退完整业务 HTML 重生成。当前 HTML 始终是事实基线，历史上下文只用于消歧。服务端外壳修改以 `edit_server_layout_owned` 拒绝，目标无法唯一定位时以 `edit_clarification_required` 请求补充信息。编辑候选在确定性校验前和自动修复后都会重新执行本次编辑断言。最终 metadata 使用 `edit_strategy` 区分 `local_operations`、`function_patch` 与 `full_html_regeneration`，并返回诊断策略、置信度和降级状态；LangSmith 的 `aetherviz.edit_diagnosis` 子 Trace 只记录摘要规模和诊断结果，不重复记录完整 HTML。前端继续把结果保存为新分支，不覆盖原文件。
+`phase=edit_html` 必须携带选中的 HTML 文件全文。后端先剥离 `math-shell-v1`，再从当前业务 HTML 确定性提取有界 DOM、CSS、函数、事件与 widget 摘要，并将当前校验报告、可选 `edit_target`、可选 `runtime_error` 和精简会话上下文交给编辑诊断模型。诊断模型只输出目标证据、策略、允许范围和验收断言，不直接修改 HTML。明确 CSS、文案或安全属性修改优先通过受限事务应用；可定位到唯一函数的运行时问题优先使用源哈希保护的函数补丁；高置信度 DOM API 参数类型错误直接使用确定性函数补丁；局部结构或整体调整才回退完整业务 HTML 重生成。当前 HTML 始终是事实基线，历史上下文只用于消歧。服务端外壳修改以 `edit_server_layout_owned` 拒绝，目标无法唯一定位时以 `edit_clarification_required` 请求补充信息。编辑候选在确定性校验前和自动修复后都会重新执行本次编辑断言；运行时修复允许实际根因函数与诊断目标不同，但必须至少有业务函数发生变化，并通过可用的确定性错误契约。最终 metadata 使用 `edit_strategy` 区分 `local_operations`、`function_patch` 与 `full_html_regeneration`，并返回诊断策略、置信度和降级状态；LangSmith 的 `aetherviz.edit_diagnosis` 子 Trace 只记录摘要规模和诊断结果，不重复记录完整 HTML。前端继续把结果保存为新分支，不覆盖原文件，并把新分支完整 HTML 作为下一次编辑的事实基线。
 
 响应类型为 `text/event-stream`。事件包括：
 

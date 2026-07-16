@@ -8,6 +8,9 @@ import re
 
 from bs4 import BeautifulSoup, NavigableString, Tag
 
+from aetherviz_service.aetherviz.tools.dom_api_contract import (
+    find_dom_element_selector_mismatches,
+)
 from aetherviz_service.aetherviz.tools.javascript_object import matching_brace
 
 REQUIRED_CONTROL_IDS = ("play-animation", "pause-animation", "reset-animation")
@@ -130,6 +133,14 @@ def check_widget_runtime_contract(html: str, *, soup: BeautifulSoup | None = Non
             warnings.append(_warning("missing_widget_action", f"未显式处理 widget action：{action}"))
 
     _check_append_child_arguments(script_text, errors)
+    for mismatch in find_dom_element_selector_mismatches(business_script_text):
+        errors.append(
+            _error(
+                "dom_element_used_as_selector",
+                f"函数 {mismatch.function_name} 将参数 {mismatch.parameter_name} 传给 querySelector，"
+                "但调用点会传入 DOM 元素；应让函数直接接收元素，或仅传入选择器字符串。",
+            )
+        )
     _check_unstable_preserved_children(script_text, errors)
     _check_dynamic_nodes_used_before_initialization(business_script_text, errors)
     _check_duplicate_label_positions(parsed, script_text, warnings)

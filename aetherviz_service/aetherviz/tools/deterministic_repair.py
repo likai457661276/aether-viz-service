@@ -9,6 +9,9 @@ from typing import Any
 
 from bs4 import BeautifulSoup, NavigableString, Tag
 
+from aetherviz_service.aetherviz.tools.dom_api_contract import (
+    repair_dom_element_selector_mismatches,
+)
 from aetherviz_service.aetherviz.tools.javascript_object import (
     matching_brace,
     top_level_object_properties,
@@ -60,6 +63,7 @@ DETERMINISTIC_HARD_ERROR_TYPES = frozenset(
         "missing_message_listener",
         "missing_runtime_ready",
         "animation_controller_missing_update",
+        "dom_element_used_as_selector",
     }
 )
 
@@ -124,6 +128,8 @@ def deterministic_repair_html(
         repaired = _render_explicit_katex_targets(repaired)
     if "animation_controller_missing_update" in error_types:
         repaired = _rename_controller_on_update(repaired)
+    if "dom_element_used_as_selector" in error_types:
+        repaired, _ = repair_dom_element_selector_mismatches(repaired)
     if "html_length_hard_limit" in error_types:
         repaired = re.sub(r"<!--(?!\[if)[\s\S]*?-->", "", repaired, flags=re.IGNORECASE)
         repaired = re.sub(r">\s+<", "><", repaired)

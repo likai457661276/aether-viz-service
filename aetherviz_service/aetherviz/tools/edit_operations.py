@@ -12,6 +12,9 @@ import tinycss2
 from bs4 import BeautifulSoup
 
 from aetherviz_service.aetherviz.agents.edit_diagnosis_agent import EditDiagnosis
+from aetherviz_service.aetherviz.tools.dom_api_contract import (
+    find_dom_element_selector_mismatches,
+)
 from aetherviz_service.aetherviz.tools.function_patch import extract_named_functions
 
 _CSS_PROPERTY_RE = re.compile(r"^--?[A-Za-z][\w-]*$|^[A-Za-z][\w-]*$")
@@ -24,6 +27,7 @@ class EditOperationResult:
     applied: tuple[str, ...]
     errors: tuple[str, ...] = ()
     guard: Callable[[str], list[str]] | None = None
+    strategy: str = "local_operations"
 
 
 def apply_diagnosed_operations(html: str, diagnosis: EditDiagnosis) -> EditOperationResult:
@@ -72,6 +76,7 @@ def apply_diagnosed_operations(html: str, diagnosis: EditDiagnosis) -> EditOpera
 
 def build_diagnosis_guard(diagnosis: EditDiagnosis, source_html: str = "") -> Callable[[str], list[str]]:
     assertions = tuple(diagnosis.assertions)
+    source_selector_mismatch = bool(find_dom_element_selector_mismatches(source_html))
     original_function_hashes = {
         str(item.get("function") or ""): str(item.get("source_hash") or "")
         for item in diagnosis.targets
@@ -81,6 +86,7 @@ def build_diagnosis_guard(diagnosis: EditDiagnosis, source_html: str = "") -> Ca
     def guard(candidate: str) -> list[str]:
         soup = BeautifulSoup(candidate or "", "html.parser")
         errors: list[str] = []
+        verified_runtime_assertion = False
         for assertion in assertions:
             assertion_type = assertion.get("type", "")
             selector = assertion.get("selector", "")
@@ -101,12 +107,31 @@ def build_diagnosis_guard(diagnosis: EditDiagnosis, source_html: str = "") -> Ca
                 expected = assertion.get("expected", "")
                 if not _has_css_declaration(soup, selector, property_name, expected):
                     errors.append(f"assertion_css_mismatch:{selector}:{property_name}")
+            elif assertion_type == "runtime_error_absent" and "queryselector" in (
+                f"{assertion.get('expected', '')} {assertion.get('property', '')}"
+            ).lower():
+                if find_dom_element_selector_mismatches(candidate):
+                    errors.append("edit_runtime_error_still_present:dom_element_used_as_selector")
+                elif source_selector_mismatch:
+                    verified_runtime_assertion = True
         if diagnosis.strategy == "function_repair" and source_html:
             candidate_functions = extract_named_functions(candidate)
-            for function_name, source_hash in original_function_hashes.items():
-                matches = candidate_functions.get(function_name, [])
-                if len(matches) != 1 or matches[0].source_hash == source_hash:
-                    errors.append(f"edit_function_not_changed:{function_name}")
+            diagnosed_function_changed = any(
+                len(candidate_functions.get(function_name, [])) == 1
+                and candidate_functions[function_name][0].source_hash != source_hash
+                for function_name, source_hash in original_function_hashes.items()
+            )
+            source_functions = extract_named_functions(source_html)
+            any_function_changed = any(
+                len(matches) == 1
+                and len(candidate_functions.get(function_name, [])) == 1
+                and candidate_functions[function_name][0].source_hash != matches[0].source_hash
+                for function_name, matches in source_functions.items()
+            )
+            if original_function_hashes and not diagnosed_function_changed and not (
+                any_function_changed and verified_runtime_assertion
+            ):
+                errors.append("edit_runtime_not_changed")
         return errors
 
     return guard

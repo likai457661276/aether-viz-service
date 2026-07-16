@@ -35,12 +35,17 @@ from aetherviz_service.aetherviz.limits import (
     MODEL_HTML_HARD_LIMIT_CHARS,
     estimated_output_capacity_chars,
 )
+from aetherviz_service.aetherviz.tools.dom_api_contract import (
+    find_dom_element_selector_mismatches,
+    repair_dom_element_selector_mismatches,
+)
 from aetherviz_service.aetherviz.tools.edit_context import build_edit_context_summary, is_server_layout_request
 from aetherviz_service.aetherviz.tools.edit_operations import (
     EditOperationResult,
     apply_diagnosed_operations,
     build_diagnosis_guard,
 )
+from aetherviz_service.aetherviz.tools.function_patch import extract_named_functions
 from aetherviz_service.aetherviz.tools.html_compare import normalize_html_for_compare
 from aetherviz_service.aetherviz.tools.html_output import parse_interactive_html, sanitize_aetherviz_html
 from aetherviz_service.aetherviz.tools.layout_contract import extract_business_html
@@ -156,11 +161,16 @@ def _run_edit_html_workflow_impl(
             "reasoning_enabled": False,
         },
     )
-    diagnosis = diagnose_edit(
-        instruction=message,
-        business_html=business_html,
-        context_summary=context_summary,
-    )
+    deterministic_runtime_edit = _deterministic_runtime_edit(business_html, runtime_error)
+    if deterministic_runtime_edit is not None:
+        diagnosis, local_result = deterministic_runtime_edit
+    else:
+        diagnosis = diagnose_edit(
+            instruction=message,
+            business_html=business_html,
+            context_summary=context_summary,
+        )
+        local_result = apply_diagnosed_operations(business_html, diagnosis)
     yield agent_sse_event(
         "html.edit_diagnosed",
         run_id=run_id,
@@ -187,7 +197,6 @@ def _run_edit_html_workflow_impl(
         )
         return
 
-    local_result = apply_diagnosed_operations(business_html, diagnosis)
     candidate_guard = local_result.guard or build_diagnosis_guard(diagnosis, business_html)
     yield from run_html_pipeline(
         run_id=run_id,
@@ -230,7 +239,7 @@ def _stream_diagnosed_edit(
         yield HtmlStreamResult(
             html=local_result.html,
             degraded=False,
-            strategy="local_operations",
+            strategy=local_result.strategy,
             source_chars=len(current_html),
             patch_blocks=local_result.applied,
             output_chars=0,
@@ -267,6 +276,67 @@ def _diagnosed_regeneration_message(message: str, diagnosis: EditDiagnosis) -> s
         f"建议范围：{diagnosis.scope}\n目标：{', '.join(targets) or '由当前 HTML 定位'}\n"
         f"允许范围：{', '.join(diagnosis.allowed_scope) or '仅与本次意见直接相关的区域'}"
     )
+
+
+def _deterministic_runtime_edit(
+    business_html: str,
+    runtime_error: dict[str, Any] | None,
+) -> tuple[EditDiagnosis, EditOperationResult] | None:
+    error_text = " ".join(str(value) for value in (runtime_error or {}).values()).lower()
+    if not (
+        "queryselector" in error_text
+        and "not a valid selector" in error_text
+        and "[object html" in error_text
+    ):
+        return None
+    repaired, applied = repair_dom_element_selector_mismatches(business_html)
+    if not applied or repaired == business_html:
+        return None
+    functions = extract_named_functions(business_html)
+    targets = tuple(
+        {
+            "kind": "function",
+            "selector": name,
+            "function": name,
+            "source_hash": functions[name][0].source_hash,
+            "evidence": "deterministic DOM API argument contract",
+            "confidence": 1.0,
+        }
+        for name in applied
+        if len(functions.get(name, [])) == 1
+    )
+    diagnosis = EditDiagnosis(
+        intent="fix_runtime_error",
+        scope="function_repair",
+        strategy="function_repair",
+        problem="DOM 元素被错误地作为 querySelector 的 CSS 选择器参数",
+        confidence=1.0,
+        targets=targets,
+        assertions=(
+            {
+                "type": "runtime_error_absent",
+                "selector": "",
+                "property": "querySelector",
+                "expected": "querySelector 不再接收 DOM 元素",
+            },
+        ),
+        allowed_scope=("function_repair",),
+    )
+
+    def guard(candidate: str) -> list[str]:
+        return (
+            ["edit_runtime_error_still_present:dom_element_used_as_selector"]
+            if find_dom_element_selector_mismatches(candidate)
+            else []
+        )
+
+    result = EditOperationResult(
+        html=repaired,
+        applied=tuple(f"function:{name}" for name in applied),
+        guard=guard,
+        strategy="function_patch",
+    )
+    return diagnosis, result
 
 
 def _stream_edit_html(
