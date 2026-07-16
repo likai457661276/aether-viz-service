@@ -5,20 +5,11 @@ from copy import deepcopy
 
 import pytest
 
-from aetherviz_service.aetherviz.tools.animation_lifecycle_checker import check_animation_lifecycle
-from aetherviz_service.aetherviz.tools.function_patch import (
-    apply_function_replacements,
-    describe_target_functions,
-    repair_function_targets,
-    target_functions_from_report,
-)
-from aetherviz_service.aetherviz.tools.layout_contract import assemble_layout_contract
-from aetherviz_service.aetherviz.tools.recomposition_assembly import (
+from aetherviz_service.aetherviz.ir.recomposition.assembly import (
     evaluate_target_assembly,
     translate_target_assembly_into_canvas,
 )
-from aetherviz_service.aetherviz.tools.recomposition_contract import validate_scene_module
-from aetherviz_service.aetherviz.tools.recomposition_ir import (
+from aetherviz_service.aetherviz.ir.recomposition.contract import (
     GEOMETRY_IR_VERSION,
     build_deterministic_geometry_ir,
     compile_geometry_ir,
@@ -29,22 +20,31 @@ from aetherviz_service.aetherviz.tools.recomposition_ir import (
     parse_geometry_ir_candidates,
     validate_geometry_ir,
 )
-from aetherviz_service.aetherviz.tools.recomposition_math import (
+from aetherviz_service.aetherviz.ir.recomposition.math import (
     evaluate_mathematical_invariants,
 )
-from aetherviz_service.aetherviz.tools.recomposition_ranking import rank_geometry_ir_candidates
-from aetherviz_service.aetherviz.tools.recomposition_runtime import (
+from aetherviz_service.aetherviz.ir.recomposition.ranking import rank_geometry_ir_candidates
+from aetherviz_service.aetherviz.ir.recomposition.runtime import (
     assemble_recomposition_business_html,
     build_deterministic_scene_module,
 )
-from aetherviz_service.aetherviz.tools.recomposition_semantics import (
+from aetherviz_service.aetherviz.ir.recomposition.scene_contract import validate_scene_module
+from aetherviz_service.aetherviz.ir.recomposition.semantics import (
     INTERMEDIATE_EVIDENCE_THRESHOLDS,
     evaluate_intermediate_transform_evidence,
     evaluate_recomposition_semantics,
 )
-from aetherviz_service.aetherviz.tools.recomposition_waypoints import (
+from aetherviz_service.aetherviz.ir.recomposition.waypoints import (
     complete_intermediate_waypoints,
 )
+from aetherviz_service.aetherviz.tools.animation_lifecycle_checker import check_animation_lifecycle
+from aetherviz_service.aetherviz.tools.function_patch import (
+    apply_function_replacements,
+    describe_target_functions,
+    repair_function_targets,
+    target_functions_from_report,
+)
+from aetherviz_service.aetherviz.tools.layout_contract import assemble_layout_contract
 from aetherviz_service.aetherviz.tools.validation_report import build_validation_report
 from aetherviz_service.aetherviz.workflow.generate_workflow import (
     _accept_hard_repair_candidate,
@@ -240,7 +240,7 @@ def test_target_assembly_rejects_scattered_candidate_and_selects_rectangle() -> 
 
 
 def test_sector_rectangle_guidance_describes_measurable_interlocking_assembly() -> None:
-    from aetherviz_service.aetherviz.agents.recomposition_scene_agent import SCENE_SYSTEM_PROMPT
+    from aetherviz_service.aetherviz.ir.recomposition.agent import SCENE_SYSTEM_PROMPT
 
     plan = normalize_plan(
         {
@@ -405,10 +405,10 @@ def test_target_assembly_can_translate_an_otherwise_valid_target_into_canvas() -
         item["overlap_ratio"] for item in before["states"]
     ]
 
-    from aetherviz_service.aetherviz.agents import recomposition_scene_agent
+    from aetherviz_service.aetherviz.ir.recomposition import agent as recomposition_agent
 
     initial_ranking = rank_geometry_ir_candidates([geometry_ir], plan)
-    repaired_ranking, _ = recomposition_scene_agent._attempt_target_bounds_completion(
+    repaired_ranking, _ = recomposition_agent._attempt_target_bounds_completion(
         [geometry_ir], plan, initial_ranking
     )
     assert repaired_ranking["ok"]
@@ -442,7 +442,7 @@ def test_deterministic_fallback_satisfies_explicit_rectangle_assembly() -> None:
 def test_explicit_target_assembly_does_not_use_generic_fallback_after_failed_repair(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from aetherviz_service.aetherviz.agents import recomposition_scene_agent
+    from aetherviz_service.aetherviz.ir.recomposition import agent as recomposition_agent
 
     plan = normalize_plan(
         {
@@ -467,26 +467,26 @@ def test_explicit_target_assembly_does_not_use_generic_fallback_after_failed_rep
         "errors": [{"type": "geometry_ir_candidate_rejected"}],
         "warnings": [],
     }
-    monkeypatch.setattr(recomposition_scene_agent, "has_primary_llm_config", lambda: True)
+    monkeypatch.setattr(recomposition_agent, "has_primary_llm_config", lambda: True)
     monkeypatch.setattr(
-        recomposition_scene_agent,
+        recomposition_agent,
         "_generate_scene_source",
         lambda *_args: (_ for _ in ()).throw(
-            recomposition_scene_agent.GeometryIRGenerationError("{}", failure_report)
+            recomposition_agent.GeometryIRGenerationError("{}", failure_report)
         ),
     )
     monkeypatch.setattr(
-        recomposition_scene_agent,
+        recomposition_agent,
         "_repair_scene_source",
         lambda *_args: (_ for _ in ()).throw(ValueError("repair failed")),
     )
 
-    with pytest.raises(recomposition_scene_agent.GeometryIRGenerationError):
-        list(recomposition_scene_agent._stream_generate_recomposition_html_impl("topic", plan))
+    with pytest.raises(recomposition_agent.GeometryIRGenerationError):
+        list(recomposition_agent._stream_generate_recomposition_html_impl("topic", plan))
 
 
 def test_geometry_ir_failure_reports_unique_actionable_reasons() -> None:
-    from aetherviz_service.aetherviz.agents.recomposition_scene_agent import (
+    from aetherviz_service.aetherviz.ir.recomposition.agent import (
         GeometryIRGenerationError,
         _compact_assembly_diagnostics,
         _compact_teaching_diagnostics,
@@ -580,7 +580,7 @@ def test_geometry_ir_failure_reports_unique_actionable_reasons() -> None:
 def test_scene_generation_selects_one_ir_from_single_three_candidate_response(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from aetherviz_service.aetherviz.agents import recomposition_scene_agent
+    from aetherviz_service.aetherviz.ir.recomposition import agent as recomposition_agent
 
     plan = normalize_plan({}, "组合图形面积切割重排证明")
     candidates = [build_deterministic_geometry_ir(plan) for _ in range(3)]
@@ -591,8 +591,8 @@ def test_scene_generation_selects_one_ir_from_single_three_candidate_response(
         captured["schema"] = response_schema
         yield {"content": json.dumps({"candidates": candidates}, ensure_ascii=False)}
 
-    monkeypatch.setattr(recomposition_scene_agent, "_stream_scene_response", fake_stream)
-    source, timed_out, ranking = recomposition_scene_agent._generate_ranked_scene_source(
+    monkeypatch.setattr(recomposition_agent, "_stream_scene_response", fake_stream)
+    source, timed_out, ranking = recomposition_agent._generate_ranked_scene_source(
         "组合图形面积切割重排证明", plan
     )
     assert not timed_out
@@ -885,7 +885,7 @@ def test_waypoint_completion_repairs_only_generic_intermediate_transform_evidenc
 def test_scene_generation_uses_waypoint_completion_before_model_repair(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from aetherviz_service.aetherviz.agents import recomposition_scene_agent
+    from aetherviz_service.aetherviz.ir.recomposition import agent as recomposition_agent
 
     plan = normalize_plan({}, "单块多边形旋转割补面积守恒推导")
     candidates = [build_deterministic_geometry_ir(plan) for _ in range(2)]
@@ -902,8 +902,8 @@ def test_scene_generation_uses_waypoint_completion_before_model_repair(
     def fake_stream(_messages: object, *, response_schema: dict[str, object] | None = None):
         yield {"content": json.dumps({"candidates": candidates}, ensure_ascii=False)}
 
-    monkeypatch.setattr(recomposition_scene_agent, "_stream_scene_response", fake_stream)
-    source, _, ranking = recomposition_scene_agent._generate_ranked_scene_source("topic", plan)
+    monkeypatch.setattr(recomposition_agent, "_stream_scene_response", fake_stream)
+    source, _, ranking = recomposition_agent._generate_ranked_scene_source("topic", plan)
     assert validate_scene_module(source)["ok"]
     assert ranking["strategy"] == "deterministic_waypoint_completion"
     assert ranking["ok"]
@@ -1519,10 +1519,10 @@ def test_hard_repair_report_excludes_quality_warnings() -> None:
 
 
 def test_generate_workflow_routes_recomposition_to_scene_backend(monkeypatch: pytest.MonkeyPatch) -> None:
-    from aetherviz_service.aetherviz.agents import recomposition_scene_agent
+    from aetherviz_service.aetherviz.ir.recomposition import agent as recomposition_agent
 
     plan = normalize_plan({}, "圆的面积推导")
-    monkeypatch.setattr(recomposition_scene_agent, "has_primary_llm_config", lambda: False)
+    monkeypatch.setattr(recomposition_agent, "has_primary_llm_config", lambda: False)
     monkeypatch.setattr(settings, "langsmith_tracing", False)
     monkeypatch.setattr(settings, "aetherviz_max_repair_attempts", 0)
     events = list(run_generate_workflow(run_id="scene-test", topic="圆的面积推导", approved_plan=plan))

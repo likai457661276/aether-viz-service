@@ -6,12 +6,12 @@ import math
 import re
 from typing import Any
 
-from aetherviz_service.aetherviz.tools.recomposition_assembly import (
+from aetherviz_service.aetherviz.ir.recomposition.assembly import (
     AssemblyGeometryUnavailable,
     piece_local_polygon,
     polygon_area,
 )
-from aetherviz_service.aetherviz.tools.recomposition_ir import (
+from aetherviz_service.aetherviz.ir.recomposition.contract import (
     expand_geometry_ir,
     sample_geometry_states,
 )

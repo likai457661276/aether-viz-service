@@ -5,13 +5,13 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from aetherviz_service.aetherviz.tools.recomposition_constants import (
+from aetherviz_service.aetherviz.ir.recomposition.constants import (
     CANVAS_HEIGHT,
     CANVAS_SAFE_MARGIN,
     CANVAS_WIDTH,
 )
-from aetherviz_service.aetherviz.tools.recomposition_ir import normalize_geometry_ir
-from aetherviz_service.aetherviz.tools.recomposition_semantics import (
+from aetherviz_service.aetherviz.ir.recomposition.contract import normalize_geometry_ir
+from aetherviz_service.aetherviz.ir.recomposition.semantics import (
     evaluate_recomposition_semantics,
 )
 

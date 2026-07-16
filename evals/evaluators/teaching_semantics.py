@@ -5,9 +5,9 @@ from __future__ import annotations
 import copy
 from typing import Any
 
-from aetherviz_service.aetherviz.tools.recomposition_math import evaluate_mathematical_invariants
-from aetherviz_service.aetherviz.tools.recomposition_ranking import rank_geometry_ir_candidates
-from aetherviz_service.aetherviz.tools.recomposition_semantics import evaluate_recomposition_semantics
+from aetherviz_service.aetherviz.ir.recomposition.math import evaluate_mathematical_invariants
+from aetherviz_service.aetherviz.ir.recomposition.ranking import rank_geometry_ir_candidates
+from aetherviz_service.aetherviz.ir.recomposition.semantics import evaluate_recomposition_semantics
 
 
 def evaluate_invalid_case(

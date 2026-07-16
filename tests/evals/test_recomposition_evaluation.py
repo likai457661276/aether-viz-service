@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from aetherviz_service.aetherviz.tools.recomposition_ir import build_deterministic_geometry_ir
+from aetherviz_service.aetherviz.ir.recomposition.contract import build_deterministic_geometry_ir
 from aetherviz_service.aetherviz.workflow.plan_contract import normalize_plan
 from evals.evaluators.completion import evaluate_completion_case
 from evals.evaluators.deterministic import REQUIRED_DIMENSIONS, validate_dataset_matrix

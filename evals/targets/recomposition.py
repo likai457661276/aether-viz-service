@@ -8,33 +8,33 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
-from aetherviz_service.aetherviz.agents.recomposition_scene_agent import (
+from aetherviz_service.aetherviz.ir.recomposition.agent import (
     GeometryIRGenerationError,
     _attempt_target_bounds_completion,
     _generate_ranked_scene_source,
     _repair_scene_source,
 )
-from aetherviz_service.aetherviz.tools.layout_contract import assemble_layout_contract
-from aetherviz_service.aetherviz.tools.recomposition_assembly import evaluate_target_assembly
-from aetherviz_service.aetherviz.tools.recomposition_contract import validate_scene_module
-from aetherviz_service.aetherviz.tools.recomposition_ir import (
+from aetherviz_service.aetherviz.ir.recomposition.assembly import evaluate_target_assembly
+from aetherviz_service.aetherviz.ir.recomposition.contract import (
     compile_geometry_ir,
     expand_geometry_ir,
     extract_geometry_ir_from_scene_source,
     sample_geometry_states,
     validate_geometry_ir,
 )
-from aetherviz_service.aetherviz.tools.recomposition_ranking import (
+from aetherviz_service.aetherviz.ir.recomposition.ranking import (
     public_geometry_ir_ranking,
     rank_geometry_ir_candidates,
 )
-from aetherviz_service.aetherviz.tools.recomposition_runtime import (
+from aetherviz_service.aetherviz.ir.recomposition.runtime import (
     assemble_recomposition_business_html,
     build_deterministic_scene_module,
 )
-from aetherviz_service.aetherviz.tools.recomposition_semantics import (
+from aetherviz_service.aetherviz.ir.recomposition.scene_contract import validate_scene_module
+from aetherviz_service.aetherviz.ir.recomposition.semantics import (
     evaluate_recomposition_semantics,
 )
+from aetherviz_service.aetherviz.tools.layout_contract import assemble_layout_contract
 from aetherviz_service.aetherviz.tools.validation_report import build_validation_report
 from aetherviz_service.aetherviz.workflow.plan_contract import normalize_plan
 

@@ -1,1 +1,1 @@
-"""Geometric recomposition IR backend adapter."""
+"""Self-contained geometric decomposition and recomposition IR backend."""

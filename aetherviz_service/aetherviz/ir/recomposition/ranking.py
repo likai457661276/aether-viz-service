@@ -7,16 +7,16 @@ import json
 import math
 from typing import Any
 
-from aetherviz_service.aetherviz.tools.recomposition_assembly import evaluate_target_assembly
-from aetherviz_service.aetherviz.tools.recomposition_constants import CANVAS_HEIGHT, CANVAS_WIDTH
-from aetherviz_service.aetherviz.tools.recomposition_ir import (
+from aetherviz_service.aetherviz.ir.recomposition.assembly import evaluate_target_assembly
+from aetherviz_service.aetherviz.ir.recomposition.constants import CANVAS_HEIGHT, CANVAS_WIDTH
+from aetherviz_service.aetherviz.ir.recomposition.contract import (
     expand_geometry_ir,
     normalize_geometry_ir,
     sample_geometry_states,
     validate_geometry_ir,
 )
-from aetherviz_service.aetherviz.tools.recomposition_math import evaluate_mathematical_invariants
-from aetherviz_service.aetherviz.tools.recomposition_semantics import evaluate_recomposition_semantics
+from aetherviz_service.aetherviz.ir.recomposition.math import evaluate_mathematical_invariants
+from aetherviz_service.aetherviz.ir.recomposition.semantics import evaluate_recomposition_semantics
 
 SCORE_WEIGHTS = {
     "schema": 15.0,

@@ -1,8 +1,4 @@
-"""Registry adapter for the existing geometric recomposition IR family.
-
-The implementation remains import-compatible in its original modules while it
-is migrated package-by-package; new callers depend only on this adapter.
-"""
+"""Registry entry for the self-contained geometric recomposition IR backend."""
 
 from aetherviz_service.aetherviz.ir.recomposition.agent import (
     stream_generate_recomposition_html,

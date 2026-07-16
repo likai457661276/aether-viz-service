@@ -8,8 +8,8 @@ from collections import deque
 from copy import deepcopy
 from typing import Any
 
-from aetherviz_service.aetherviz.tools.recomposition_constants import CANVAS_HEIGHT, CANVAS_WIDTH
-from aetherviz_service.aetherviz.tools.recomposition_ir import (
+from aetherviz_service.aetherviz.ir.recomposition.constants import CANVAS_HEIGHT, CANVAS_WIDTH
+from aetherviz_service.aetherviz.ir.recomposition.contract import (
     expand_geometry_ir,
     sample_geometry_states,
 )
