@@ -37,6 +37,8 @@ def generate_aetherviz_spec(payload: dict[str, Any]) -> StreamingResponse:
             approved_plan=dump_plan(request.approved_plan),
             current_html=request.current_html,
             context=request.context,
+            edit_target=request.edit_target,
+            runtime_error=request.runtime_error,
         ),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},

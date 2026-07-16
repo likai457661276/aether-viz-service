@@ -35,6 +35,8 @@ def agent_runtime_stream(
     approved_plan: dict[str, Any] | None = None,
     current_html: str | None = None,
     context: dict[str, Any] | None = None,
+    edit_target: dict[str, Any] | None = None,
+    runtime_error: dict[str, Any] | None = None,
 ) -> Iterator[str]:
     tracing_enabled = settings.langsmith_tracing and bool((settings.langsmith_api_key or "").strip())
     if not tracing_enabled:
@@ -47,6 +49,8 @@ def agent_runtime_stream(
             approved_plan=approved_plan,
             current_html=current_html,
             context=context,
+            edit_target=edit_target,
+            runtime_error=runtime_error,
             langsmith_trace_id=None,
         )
         return
@@ -61,6 +65,8 @@ def agent_runtime_stream(
         approved_plan=approved_plan,
         current_html=current_html,
         context=context,
+        edit_target=edit_target,
+        runtime_error=runtime_error,
         langsmith_trace_id=str(trace_id),
         langsmith_extra={
             "run_id": trace_id,
@@ -90,6 +96,8 @@ def _agent_runtime_stream_impl(
     approved_plan: dict[str, Any] | None = None,
     current_html: str | None = None,
     context: dict[str, Any] | None = None,
+    edit_target: dict[str, Any] | None = None,
+    runtime_error: dict[str, Any] | None = None,
     langsmith_trace_id: str | None = None,
 ) -> Iterator[str]:
     run_id = f"run_{uuid.uuid4().hex[:12]}"
@@ -127,6 +135,8 @@ def _agent_runtime_stream_impl(
                 current_html=current_html or "",
                 message=message or "",
                 context=context,
+                edit_target=edit_target,
+                runtime_error=runtime_error,
             )
             return
         yield agent_error_event(run_id=run_id, phase=phase, code="invalid_phase", message=f"不支持的 phase：{phase}")

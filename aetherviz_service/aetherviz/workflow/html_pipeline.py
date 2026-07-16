@@ -16,6 +16,9 @@ def run_html_pipeline(
     topic: str,
     plan: dict[str, Any],
     html_stream_factory: Callable[[], Iterator[dict[str, Any] | HtmlStreamResult]],
+    emit_start_event: bool = True,
+    candidate_guard: Callable[[str], list[str]] | None = None,
+    initial_metadata: dict[str, Any] | None = None,
 ) -> Iterator[str]:
     """Run the shared pipeline without exposing a workflow module's private symbol."""
     from aetherviz_service.aetherviz.workflow.generate_workflow import run_html_pipeline as implementation
@@ -27,4 +30,7 @@ def run_html_pipeline(
         topic=topic,
         plan=plan,
         html_stream_factory=html_stream_factory,
+        emit_start_event=emit_start_event,
+        candidate_guard=candidate_guard,
+        initial_metadata=initial_metadata,
     )

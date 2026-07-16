@@ -1444,7 +1444,7 @@ def test_edit_html_always_regenerates_full_html_from_current_page(monkeypatch) -
     assert "重新生成的熵增演示" in result.html
 
 
-def test_edit_workflow_only_passes_current_business_html_to_regeneration(monkeypatch) -> None:
+def test_edit_workflow_diagnoses_before_passing_current_business_html_to_regeneration(monkeypatch) -> None:
     from aetherviz_service.aetherviz.agents.html_agent import HtmlStreamResult
     from aetherviz_service.aetherviz.workflow import edit_html_workflow
 
@@ -1470,8 +1470,11 @@ def test_edit_workflow_only_passes_current_business_html_to_regeneration(monkeyp
         )
     )
 
-    assert result == ["done"]
-    assert captured["message"] == "修复画面"
+    assert result[-1] == "done"
+    events = parse_sse_events(type("SseResponse", (), {"text": "".join(result[:-1])})())
+    assert [event for event, _data in events] == ["html.edit_started", "html.edit_diagnosed"]
+    assert str(captured["message"]).startswith("修复画面")
+    assert "编辑诊断" in str(captured["message"])
     assert "context" not in captured
 
 

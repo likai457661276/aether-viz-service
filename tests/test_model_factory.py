@@ -52,9 +52,11 @@ def test_planning_html_and_repair_models_are_configured_separately(monkeypatch) 
 
     monkeypatch.setattr("langchain_openai.ChatOpenAI", FakeChatOpenAI)
     monkeypatch.setattr(settings, "openai_plan_model", "plan-model")
+    monkeypatch.setattr(settings, "openai_edit_analysis_model", "analysis-model")
     monkeypatch.setattr(settings, "openai_html_model", "html-model")
     monkeypatch.setattr(settings, "openai_repair_model", "repair-model")
     monkeypatch.setattr(settings, "aetherviz_plan_max_tokens", 3072)
+    monkeypatch.setattr(settings, "aetherviz_edit_analysis_max_tokens", 1536)
     monkeypatch.setattr(settings, "aetherviz_html_max_tokens", 8192)
     monkeypatch.setattr(settings, "aetherviz_edit_max_tokens", 9216)
     monkeypatch.setattr(settings, "aetherviz_edit_enable_thinking", True)
@@ -62,27 +64,32 @@ def test_planning_html_and_repair_models_are_configured_separately(monkeypatch) 
     monkeypatch.setattr(settings, "aetherviz_repair_max_tokens", 9216)
 
     model_factory.create_chat_model("planning")
+    model_factory.create_chat_model("edit_analysis", response_schema={"type": "object"})
     model_factory.create_chat_model("html")
     model_factory.create_chat_model("edit")
     model_factory.create_chat_model("repair")
 
     assert [kwargs["model"] for kwargs in captured] == [
         "plan-model",
+        "analysis-model",
         "html-model",
         "html-model",
         "repair-model",
     ]
-    assert [kwargs["max_tokens"] for kwargs in captured] == [3072, 8192, 9216, 9216]
+    assert [kwargs["max_tokens"] for kwargs in captured] == [3072, 1536, 8192, 9216, 9216]
     assert captured[0]["temperature"] == 0.1
     assert captured[0]["extra_body"] == {"enable_thinking": False}
     assert captured[0]["model_kwargs"] == {"response_format": {"type": "json_object"}}
     assert captured[0]["stream_usage"] is True
     assert "reasoning_effort" not in captured[0]
-    assert captured[2]["timeout"] == settings.aetherviz_html_timeout_seconds
-    assert captured[2]["temperature"] == 0.1
-    assert captured[2]["extra_body"] == {"enable_thinking": True}
-    assert captured[2]["reasoning_effort"] == "medium"
-    assert captured[3]["temperature"] == 0.0
+    assert captured[1]["temperature"] == 0.0
+    assert captured[1]["extra_body"] == {"enable_thinking": False}
+    assert captured[1]["model_kwargs"]["response_format"]["type"] == "json_schema"
+    assert captured[3]["timeout"] == settings.aetherviz_html_timeout_seconds
+    assert captured[3]["temperature"] == 0.1
+    assert captured[3]["extra_body"] == {"enable_thinking": True}
+    assert captured[3]["reasoning_effort"] == "medium"
+    assert captured[4]["temperature"] == 0.0
 
 
 def test_edit_thinking_can_be_disabled_independently(monkeypatch) -> None:

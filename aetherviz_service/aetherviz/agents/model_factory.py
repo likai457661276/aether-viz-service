@@ -49,7 +49,7 @@ def _html_model_kwargs(*, max_tokens: int | None = None) -> dict[str, Any]:
 def create_chat_model(kind: str, *, response_schema: dict[str, Any] | None = None):
     from langchain_openai import ChatOpenAI
 
-    if kind not in {"planning", "html", "scene", "edit", "repair"}:
+    if kind not in {"planning", "edit_analysis", "html", "scene", "edit", "repair"}:
         raise ValueError(f"unsupported chat model kind: {kind}")
 
     if kind == "planning":
@@ -66,6 +66,33 @@ def create_chat_model(kind: str, *, response_schema: dict[str, Any] | None = Non
             "stream_usage": True,
         }
         return ChatOpenAI(**planning_kwargs)
+    if kind == "edit_analysis":
+        analysis_kwargs: dict[str, Any] = {
+            "model": settings.openai_edit_analysis_model,
+            "api_key": _blank_to_none(settings.openai_api_key),
+            "base_url": _blank_to_none(settings.openai_base_url),
+            "temperature": 0.0,
+            "max_tokens": max(settings.aetherviz_edit_analysis_max_tokens, 512),
+            "timeout": max(settings.aetherviz_edit_analysis_timeout_seconds, 1),
+            "max_retries": max(settings.aetherviz_edit_analysis_max_retries, 0),
+            "extra_body": {"enable_thinking": False},
+            "model_kwargs": {
+                "response_format": (
+                    {
+                        "type": "json_schema",
+                        "json_schema": {
+                            "name": "aetherviz_edit_diagnosis",
+                            "strict": True,
+                            "schema": response_schema,
+                        },
+                    }
+                    if response_schema
+                    else {"type": "json_object"}
+                )
+            },
+            "stream_usage": True,
+        }
+        return ChatOpenAI(**analysis_kwargs)
     if kind == "html":
         return ChatOpenAI(**_html_model_kwargs())
     if kind == "scene":

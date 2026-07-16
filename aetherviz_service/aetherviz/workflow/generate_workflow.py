@@ -137,6 +137,9 @@ def run_html_pipeline(
     plan: dict[str, Any],
     html_stream_factory: Callable[[], Iterator[dict[str, Any] | HtmlStreamResult]],
     generation_backend: str = "direct",
+    emit_start_event: bool = True,
+    candidate_guard: Callable[[str], list[str]] | None = None,
+    initial_metadata: dict[str, Any] | None = None,
 ) -> Iterator[str]:
     started_at = time.monotonic()
     metadata = {
@@ -154,17 +157,19 @@ def run_html_pipeline(
             if phase == "edit_html"
             else phase == "generate" and settings.aetherviz_html_enable_thinking
         ),
+        **(initial_metadata or {}),
     }
-    yield agent_sse_event(
-        start_event,
-        run_id=run_id,
-        phase=phase,
-        data={
-            "message": "html_agent 开始生成 HTML",
-            "reasoning_enabled": metadata["reasoning_enabled"],
-        },
-        metadata=_metadata(metadata, started_at, stage="generate"),
-    )
+    if emit_start_event:
+        yield agent_sse_event(
+            start_event,
+            run_id=run_id,
+            phase=phase,
+            data={
+                "message": "html_agent 开始生成 HTML",
+                "reasoning_enabled": metadata["reasoning_enabled"],
+            },
+            metadata=_metadata(metadata, started_at, stage="generate"),
+        )
     business_html = None
     html = None
     degraded = False
@@ -229,6 +234,18 @@ def run_html_pipeline(
         return
     metadata["degraded"] = degraded
     metadata["truncated"] = source_truncated
+    if candidate_guard is not None:
+        guard_errors = candidate_guard(business_html)
+        if guard_errors:
+            yield agent_error_event(
+                run_id=run_id,
+                phase=phase,
+                code="edit_intent_not_satisfied",
+                message="HTML 修改结果未满足本次编辑验收条件，原页面已保留",
+                detail="; ".join(guard_errors[:8]),
+                metadata=_metadata(metadata, started_at, stage="edit_guard"),
+            )
+            return
     yield agent_sse_event(
         "validation.started",
         run_id=run_id,
@@ -289,6 +306,19 @@ def run_html_pipeline(
         metadata["degraded"] = metadata["degraded"] or quality_degraded
         metadata["validation_warnings"] = [warning["message"] for warning in report.get("warnings", [])]
 
+    if candidate_guard is not None:
+        guard_errors = candidate_guard(business_html)
+        if guard_errors:
+            yield agent_error_event(
+                run_id=run_id,
+                phase=phase,
+                code="edit_intent_lost_after_repair",
+                message="自动修复未能保留本次编辑结果，原页面已保留",
+                detail="; ".join(guard_errors[:8]),
+                metadata=_metadata(metadata, started_at, stage="edit_guard"),
+            )
+            return
+
     yield agent_sse_event(
         "html.done",
         run_id=run_id,
@@ -319,6 +349,9 @@ def run_html_pipeline(
                 "assembly_overhead_chars": len(html) - len(business_html),
                 "assembly_count": 1,
                 "edit_strategy": metadata.get("edit_strategy"),
+                "edit_diagnosis_strategy": metadata.get("edit_diagnosis_strategy"),
+                "edit_diagnosis_confidence": metadata.get("edit_diagnosis_confidence"),
+                "edit_diagnosis_degraded": metadata.get("edit_diagnosis_degraded", False),
                 "model_finish_reason": metadata.get("model_finish_reason"),
                 "source_business_chars": metadata.get("source_business_chars", 0),
                 "patch_functions": metadata.get("patch_functions", []),

@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     openai_plan_model: str = "deepseek-v4-flash"
     openai_html_model: str = "qwen3.7-plus"
     openai_repair_model: str = "deepseek-v4-flash"
+    openai_edit_analysis_model: str = "deepseek-v4-flash"
     aetherviz_gsap_cdn_url: str = "https://cdn.jsdelivr.net/npm/gsap@3/dist/gsap.min.js"
     aetherviz_katex_enabled: bool = True
     aetherviz_katex_css_url: str = "https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css"
@@ -26,6 +27,9 @@ class Settings(BaseSettings):
     aetherviz_repair_max_tokens: int = 16384
     aetherviz_max_repair_attempts: int = 1
     aetherviz_plan_max_tokens: int = 3072
+    aetherviz_edit_analysis_max_tokens: int = 1536
+    aetherviz_edit_analysis_timeout_seconds: int = 30
+    aetherviz_edit_analysis_max_retries: int = 1
     aetherviz_plan_timeout_seconds: int = 180
     aetherviz_plan_max_retries: int = 1
     aetherviz_html_timeout_seconds: int = 600

@@ -21,6 +21,8 @@ class GenerateAetherVizSpecRequest(BaseModel):
     plan: AetherVizPlan | dict[str, Any] | None = None
     approved_plan: AetherVizPlan | dict[str, Any] | None = None
     current_html: str | None = None
+    edit_target: dict[str, Any] | None = None
+    runtime_error: dict[str, Any] | None = None
 
     @model_validator(mode="after")
     def validate_phase_payload(self) -> GenerateAetherVizSpecRequest:

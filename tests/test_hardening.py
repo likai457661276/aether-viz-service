@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 
 from aetherviz_service.aetherviz.agents import planner_agent, repair_agent
 from aetherviz_service.aetherviz.agents.planner_agent import PlanningStreamResult, stream_create_plan
+from aetherviz_service.aetherviz.limits import MODEL_HTML_HARD_LIMIT_CHARS
 from aetherviz_service.aetherviz.tools.animation_lifecycle_checker import check_animation_lifecycle
 from aetherviz_service.aetherviz.tools.deterministic_repair import deterministic_repair_html
 from aetherviz_service.aetherviz.tools.layout_contract import assemble_layout_contract
@@ -436,8 +437,8 @@ def test_model_length_ignores_server_assembly_overhead() -> None:
 
     report = _validate(assembled_html, plan=sample_plan(), model_html=business_html)
 
-    assert len(business_html) < 40000
-    assert len(assembled_html) > 40000
+    assert len(business_html) < MODEL_HTML_HARD_LIMIT_CHARS
+    assert len(assembled_html) > MODEL_HTML_HARD_LIMIT_CHARS
     assert report["ok"] is True
     assert not any(error["type"] == "html_length_hard_limit" for error in report["errors"])
 
@@ -449,14 +450,36 @@ def test_model_length_accepts_previous_29365_character_warning_case() -> None:
     assert report["warnings"] == []
 
 
+def test_model_length_warns_only_above_38000_character_target() -> None:
+    target_report = check_length("x" * 38000)
+    over_target_report = check_length("x" * 38001)
+
+    assert target_report["ok"] is True
+    assert target_report["warnings"] == []
+    assert over_target_report["ok"] is True
+    assert any(warning["type"] == "html_length_target" for warning in over_target_report["warnings"])
+
+
+def test_model_length_rejects_only_above_42000_character_hard_limit() -> None:
+    hard_limit_report = check_length("x" * 42000)
+    over_hard_limit_report = check_length("x" * 42001)
+
+    assert hard_limit_report["ok"] is True
+    assert hard_limit_report["errors"] == []
+    assert over_hard_limit_report["ok"] is False
+    assert any(
+        error["type"] == "html_length_hard_limit" for error in over_hard_limit_report["errors"]
+    )
+
+
 def test_model_length_ignores_deterministic_guard_overhead() -> None:
     business_html = sample_html().replace("</style>", f"/*{'x' * 37000}*/</style>")
-    guard = '<script data-aetherviz-ready-guard="true">/*' + ("x" * 2500) + "*/</script>"
+    guard = '<script data-aetherviz-ready-guard="true">/*' + ("x" * 3500) + "*/</script>"
     guarded_html = business_html.replace("</body>", guard + "</body>")
 
     report = _validate(guarded_html, plan=sample_plan(), model_html=guarded_html)
 
-    assert len(guarded_html) > 40000
+    assert len(guarded_html) > MODEL_HTML_HARD_LIMIT_CHARS
     assert not any(error["type"] == "html_length_hard_limit" for error in report["errors"])
 
 

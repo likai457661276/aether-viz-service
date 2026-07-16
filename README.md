@@ -49,6 +49,7 @@ uv sync --dev
 OPENAI_API_KEY="你的 OpenAI-compatible API Key"
 OPENAI_BASE_URL="https://dashscope.aliyuncs.com/compatible-mode/v1"
 OPENAI_PLAN_MODEL="deepseek-v4-flash"
+OPENAI_EDIT_ANALYSIS_MODEL="deepseek-v4-flash"
 OPENAI_HTML_MODEL="qwen3.7-plus"
 OPENAI_REPAIR_MODEL="deepseek-v4-flash"
 AETHERVIZ_PLAN_MAX_TOKENS=3072
@@ -62,10 +63,12 @@ AETHERVIZ_SCENE_MAX_TOKENS=12288
 AETHERVIZ_EDIT_MAX_TOKENS=16384
 AETHERVIZ_EDIT_ENABLE_THINKING=true
 AETHERVIZ_EDIT_REASONING_EFFORT=
+AETHERVIZ_EDIT_ANALYSIS_MAX_TOKENS=1536
+AETHERVIZ_EDIT_ANALYSIS_TIMEOUT_SECONDS=30
 AETHERVIZ_REPAIR_MAX_TOKENS=16384
 ```
 
-规划阶段使用 `OPENAI_PLAN_MODEL`，HTML、几何 IR 和 HTML 编辑使用 `OPENAI_HTML_MODEL`，函数级修复与整页模型修复使用 `OPENAI_REPAIR_MODEL`。三类模型复用 `OPENAI_API_KEY` 与 `OPENAI_BASE_URL`；未配置 Key 时 HTML 生成与编辑会明确返回 `model_unavailable`，不会交付确定性占位页。默认模型依次为 `deepseek-v4-flash`、`qwen3.7-plus` 和 `deepseek-v4-flash`。`AETHERVIZ_PLAN_MAX_TOKENS` 控制计划 JSON 的最大输出 token，默认 3072；`AETHERVIZ_SCENE_MAX_TOKENS` 控制单次 3 候选重排 IR 响应，默认 12288。IR 优先使用严格 JSON Schema 响应约束；兼容网关不支持时自动降级到 JSON object 模式，再由同一服务端契约校验。IR 生成温度固定为 0；服务端执行传输结构归一化、确定性 AST 纠错、schema/白名单检查、default/min/max 语义展开和教学证明约束检查，再编译为固定 Scene Module，补齐 `structureKey`、多阶段 transform 插值和展示帧选择。HTML 编辑通过 `AETHERVIZ_EDIT_ENABLE_THINKING` 独立启用推理模式，默认开启且不影响新 HTML 生成、几何 IR 和修复；`AETHERVIZ_EDIT_REASONING_EFFORT` 可选配置推理强度，留空时使用模型默认值。`AETHERVIZ_GSAP_CDN_URL` 统一配置 GSAP core UMD。KaTeX 仅在计划包含公式时按需加载固定 CSS/JS，且必须提供 `window.katex` 缺失时的纯文本降级。所有 CDN 地址只接受不含凭据、query 或 fragment 的 HTTPS URL；协议相对 URL、`data:` URL、非 HTTPS 外链、Tailwind、D3、KaTeX auto-render 和其他外部资源不在白名单中。`AETHERVIZ_HTML_MAX_TOKENS`、`AETHERVIZ_EDIT_MAX_TOKENS`、`AETHERVIZ_REPAIR_MAX_TOKENS` 分别控制 HTML 新生成、基于当前 HTML 的整页重生成和模型修复的最大输出 token，默认均为 16384；启动时会校验三项预算能够覆盖业务 HTML 硬上限与收尾余量。`AETHERVIZ_MAX_REPAIR_ATTEMPTS` 控制整页模型修复次数，默认 1，可设为 0 关闭或设为更大的非负整数；`AETHERVIZ_HTML_STREAM_MAX_RETRIES` 控制 HTML 流式传输中断或完整结束标签缺失后的整次重新生成次数，默认 1。重试仍失败时返回明确错误，不输出残缺或降级 HTML。不要把真实 API Key 提交到仓库。
+规划阶段使用 `OPENAI_PLAN_MODEL`，HTML、几何 IR 和整页 HTML 编辑使用 `OPENAI_HTML_MODEL`，编辑诊断使用 `OPENAI_EDIT_ANALYSIS_MODEL`，函数级修复与整页模型修复使用 `OPENAI_REPAIR_MODEL`。这些模型复用 `OPENAI_API_KEY` 与 `OPENAI_BASE_URL`；未配置 Key 时 HTML 生成与编辑会明确返回 `model_unavailable`，不会交付确定性占位页。编辑诊断默认使用 `deepseek-v4-flash`，温度为 0、关闭 thinking，优先使用严格 JSON Schema，兼容网关不支持时重试 JSON object 模式；`AETHERVIZ_EDIT_ANALYSIS_MAX_TOKENS` 与 `AETHERVIZ_EDIT_ANALYSIS_TIMEOUT_SECONDS` 分别控制短诊断 JSON 的输出预算和独立超时。`AETHERVIZ_PLAN_MAX_TOKENS` 控制计划 JSON 的最大输出 token，默认 3072；`AETHERVIZ_SCENE_MAX_TOKENS` 控制单次 3 候选重排 IR 响应，默认 12288。IR 优先使用严格 JSON Schema 响应约束；兼容网关不支持时自动降级到 JSON object 模式，再由同一服务端契约校验。IR 生成温度固定为 0；服务端执行传输结构归一化、确定性 AST 纠错、schema/白名单检查、default/min/max 语义展开和教学证明约束检查，再编译为固定 Scene Module，补齐 `structureKey`、多阶段 transform 插值和展示帧选择。HTML 编辑通过 `AETHERVIZ_EDIT_ENABLE_THINKING` 独立启用推理模式，默认开启且不影响新 HTML 生成、几何 IR 和修复；`AETHERVIZ_EDIT_REASONING_EFFORT` 可选配置推理强度，留空时使用模型默认值。`AETHERVIZ_GSAP_CDN_URL` 统一配置 GSAP core UMD。KaTeX 仅在计划包含公式时按需加载固定 CSS/JS，且必须提供 `window.katex` 缺失时的纯文本降级。所有 CDN 地址只接受不含凭据、query 或 fragment 的 HTTPS URL；协议相对 URL、`data:` URL、非 HTTPS 外链、Tailwind、D3、KaTeX auto-render 和其他外部资源不在白名单中。`AETHERVIZ_HTML_MAX_TOKENS`、`AETHERVIZ_EDIT_MAX_TOKENS`、`AETHERVIZ_REPAIR_MAX_TOKENS` 分别控制 HTML 新生成、基于当前 HTML 的整页重生成和模型修复的最大输出 token，默认均为 16384；启动时会校验三项预算能够覆盖业务 HTML 硬上限与收尾余量。`AETHERVIZ_MAX_REPAIR_ATTEMPTS` 控制整页模型修复次数，默认 1，可设为 0 关闭或设为更大的非负整数；`AETHERVIZ_HTML_STREAM_MAX_RETRIES` 控制 HTML 流式传输中断或完整结束标签缺失后的整次重新生成次数，默认 1。重试仍失败时返回明确错误，不输出残缺或降级 HTML。不要把真实 API Key 提交到仓库。
 
 KaTeX 可见公式使用 `data-katex` 显式目标并直接调用 `katex.render`；裸露的 `$...$`/`$$...$$` 会被确定性转换，转换后仍残留时按硬错误阻断。动态创建的 SVG/Canvas/DOM 节点必须先完成场景构建，再绑定节点事件和首次渲染；初始化前访问动态节点同样按硬错误阻断。
 
@@ -119,7 +122,7 @@ docker compose -f docker-compose.prod.yml up -d app
 - 前端只消费后端返回的自包含 HTML，并通过 iframe 隔离预览。
 - 前端不向生成物注入 GSAP、KaTeX 或其他运行时依赖；后端返回的 HTML 可自带白名单 GSAP core CDN，并在公式非空时自带固定版本 KaTeX CSS/JS。GSAP 必须有 native fallback，KaTeX 必须有纯文本 fallback。
 - 前端按 `phase=plan -> phase=revise_plan -> phase=approve_plan -> phase=generate -> phase=edit_html` 工作；未确认计划时 chat 只修订计划，不触发 HTML 生成。
-- `phase=edit_html` 发送修改意见、选中 HTML 文件全文 `current_html` 和摘要型 `context`，用于基于已有 HTML 生成新的 HTML 分支；后端返回 HTML 硬上限为 40000 字符，前端应保留完整返回内容作为后续 `current_html`。
+- `phase=edit_html` 发送修改意见、选中 HTML 文件全文 `current_html` 和摘要型 `context`，用于基于已有 HTML 生成新的 HTML 分支；后端返回 HTML 硬上限为 42000 字符，前端应保留完整返回内容作为后续 `current_html`。
 
 前端联调命令以该前端仓库 `package.json` 为准，常用命令：
 
@@ -242,7 +245,7 @@ HTML 文件编辑阶段请求示例：
 }
 ```
 
-`phase=edit_html` 必须携带选中的 HTML 文件全文。后端先剥离 `math-shell-v1`、控件契约和动画控制器，编辑模型只接收当前业务 HTML 与本次用户修改意见，不接收计划摘要、memory、历史消息或文件上下文。当前 HTML 是唯一事实基线；模型以 `temperature=0.1` 直接重新生成完整业务 HTML，只实施本次意见要求的定向变化，并保持其余教学内容、视觉层级、交互行为和功能一致。明确命中控制面板宽度、侧栏、整页网格、页面滚动或响应式断点等服务端外壳的修改意见会在模型调用前以 `edit_server_layout_owned` 拒绝，前端应直接告知用户该区域不能按单个课件修改。前端把结果保存为新的时间线分支，不覆盖原文件。模型生成、编辑和修复的业务 HTML 常规目标为 32000 字符、硬上限为 40000 字符；服务端装配开销不计入模型上限，最终装配 HTML 仅受 64000 字符异常膨胀安全上限约束。整页重生成会在调用前检查输出预算；模型未配置、未产生实际变化、改变 `widget-config.type`、丢失已有 iframe action、`finish_reason=length/max_tokens` 或原始输出缺少 `</html>` 时均明确失败并保留原页面。最终 metadata 使用 `edit_strategy=full_html_regeneration`，LangSmith 子 Trace 记录输入/输出 token、输出字符数及字符/token 比率。计划仍仅在服务端用于布局装配和结果校验。
+`phase=edit_html` 必须携带选中的 HTML 文件全文。后端先剥离 `math-shell-v1`，再从当前业务 HTML 确定性提取有界 DOM、CSS、函数、事件与 widget 摘要，并将当前校验报告、可选 `edit_target`、可选 `runtime_error` 和精简会话上下文交给编辑诊断模型。诊断模型只输出目标证据、策略、允许范围和验收断言，不直接修改 HTML。明确 CSS、文案或安全属性修改优先通过受限事务应用；可定位到唯一函数的运行时问题优先使用源哈希保护的函数补丁；局部结构或整体调整才回退完整业务 HTML 重生成。当前 HTML 始终是事实基线，历史上下文只用于消歧。服务端外壳修改以 `edit_server_layout_owned` 拒绝，目标无法唯一定位时以 `edit_clarification_required` 请求补充信息。编辑候选在确定性校验前和自动修复后都会重新执行本次编辑断言。最终 metadata 使用 `edit_strategy` 区分 `local_operations`、`function_patch` 与 `full_html_regeneration`，并返回诊断策略、置信度和降级状态；LangSmith 的 `aetherviz.edit_diagnosis` 子 Trace 只记录摘要规模和诊断结果，不重复记录完整 HTML。前端继续把结果保存为新分支，不覆盖原文件。
 
 响应类型为 `text/event-stream`。事件包括：
 
@@ -255,6 +258,7 @@ HTML 文件编辑阶段请求示例：
 - `html.generation_started`
 - `html.delta`：HTML 生成进度与实时大小更新；`data` 可含 `delta`、`html_steps`、`active_step_index`、累计 `bytes` 和 `chars`
 - `html.edit_started`
+- `html.edit_diagnosed`：结构化编辑目标、证据、策略、置信度和降级状态，不包含完整 HTML
 - `validation.started`
 - `validation.report`
 - `validation.candidate`：仅表示尚未接受的修复候选，固定包含 `accepted=false`、`rolled_back=true`、`rejection_reason`，前端不得用其覆盖当前有效报告
@@ -285,11 +289,11 @@ HTML 文件编辑阶段请求示例：
 2. `phase=revise_plan` 由规划模型接收 `current_plan + message`，重新生成完整 `revised` 计划，不返回局部 patch。
 3. `phase=approve_plan` 将计划状态置为 `approved`。
 4. `phase=generate` 根据 `knowledge_profile.representation_type` 路由：`geometric_recomposition` 由 `recomposition_scene_agent` 一次生成 3 个结构化几何 IR 候选，不生成多个 HTML；服务端淘汰确定性硬校验失败候选，对其余候选按固定权重和稳定指纹排序，只编译最高分 IR 并装配生命周期脚手架。目标拼合已满足连通、重叠和形状约束但仅整体越界时，服务端先对所有目标端点执行保持几何关系的统一平移归位；全部候选仅因中间 transform 证据不足而失败时，再用通用 waypoint 补全器生成有界、偏离首尾直线插值的独立中间状态并重新执行全部硬校验。仍失败才对最接近合格的 IR 做一次受限模型修复。计划声明显式 `target_assembly` 时，候选和修复均失败会明确终止生成，不再用无法证明原主题几何语义的通用 fallback 冒充正确结果。独立证据报告包含阶段、参数状态、piece id、失败原因、端点分离分数、直线路径偏离分数和各维度阈值；其他类型由 `html_agent` 直接生成业务 HTML。
-5. 模型业务 HTML 先执行 32000/40000 字符目标/硬限制，再经过 `math-shell-v1` 服务端装配器；模型外层布局不会进入最终 HTML。装配器会过滤业务 CSS 中的页面级、布局槽位根节点和 range 外观规则，标准 range 由 `range-v1` 独占尺寸与渲染，播放、暂停、重置按钮及 select 由服务端提供统一的按压、状态、焦点反馈，`controller-v1` 在业务脚本执行前提供 GSAP/RAF 共用动画控制接口并广播播放状态。最终装配只执行 64000 字符异常膨胀检查。
+5. 模型业务 HTML 先执行 38000/42000 字符目标/硬限制，再经过 `math-shell-v1` 服务端装配器；模型外层布局不会进入最终 HTML。装配器会过滤业务 CSS 中的页面级、布局槽位根节点和 range 外观规则，标准 range 由 `range-v1` 独占尺寸与渲染，播放、暂停、重置按钮及 select 由服务端提供统一的按压、状态、焦点反馈，`controller-v1` 在业务脚本执行前提供 GSAP/RAF 共用动画控制接口并广播播放状态。最终装配只执行 64000 字符异常膨胀检查。
 6. `validation_report` 聚合布局、HTML、JavaScript、安全、分阶段长度、Widget、动画生命周期和学科一致性检查。Widget 检查会识别主视觉挂载节点的直接查询及一层精确字符串常量查询，避免把可证明的 SVG/Canvas 动态挂载误判为空节点；仅在业务脚本直接调用 GSAP 时要求 fallback guard。业务脚本声明、遮蔽或覆盖服务端 `window.AetherVizAnimationController`，以及 GSAP `onUpdate` 经 `bind(this)` 改绑后仍调用 Tween 专属 `this.targets()`，均作为硬错误阻断。动画控制器 options 使用注释、字符串、正则和嵌套层级感知的顶层字段扫描，只有带源码范围、证据和高置信度的 `onUpdate` 误传、毫秒 duration 等明确契约错误才阻断；检查器显式标记为低置信度或非阻断的问题统一降级为 `validator_uncertain` warning 并继续交付。动画检查还会阻断 timeline/RAF 逐帧回调调用结构性 DOM/SVG 重建函数、可为空的 first/lastChild 清空后直接重挂载，并提示未清理或未经存在性校验的动态节点注册表、量化状态反复吞掉逐帧增量、对象方法或箭头属性形式的空 `setSpeed`、绕过统一动画控制器、局部几何与世界 transform 重复编码，以及 GSAP 直接污染 getState 可序列化业务对象的风险；学科启发式检查仍只产生 warning。
    Widget 校验还会识别由场景 builder 创建、却在 builder/init 调用前绑定事件或调用 DOM 方法的动态节点，并阻止仅通过空值 early-return 掩盖初始化失败的候选；KaTeX 页面中残留的可见数学定界符也会进入修复流程。
 7. 检查失败时先确定性修复业务 HTML。控制器顶层 `onUpdate` 误传会只改写为 `update`，不会重写完整文档；其他生命周期错误优先使用“报告点名函数/方法/箭头函数 + SHA-256 源哈希”的函数级替换，限制函数数量和总字符数，失败回滚后仍允许其他硬错误修复继续执行；其他硬错误才进入整页修复。截断源输出不进入修复循环；截断候选、无实际变化候选、引入 `js_syntax`/`missing_runtime_ready` 的候选、以及未严格减少硬错误的候选一律拒绝。候选检查只发送 `validation.candidate`，接受后才发送新的 `validation.report`。硬错误修复 prompt 不携带质量 warning；质量 warning 只允许确定性收尾，生产同步链路不再为其调用完整 HTML 模型修复。修复事件的 `attempt` / `repair_attempt` 从第一轮修复开始计为 1。
-8. 生成、编辑和模型修复的候选结果都会重新经过同一个服务端布局装配器。`phase=edit_html` 先执行 `extract_business_html`，再仅以当前业务 HTML 和本次用户指令直接重新生成完整业务 HTML；计划上下文不进入编辑模型，不再经过局部补丁选择与回退。重生成不能修改服务端布局外壳，只能输出数学内容、主视觉、业务交互与槽位优先级。候选继续执行确定性视觉/动画质量收尾，但不会为 warning 额外发起一次完整模型重写。结果仍生成新 HTML 分支，不覆盖旧 HTML。
+8. 生成、编辑和模型修复的候选结果都会重新经过同一个服务端布局装配器。`phase=edit_html` 先执行 `extract_business_html` 和确定性摘要，再由编辑诊断选择受限 CSS/文本/属性操作、函数补丁或完整业务 HTML 重生成；计划摘要和短会话上下文只参与目标消歧，不得覆盖当前 HTML。任何策略都不能修改服务端布局外壳，只能处理数学内容、主视觉、业务交互与槽位优先级。候选继续执行确定性视觉/动画质量收尾，并在修复后复核本次编辑断言；不会为 warning 额外发起完整模型重写。结果仍生成新 HTML 分支，不覆盖旧 HTML。
 9. 最终 HTML 仅通过 `html.done` 返回前端；服务端不保留 HTML 文件缓存或产物路径。
 
 生产同步链路不启动浏览器。几何 IR 只允许白名单 state/definition/local 引用、算术与几何操作符、SVG 图元和属性；通用 DSL 包含 `atan/atan2/hypot` 等角度与距离计算，并允许每个稳定图元声明 2~5 个 transform keyframes。计划中的 `recomposition_spec` 会由前后端类型和 approve/generate 请求契约完整传递；其中 `proof_constraints` 描述度量不变量、目标关系、目标拼合约束和教学阶段。每个 `stage_requirement` 由服务端归一化为唯一 `id`、`source/intermediate/target` 角色、确定时间点、几何证据类型和最小图元比例。IR 的教学帧必须用 `stage_id`/`at` 一一覆盖计划阶段；每个中间阶段必须有足够比例图元在同一时间点形成区别于首尾且偏离直接线性插值的几何关键状态，纯文字中间步骤会被阻断。`target_relations` 使用通用结构化关系 `equal_area` / `equal_length` / `equal_angle` / `parallel` / `perpendicular` / `coincident` / `collinear` / `congruent`，通过图元、顶点和线段引用表达；`target_assembly` 使用 `connected` / `non_overlapping` / `approximate_rectangle` 描述世界坐标下的连通性、重叠率、矩形度及参数趋势，不包含知识点分支。服务端会在默认、最小和最大状态展开图元，阻断无效尺寸、非有限值、重复 id、静止端点、源状态明显重叠、源/目标整体越界、缺失中间几何证据、明确违反度量不变量、结构化几何关系或显式目标拼合约束的结果；仅目标拼合整体越界且所有采样状态的联合包围盒可容纳于画布时，允许统一平移目标端点后重新执行完整校验。归一化计划始终保留 `piece_congruence`，因此 repeat 图元的局部几何不得直接或间接依赖 repeat 索引，索引只能用于 id、样式和 transform，防止局部角度与旋转重复编码。修复反馈只携带状态级拼合指标和阶段失败摘要，避免逐拼片诊断挤占模型上下文。未声明 `target_assembly` 时该评分项为 0，不再按满分处理。扇形 `sector_path` 支持确定性轮廓采样和面积计算，其他当前图元或引用不足以计算时产生 warning，且不可计算的显式关系不会获得完整数学评分。编译后的 Scene Module 还会在无 DOM/网络/动态代码能力的 Node `vm` 中执行低成本冒烟检查，检查器会从 IR 自动发现任意计划 state 名称并补齐采样值；真实浏览器布局与行为验证仍由离线流程负责。
