@@ -92,7 +92,7 @@ def create_chat_model(kind: str, *, response_schema: dict[str, Any] | None = Non
         kwargs.pop("reasoning_effort", None)
         return ChatOpenAI(**kwargs)
     return ChatOpenAI(
-        model=settings.openai_html_model,
+        model=settings.openai_repair_model,
         api_key=_blank_to_none(settings.openai_api_key),
         base_url=_blank_to_none(settings.openai_base_url),
         temperature=0.0,

@@ -41,7 +41,7 @@ def test_html_model_kwargs_enable_reasoning(monkeypatch) -> None:
     assert kwargs["reasoning_effort"] == "medium"
 
 
-def test_planning_and_html_models_are_configured_separately(monkeypatch) -> None:
+def test_planning_html_and_repair_models_are_configured_separately(monkeypatch) -> None:
     captured: list[dict] = []
 
     class FakeChatOpenAI:
@@ -51,6 +51,7 @@ def test_planning_and_html_models_are_configured_separately(monkeypatch) -> None
     monkeypatch.setattr("langchain_openai.ChatOpenAI", FakeChatOpenAI)
     monkeypatch.setattr(settings, "openai_plan_model", "plan-model")
     monkeypatch.setattr(settings, "openai_html_model", "html-model")
+    monkeypatch.setattr(settings, "openai_repair_model", "repair-model")
     monkeypatch.setattr(settings, "aetherviz_plan_max_tokens", 3072)
     monkeypatch.setattr(settings, "aetherviz_html_max_tokens", 8192)
     monkeypatch.setattr(settings, "aetherviz_edit_max_tokens", 9216)
@@ -65,7 +66,7 @@ def test_planning_and_html_models_are_configured_separately(monkeypatch) -> None
         "plan-model",
         "html-model",
         "html-model",
-        "html-model",
+        "repair-model",
     ]
     assert [kwargs["max_tokens"] for kwargs in captured] == [3072, 8192, 9216, 9216]
     assert captured[0]["temperature"] == 0.1

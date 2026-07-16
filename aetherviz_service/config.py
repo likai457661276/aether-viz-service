@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     openai_base_url: str | None = "https://dashscope.aliyuncs.com/compatible-mode/v1"
     openai_plan_model: str = "deepseek-v4-flash"
     openai_html_model: str = "qwen3.7-plus"
+    openai_repair_model: str = "deepseek-v4-flash"
     aetherviz_gsap_cdn_url: str = "https://cdn.jsdelivr.net/npm/gsap@3/dist/gsap.min.js"
     aetherviz_katex_enabled: bool = True
     aetherviz_katex_css_url: str = "https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css"
