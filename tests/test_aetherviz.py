@@ -1515,9 +1515,48 @@ def test_edit_workflow_diagnoses_before_passing_current_business_html_to_regener
     assert result[-1] == "done"
     events = parse_sse_events(type("SseResponse", (), {"text": "".join(result[:-1])})())
     assert [event for event, _data in events] == ["html.edit_started", "html.edit_diagnosed"]
-    assert str(captured["message"]).startswith("修复画面")
-    assert "编辑诊断" in str(captured["message"])
+    assert "原始用户输入（用于核对，不得覆盖已编译任务）：修复画面" in str(captured["message"])
+    assert "已编译编辑任务（主要执行指令）" in str(captured["message"])
+    assert "不要把 selector 或函数名当作修改边界" in str(captured["message"])
     assert "context" not in captured
+
+
+def test_full_html_edit_retries_unchanged_result_with_failure_feedback(monkeypatch) -> None:
+    from aetherviz_service.aetherviz.agents.html_agent import HtmlGenerationError, HtmlStreamResult
+    from aetherviz_service.aetherviz.workflow import edit_html_workflow
+
+    calls: list[dict[str, str]] = []
+
+    def fake_stream_edit_html(**kwargs):
+        calls.append(kwargs)
+        if len(calls) == 1:
+            raise HtmlGenerationError(
+                "HTML 修改失败，模型未产生实际变化，原页面已保留",
+                code="edit_no_change",
+                detail="candidate_unchanged",
+            )
+        yield HtmlStreamResult(
+            html=kwargs["current_html"].replace("</body>", "<p>已修改</p></body>"),
+            degraded=False,
+            strategy="full_html_regeneration",
+        )
+
+    monkeypatch.setattr(settings, "aetherviz_edit_max_retries", 1)
+    monkeypatch.setattr(edit_html_workflow, "_stream_edit_html", fake_stream_edit_html)
+
+    items = list(
+        edit_html_workflow._stream_full_html_edit(
+            topic="动画",
+            message="改变运动轨迹",
+            current_html=sample_html(),
+        )
+    )
+
+    result = next(item for item in items if isinstance(item, HtmlStreamResult))
+    assert len(calls) == 2
+    assert calls[0]["current_html"] == calls[1]["current_html"]
+    assert "上一轮完整编辑未被接受：edit_no_change" in calls[1]["message"]
+    assert "已修改" in result.html
 
 
 def test_edit_html_rejects_truncated_full_output_without_partial_repair(monkeypatch) -> None:

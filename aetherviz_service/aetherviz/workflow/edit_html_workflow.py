@@ -14,7 +14,6 @@ from langsmith import traceable
 from langsmith.run_helpers import get_current_run_tree
 
 from aetherviz_service.aetherviz.agents.edit_diagnosis_agent import EditDiagnosis, diagnose_edit
-from aetherviz_service.aetherviz.agents.edit_function_agent import stream_edit_functions
 from aetherviz_service.aetherviz.agents.html_agent import (
     HTML_SIZE_EVENT_INTERVAL_BYTES,
     HtmlGenerationError,
@@ -42,13 +41,11 @@ from aetherviz_service.aetherviz.tools.dom_api_contract import (
 from aetherviz_service.aetherviz.tools.edit_context import build_edit_context_summary, is_server_layout_request
 from aetherviz_service.aetherviz.tools.edit_operations import (
     EditOperationResult,
-    apply_diagnosed_operations,
-    build_diagnosis_guard,
 )
 from aetherviz_service.aetherviz.tools.function_patch import extract_named_functions
 from aetherviz_service.aetherviz.tools.html_compare import normalize_html_for_compare
 from aetherviz_service.aetherviz.tools.html_output import parse_interactive_html, sanitize_aetherviz_html
-from aetherviz_service.aetherviz.tools.layout_contract import extract_business_html
+from aetherviz_service.aetherviz.tools.layout_contract import assemble_layout_contract, extract_business_html
 from aetherviz_service.aetherviz.tools.validation_report import build_validation_report
 from aetherviz_service.aetherviz.workflow.html_pipeline import run_html_pipeline
 from aetherviz_service.aetherviz.workflow.plan_contract import normalize_plan
@@ -62,6 +59,7 @@ _REQUIRED_WIDGET_ACTIONS = (
     "ANNOTATE_ELEMENT",
     "REVEAL_ELEMENT",
 )
+
 
 def run_edit_html_workflow(
     *,
@@ -143,7 +141,19 @@ def _run_edit_html_workflow_impl(
     topic = _topic_from_context(context)
     plan = normalize_plan((context or {}).get("plan_summary") if isinstance(context, dict) else None, topic)
     business_html = extract_business_html(current_html)
-    current_report = build_validation_report(current_html, plan=plan, model_html=business_html)
+    deterministic_runtime_edit = _deterministic_runtime_edit(business_html, runtime_error)
+    candidate_guard = None
+    deterministic_pre_repair: dict[str, Any] = {}
+    if deterministic_runtime_edit is not None:
+        _, deterministic_result = deterministic_runtime_edit
+        business_html = deterministic_result.html
+        candidate_guard = deterministic_result.guard
+        deterministic_pre_repair = {
+            "applied": list(deterministic_result.applied),
+            "purpose": "修复已证明的运行时契约错误；仍需执行完整用户编辑任务",
+        }
+    report_html = assemble_layout_contract(business_html, plan) if deterministic_pre_repair else current_html
+    current_report = build_validation_report(report_html, plan=plan, model_html=business_html)
     context_summary = build_edit_context_summary(
         instruction=message,
         business_html=business_html,
@@ -151,26 +161,22 @@ def _run_edit_html_workflow_impl(
         validation_report=current_report,
         edit_target=edit_target,
         runtime_error=runtime_error,
+        deterministic_pre_repair=deterministic_pre_repair,
     )
     yield agent_sse_event(
         "html.edit_started",
         run_id=run_id,
         phase="edit_html",
         data={
-            "message": "正在分析修改目标与最小编辑范围",
+            "message": "正在分析修改目标与动画影响范围",
             "reasoning_enabled": False,
         },
     )
-    deterministic_runtime_edit = _deterministic_runtime_edit(business_html, runtime_error)
-    if deterministic_runtime_edit is not None:
-        diagnosis, local_result = deterministic_runtime_edit
-    else:
-        diagnosis = diagnose_edit(
-            instruction=message,
-            business_html=business_html,
-            context_summary=context_summary,
-        )
-        local_result = apply_diagnosed_operations(business_html, diagnosis)
+    diagnosis = diagnose_edit(
+        instruction=message,
+        business_html=business_html,
+        context_summary=context_summary,
+    )
     yield agent_sse_event(
         "html.edit_diagnosed",
         run_id=run_id,
@@ -197,7 +203,8 @@ def _run_edit_html_workflow_impl(
         )
         return
 
-    candidate_guard = local_result.guard or build_diagnosis_guard(diagnosis, business_html)
+    # 模型编译出的需求用于驱动重生成，但不作为函数哈希或精确 CSS 门禁；只有
+    # 服务端能证明的运行时契约错误在编辑前后保持硬验收。
     yield from run_html_pipeline(
         run_id=run_id,
         phase="edit_html",
@@ -210,7 +217,6 @@ def _run_edit_html_workflow_impl(
             current_html=business_html,
             diagnosis=diagnosis,
             context_summary=context_summary,
-            local_result=local_result,
         ),
         emit_start_event=False,
         candidate_guard=candidate_guard,
@@ -229,53 +235,84 @@ def _stream_diagnosed_edit(
     current_html: str,
     diagnosis: EditDiagnosis,
     context_summary: dict[str, Any],
-    local_result: EditOperationResult,
 ) -> Iterator[dict[str, Any] | HtmlStreamResult]:
-    if local_result.applied:
-        yield build_html_progress_payload(
-            [{"content": "应用已定位的局部修改", "status": "completed"}],
-            html_content=local_result.html,
-        )
-        yield HtmlStreamResult(
-            html=local_result.html,
-            degraded=False,
-            strategy=local_result.strategy,
-            source_chars=len(current_html),
-            patch_blocks=local_result.applied,
-            output_chars=0,
-        )
-        return
-    if diagnosis.strategy == "function_repair":
-        function_result = False
-        for item in stream_edit_functions(
-            raw_html=current_html,
-            instruction=message,
-            diagnosis=diagnosis,
-            runtime_error=context_summary.get("runtime_error"),
-        ):
-            if isinstance(item, HtmlStreamResult):
-                function_result = True
-            yield item
-        if function_result:
-            return
-    yield from _stream_edit_html(
+    yield from _stream_full_html_edit(
         topic=topic,
-        message=_diagnosed_regeneration_message(message, diagnosis),
+        message=_diagnosed_regeneration_message(message, diagnosis, context_summary),
         current_html=current_html,
     )
 
 
-def _diagnosed_regeneration_message(message: str, diagnosis: EditDiagnosis) -> str:
+def _diagnosed_regeneration_message(
+    message: str,
+    diagnosis: EditDiagnosis,
+    context_summary: dict[str, Any],
+) -> str:
     targets = [
         str(item.get("selector") or item.get("function") or "")
         for item in diagnosis.targets
         if item.get("selector") or item.get("function")
     ]
+    evidence = {
+        "compiled_task": {
+            "resolved_instruction": diagnosis.resolved_instruction or message,
+            "change_requirements": list(diagnosis.change_requirements),
+            "preserve_requirements": list(diagnosis.preserve_requirements),
+            "impact_areas": list(diagnosis.impact_areas),
+            "acceptance_criteria": list(diagnosis.acceptance_criteria),
+            "problem": diagnosis.problem,
+            "scope": diagnosis.scope,
+            "targets": targets,
+        },
+        "edit_target": context_summary.get("edit_target") or {},
+        "runtime_error": context_summary.get("runtime_error") or {},
+        "validation": context_summary.get("validation") or {},
+        "deterministic_pre_repair": context_summary.get("deterministic_pre_repair") or {},
+    }
     return (
-        f"{message}\n\n编辑诊断：{diagnosis.problem}\n"
-        f"建议范围：{diagnosis.scope}\n目标：{', '.join(targets) or '由当前 HTML 定位'}\n"
-        f"允许范围：{', '.join(diagnosis.allowed_scope) or '仅与本次意见直接相关的区域'}"
+        f"原始用户输入（用于核对，不得覆盖已编译任务）：{message}\n\n"
+        f"已编译编辑任务（主要执行指令）：{diagnosis.resolved_instruction or message}\n\n"
+        "结构化编辑上下文："
+        f"{json.dumps(evidence, ensure_ascii=False, separators=(',', ':'))}\n"
+        "目标和证据可能不完整，必须结合完整 HTML 独立复核，不要把 selector 或函数名当作修改边界。"
+        "为满足全部变更要求和验收标准，可以联动修改相关 DOM、CSS、"
+        "SVG/Canvas、状态推导、渲染函数、事件绑定和动画控制器。"
     )
+
+
+_RETRYABLE_EDIT_CODES = {"edit_no_change", "edit_truncated", "edit_contract_changed"}
+
+
+def _stream_full_html_edit(
+    *,
+    topic: str,
+    message: str,
+    current_html: str,
+) -> Iterator[dict[str, Any] | HtmlStreamResult]:
+    retry_message = message
+    attempts = max(settings.aetherviz_edit_max_retries, 0) + 1
+    for attempt in range(attempts):
+        try:
+            yield from _stream_edit_html(
+                topic=topic,
+                message=retry_message,
+                current_html=current_html,
+            )
+            return
+        except HtmlGenerationError as exc:
+            if attempt + 1 >= attempts or exc.code not in _RETRYABLE_EDIT_CODES:
+                raise
+            yield build_html_progress_payload(
+                [
+                    {"content": "首轮编辑未形成有效结果", "status": "completed"},
+                    {"content": "重新审查完整动画链路并生成", "status": "in_progress"},
+                ]
+            )
+            retry_message = (
+                f"{message}\n\n上一轮完整编辑未被接受：{exc.code} / {exc.detail}。"
+                "请重新从当前 HTML 开始，不要复用上一轮输出。先在内部检查用户要求会影响的 DOM、样式、"
+                "状态、derive/render、事件与动画时间源，再输出确实产生可观察变化且保持核心 Widget 契约的完整 HTML。"
+            )
 
 
 def _deterministic_runtime_edit(
@@ -283,11 +320,7 @@ def _deterministic_runtime_edit(
     runtime_error: dict[str, Any] | None,
 ) -> tuple[EditDiagnosis, EditOperationResult] | None:
     error_text = " ".join(str(value) for value in (runtime_error or {}).values()).lower()
-    if not (
-        "queryselector" in error_text
-        and "not a valid selector" in error_text
-        and "[object html" in error_text
-    ):
+    if not ("queryselector" in error_text and "not a valid selector" in error_text and "[object html" in error_text):
         return None
     repaired, applied = repair_dom_element_selector_mismatches(business_html)
     if not applied or repaired == business_html:

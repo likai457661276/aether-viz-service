@@ -23,6 +23,7 @@ def test_html_generation_thinking_disabled_by_default() -> None:
     assert settings.aetherviz_edit_analysis_timeout_seconds == 30
     assert settings.aetherviz_html_max_tokens == 16384
     assert settings.aetherviz_edit_max_tokens == 16384
+    assert settings.aetherviz_edit_temperature == 0.15
     assert settings.aetherviz_repair_max_tokens == 16384
     assert settings.aetherviz_html_enable_thinking is False
     assert settings.aetherviz_html_reasoning_effort is None
@@ -37,6 +38,17 @@ def test_html_generation_thinking_disabled_by_default() -> None:
 def test_full_html_output_budget_must_cover_hard_limit(field: str) -> None:
     with pytest.raises(ValidationError, match="完整 HTML 输出预算不足"):
         Settings(_env_file=None, **{field: 12_288})
+
+
+def test_edit_retry_count_cannot_be_negative() -> None:
+    with pytest.raises(ValidationError, match="AETHERVIZ_EDIT_MAX_RETRIES"):
+        Settings(_env_file=None, aetherviz_edit_max_retries=-1)
+
+
+@pytest.mark.parametrize("value", [-0.01, 1.01])
+def test_edit_temperature_must_be_bounded(value: float) -> None:
+    with pytest.raises(ValidationError, match="AETHERVIZ_EDIT_TEMPERATURE"):
+        Settings(_env_file=None, aetherviz_edit_temperature=value)
 
 
 def test_gsap_cdn_url_accepts_https() -> None:

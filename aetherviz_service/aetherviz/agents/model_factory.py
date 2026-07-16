@@ -144,7 +144,7 @@ def create_chat_model(kind: str, *, response_schema: dict[str, Any] | None = Non
         return ChatOpenAI(**kwargs)
     if kind == "edit":
         kwargs = _html_model_kwargs(max_tokens=settings.aetherviz_edit_max_tokens)
-        kwargs["temperature"] = 0.1
+        kwargs["temperature"] = settings.aetherviz_edit_temperature
         kwargs["extra_body"] = {"enable_thinking": settings.aetherviz_edit_enable_thinking}
         edit_reasoning_effort = _blank_to_none(settings.aetherviz_edit_reasoning_effort)
         if settings.aetherviz_edit_enable_thinking and edit_reasoning_effort:

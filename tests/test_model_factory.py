@@ -86,7 +86,7 @@ def test_planning_html_and_repair_models_are_configured_separately(monkeypatch) 
     assert captured[1]["extra_body"] == {"enable_thinking": False}
     assert captured[1]["model_kwargs"]["response_format"]["type"] == "json_schema"
     assert captured[3]["timeout"] == settings.aetherviz_html_timeout_seconds
-    assert captured[3]["temperature"] == 0.1
+    assert captured[3]["temperature"] == 0.15
     assert captured[3]["extra_body"] == {"enable_thinking": True}
     assert captured[3]["reasoning_effort"] == "medium"
     assert captured[4]["temperature"] == 0.0

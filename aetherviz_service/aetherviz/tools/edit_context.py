@@ -57,8 +57,10 @@ SERVER_LAYOUT_CHANGES = (
 
 def is_server_layout_request(message: str) -> bool:
     normalized = " ".join((message or "").lower().split())
-    return bool(normalized) and any(target in normalized for target in SERVER_LAYOUT_TARGETS) and any(
-        change in normalized for change in SERVER_LAYOUT_CHANGES
+    return (
+        bool(normalized)
+        and any(target in normalized for target in SERVER_LAYOUT_TARGETS)
+        and any(change in normalized for change in SERVER_LAYOUT_CHANGES)
     )
 
 
@@ -70,6 +72,7 @@ def build_edit_context_summary(
     validation_report: dict[str, Any] | None,
     edit_target: dict[str, Any] | None = None,
     runtime_error: dict[str, Any] | None = None,
+    deterministic_pre_repair: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     soup = BeautifulSoup(business_html or "", "html.parser")
     resolved_target = edit_target or _mapping((context or {}).get("edit_target"))
@@ -87,6 +90,7 @@ def build_edit_context_summary(
         "request_context": _request_context(context),
         "edit_target": _edit_target(resolved_target),
         "runtime_error": _runtime_error(resolved_runtime_error),
+        "deterministic_pre_repair": _mapping(deterministic_pre_repair),
         "validation": _validation_summary(validation_report),
         "ownership": {
             "deterministic_server_layout_match": is_server_layout_request(instruction),
@@ -226,9 +230,7 @@ def _request_context(context: dict[str, Any] | None) -> dict[str, Any]:
     return {
         "topic": _compact_text(context.get("topic"), 200),
         "selected_file": {
-            key: selected.get(key)
-            for key in ("id", "title", "topic", "html_size")
-            if selected.get(key) is not None
+            key: selected.get(key) for key in ("id", "title", "topic", "html_size") if selected.get(key) is not None
         },
         "plan": {
             key: _bounded_value(plan.get(key))
@@ -255,10 +257,7 @@ def _edit_target(value: dict[str, Any]) -> dict[str, Any]:
         "selector": _compact_text(value.get("selector"), 240),
         "text": _compact_text(value.get("text"), 300),
         "source_hash": _compact_text(value.get("source_hash"), 80),
-        "computed_styles": {
-            _compact_text(key, 80): _compact_text(raw, 160)
-            for key, raw in list(styles.items())[:20]
-        },
+        "computed_styles": {_compact_text(key, 80): _compact_text(raw, 160) for key, raw in list(styles.items())[:20]},
     }
 
 
@@ -322,10 +321,7 @@ def _bounded_value(value: Any, *, depth: int = 0) -> Any:
     if depth >= 2:
         return _compact_text(value, 200)
     if isinstance(value, dict):
-        return {
-            _compact_text(key, 80): _bounded_value(raw, depth=depth + 1)
-            for key, raw in list(value.items())[:20]
-        }
+        return {_compact_text(key, 80): _bounded_value(raw, depth=depth + 1) for key, raw in list(value.items())[:20]}
     if isinstance(value, list):
         return [_bounded_value(item, depth=depth + 1) for item in value[:8]]
     if isinstance(value, (bool, int, float)) or value is None:

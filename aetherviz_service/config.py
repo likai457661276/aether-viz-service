@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     aetherviz_html_reasoning_effort: str | None = None
     aetherviz_edit_enable_thinking: bool = True
     aetherviz_edit_reasoning_effort: str | None = None
+    aetherviz_edit_temperature: float = 0.15
     aetherviz_html_max_tokens: int = 16384
     aetherviz_scene_max_tokens: int = 12288
     aetherviz_edit_max_tokens: int = 16384
@@ -31,6 +32,7 @@ class Settings(BaseSettings):
     aetherviz_edit_analysis_max_tokens: int = 1536
     aetherviz_edit_analysis_timeout_seconds: int = 30
     aetherviz_edit_analysis_max_retries: int = 1
+    aetherviz_edit_max_retries: int = 1
     aetherviz_ir_router_enabled: bool = True
     aetherviz_ir_router_shadow_mode: bool = True
     aetherviz_ir_router_max_tokens: int = 768
@@ -64,10 +66,19 @@ class Settings(BaseSettings):
         except ValueError as exc:
             raise ValueError("AetherViz CDN 地址必须是无凭据、query、fragment 的有效 HTTPS URL") from exc
 
+    @field_validator("aetherviz_edit_temperature")
+    @classmethod
+    def validate_edit_temperature(cls, value: float) -> float:
+        if not 0 <= value <= 1:
+            raise ValueError("AETHERVIZ_EDIT_TEMPERATURE 必须在 0 到 1 之间")
+        return value
+
     @model_validator(mode="after")
     def validate_full_html_output_budgets(self) -> "Settings":
         if self.aetherviz_max_repair_attempts < 0:
             raise ValueError("AETHERVIZ_MAX_REPAIR_ATTEMPTS 不能小于 0")
+        if self.aetherviz_edit_max_retries < 0:
+            raise ValueError("AETHERVIZ_EDIT_MAX_RETRIES 不能小于 0")
         undersized = {
             name: value
             for name, value in {

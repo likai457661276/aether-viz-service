@@ -19,6 +19,17 @@ def _html() -> str:
     <script>function play(){window.started=true}document.addEventListener('click',play)</script></body></html>"""
 
 
+def _compiled_fields(instruction: str) -> dict[str, object]:
+    return {
+        "resolved_instruction": instruction,
+        "change_requirements": [instruction],
+        "preserve_requirements": ["保持教学内容和播放交互"],
+        "impact_areas": ["dom", "css", "render"],
+        "acceptance_criteria": ["修改结果在页面中可观察"],
+        "ambiguities": [],
+    }
+
+
 def test_edit_context_extracts_bounded_dom_css_function_and_runtime_evidence() -> None:
     summary = build_edit_context_summary(
         instruction="点击播放后报错",
@@ -45,7 +56,7 @@ def test_v4_flash_diagnosis_returns_verified_css_target(monkeypatch) -> None:
     payload = {
         "intent": "increase_button_font",
         "scope": "business_css",
-        "strategy": "css_declaration",
+        "strategy": "full_html_regeneration",
         "problem": "播放按钮字号偏小",
         "confidence": 0.96,
         "targets": [
@@ -69,12 +80,11 @@ def test_v4_flash_diagnosis_returns_verified_css_target(monkeypatch) -> None:
                 "attribute": "",
             }
         ],
-        "assertions": [
-            {"type": "selector_exists", "selector": "#play", "property": "", "expected": ""}
-        ],
+        "assertions": [{"type": "selector_exists", "selector": "#play", "property": "", "expected": ""}],
         "allowed_scope": ["style:#play"],
         "requires_clarification": False,
         "clarification_question": "",
+        **_compiled_fields("将播放按钮字号调整为 16px，并保持播放行为不变"),
     }
 
     class AnalysisModel:
@@ -97,16 +107,18 @@ def test_v4_flash_diagnosis_returns_verified_css_target(monkeypatch) -> None:
         context_summary={"instruction": "把播放按钮字号改为 16px"},
     )
 
-    assert diagnosis.strategy == "css_declaration"
+    assert diagnosis.strategy == "full_html_regeneration"
     assert diagnosis.targets[0]["selector"] == "#play"
     assert diagnosis.confidence == 0.96
+    assert diagnosis.resolved_instruction == "将播放按钮字号调整为 16px，并保持播放行为不变"
+    assert diagnosis.change_requirements == ("将播放按钮字号调整为 16px，并保持播放行为不变",)
 
 
 def test_function_diagnosis_uses_server_verified_source_hash(monkeypatch) -> None:
     payload = {
         "intent": "fix_play",
         "scope": "business_runtime",
-        "strategy": "function_repair",
+        "strategy": "full_html_regeneration",
         "problem": "播放函数报错",
         "confidence": 0.95,
         "targets": [{"kind": "function", "function": "play", "source_hash": "invented"}],
@@ -115,6 +127,7 @@ def test_function_diagnosis_uses_server_verified_source_hash(monkeypatch) -> Non
         "allowed_scope": ["function:play"],
         "requires_clarification": False,
         "clarification_question": "",
+        **_compiled_fields("修复播放报错，并保持当前动画内容和控制方式"),
     }
 
     class AnalysisModel:
@@ -137,8 +150,58 @@ def test_function_diagnosis_uses_server_verified_source_hash(monkeypatch) -> Non
     )
 
     expected = extract_named_functions(_html())["play"][0].source_hash
-    assert diagnosis.strategy == "function_repair"
+    assert diagnosis.strategy == "full_html_regeneration"
     assert diagnosis.targets[0]["source_hash"] == expected
+
+
+def test_diagnosis_resolves_conversational_reference_into_self_contained_instruction(monkeypatch) -> None:
+    payload = {
+        "intent": "speed_up_animation",
+        "scope": "animation_pipeline",
+        "strategy": "full_html_regeneration",
+        "problem": "当前单位圆联动动画节奏偏慢",
+        "confidence": 0.93,
+        "targets": [],
+        "operations": [],
+        "assertions": [],
+        "allowed_scope": [],
+        "requires_clarification": False,
+        "clarification_question": "",
+        "resolved_instruction": "缩短单位圆与正弦曲线联动动画的总时长，使播放节奏明显加快，同时保持轨迹、暂停、重置和重播行为正确",
+        "change_requirements": ["动画总时长明显缩短", "单位圆动点与正弦曲线继续同步"],
+        "preserve_requirements": ["保持教学内容、暂停、重置和重播行为"],
+        "impact_areas": ["state", "render", "events", "animation", "runtime"],
+        "acceptance_criteria": ["播放后联动画面更快完成", "暂停后画面稳定且重播可用"],
+        "ambiguities": [],
+    }
+
+    class AnalysisModel:
+        def invoke(self, messages):
+            assert "再快一点" in messages[1].content
+            assert "单位圆与正弦曲线联动" in messages[1].content
+            return MagicMock(content=json.dumps(payload, ensure_ascii=False))
+
+    monkeypatch.setattr(
+        "aetherviz_service.aetherviz.agents.edit_diagnosis_agent.create_chat_model",
+        lambda kind, response_schema=None: AnalysisModel(),
+    )
+    monkeypatch.setattr(
+        "aetherviz_service.aetherviz.agents.edit_diagnosis_agent.has_primary_llm_config",
+        lambda: True,
+    )
+
+    diagnosis = _diagnose_edit_impl(
+        instruction="再快一点",
+        business_html=_html(),
+        context_summary={
+            "instruction": "再快一点",
+            "request_context": {"recent_messages": [{"role": "user", "content": "加快单位圆与正弦曲线联动"}]},
+        },
+    )
+
+    assert diagnosis.resolved_instruction.startswith("缩短单位圆与正弦曲线联动动画")
+    assert diagnosis.impact_areas == ("state", "render", "events", "animation", "runtime")
+    assert len(diagnosis.acceptance_criteria) == 2
 
 
 def test_diagnosis_downgrades_invented_local_selector_to_full_regeneration(monkeypatch) -> None:

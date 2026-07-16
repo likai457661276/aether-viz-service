@@ -77,14 +77,18 @@ AETHERVIZ_SCENE_MAX_TOKENS=12288
 AETHERVIZ_EDIT_MAX_TOKENS=16384
 AETHERVIZ_EDIT_ENABLE_THINKING=true
 AETHERVIZ_EDIT_REASONING_EFFORT=
+AETHERVIZ_EDIT_TEMPERATURE=0.15
 AETHERVIZ_EDIT_ANALYSIS_MAX_TOKENS=1536
 AETHERVIZ_EDIT_ANALYSIS_TIMEOUT_SECONDS=30
+AETHERVIZ_EDIT_MAX_RETRIES=1
 AETHERVIZ_REPAIR_MAX_TOKENS=16384
 ```
 
 规划阶段使用 `OPENAI_PLAN_MODEL`，HTML、几何 IR 和整页 HTML 编辑使用 `OPENAI_HTML_MODEL`，编辑诊断使用 `OPENAI_EDIT_ANALYSIS_MODEL`，函数级修复与整页模型修复使用 `OPENAI_REPAIR_MODEL`。这些模型复用 `OPENAI_API_KEY` 与 `OPENAI_BASE_URL`；未配置 Key 时 HTML 生成与编辑会明确返回 `model_unavailable`，不会交付确定性占位页。编辑诊断默认使用 `deepseek-v4-flash`，温度为 0、关闭 thinking，优先使用严格 JSON Schema，兼容网关不支持时重试 JSON object 模式；`AETHERVIZ_EDIT_ANALYSIS_MAX_TOKENS` 与 `AETHERVIZ_EDIT_ANALYSIS_TIMEOUT_SECONDS` 分别控制短诊断 JSON 的输出预算和独立超时。`AETHERVIZ_PLAN_MAX_TOKENS` 控制计划 JSON 的最大输出 token，默认 3072；`AETHERVIZ_SCENE_MAX_TOKENS` 控制单次 3 候选重排 IR 响应，默认 12288。IR 优先使用严格 JSON Schema 响应约束；兼容网关不支持时自动降级到 JSON object 模式，再由同一服务端契约校验。IR 生成温度固定为 0；服务端执行传输结构归一化、确定性 AST 纠错、schema/白名单检查、default/min/max 语义展开和教学证明约束检查，再编译为固定 Scene Module，补齐 `structureKey`、多阶段 transform 插值和展示帧选择。HTML 编辑通过 `AETHERVIZ_EDIT_ENABLE_THINKING` 独立启用推理模式，默认开启且不影响新 HTML 生成、几何 IR 和修复；`AETHERVIZ_EDIT_REASONING_EFFORT` 可选配置推理强度，留空时使用模型默认值。`AETHERVIZ_GSAP_CDN_URL` 统一配置 GSAP core UMD。KaTeX 仅在计划包含公式时按需加载固定 CSS/JS，且必须提供 `window.katex` 缺失时的纯文本降级。所有 CDN 地址只接受不含凭据、query 或 fragment 的 HTTPS URL；协议相对 URL、`data:` URL、非 HTTPS 外链、Tailwind、D3、KaTeX auto-render 和其他外部资源不在白名单中。`AETHERVIZ_HTML_MAX_TOKENS`、`AETHERVIZ_EDIT_MAX_TOKENS`、`AETHERVIZ_REPAIR_MAX_TOKENS` 分别控制 HTML 新生成、基于当前 HTML 的整页重生成和模型修复的最大输出 token，默认均为 16384；启动时会校验三项预算能够覆盖业务 HTML 硬上限与收尾余量。`AETHERVIZ_MAX_REPAIR_ATTEMPTS` 控制整页模型修复次数，默认 1，可设为 0 关闭或设为更大的非负整数；`AETHERVIZ_HTML_STREAM_MAX_RETRIES` 控制 HTML 流式传输中断或完整结束标签缺失后的整次重新生成次数，默认 1。重试仍失败时返回明确错误，不输出残缺或降级 HTML。不要把真实 API Key 提交到仓库。
 
 KaTeX 可见公式使用 `data-katex` 显式目标并直接调用 `katex.render`；裸露的 `$...$`/`$$...$$` 会被确定性转换，转换后仍残留时按硬错误阻断。动态创建的 SVG/Canvas/DOM 节点必须先完成场景构建，再绑定节点事件和首次渲染；初始化前访问动态节点同样按硬错误阻断。
+
+`AETHERVIZ_EDIT_TEMPERATURE` 只控制完整 HTML 编辑模型，默认 `0.15`；需求编译、IR 路由、Scene IR 和修复模型仍保持 `0`，避免结构化判断与确定性修复产生随机漂移。`0.15` 用于适度提高动画重设计和跨链路改造能力；是否继续提高到 `0.2` 应以真实模型编辑成功率、无关区域变化率和校验失败率的离线 A/B 结果决定。
 
 `OPENAI_ROUTER_MODEL` 只用于模糊 IR 路由的短 JSON 仲裁；`AETHERVIZ_IR_ROUTER_SHADOW_MODE=true` 时记录仲裁结论但仍执行确定性首选，完成离线回归后可关闭 Shadow。路由模型超时、格式错误、未知后端、低置信度或命中硬排除条件时均回退确定性结果，不阻断 Direct HTML 降级。
 
@@ -261,7 +265,7 @@ HTML 文件编辑阶段请求示例：
 }
 ```
 
-`phase=edit_html` 必须携带选中的 HTML 文件全文。后端先剥离 `math-shell-v1`，再从当前业务 HTML 确定性提取有界 DOM、CSS、函数、事件与 widget 摘要，并将当前校验报告、可选 `edit_target`、可选 `runtime_error` 和精简会话上下文交给编辑诊断模型。诊断模型只输出目标证据、策略、允许范围和验收断言，不直接修改 HTML。明确 CSS、文案或安全属性修改优先通过受限事务应用；可定位到唯一函数的运行时问题优先使用源哈希保护的函数补丁；高置信度 DOM API 参数类型错误直接使用确定性函数补丁；局部结构或整体调整才回退完整业务 HTML 重生成。当前 HTML 始终是事实基线，历史上下文只用于消歧。服务端外壳修改以 `edit_server_layout_owned` 拒绝，目标无法唯一定位时以 `edit_clarification_required` 请求补充信息。编辑候选在确定性校验前和自动修复后都会重新执行本次编辑断言；运行时修复允许实际根因函数与诊断目标不同，但必须至少有业务函数发生变化，并通过可用的确定性错误契约。最终 metadata 使用 `edit_strategy` 区分 `local_operations`、`function_patch` 与 `full_html_regeneration`，并返回诊断策略、置信度和降级状态；LangSmith 的 `aetherviz.edit_diagnosis` 子 Trace 只记录摘要规模和诊断结果，不重复记录完整 HTML。前端继续把结果保存为新分支，不覆盖原文件，并把新分支完整 HTML 作为下一次编辑的事实基线。
+`phase=edit_html` 必须携带选中的 HTML 文件全文。后端先剥离 `math-shell-v1`，再从当前业务 HTML 确定性提取有界 DOM、CSS、函数、事件与 widget 摘要，并将当前校验报告、可选 `edit_target`、可选 `runtime_error` 和精简会话上下文交给编辑需求编译模型。该模型把“再快一点”“修改刚才那个”等输入消歧为自包含的 `resolved_instruction`，同时输出可观察的 `change_requirements`、`preserve_requirements`、完整 `impact_areas` 和 `acceptance_criteria`；目标 selector 和函数仅作为证据，不限制实际修改范围。除服务端外壳拒绝与高置信度实质歧义外，所有用户编辑都由 `OPENAI_HTML_MODEL` 基于当前完整业务 HTML 重生成。高置信度 DOM API 参数类型错误会先确定性修复当前基线，随后重新提取摘要并继续调用需求编译模型，不会短路用户本次动画修改。动画编辑要求联动检查事件、业务状态、状态推导、渲染、统一时间源、重置和重播链路。首轮若原样返回、被截断或破坏核心 Widget 契约，会按 `AETHERVIZ_EDIT_MAX_RETRIES` 携带失败原因整次重试；候选仍需通过统一静态校验与必要修复。最终 metadata 的 `edit_strategy` 为 `full_html_regeneration`，并保留需求编译结果、置信度和降级状态用于观测。前端继续把结果保存为新分支，不覆盖原文件，并把新分支完整 HTML 作为下一次编辑的事实基线。
 
 响应类型为 `text/event-stream`。事件包括：
 
@@ -310,7 +314,7 @@ HTML 文件编辑阶段请求示例：
 6. `validation_report` 聚合布局、HTML、JavaScript、安全、分阶段长度、Widget、动画生命周期和学科一致性检查。Widget 检查会识别主视觉挂载节点的直接查询及一层精确字符串常量查询，避免把可证明的 SVG/Canvas 动态挂载误判为空节点；仅在业务脚本直接调用 GSAP 时要求 fallback guard。业务脚本声明、遮蔽或覆盖服务端 `window.AetherVizAnimationController`，以及 GSAP `onUpdate` 经 `bind(this)` 改绑后仍调用 Tween 专属 `this.targets()`，均作为硬错误阻断。动画控制器 options 使用注释、字符串、正则和嵌套层级感知的顶层字段扫描，只有带源码范围、证据和高置信度的 `onUpdate` 误传、毫秒 duration 等明确契约错误才阻断；检查器显式标记为低置信度或非阻断的问题统一降级为 `validator_uncertain` warning 并继续交付。动画检查还会阻断 timeline/RAF 逐帧回调调用结构性 DOM/SVG 重建函数、可为空的 first/lastChild 清空后直接重挂载，并提示未清理或未经存在性校验的动态节点注册表、量化状态反复吞掉逐帧增量、对象方法或箭头属性形式的空 `setSpeed`、绕过统一动画控制器、局部几何与世界 transform 重复编码，以及 GSAP 直接污染 getState 可序列化业务对象的风险；学科启发式检查仍只产生 warning。
    Widget 校验还会识别由场景 builder 创建、却在 builder/init 调用前绑定事件或调用 DOM 方法的动态节点，并阻止仅通过空值 early-return 掩盖初始化失败的候选；KaTeX 页面中残留的可见数学定界符也会进入修复流程。
 7. 检查失败时先确定性修复业务 HTML。控制器顶层 `onUpdate` 误传会只改写为 `update`，不会重写完整文档；其他生命周期错误优先使用“报告点名函数/方法/箭头函数 + SHA-256 源哈希”的函数级替换，限制函数数量和总字符数，失败回滚后仍允许其他硬错误修复继续执行；其他硬错误才进入整页修复。截断源输出不进入修复循环；截断候选、无实际变化候选、引入 `js_syntax`/`missing_runtime_ready` 的候选、以及未严格减少硬错误的候选一律拒绝。候选检查只发送 `validation.candidate`，接受后才发送新的 `validation.report`。硬错误修复 prompt 不携带质量 warning；质量 warning 只允许确定性收尾，生产同步链路不再为其调用完整 HTML 模型修复。修复事件的 `attempt` / `repair_attempt` 从第一轮修复开始计为 1。
-8. 生成、编辑和模型修复的候选结果都会重新经过同一个服务端布局装配器。`phase=edit_html` 先执行 `extract_business_html` 和确定性摘要，再由编辑诊断选择受限 CSS/文本/属性操作、函数补丁或完整业务 HTML 重生成；计划摘要和短会话上下文只参与目标消歧，不得覆盖当前 HTML。任何策略都不能修改服务端布局外壳，只能处理数学内容、主视觉、业务交互与槽位优先级。候选继续执行确定性视觉/动画质量收尾，并在修复后复核本次编辑断言；不会为 warning 额外发起完整模型重写。结果仍生成新 HTML 分支，不覆盖旧 HTML。
+8. 生成、编辑和模型修复的候选结果都会重新经过同一个服务端布局装配器。`phase=edit_html` 先执行 `extract_business_html` 和确定性摘要，再由需求编译模型将当前输入与最近对话整理为完整编辑任务；执行阶段始终使用当前完整业务 HTML 重生成，从而允许一次动画修改跨 DOM、CSS、SVG/Canvas、状态、渲染函数和控制器接线协同生效。计划摘要和短会话上下文只用于消除当前输入中的指代，不得覆盖当前 HTML 或恢复被否定的旧要求。业务 HTML 不能修改服务端布局外壳，只能处理数学内容、主视觉、业务交互与槽位优先级。候选继续执行确定性视觉/动画质量收尾；已证明的运行时错误仍作为硬验收条件，启发式目标不再因函数哈希未变化而误拒绝有效结果。结果仍生成新 HTML 分支，不覆盖旧 HTML。
 9. 最终 HTML 仅通过 `html.done` 返回前端；服务端不保留 HTML 文件缓存或产物路径。
 
 生产同步链路不启动浏览器。几何 IR 只允许白名单 state/definition/local 引用、算术与几何操作符、SVG 图元和属性；通用 DSL 包含 `atan/atan2/hypot` 等角度与距离计算，并允许每个稳定图元声明 2~5 个 transform keyframes。计划中的 `recomposition_spec` 会由前后端类型和 approve/generate 请求契约完整传递；其中 `proof_constraints` 描述度量不变量、目标关系、目标拼合约束和教学阶段。每个 `stage_requirement` 由服务端归一化为唯一 `id`、`source/intermediate/target` 角色、确定时间点、几何证据类型和最小图元比例。IR 的教学帧必须用 `stage_id`/`at` 一一覆盖计划阶段；每个中间阶段必须有足够比例图元在同一时间点形成区别于首尾且偏离直接线性插值的几何关键状态，纯文字中间步骤会被阻断。`target_relations` 使用通用结构化关系 `equal_area` / `equal_length` / `equal_angle` / `parallel` / `perpendicular` / `coincident` / `collinear` / `congruent`，通过图元、顶点和线段引用表达；`target_assembly` 使用 `connected` / `non_overlapping` / `approximate_rectangle` 描述世界坐标下的连通性、重叠率、矩形度及参数趋势，不包含知识点分支。服务端会在默认、最小和最大状态展开图元，阻断无效尺寸、非有限值、重复 id、静止端点、源状态明显重叠、源/目标整体越界、缺失中间几何证据、明确违反度量不变量、结构化几何关系或显式目标拼合约束的结果；仅目标拼合整体越界且所有采样状态的联合包围盒可容纳于画布时，允许统一平移目标端点后重新执行完整校验。归一化计划始终保留 `piece_congruence`，因此 repeat 图元的局部几何不得直接或间接依赖 repeat 索引，索引只能用于 id、样式和 transform，防止局部角度与旋转重复编码。修复反馈只携带状态级拼合指标和阶段失败摘要，避免逐拼片诊断挤占模型上下文。未声明 `target_assembly` 时该评分项为 0，不再按满分处理。扇形 `sector_path` 支持确定性轮廓采样和面积计算，其他当前图元或引用不足以计算时产生 warning，且不可计算的显式关系不会获得完整数学评分。编译后的 Scene Module 还会在无 DOM/网络/动态代码能力的 Node `vm` 中执行低成本冒烟检查，检查器会从 IR 自动发现任意计划 state 名称并补齐采样值；真实浏览器布局与行为验证仍由离线流程负责。

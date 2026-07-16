@@ -38,6 +38,12 @@ EDIT_DIAGNOSIS_SCHEMA: dict[str, Any] = {
         "strategy",
         "problem",
         "confidence",
+        "resolved_instruction",
+        "change_requirements",
+        "preserve_requirements",
+        "impact_areas",
+        "acceptance_criteria",
+        "ambiguities",
         "targets",
         "operations",
         "assertions",
@@ -51,10 +57,6 @@ EDIT_DIAGNOSIS_SCHEMA: dict[str, Any] = {
         "strategy": {
             "type": "string",
             "enum": [
-                "css_declaration",
-                "text_or_attribute",
-                "function_repair",
-                "dom_block",
                 "full_html_regeneration",
                 "server_owned_rejected",
                 "clarification_required",
@@ -62,6 +64,35 @@ EDIT_DIAGNOSIS_SCHEMA: dict[str, Any] = {
         },
         "problem": {"type": "string", "maxLength": 800},
         "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        "resolved_instruction": {"type": "string", "maxLength": 1600},
+        "change_requirements": {
+            "type": "array",
+            "maxItems": 10,
+            "items": {"type": "string", "maxLength": 500},
+        },
+        "preserve_requirements": {
+            "type": "array",
+            "maxItems": 10,
+            "items": {"type": "string", "maxLength": 500},
+        },
+        "impact_areas": {
+            "type": "array",
+            "maxItems": 8,
+            "items": {
+                "type": "string",
+                "enum": ["dom", "css", "svg_canvas", "state", "render", "events", "animation", "runtime"],
+            },
+        },
+        "acceptance_criteria": {
+            "type": "array",
+            "maxItems": 10,
+            "items": {"type": "string", "maxLength": 500},
+        },
+        "ambiguities": {
+            "type": "array",
+            "maxItems": 6,
+            "items": {"type": "string", "maxLength": 500},
+        },
         "targets": {
             "type": "array",
             "maxItems": 5,
@@ -107,7 +138,13 @@ EDIT_DIAGNOSIS_SCHEMA: dict[str, Any] = {
                 "properties": {
                     "type": {
                         "type": "string",
-                        "enum": ["selector_exists", "text_contains", "attribute_equals", "css_declaration", "runtime_error_absent"],
+                        "enum": [
+                            "selector_exists",
+                            "text_contains",
+                            "attribute_equals",
+                            "css_declaration",
+                            "runtime_error_absent",
+                        ],
                     },
                     "selector": {"type": "string", "maxLength": 240},
                     "property": {"type": "string", "maxLength": 100},
@@ -121,15 +158,16 @@ EDIT_DIAGNOSIS_SCHEMA: dict[str, Any] = {
     },
 }
 
-EDIT_DIAGNOSIS_SYSTEM_PROMPT = """你是 AetherViz HTML 编辑诊断器，只负责定位和规划，不生成 HTML、CSS 或 JavaScript 源码。
-根据用户本次意见与服务端提供的确定性摘要，判断问题目标、所有权、最小编辑策略和可验证断言。
+EDIT_DIAGNOSIS_SYSTEM_PROMPT = """你是 AetherViz HTML 编辑需求编译器，只负责把用户输入整理为可直接驱动完整 HTML 重生成的结构化任务，不生成 HTML、CSS 或 JavaScript 源码。
+根据当前 instruction、当前 HTML 的确定性摘要、可选选中元素、运行时错误和最近对话，消除“再快一点”“刚才那个”等指代，形成完整、自包含且可观察验收的编辑任务。
 规则：
 1. 证据只能引用摘要中真实存在的 selector、函数、样式、错误或服务端所有权信息，不得编造。
-2. 单个明确 CSS 属性使用 css_declaration；精确文案/属性使用 text_or_attribute；运行时报错且能定位唯一函数时使用 function_repair；局部结构变化使用 dom_block；真正的大改才使用 full_html_regeneration。
-3. math-shell-v1、.av-*、#aetherviz-app-shell 的宽度、分栏、滚动和响应式属于服务端，使用 server_owned_rejected。
-4. 目标不唯一且无法安全选择时使用 clarification_required，并给出一个最小澄清问题。
-5. operations 只描述小型确定性操作；function_repair 不输出函数源码，operations 可为空。
-6. recent_messages 和 memory 仅用于消歧，当前 instruction 与当前 HTML 摘要始终优先。
+2. resolved_instruction 必须是无指代、无歧义、可独立执行的完整中文要求；当前 instruction 优先，recent_messages 和 memory 只用于解释指代，不得恢复已被当前输入否定的旧要求。
+3. change_requirements 描述必须产生的可观察变化；preserve_requirements 描述不能意外改变的教学内容和交互；acceptance_criteria 描述结果表现，不限定必须修改某个函数或采用某种实现。
+4. impact_areas 必须覆盖实现该要求可能涉及的完整链路。动画变化重点检查 events -> state -> render -> animation -> reset/replay，不得只定位到一个函数。
+5. 执行阶段固定为完整 HTML 重生成，通常使用 full_html_regeneration，不再选择 CSS、文本或函数局部补丁策略。operations 和 allowed_scope 保持空数组。
+6. math-shell-v1、.av-*、#aetherviz-app-shell 的宽度、分栏、滚动和响应式属于服务端，明确命中时使用 server_owned_rejected。
+7. 只有缺少的信息会导致多个实质不同结果、且无法从当前 HTML、edit_target 或最近对话推断时，才使用 clarification_required；同时列出 ambiguities 并给出一个最小澄清问题。一般性的视觉或动画优化应直接形成合理任务，不要澄清。
 只输出符合 JSON Schema 的对象。"""
 
 
@@ -140,6 +178,12 @@ class EditDiagnosis:
     strategy: EditStrategy
     problem: str
     confidence: float
+    resolved_instruction: str = ""
+    change_requirements: tuple[str, ...] = ()
+    preserve_requirements: tuple[str, ...] = ()
+    impact_areas: tuple[str, ...] = ()
+    acceptance_criteria: tuple[str, ...] = ()
+    ambiguities: tuple[str, ...] = ()
     targets: tuple[dict[str, Any], ...] = ()
     operations: tuple[dict[str, str], ...] = ()
     assertions: tuple[dict[str, str], ...] = ()
@@ -152,6 +196,11 @@ class EditDiagnosis:
     def public_dict(self) -> dict[str, Any]:
         value = asdict(self)
         value["targets"] = list(self.targets)
+        value["change_requirements"] = list(self.change_requirements)
+        value["preserve_requirements"] = list(self.preserve_requirements)
+        value["impact_areas"] = list(self.impact_areas)
+        value["acceptance_criteria"] = list(self.acceptance_criteria)
+        value["ambiguities"] = list(self.ambiguities)
         value["operations"] = list(self.operations)
         value["assertions"] = list(self.assertions)
         value["allowed_scope"] = list(self.allowed_scope)
@@ -187,7 +236,9 @@ def diagnose_edit(
         "scope": output.scope,
         "confidence": output.confidence,
         "target_count": len(output.targets),
-        "operation_count": len(output.operations),
+        "requirement_count": len(output.change_requirements),
+        "acceptance_criteria_count": len(output.acceptance_criteria),
+        "resolved_instruction_chars": len(output.resolved_instruction),
         "degraded": output.degraded,
         "fallback_reason": output.fallback_reason,
     },
@@ -241,15 +292,7 @@ def _diagnose_edit_impl(
 
 
 def _normalize_diagnosis(payload: dict[str, Any], *, instruction: str, business_html: str) -> EditDiagnosis:
-    strategies = {
-        "css_declaration",
-        "text_or_attribute",
-        "function_repair",
-        "dom_block",
-        "full_html_regeneration",
-        "server_owned_rejected",
-        "clarification_required",
-    }
+    strategies = {"full_html_regeneration", "server_owned_rejected", "clarification_required"}
     strategy = str(payload.get("strategy") or "full_html_regeneration")
     if strategy not in strategies:
         strategy = "full_html_regeneration"
@@ -260,30 +303,40 @@ def _normalize_diagnosis(payload: dict[str, Any], *, instruction: str, business_
     confidence = _confidence(payload.get("confidence"))
     requires_clarification = bool(payload.get("requires_clarification"))
     question = str(payload.get("clarification_question") or "")[:500]
+    resolved_instruction = str(payload.get("resolved_instruction") or instruction).strip()[:1600]
+    change_requirements = _string_list(payload.get("change_requirements"), limit=10, chars=500)
+    preserve_requirements = _string_list(payload.get("preserve_requirements"), limit=10, chars=500)
+    allowed_impact_areas = {"dom", "css", "svg_canvas", "state", "render", "events", "animation", "runtime"}
+    impact_areas = tuple(
+        area for area in _string_list(payload.get("impact_areas"), limit=8, chars=40) if area in allowed_impact_areas
+    )
+    acceptance_criteria = _string_list(payload.get("acceptance_criteria"), limit=10, chars=500)
+    ambiguities = _string_list(payload.get("ambiguities"), limit=6, chars=500)
 
     soup = BeautifulSoup(business_html or "", "html.parser")
     functions = extract_named_functions(business_html)
-    if strategy in {"css_declaration", "text_or_attribute", "dom_block"}:
-        selectors = [str(item.get("selector") or "") for item in targets if item.get("selector")]
-        if not selectors or not all(_selector_exists(soup, selector) for selector in selectors):
-            strategy = "clarification_required" if confidence < 0.75 else "full_html_regeneration"
-            requires_clarification = strategy == "clarification_required"
-            question = question or "请指出需要修改的具体元素、文字或页面区域。"
-    if strategy == "function_repair":
-        function_targets = [str(item.get("function") or "") for item in targets if item.get("function")]
-        if not function_targets or not all(len(functions.get(name, [])) == 1 for name in function_targets):
-            strategy = "full_html_regeneration"
-        else:
-            for item in targets:
-                function_name = str(item.get("function") or "")
-                if function_name:
-                    item["source_hash"] = functions[function_name][0].source_hash
+    for item in targets:
+        selector = str(item.get("selector") or "")
+        if selector and not _selector_exists(soup, selector):
+            item["selector"] = ""
+        function_name = str(item.get("function") or "")
+        if function_name:
+            item["source_hash"] = (
+                functions[function_name][0].source_hash if len(functions.get(function_name, [])) == 1 else ""
+            )
     if strategy == "server_owned_rejected" and not is_server_layout_request(instruction):
         has_server_evidence = any(item.get("kind") == "server_layout" for item in targets)
         if not has_server_evidence:
             strategy = "full_html_regeneration"
-    if requires_clarification:
+    can_block_for_clarification = bool(
+        requires_clarification and ambiguities and question and confidence >= 0.85 and not targets
+    )
+    if can_block_for_clarification:
         strategy = "clarification_required"
+    else:
+        requires_clarification = False
+        if strategy == "clarification_required":
+            strategy = "full_html_regeneration"
 
     return EditDiagnosis(
         intent=str(payload.get("intent") or "edit_html")[:120],
@@ -291,6 +344,12 @@ def _normalize_diagnosis(payload: dict[str, Any], *, instruction: str, business_
         strategy=strategy,  # type: ignore[arg-type]
         problem=str(payload.get("problem") or "根据用户意见修改当前 HTML")[:800],
         confidence=confidence,
+        resolved_instruction=resolved_instruction,
+        change_requirements=change_requirements,
+        preserve_requirements=preserve_requirements,
+        impact_areas=impact_areas,
+        acceptance_criteria=acceptance_criteria,
+        ambiguities=ambiguities,
         targets=targets,
         operations=operations,
         assertions=assertions,
@@ -312,6 +371,11 @@ def _fallback_diagnosis(
         strategy="full_html_regeneration",
         problem=str(runtime_error.get("message") or "根据用户意见修改当前 HTML")[:800],
         confidence=0.4,
+        resolved_instruction=instruction.strip()[:1600],
+        change_requirements=(instruction.strip()[:500],) if instruction.strip() else (),
+        preserve_requirements=("保持未要求修改的教学内容、核心交互和视觉层级",),
+        impact_areas=("runtime", "state", "render") if runtime_error else ("dom", "css", "render"),
+        acceptance_criteria=("用户要求的变化在最终页面中可观察且核心交互仍可用",),
         degraded=True,
         fallback_reason=reason,
     )
@@ -342,6 +406,12 @@ def _selector_exists(soup: BeautifulSoup, selector: str) -> bool:
 
 def _string_mapping(value: dict[str, Any]) -> dict[str, str]:
     return {str(key): str(raw or "") for key, raw in value.items()}
+
+
+def _string_list(value: Any, *, limit: int, chars: int) -> tuple[str, ...]:
+    if not isinstance(value, list):
+        return ()
+    return tuple(text for item in value[:limit] if (text := str(item or "").strip()[:chars]))
 
 
 def _confidence(value: Any) -> float:
