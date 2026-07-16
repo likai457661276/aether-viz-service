@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import json
 from unittest.mock import MagicMock
 
+import pytest
 from fastapi.testclient import TestClient
 
 from aetherviz_service.aetherviz.agents import planner_agent, repair_agent
@@ -37,6 +39,41 @@ def test_plan_normalization_rejects_invalid_primary_color() -> None:
     normalized = normalize_plan(plan, "熵增演示")
 
     assert normalized["primary_color"] == "#22D3EE"
+
+
+def test_plan_preserves_source_topic_when_title_changes() -> None:
+    original = normalize_plan({"title": "重命名后的标题"}, "勾股定理")
+    renormalized = normalize_plan(original, original["title"])
+
+    assert renormalized["source_topic"] == "勾股定理"
+    assert renormalized["subject"] == original["subject"]
+    assert renormalized["knowledge_profile"] == original["knowledge_profile"]
+
+
+def test_invalid_planning_json_is_not_silently_normalized() -> None:
+    from aetherviz_service.aetherviz.workflow.plan_contract import parse_planning_result
+
+    with pytest.raises(json.JSONDecodeError):
+        parse_planning_result("{invalid", "勾股定理")
+
+
+@pytest.mark.parametrize(
+    ("representation", "marker"),
+    (
+        ("number_line", "数轴表征"),
+        ("tree_diagram", "树状图表征"),
+        ("dynamic_model", "动态模型表征"),
+        ("concept_map", "概念图表征"),
+    ),
+)
+def test_all_knowledge_profile_representations_have_prompt_modules(representation: str, marker: str) -> None:
+    from aetherviz_service.aetherviz.agents.instructions import system_prompt_for_interactive_type
+
+    prompt = system_prompt_for_interactive_type(
+        {"interactive_type": "diagram", "subject": "general", "knowledge_profile": {"representation_type": representation}}
+    )
+
+    assert marker in prompt
 
 
 def test_plan_loads_katex_only_when_formulas_are_present(monkeypatch) -> None:
@@ -80,6 +117,24 @@ def test_security_rejects_allowlisted_url_with_query_and_network_apis() -> None:
     assert query_report["ok"] is False
     assert fetch_report["ok"] is False
     assert css_report["ok"] is False
+
+
+def test_security_rejects_protocol_relative_data_and_obfuscated_javascript_urls() -> None:
+    protocol_relative = check_security('<!DOCTYPE html><html><script src="//evil.example/x.js"></script></html>')
+    data_url = check_security('<!DOCTYPE html><html><img src="data:image/svg+xml,<svg></svg>"></html>')
+    obfuscated_js = check_security('<!DOCTYPE html><html><a href="java\nscript:alert(1)">x</a></html>')
+    srcset = check_security('<!DOCTYPE html><html><img srcset="/safe.png 1x, //evil.example/x.png 2x"></html>')
+    css_url = check_security('<!DOCTYPE html><html><style>.x{background:url(//evil.example/x.png)}</style></html>')
+
+    assert all(not report["ok"] for report in (protocol_relative, data_url, obfuscated_js, srcset, css_url))
+
+
+def test_security_scans_forbidden_patterns_only_in_executable_scripts() -> None:
+    text_report = check_security("<!DOCTYPE html><html><body><p>不要调用 fetch()。</p></body></html>")
+    script_report = check_security("<!DOCTYPE html><html><body><script>import('/x.js')</script></body></html>")
+
+    assert text_report["ok"] is True
+    assert script_report["ok"] is False
 
 
 def test_widget_contract_warns_when_katex_has_no_fallback(monkeypatch) -> None:

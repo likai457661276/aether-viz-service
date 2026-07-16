@@ -78,6 +78,8 @@ def deterministic_repair_html(
     *,
     plan: dict[str, Any] | None = None,
 ) -> str:
+    if report is None and plan is not None:
+        return html
     repaired = html.strip()
     if not repaired.lower().startswith("<!doctype html>"):
         repaired = "<!DOCTYPE html>\n" + repaired

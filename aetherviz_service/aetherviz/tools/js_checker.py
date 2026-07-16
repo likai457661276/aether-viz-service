@@ -9,12 +9,16 @@ from aetherviz_service.aetherviz.tools.javascript_syntax import check_javascript
 
 def check_inline_javascript(html: str, *, soup: BeautifulSoup | None = None) -> dict:
     parsed = soup or BeautifulSoup(html or "", "html.parser")
+    module_scripts = [script for script in parsed.find_all("script") if str(script.get("type") or "").strip().lower() == "module"]
     scripts = [
         script.get_text("\n", strip=False)
         for script in parsed.find_all("script")
         if _is_executable_inline_script(script)
     ]
-    errors = []
+    errors = [
+        {"type": "unsupported_module_script", "message": "不支持 ES Module 脚本", "line": None}
+        for _script in module_scripts
+    ]
     if scripts:
         error = check_javascript_syntax("\n;\n".join(scripts))
         if error:
@@ -37,5 +41,4 @@ def _is_executable_inline_script(script: Tag) -> bool:
         "application/javascript",
         "application/ecmascript",
         "text/ecmascript",
-        "module",
     }

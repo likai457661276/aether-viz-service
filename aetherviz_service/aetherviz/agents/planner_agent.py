@@ -170,7 +170,7 @@ def stream_revise_plan(
 
 
 def approve_plan(plan: dict[str, Any]) -> dict[str, Any]:
-    topic = str(plan.get("topic") or plan.get("title") or "AI教学动画")
+    topic = str(plan.get("source_topic") or plan.get("topic") or plan.get("title") or "AI教学动画")
     approved = normalize_plan(plan, topic, str(plan.get("primary_color") or "#22D3EE"))
     approved["status"] = "approved"
     approved["plan_id"] = approved.get("plan_id") or _plan_id(topic, "approved")

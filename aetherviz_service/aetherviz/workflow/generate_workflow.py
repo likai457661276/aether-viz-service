@@ -24,6 +24,7 @@ from aetherviz_service.aetherviz.tools.function_patch import (
     repair_function_targets,
     target_functions_from_report,
 )
+from aetherviz_service.aetherviz.tools.html_compare import normalize_html_for_compare
 from aetherviz_service.aetherviz.tools.layout_contract import (
     LAYOUT_CONTRACT_VERSION,
     assemble_layout_contract,
@@ -116,7 +117,7 @@ def _run_generate_workflow_impl(
     else:
         html_stream_factory = partial(stream_generate_html, topic, approved_plan)
         generation_backend = "direct"
-    yield from _run_html_workflow(
+    yield from run_html_pipeline(
         run_id=run_id,
         phase="generate",
         start_event="html.generation_started",
@@ -127,7 +128,7 @@ def _run_generate_workflow_impl(
     )
 
 
-def _run_html_workflow(
+def run_html_pipeline(
     *,
     run_id: str,
     phase: str,
@@ -556,7 +557,7 @@ def _attempt_repair_loop(
         if accepted and report["ok"]:
             return html, report, repaired, metadata["degraded"]
 
-    max_attempts = min(max(settings.aetherviz_max_repair_attempts, 0), 1)
+    max_attempts = max(settings.aetherviz_max_repair_attempts, 0)
     if max_attempts and target_functions_from_report(report):
         html, report, function_repaired, function_degraded = yield from _attempt_function_repair(
             run_id=run_id,
@@ -626,7 +627,7 @@ def _attempt_repair_loop(
                 data=item,
                 metadata=_metadata(metadata, started_at, stage="repair"),
             )
-        candidate_unchanged = _normalized_repair_candidate(html) == _normalized_repair_candidate(
+        candidate_unchanged = normalize_html_for_compare(html) == normalize_html_for_compare(
             previous_html
         )
         assembled_html = assemble_layout_contract(html, plan)
@@ -854,17 +855,6 @@ def _error_signature(report: dict[str, Any]) -> tuple[str, ...]:
             if isinstance(error, dict)
         )
     )
-
-
-def _normalized_repair_candidate(html: str) -> str:
-    """Normalize transport-only fences before detecting a no-op repair."""
-    normalized = (html or "").strip().replace("\r\n", "\n")
-    if normalized.startswith("```"):
-        newline = normalized.find("\n")
-        normalized = normalized[newline + 1 :] if newline >= 0 else ""
-    if normalized.endswith("```"):
-        normalized = normalized[:-3]
-    return normalized.strip()
 
 
 def _accept_hard_repair_candidate(

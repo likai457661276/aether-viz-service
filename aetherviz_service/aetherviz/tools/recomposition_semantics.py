@@ -265,7 +265,6 @@ def _report(
 ) -> dict[str, Any]:
     return {
         "ok": not errors,
-        "score": max(0.0, 1.0 - 0.25 * len(errors) - 0.05 * len(warnings)),
         "errors": errors,
         "warnings": warnings,
         "checks": checks or [],

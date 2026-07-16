@@ -34,6 +34,7 @@ REQUIRED_RUNTIME_CONTROLS = (
 def compact_plan_for_revision(plan: dict[str, Any]) -> dict[str, Any]:
     semantic_fields = (
         "interactive_type",
+        "source_topic",
         "title",
         "goal",
         "learner_level",
@@ -64,38 +65,39 @@ def parse_planning_result(raw: str, topic: str = "", primary_color: str = DEFAUL
             parsed = json.loads(cleaned)
             if isinstance(parsed, dict):
                 data = parsed
-        except Exception:
-            data = {}
+        except json.JSONDecodeError:
+            raise
     return normalize_plan(data, topic, primary_color)
 
 
 def normalize_plan(raw_plan: dict | None, topic: str, primary_color: str = DEFAULT_PRIMARY_COLOR) -> dict:
     raw = raw_plan if isinstance(raw_plan, dict) else {}
     primary_color = _normalize_primary_color(primary_color, DEFAULT_PRIMARY_COLOR)
-    baseline = _default_plan(topic, primary_color)
+    source_topic = _safe_str(raw.get("source_topic")) or topic
+    baseline = _default_plan(source_topic, primary_color)
 
     subject = _safe_str(raw.get("subject")) or baseline["subject"]
     if subject not in {*SUBJECT_KEYWORDS.keys(), "astronomy", "general"}:
         subject = baseline["subject"]
-    knowledge_profile = normalize_knowledge_profile(raw.get("knowledge_profile"), topic, subject)
+    knowledge_profile = normalize_knowledge_profile(raw.get("knowledge_profile"), source_topic, subject)
 
     interactive_type = _safe_str(raw.get("interactive_type")) or baseline["interactive_type"]
     if interactive_type not in VALID_INTERACTIVE_TYPES:
-        interactive_type = select_interactive_type(topic, subject)
+        interactive_type = select_interactive_type(source_topic, subject)
 
     runtime_raw = raw.get("runtime") if isinstance(raw.get("runtime"), dict) else {}
-    render_stack = _safe_str(runtime_raw.get("render_stack") or raw.get("render_stack")) or select_render_stack(interactive_type, subject, topic)
+    render_stack = _safe_str(runtime_raw.get("render_stack") or raw.get("render_stack")) or select_render_stack(interactive_type, subject, source_topic)
     if render_stack not in VALID_RENDER_STACKS:
-        render_stack = select_render_stack(interactive_type, subject, topic)
+        render_stack = select_render_stack(interactive_type, subject, source_topic)
     animation_runtime = _safe_str(runtime_raw.get("animation_runtime") or raw.get("animation_runtime")) or select_animation_runtime()
     if animation_runtime not in VALID_ANIMATION_RUNTIMES:
         animation_runtime = select_animation_runtime()
 
-    interactive_spec = _normalize_interactive_spec(raw.get("interactive_spec"), baseline["interactive_spec"], interactive_type, topic)
+    interactive_spec = _normalize_interactive_spec(raw.get("interactive_spec"), baseline["interactive_spec"], interactive_type, source_topic)
     teaching_flow = _normalize_teaching_flow(raw.get("teaching_flow"), baseline["teaching_flow"])
-    widget_outline = _normalize_widget_outline(raw.get("widget_outline"), interactive_spec, interactive_type, topic)
+    widget_outline = _normalize_widget_outline(raw.get("widget_outline"), interactive_spec, interactive_type, source_topic)
     key_points = _string_list(raw.get("key_points") or raw.get("keyPoints"), baseline["key_points"], max_items=6, max_len=120)
-    scene_outline = _normalize_scene_outline(raw.get("scene_outline"), baseline["scene_outline"], interactive_type, topic, key_points, widget_outline)
+    scene_outline = _normalize_scene_outline(raw.get("scene_outline"), baseline["scene_outline"], interactive_type, source_topic, key_points, widget_outline)
     design_brief = _normalize_design_brief(raw.get("design_brief"), baseline["design_brief"])
     formulas = _string_list(raw.get("formulas"), baseline["formulas"], max_items=5, max_len=100)
     variable_names = {
@@ -109,6 +111,7 @@ def normalize_plan(raw_plan: dict | None, topic: str, primary_color: str = DEFAU
 
     return {
         "page_type": "interactive",
+        "source_topic": source_topic,
         "interactive_type": interactive_type,
         "widget_type": interactive_type,
         "scene_outline": scene_outline,
@@ -155,6 +158,7 @@ def _default_plan(topic: str, primary_color: str) -> dict:
     knowledge_profile = build_knowledge_profile(topic, subject=subject)
     plan = {
         "page_type": "interactive",
+        "source_topic": topic,
         "interactive_type": interactive_type,
         "widget_type": interactive_type,
         "scene_outline": _default_scene_outline(topic, interactive_type, key_points, widget_outline),
@@ -174,7 +178,7 @@ def _default_plan(topic: str, primary_color: str) -> dict:
             {"id": "interact", "label": "操作互动控件", "focus": "学生调节参数或逐步揭示内容", "caption": "再通过控件改变状态，比较不同结果。"},
             {"id": "conclude", "label": "归纳结论", "focus": "图形、数值和结论同步高亮", "caption": "最后把观察结果和核心规律对应起来。"},
         ],
-        "controls": _default_controls(interactive_type, topic),
+        "controls": _default_controls(interactive_type),
         "formulas": _default_formulas(topic, subject),
         "discipline_spec": _default_discipline_spec(topic, knowledge_profile),
         "runtime": {
@@ -454,7 +458,7 @@ def _default_interactive_spec(topic: str, interactive_type: str) -> dict:
     }
 
 
-def _default_controls(interactive_type: str, topic: str = "") -> list[dict]:
+def _default_controls(interactive_type: str) -> list[dict]:
     if interactive_type == "simulation":
         return [
             {"id": "parameter-slider", "label": "关键参数", "type": "slider", "bind": "parameter"},

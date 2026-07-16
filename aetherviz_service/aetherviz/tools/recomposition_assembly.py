@@ -8,6 +8,7 @@ from collections import deque
 from copy import deepcopy
 from typing import Any
 
+from aetherviz_service.aetherviz.tools.recomposition_constants import CANVAS_HEIGHT, CANVAS_WIDTH
 from aetherviz_service.aetherviz.tools.recomposition_ir import (
     expand_geometry_ir,
     sample_geometry_states,
@@ -18,8 +19,6 @@ Polygon = list[Point]
 
 _GRID_SIZE = 88
 _CURVE_STEPS = 24
-_CANVAS_WIDTH = 960.0
-_CANVAS_HEIGHT = 560.0
 _NUMBER_PATTERN = r"[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?"
 
 
@@ -64,7 +63,7 @@ def evaluate_target_assembly(ir: dict[str, Any], plan: dict[str, Any]) -> dict[s
                         "源状态整体超出画布边界",
                         state=state_label,
                         bbox=source_metrics["bbox"],
-                        canvas=[0, 0, _CANVAS_WIDTH, _CANVAS_HEIGHT],
+                        canvas=[0, 0, CANVAS_WIDTH, CANVAS_HEIGHT],
                     )
                 )
         except (AssemblyGeometryUnavailable, KeyError, TypeError, ValueError) as exc:
@@ -82,7 +81,7 @@ def evaluate_target_assembly(ir: dict[str, Any], plan: dict[str, Any]) -> dict[s
                     "目标拼合整体超出画布边界",
                     state=state_label,
                     bbox=metrics["bbox"],
-                    canvas=[0, 0, _CANVAS_WIDTH, _CANVAS_HEIGHT],
+                    canvas=[0, 0, CANVAS_WIDTH, CANVAS_HEIGHT],
                 )
             )
         for constraint in constraints:
@@ -194,15 +193,15 @@ def translate_target_assembly_into_canvas(
     min_y = min(float(bbox[1]) for bbox in bboxes)
     max_x = max(float(bbox[2]) for bbox in bboxes)
     max_y = max(float(bbox[3]) for bbox in bboxes)
-    if max_x - min_x > _CANVAS_WIDTH or max_y - min_y > _CANVAS_HEIGHT:
+    if max_x - min_x > CANVAS_WIDTH or max_y - min_y > CANVAS_HEIGHT:
         return {
             "ok": False,
             "changed": False,
             "reason": "target_union_larger_than_canvas",
             "ir": ir,
         }
-    dx = _axis_translation(min_x, max_x, _CANVAS_WIDTH)
-    dy = _axis_translation(min_y, max_y, _CANVAS_HEIGHT)
+    dx = _axis_translation(min_x, max_x, CANVAS_WIDTH)
+    dy = _axis_translation(min_y, max_y, CANVAS_HEIGHT)
     if abs(dx) <= 1e-9 and abs(dy) <= 1e-9:
         return {"ok": True, "changed": False, "reason": "already_in_canvas", "ir": ir}
 
@@ -270,7 +269,7 @@ def _bbox_in_canvas(bbox: object) -> bool:
     if not isinstance(bbox, list) or len(bbox) != 4:
         return False
     min_x, min_y, max_x, max_y = (float(value) for value in bbox)
-    return 0 <= min_x <= max_x <= _CANVAS_WIDTH and 0 <= min_y <= max_y <= _CANVAS_HEIGHT
+    return 0 <= min_x <= max_x <= CANVAS_WIDTH and 0 <= min_y <= max_y <= CANVAS_HEIGHT
 
 
 def piece_local_polygon(piece: dict[str, Any]) -> Polygon:

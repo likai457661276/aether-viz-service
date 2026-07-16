@@ -111,7 +111,9 @@ def _agent_runtime_stream_impl(
             yield from run_approve_plan_workflow(run_id=run_id, plan=plan or {})
             return
         if phase == "generate":
-            generation_topic = topic or str((approved_plan or {}).get("title") or "AI教学动画")
+            generation_topic = topic or str(
+                (approved_plan or {}).get("source_topic") or (approved_plan or {}).get("title") or "AI教学动画"
+            )
             normalized_plan = normalize_plan(approved_plan, generation_topic)
             yield from run_generate_workflow(
                 run_id=run_id,

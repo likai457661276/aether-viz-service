@@ -25,14 +25,14 @@ from aetherviz_service.config import settings
 
 logger = logging.getLogger(__name__)
 
-FUNCTION_REPAIR_SYSTEM_PROMPT = """你是 JavaScript 函数级最小变更修复器。
-只输出一个 JSON 对象：{"replacements":[{"function":"函数名","source_hash":"原哈希","replacement":"完整函数声明"}]}。
+FUNCTION_REPAIR_SYSTEM_PROMPT = f"""你是 JavaScript 函数级最小变更修复器。
+只输出一个 JSON 对象：{{"replacements":[{{"function":"函数名","source_hash":"原哈希","replacement":"完整函数声明"}}]}}。
 只能替换输入中列出的函数，必须原样返回 source_hash；不得输出完整 HTML、CSS、Markdown 或解释。
 只修复检查报告点名的逐帧结构修改：动画帧内只能更新已有节点属性，结构创建/清空必须留在初始化或显式重建阶段。
 输入可能包含一个伴随的场景构建函数。若逐帧函数处理可变节点数量，必须同时修改场景构建函数，按已有变量上界预分配有界节点池，再在逐帧函数中仅更新属性并用 hidden/display 控制启用数量。
 禁止在逐帧函数中通过 while/for + createElement/appendChild/removeChild、innerHTML、replaceChildren 或“仅首次执行”的条件分支增删节点；这仍属于逐帧结构修改。
 保留函数签名、业务状态、教学含义和未点名行为；不要引入新框架、网络、eval、timer 或新的动画循环。
-替换总长度不得超过 6000 字符。"""
+替换总长度不得超过 {MAX_FUNCTION_REPLACEMENT_CHARS} 字符。"""
 
 
 @dataclass(frozen=True)

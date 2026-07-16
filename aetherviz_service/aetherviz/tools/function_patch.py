@@ -8,10 +8,10 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
+from aetherviz_service.aetherviz.limits import MAX_FUNCTION_REPLACEMENT_CHARS, MAX_FUNCTION_REPLACEMENTS
+from aetherviz_service.aetherviz.tools.javascript_object import matching_brace
 from aetherviz_service.aetherviz.tools.javascript_syntax import check_javascript_syntax
 
-MAX_FUNCTION_REPLACEMENTS = 5
-MAX_FUNCTION_REPLACEMENT_CHARS = 6_000
 _FUNCTION_START_RE = re.compile(r"\bfunction\s+([A-Za-z_$][\w$]*)\s*\([^)]*\)\s*\{")
 _VARIABLE_ARROW_START_RE = re.compile(
     r"\b(?:const|let|var)\s+(?P<name>[A-Za-z_$][\w$]*)\s*=\s*"
@@ -111,7 +111,7 @@ def extract_named_functions(html: str) -> dict[str, list[FunctionSource]]:
     for pattern in _FUNCTION_PATTERNS:
         for match in pattern.finditer(source_html):
             opening = source_html.find("{", match.start(), match.end())
-            closing = _matching_brace(source_html, opening)
+            closing = matching_brace(source_html, opening)
             if closing is None:
                 continue
             start = match.start()
@@ -255,56 +255,3 @@ def apply_function_replacements(
         html=updated,
         applied=tuple(name for _start, _end, _replacement, name in patches),
     )
-
-
-def _matching_brace(text: str, opening: int) -> int | None:
-    if opening < 0:
-        return None
-    depth = 0
-    quote: str | None = None
-    escaped = False
-    line_comment = False
-    block_comment = False
-    index = opening
-    while index < len(text):
-        char = text[index]
-        next_char = text[index + 1] if index + 1 < len(text) else ""
-        if line_comment:
-            if char in "\r\n":
-                line_comment = False
-            index += 1
-            continue
-        if block_comment:
-            if char == "*" and next_char == "/":
-                block_comment = False
-                index += 2
-                continue
-            index += 1
-            continue
-        if quote:
-            if escaped:
-                escaped = False
-            elif char == "\\":
-                escaped = True
-            elif char == quote:
-                quote = None
-            index += 1
-            continue
-        if char == "/" and next_char == "/":
-            line_comment = True
-            index += 2
-            continue
-        if char == "/" and next_char == "*":
-            block_comment = True
-            index += 2
-            continue
-        if char in {"'", '"', "`"}:
-            quote = char
-        elif char == "{":
-            depth += 1
-        elif char == "}":
-            depth -= 1
-            if depth == 0:
-                return index
-        index += 1
-    return None

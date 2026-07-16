@@ -5,6 +5,11 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from aetherviz_service.aetherviz.tools.recomposition_constants import (
+    CANVAS_HEIGHT,
+    CANVAS_SAFE_MARGIN,
+    CANVAS_WIDTH,
+)
 from aetherviz_service.aetherviz.tools.recomposition_ir import normalize_geometry_ir
 from aetherviz_service.aetherviz.tools.recomposition_semantics import (
     evaluate_recomposition_semantics,
@@ -100,8 +105,18 @@ def _upsert_waypoint(
     direct_y = _lerp(source.get("y", 0), target.get("y", 0), at)
     waypoint = {
         "at": at,
-        "x": _bounded_offset(direct_x, 24, 936, magnitude * direction),
-        "y": _bounded_offset(direct_y, 24, 536, -magnitude * 0.7 * direction),
+        "x": _bounded_offset(
+            direct_x,
+            CANVAS_SAFE_MARGIN,
+            CANVAS_WIDTH - CANVAS_SAFE_MARGIN,
+            magnitude * direction,
+        ),
+        "y": _bounded_offset(
+            direct_y,
+            CANVAS_SAFE_MARGIN,
+            CANVAS_HEIGHT - CANVAS_SAFE_MARGIN,
+            -magnitude * 0.7 * direction,
+        ),
         "rotation": {
             "op": "add",
             "args": [_lerp(source.get("rotation", 0), target.get("rotation", 0), at), 18 * direction],

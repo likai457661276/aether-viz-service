@@ -1468,6 +1468,12 @@ def test_function_patch_supports_arrow_and_object_methods() -> None:
 
 
 def test_function_repair_includes_scene_builder_for_variable_topology() -> None:
+    from aetherviz_service.aetherviz.tools.function_patch import extract_named_functions
+
+    regex_html = "<script>function render(value){const brace=/\\}/;return brace.test(value);}</script>"
+    functions = extract_named_functions(regex_html)
+    assert functions["render"][0].source == "function render(value){const brace=/\\}/;return brace.test(value);}"
+
     html = """<script>
     function buildScene(){ dots.length=0; for(let i=0;i<96;i++){const dot=createDot();stage.appendChild(dot);dots.push(dot);} }
     function updateView(){ while(dots.length<state.sides){const dot=createDot();stage.appendChild(dot);dots.push(dot);} }

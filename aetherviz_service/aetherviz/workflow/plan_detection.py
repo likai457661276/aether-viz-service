@@ -15,7 +15,7 @@ SUBJECT_KEYWORDS = {
 
 VALID_INTERACTIVE_TYPES = {"simulation", "diagram", "game"}
 VALID_RENDER_STACKS = {"svg", "svg_canvas", "canvas_svg", "dom_svg"}
-VALID_ANIMATION_RUNTIMES = {"native", "gsap"}
+VALID_ANIMATION_RUNTIMES = {"gsap"}
 
 SIMULATION_KEYWORDS = ["运动", "参数", "实验", "函数", "概率", "反应速率", "电路", "轨迹", "速度", "采样"]
 DIAGRAM_KEYWORDS = ["流程", "结构", "分类", "因果", "步骤", "阅读结构", "知识图谱", "体系", "过程"]

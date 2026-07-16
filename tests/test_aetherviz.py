@@ -247,7 +247,7 @@ def test_generate_phase_requires_approved_plan() -> None:
     assert response.json()["detail"] == "approved_plan 不能为空"
 
 
-def test_generate_phase_streams_html_size_validates_in_memory_and_returns_html() -> None:
+def test_generate_phase_without_model_returns_explicit_error() -> None:
     response = client.post(
         AETHERVIZ_ENDPOINT,
         json={"topic": "熵增演示", "phase": "generate", "approved_plan": sample_plan()},
@@ -256,27 +256,9 @@ def test_generate_phase_streams_html_size_validates_in_memory_and_returns_html()
     events = parse_sse_events(response)
     names = [event for event, _ in events]
     assert "html.generation_started" in names
-    assert "html.delta" in names
-    assert "sandbox.written" not in names
-    assert "validation.check" in names
-    assert "validation.report" in names
-    assert "html.done" in names
-    done = next(data for event, data in events if event == "html.done")
-    assert done["data"]["html"].startswith("<!DOCTYPE html>")
-    assert done["data"]["metadata"]["attempts"] >= 1
-    assert done["data"]["metadata"]["generation_backend"] == "direct"
-    assert done["data"]["metadata"]["reasoning_elapsed_ms"] >= 0
-    assert done["data"]["metadata"]["first_chunk_elapsed_ms"] >= 0
-    assert done["data"]["metadata"]["generation_elapsed_ms"] >= 0
-    assert done["data"]["metadata"]["bytes"] == len(done["data"]["html"].encode("utf-8"))
-    assert done["data"]["metadata"]["chars"] == len(done["data"]["html"])
-    assert done["metadata"]["stage"] == "done"
-    assert "plan" not in done["data"]["metadata"]
-    assert "artifacts" not in done["data"]["metadata"]
-    size_events = [data["data"] for event, data in events if event == "html.delta" and data["data"].get("bytes")]
-    assert size_events
-    assert size_events[-1]["bytes"] == len(done["data"]["html"].encode("utf-8"))
-    assert size_events[-1]["chars"] == len(done["data"]["html"])
+    assert names[-1] == "error"
+    assert events[-1][1]["data"]["code"] == "model_unavailable"
+    assert "html.done" not in names
 
 
 def test_generate_phase_returns_error_when_html_agent_fails_completely(monkeypatch) -> None:
@@ -303,7 +285,7 @@ def test_generate_phase_returns_error_when_html_agent_fails_completely(monkeypat
     assert all(event != "html.done" for event, _ in events)
 
 
-def test_generate_phase_escapes_special_topic_in_deterministic_html() -> None:
+def test_generate_phase_does_not_fallback_for_special_topic_without_model() -> None:
     topic = '能量"</script><script>alert(1)</script>'
     response = client.post(
         AETHERVIZ_ENDPOINT,
@@ -311,10 +293,8 @@ def test_generate_phase_escapes_special_topic_in_deterministic_html() -> None:
     )
 
     events = parse_sse_events(response)
-    done = next(data for event, data in events if event == "html.done")
-    generated_html = done["data"]["html"]
-    assert "<script>alert(1)</script>" not in generated_html
-    assert "<\\/script>" in generated_html
+    assert events[-1][0] == "error"
+    assert events[-1][1]["data"]["code"] == "model_unavailable"
 
 
 def test_edit_html_without_model_returns_explicit_error() -> None:
@@ -1219,6 +1199,43 @@ def test_generate_phase_rejects_stalled_model_repair_and_preserves_previous_html
     assert not any(event == "html.done" for event, _ in events)
 
 
+def test_generate_phase_honors_multiple_model_repair_attempts(monkeypatch) -> None:
+    from aetherviz_service.aetherviz.agents.html_agent import HtmlStreamResult
+    from aetherviz_service.aetherviz.agents.repair_agent import RepairStreamResult
+    from aetherviz_service.aetherviz.workflow import generate_workflow
+
+    complete = sample_html()
+    missing_visual = complete.replace(
+        '<svg viewBox="0 0 100 100"><circle id="dot" cx="20" cy="50" r="8"></circle></svg>',
+        "",
+    )
+    baseline = missing_visual.replace("window.__AETHERVIZ_RUNTIME_READY__ = true;", "")
+    first_candidate = missing_visual
+    repair_calls = 0
+
+    def fake_stream(topic, plan):
+        yield HtmlStreamResult(html=baseline, degraded=False)
+
+    def fake_repair_stream(**kwargs):
+        nonlocal repair_calls
+        repair_calls += 1
+        yield RepairStreamResult(html=first_candidate if repair_calls == 1 else complete, degraded=False)
+
+    monkeypatch.setattr(settings, "aetherviz_max_repair_attempts", 2)
+    monkeypatch.setattr(generate_workflow, "stream_generate_html", fake_stream)
+    monkeypatch.setattr(generate_workflow, "stream_repair_html", fake_repair_stream)
+    monkeypatch.setattr(generate_workflow, "deterministic_can_address", lambda report: False)
+
+    response = client.post(
+        AETHERVIZ_ENDPOINT,
+        json={"topic": "变量变化", "phase": "generate", "approved_plan": sample_plan("变量变化")},
+    )
+    events = parse_sse_events(response)
+
+    assert repair_calls == 2
+    assert any(event == "html.done" for event, _ in events)
+
+
 def test_generate_phase_marks_unchanged_model_repair(monkeypatch) -> None:
     from aetherviz_service.aetherviz.agents.html_agent import HtmlStreamResult
     from aetherviz_service.aetherviz.agents.repair_agent import RepairStreamResult
@@ -1347,7 +1364,7 @@ def test_edit_phase_applies_deterministic_quality_repair_without_model_rewrite(m
     monkeypatch.setattr(settings, "aetherviz_max_repair_attempts", 1)
     monkeypatch.setattr(generate_workflow, "stream_repair_html", fail_model_repair)
     raw_events = list(
-        generate_workflow._run_html_workflow(
+        generate_workflow.run_html_pipeline(
             run_id="run-edit-quality",
             phase="edit_html",
             start_event="html.edit_started",
@@ -1433,12 +1450,12 @@ def test_edit_workflow_only_passes_current_business_html_to_regeneration(monkeyp
         captured.update(kwargs)
         yield HtmlStreamResult(html=kwargs["current_html"], degraded=False)
 
-    def fake_run_html_workflow(**kwargs):
+    def fake_run_html_pipeline(**kwargs):
         list(kwargs["html_stream_factory"]())
         yield "done"
 
     monkeypatch.setattr(edit_html_workflow, "_stream_edit_html", fake_stream_edit_html)
-    monkeypatch.setattr(edit_html_workflow, "_run_html_workflow", fake_run_html_workflow)
+    monkeypatch.setattr(edit_html_workflow, "run_html_pipeline", fake_run_html_pipeline)
 
     result = list(
         edit_html_workflow._run_edit_html_workflow_impl(
@@ -1647,7 +1664,6 @@ def test_widget_contract_warns_about_duplicate_static_text_positions() -> None:
 
 def test_generation_and_edit_prompts_include_stage_centering_rules() -> None:
     from aetherviz_service.aetherviz.agents.instructions import (
-        ADAPTIVE_LAYOUT_PROMPT,
         DIAGRAM_SYSTEM_PROMPT,
         EDIT_HTML_SYSTEM_PROMPT,
         GAME_SYSTEM_PROMPT,
@@ -1668,7 +1684,6 @@ def test_generation_and_edit_prompts_include_stage_centering_rules() -> None:
         assert "getBoundingClientRect" in prompt
         assert "禁止按具体文本内容、元素 id 或单个初始状态打补丁" in prompt
         assert SERVER_LAYOUT_CONTRACT_PROMPT.strip().splitlines()[-1] in prompt
-        assert ADAPTIVE_LAYOUT_PROMPT.strip().splitlines()[-1] not in prompt
         assert "ResizeObserver" in prompt
         assert "不得创作外层 app shell" in prompt
         assert VISUAL_DESIGN_SYSTEM_PROMPT.strip().splitlines()[-1] in prompt

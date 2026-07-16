@@ -29,11 +29,13 @@ from aetherviz_service.aetherviz.agents.model_factory import (
 )
 from aetherviz_service.aetherviz.limits import (
     FULL_HTML_OUTPUT_RESERVE_CHARS,
+    MODEL_HTML_HARD_LIMIT_CHARS,
     estimated_output_capacity_chars,
 )
+from aetherviz_service.aetherviz.tools.html_compare import normalize_html_for_compare
 from aetherviz_service.aetherviz.tools.html_output import parse_interactive_html, sanitize_aetherviz_html
 from aetherviz_service.aetherviz.tools.layout_contract import extract_business_html
-from aetherviz_service.aetherviz.workflow.generate_workflow import _run_html_workflow
+from aetherviz_service.aetherviz.workflow.html_pipeline import run_html_pipeline
 from aetherviz_service.aetherviz.workflow.plan_contract import normalize_plan
 from aetherviz_service.config import settings
 
@@ -110,7 +112,7 @@ def _run_edit_html_workflow_impl(
     topic = _topic_from_context(context)
     plan = normalize_plan((context or {}).get("plan_summary") if isinstance(context, dict) else None, topic)
     business_html = extract_business_html(current_html)
-    yield from _run_html_workflow(
+    yield from run_html_pipeline(
         run_id=run_id,
         phase="edit_html",
         start_event="html.edit_started",
@@ -238,6 +240,12 @@ def _stream_edit_html_impl(
                     last_size_event_bytes = current_bytes
         if not raw_text.strip():
             raise ValueError("edit model returned empty content")
+        if timed_out:
+            raise HtmlGenerationError(
+                "HTML 修改失败，模型响应超时，原页面已保留",
+                code="edit_timeout",
+                detail=f"chars={len(raw_text)}",
+            )
         truncated = "</html" not in raw_text.lower() or finish_reason in {"length", "max_tokens"}
         if truncated:
             raise HtmlGenerationError(
@@ -246,7 +254,7 @@ def _stream_edit_html_impl(
                 detail=f"finish_reason={finish_reason or 'missing_html_end'}; chars={len(raw_text)}",
             )
         edited_html = sanitize_aetherviz_html(parse_interactive_html(raw_text))
-        if _normalized_html(current_html) == _normalized_html(edited_html):
+        if normalize_html_for_compare(current_html) == normalize_html_for_compare(edited_html):
             raise HtmlGenerationError(
                 "HTML 修改失败，模型未产生实际变化，原页面已保留",
                 code="edit_no_change",
@@ -292,7 +300,10 @@ def _stream_edit_html_impl(
 
 def _has_full_edit_budget(current_html: str) -> bool:
     estimated_capacity = estimated_output_capacity_chars(settings.aetherviz_edit_max_tokens)
-    return len(current_html) + FULL_HTML_OUTPUT_RESERVE_CHARS <= estimated_capacity
+    return (
+        len(current_html) <= MODEL_HTML_HARD_LIMIT_CHARS
+        and len(current_html) + FULL_HTML_OUTPUT_RESERVE_CHARS <= estimated_capacity
+    )
 
 
 def _edit_contract_errors(source_html: str, candidate_html: str) -> list[str]:
@@ -320,10 +331,6 @@ def _widget_type(html: str) -> str | None:
         return None
     value = payload.get("type") if isinstance(payload, dict) else None
     return str(value) if value else None
-
-
-def _normalized_html(html: str) -> str:
-    return "".join((html or "").split())
 
 
 def _summarize_edit_stream(items: list[dict[str, Any] | HtmlStreamResult]) -> dict[str, Any]:

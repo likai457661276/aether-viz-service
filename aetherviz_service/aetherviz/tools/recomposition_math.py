@@ -136,8 +136,6 @@ def evaluate_mathematical_invariants(ir: dict[str, Any], plan: dict[str, Any]) -
         "relation_coverage": (
             len(relation_checks) / requested_relation_checks if requested_relation_checks else 1.0
         ),
-        "requested_relation_checks": requested_relation_checks,
-        "available_relation_checks": len(relation_checks),
     }
 
 

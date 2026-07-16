@@ -115,15 +115,13 @@ def test_deterministic_repair_moves_inline_events_without_model_rewrite() -> Non
     assert "window.AetherVizRuntime.play()" in repaired
 
 
-def test_stream_generate_html_emits_progress_and_result_without_llm(monkeypatch) -> None:
+def test_stream_generate_html_fails_explicitly_without_llm(monkeypatch) -> None:
     monkeypatch.setattr(html_agent, "has_primary_llm_config", lambda: False)
 
-    items = list(stream_generate_html("勾股定理", {"title": "勾股定理", "interactive_type": "diagram"}))
+    with pytest.raises(html_agent.HtmlGenerationError) as exc_info:
+        list(stream_generate_html("勾股定理", {"title": "勾股定理", "interactive_type": "diagram"}))
 
-    assert any(isinstance(item, dict) and item.get("html_steps") for item in items)
-    result = next(item for item in items if isinstance(item, HtmlStreamResult))
-    assert result.degraded is True
-    assert result.html.startswith("<!DOCTYPE html>")
+    assert exc_info.value.code == "model_unavailable"
 
 
 def test_stream_generate_html_collects_direct_model_output(monkeypatch) -> None:

@@ -8,6 +8,7 @@ import math
 from typing import Any
 
 from aetherviz_service.aetherviz.tools.recomposition_assembly import evaluate_target_assembly
+from aetherviz_service.aetherviz.tools.recomposition_constants import CANVAS_HEIGHT, CANVAS_WIDTH
 from aetherviz_service.aetherviz.tools.recomposition_ir import (
     expand_geometry_ir,
     normalize_geometry_ir,
@@ -17,8 +18,6 @@ from aetherviz_service.aetherviz.tools.recomposition_ir import (
 from aetherviz_service.aetherviz.tools.recomposition_math import evaluate_mathematical_invariants
 from aetherviz_service.aetherviz.tools.recomposition_semantics import evaluate_recomposition_semantics
 
-CANVAS_WIDTH = 960.0
-CANVAS_HEIGHT = 560.0
 SCORE_WEIGHTS = {
     "schema": 15.0,
     "mathematical_invariants": 15.0,

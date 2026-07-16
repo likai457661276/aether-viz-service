@@ -49,6 +49,9 @@ def _html_model_kwargs(*, max_tokens: int | None = None) -> dict[str, Any]:
 def create_chat_model(kind: str, *, response_schema: dict[str, Any] | None = None):
     from langchain_openai import ChatOpenAI
 
+    if kind not in {"planning", "html", "scene", "edit", "repair"}:
+        raise ValueError(f"unsupported chat model kind: {kind}")
+
     if kind == "planning":
         planning_kwargs: dict[str, Any] = {
             "model": settings.openai_plan_model,

@@ -33,13 +33,13 @@ class GenerateAetherVizSpecRequest(BaseModel):
             if not (self.message or "").strip():
                 raise ValueError("message 不能为空")
             _require_plan_fields(self.current_plan, "current_plan")
-        if self.phase == "approve_plan" and self.plan is None:
-            raise ValueError("plan 不能为空")
         if self.phase == "approve_plan":
+            if self.plan is None:
+                raise ValueError("plan 不能为空")
             _require_plan_fields(self.plan, "plan")
-        if self.phase == "generate" and self.approved_plan is None:
-            raise ValueError("approved_plan 不能为空")
         if self.phase == "generate":
+            if self.approved_plan is None:
+                raise ValueError("approved_plan 不能为空")
             _require_plan_fields(self.approved_plan, "approved_plan")
         if self.phase == "edit_html":
             if not (self.current_html or "").strip():

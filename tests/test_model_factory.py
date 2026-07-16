@@ -1,7 +1,9 @@
 """Direct chat model factory regression tests."""
 
+import pytest
+
 from aetherviz_service.aetherviz.agents import model_factory
-from aetherviz_service.config import settings
+from aetherviz_service.config import Settings, settings
 
 
 def test_planning_config_reuses_primary_api_key(monkeypatch) -> None:
@@ -97,3 +99,13 @@ def test_scene_model_uses_strict_response_schema_when_provided(monkeypatch) -> N
         "strict": True,
         "schema": schema,
     }
+
+
+def test_unknown_model_kind_is_rejected() -> None:
+    with pytest.raises(ValueError, match="unsupported chat model kind"):
+        model_factory.create_chat_model("repiar")
+
+
+def test_negative_repair_attempts_are_rejected() -> None:
+    with pytest.raises(ValueError, match="AETHERVIZ_MAX_REPAIR_ATTEMPTS"):
+        Settings(aetherviz_max_repair_attempts=-1)

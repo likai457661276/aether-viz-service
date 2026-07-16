@@ -3,6 +3,8 @@
 import logging
 import re
 
+from aetherviz_service.aetherviz.limits import MIN_MODEL_HTML_CHARS
+
 logger = logging.getLogger(__name__)
 
 
@@ -232,7 +234,7 @@ def parse_interactive_html(raw_output: str) -> str:
         logger.info("AetherViz: 自动缝合补齐了 </body></html> 标签，页面加载成功。")
 
     # 再次做最终字符长度检验
-    if len(stripped) < 150:
+    if len(stripped) < MIN_MODEL_HTML_CHARS:
         raise AetherVizInteractiveHtmlError(
             f"生成的 HTML 内容过短（当前仅 {len(stripped)} 字符），不符合完整交互页面要求"
         )

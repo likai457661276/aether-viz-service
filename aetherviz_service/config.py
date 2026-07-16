@@ -1,9 +1,8 @@
-from urllib.parse import urlsplit
-
 from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from aetherviz_service.aetherviz.limits import MIN_FULL_HTML_OUTPUT_TOKENS
+from aetherviz_service.aetherviz.tools.external_url import normalize_allowed_external_url
 
 
 class Settings(BaseSettings):
@@ -45,16 +44,15 @@ class Settings(BaseSettings):
     )
     @classmethod
     def validate_cdn_url(cls, value: str) -> str:
-        normalized = value.strip()
-        parsed = urlsplit(normalized)
-        if parsed.scheme.lower() != "https" or not parsed.netloc:
-            raise ValueError("AetherViz CDN 地址必须是有效的 HTTPS URL")
-        if parsed.username or parsed.password or parsed.query or parsed.fragment:
-            raise ValueError("AetherViz CDN 地址不允许包含凭据、query 或 fragment")
-        return normalized
+        try:
+            return normalize_allowed_external_url(value)
+        except ValueError as exc:
+            raise ValueError("AetherViz CDN 地址必须是无凭据、query、fragment 的有效 HTTPS URL") from exc
 
     @model_validator(mode="after")
     def validate_full_html_output_budgets(self) -> "Settings":
+        if self.aetherviz_max_repair_attempts < 0:
+            raise ValueError("AETHERVIZ_MAX_REPAIR_ATTEMPTS 不能小于 0")
         undersized = {
             name: value
             for name, value in {

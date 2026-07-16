@@ -6,7 +6,7 @@ from aetherviz_service.aetherviz.constants import get_gsap_core_cdn_url
 
 InteractiveType = Literal["simulation", "diagram", "game"]
 RenderStack = Literal["svg", "svg_canvas", "canvas_svg", "dom_svg"]
-AnimationRuntime = Literal["native", "gsap"]
+AnimationRuntime = Literal["gsap"]
 
 
 class AetherVizPlanControl(BaseModel):
@@ -32,6 +32,7 @@ class AetherVizRuntime(BaseModel):
 
 class AetherVizPlan(BaseModel):
     page_type: Literal["interactive"] = "interactive"
+    source_topic: str | None = None
     interactive_type: InteractiveType
     widget_type: InteractiveType | None = None
     scene_outline: dict[str, Any] | None = None

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import html
-import json
 import logging
 import time
 from collections.abc import Iterator
@@ -115,9 +113,11 @@ def _traced_stream_generate_html(
 
 def _stream_generate_html_impl(topic: str, plan: dict[str, Any]) -> Iterator[dict[str, Any] | HtmlStreamResult]:
     if not has_primary_llm_config():
-        yield from _iter_deterministic_html_progress()
-        yield HtmlStreamResult(html=_deterministic_html(topic, plan), degraded=True)
-        return
+        raise HtmlGenerationError(
+            "HTML 生成失败，未配置可用的模型服务",
+            code="model_unavailable",
+            detail="OPENAI_API_KEY is not configured",
+        )
 
     prompt = build_interactive_generation_prompt(topic, plan)
     system_prompt = system_prompt_for_interactive_type(plan)
@@ -358,88 +358,3 @@ def _completed_html_progress_payload(html_content: str | None = None) -> dict[st
         [{**step, "status": "completed"} for step in DEFAULT_HTML_PROGRESS_STEPS],
         html_content=html_content,
     )
-
-
-def _iter_deterministic_html_progress() -> Iterator[dict[str, Any]]:
-    steps = [dict(step) for step in DEFAULT_HTML_PROGRESS_STEPS]
-    for index in range(len(steps)):
-        for step_index, step in enumerate(steps):
-            if step_index < index:
-                step["status"] = "completed"
-            elif step_index == index:
-                step["status"] = "in_progress"
-            else:
-                step["status"] = "pending"
-        yield build_html_progress_payload([dict(step) for step in steps])
-    yield _completed_html_progress_payload()
-
-
-def _deterministic_html(topic: str, plan: dict[str, Any]) -> str:
-    raw_title = str(plan.get("title") or topic or "AI教学动画")
-    raw_goal = str(plan.get("goal") or f"理解{topic}的核心概念")
-    title = html.escape(raw_title)
-    goal = html.escape(raw_goal)
-    topic_text = html.escape(topic)
-    color = str(plan.get("primary_color") or "#22D3EE")
-    widget_config = json.dumps(
-        {"type": plan.get("interactive_type", "diagram"), "concept": topic},
-        ensure_ascii=False,
-    ).replace("</", "<\\/")
-    return f"""<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{title}</title>
-<style>
-body{{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#f7faf9;color:#17231f}}
-.wrap{{min-height:100vh;display:grid;grid-template-rows:auto 1fr auto;gap:16px;padding:24px;box-sizing:border-box}}
-header,footer{{max-width:980px;width:100%;margin:0 auto}}
-h1{{font-size:28px;margin:0 0 8px}}p{{line-height:1.7}}
-#aetherviz-stage{{max-width:980px;width:100%;min-height:360px;margin:0 auto;display:grid;place-items:center;background:white;border:1px solid #d9e6e1;border-radius:8px}}
-svg{{max-width:92%;height:auto}}.controls{{display:flex;gap:10px;flex-wrap:wrap}}button,input{{font:inherit}}
-button{{border:0;border-radius:6px;background:{color};color:white;padding:10px 14px;cursor:pointer}}
-.caption{{font-weight:600;color:#365248}}
-</style>
-<script type="application/json" id="widget-config">{widget_config}</script>
-</head>
-<body>
-<main class="wrap">
-<header><h1>{title}</h1><p>{goal}</p></header>
-<section id="aetherviz-stage" aria-label="{topic_text}互动舞台">
-<svg viewBox="0 0 640 320" role="img" aria-label="{topic_text}">
-<rect x="70" y="70" width="500" height="180" rx="20" fill="{color}" opacity=".14"></rect>
-<path id="curve" d="M90 220 C180 80 300 80 410 190 S540 230 570 110" fill="none" stroke="{color}" stroke-width="10" stroke-linecap="round"></path>
-<circle id="dot" cx="90" cy="220" r="16" fill="#F59E0B"></circle>
-<text x="320" y="286" text-anchor="middle" fill="#365248">拖动参数观察状态变化</text>
-</svg>
-</section>
-<footer>
-<p id="animation-caption" class="caption">当前步骤：观察初始状态。</p>
-<div class="controls"><button id="play-animation">播放</button><button id="pause-animation">暂停</button><button id="reset-animation">重置</button><input id="parameter" type="range" min="0" max="100" value="0"></div>
-</footer>
-</main>
-<script>
-const state={{progress:0,playing:false}};
-const dot=document.getElementById('dot');
-const caption=document.getElementById('animation-caption');
-function updateVisualization(){{
-  const p=Number(state.progress)||0;
-  dot.setAttribute('cx',String(90+p*4.8));
-  dot.setAttribute('cy',String(220-Math.sin(p/100*Math.PI)*120));
-  caption.textContent=p<34?'当前步骤：观察初始状态。':p<67?'当前步骤：比较参数变化后的图形位置。':'当前步骤：归纳图形变化和核心结论。';
-}}
-function tick(){{if(state.playing){{state.progress=(state.progress+1)%101;document.getElementById('parameter').value=String(state.progress);updateVisualization();}}requestAnimationFrame(tick);}}
-function play(){{state.playing=true;}}function pause(){{state.playing=false;}}function reset(){{state.progress=0;state.playing=false;document.getElementById('parameter').value='0';updateVisualization();}}
-function handleWidgetAction(event){{const msg=event.data||{{}};if(msg.type==='SET_WIDGET_STATE'&&msg.state){{Object.assign(state,msg.state);updateVisualization();}}if(msg.type==='HIGHLIGHT_ELEMENT'&&msg.target){{const el=document.querySelector(msg.target);if(el)el.style.filter='drop-shadow(0 0 8px #f59e0b)';}}if(msg.type==='ANNOTATE_ELEMENT'&&msg.content)caption.textContent=String(msg.content);if(msg.type==='REVEAL_ELEMENT'&&msg.target){{const el=document.querySelector(msg.target);if(el)el.hidden=false;}}}}
-document.getElementById('play-animation').addEventListener('click',()=>play());
-document.getElementById('pause-animation').addEventListener('click',()=>pause());
-document.getElementById('reset-animation').addEventListener('click',()=>reset());
-document.getElementById('parameter').addEventListener('input',e=>{{state.progress=Number(e.target.value)||0;updateVisualization();}});
-window.addEventListener('message',handleWidgetAction);
-window.AetherVizRuntime={{play,pause,reset,update:updateVisualization,getState:()=>state}};
-window.__AETHERVIZ_RUNTIME_READY__=true;
-updateVisualization();tick();
-</script>
-</body>
-</html>"""
