@@ -23,6 +23,8 @@ def test_html_generation_thinking_disabled_by_default() -> None:
     assert settings.aetherviz_repair_max_tokens == 16384
     assert settings.aetherviz_html_enable_thinking is False
     assert settings.aetherviz_html_reasoning_effort is None
+    assert settings.aetherviz_edit_enable_thinking is True
+    assert settings.aetherviz_edit_reasoning_effort is None
 
 
 @pytest.mark.parametrize(

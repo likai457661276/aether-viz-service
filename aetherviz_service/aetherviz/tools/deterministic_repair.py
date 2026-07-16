@@ -7,6 +7,8 @@ import json
 import re
 from typing import Any
 
+from bs4 import BeautifulSoup, NavigableString, Tag
+
 from aetherviz_service.aetherviz.tools.javascript_object import (
     matching_brace,
     top_level_object_properties,
@@ -48,6 +50,7 @@ DETERMINISTIC_HARD_ERROR_TYPES = frozenset(
         "missing_runtime_method",
         "non_node_append_child",
         "unstable_preserved_child",
+        "unrendered_math_delimiter",
         "html_length_hard_limit",
         "missing_layout_contract",
         "missing_layout_shell",
@@ -117,6 +120,8 @@ def deterministic_repair_html(
         repaired = _rewrite_assignment_append_child(repaired)
     if "unstable_preserved_child" in error_types:
         repaired = _guard_unstable_preserved_children(repaired)
+    if "unrendered_math_delimiter" in error_types:
+        repaired = _render_explicit_katex_targets(repaired)
     if "animation_controller_missing_update" in error_types:
         repaired = _rename_controller_on_update(repaired)
     if "html_length_hard_limit" in error_types:
@@ -151,6 +156,85 @@ def deterministic_repair_html(
         if "missing_runtime_ready" in error_types:
             repaired = _insert_runtime_ready_guard(repaired)
     return repaired
+
+
+_VISIBLE_MATH_DELIMITER_RE = re.compile(
+    r"(?<!\\)\$\$(?!\s)([^$\r\n]+?)(?<!\s)\$\$|"
+    r"(?<![\\$])\$(?![\s$])([^$\r\n]+?)(?<![\s$])\$(?!\$)"
+)
+_NON_VISIBLE_MATH_PARENTS = {"script", "style", "code", "pre", "textarea", "noscript"}
+
+
+def _render_explicit_katex_targets(html: str) -> str:
+    """Convert visible dollar-delimited math to explicit direct-render targets."""
+
+    soup = BeautifulSoup(html or "", "html.parser")
+    changed = False
+    for text_node in list(soup.find_all(string=True)):
+        if not isinstance(text_node, NavigableString):
+            continue
+        parent = text_node.parent
+        if not isinstance(parent, Tag) or parent.name in _NON_VISIBLE_MATH_PARENTS:
+            continue
+        if parent.has_attr("data-katex") or parent.find_parent(attrs={"data-katex": True}) is not None:
+            continue
+        value = str(text_node)
+        matches = list(_VISIBLE_MATH_DELIMITER_RE.finditer(value))
+        if not matches:
+            continue
+        replacements: list[Tag | NavigableString] = []
+        cursor = 0
+        for match in matches:
+            if match.start() > cursor:
+                replacements.append(NavigableString(value[cursor : match.start()]))
+            display_mode = match.group(1) is not None
+            latex = (match.group(1) or match.group(2) or "").strip()
+            attrs = {"data-katex": latex}
+            if display_mode:
+                attrs["data-katex-display"] = "true"
+            target = soup.new_tag("span", attrs=attrs)
+            target.string = _plain_math_fallback(latex)
+            replacements.append(target)
+            cursor = match.end()
+        if cursor < len(value):
+            replacements.append(NavigableString(value[cursor:]))
+        for replacement in replacements:
+            text_node.insert_before(replacement)
+        text_node.extract()
+        changed = True
+    if not changed or soup.select_one('script[data-aetherviz-katex-contract="true"]') is not None:
+        return "<!DOCTYPE html>\n" + str(soup.html) if soup.html is not None else str(soup)
+    renderer = BeautifulSoup(
+        r'''<script data-aetherviz-katex-contract="true">(function(){
+function renderMath(root){(root||document).querySelectorAll('[data-katex]').forEach(function(node){
+var source=node.getAttribute('data-katex')||'';var fallback=node.textContent||source;
+if(!window.katex){node.textContent=fallback;return;}
+try{window.katex.render(source,node,{throwOnError:false,displayMode:node.getAttribute('data-katex-display')==='true'});}catch(error){node.textContent=fallback;}
+});}
+window.AetherVizRenderMath=renderMath;
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',function(){renderMath(document);},{once:true});else renderMath(document);
+})();</script>''',
+        "html.parser",
+    ).script
+    if renderer is not None:
+        if soup.body is not None:
+            soup.body.append(renderer)
+        elif soup.html is not None:
+            soup.html.append(renderer)
+        else:
+            soup.append(renderer)
+    return "<!DOCTYPE html>\n" + str(soup.html) if soup.html is not None else str(soup)
+
+
+def _plain_math_fallback(latex: str) -> str:
+    greek = {
+        "alpha": "α", "beta": "β", "gamma": "γ", "delta": "δ", "theta": "θ",
+        "lambda": "λ", "mu": "μ", "pi": "π", "rho": "ρ", "sigma": "σ",
+        "phi": "φ", "omega": "ω", "Delta": "Δ", "Theta": "Θ", "Sigma": "Σ",
+        "Phi": "Φ", "Omega": "Ω",
+    }
+    value = re.sub(r"\\([A-Za-z]+)", lambda match: greek.get(match.group(1), match.group(1)), latex)
+    return value.replace("{", "").replace("}", "")
 
 
 def _rename_controller_on_update(html: str) -> str:

@@ -149,7 +149,11 @@ def run_html_pipeline(
         "stage": "generate",
         "elapsed_ms": 0,
         "generation_backend": generation_backend,
-        "reasoning_enabled": phase == "generate" and settings.aetherviz_html_enable_thinking,
+        "reasoning_enabled": (
+            settings.aetherviz_edit_enable_thinking
+            if phase == "edit_html"
+            else phase == "generate" and settings.aetherviz_html_enable_thinking
+        ),
     }
     yield agent_sse_event(
         start_event,

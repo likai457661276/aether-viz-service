@@ -48,6 +48,42 @@ _REQUIRED_WIDGET_ACTIONS = (
     "REVEAL_ELEMENT",
 )
 
+_SERVER_LAYOUT_TARGETS = (
+    "外壳",
+    "app shell",
+    "app-shell",
+    "aetherviz-app-shell",
+    "控制面板",
+    "实验控制",
+    "右侧面板",
+    "右侧栏",
+    "侧边栏",
+    "侧栏",
+    "左右栏",
+    "页面网格",
+    "整页布局",
+    "页面布局",
+    "页面滚动",
+    "响应式断点",
+)
+_SERVER_LAYOUT_CHANGES = (
+    "宽度",
+    "高度",
+    "太宽",
+    "太窄",
+    "挤压",
+    "拥挤",
+    "间距",
+    "布局",
+    "分栏",
+    "位置",
+    "移动到",
+    "放到",
+    "滚动",
+    "溢出",
+    "断点",
+)
+
 
 def run_edit_html_workflow(
     *,
@@ -150,6 +186,8 @@ def _stream_edit_html(
         "instruction_chars": len(inputs.get("message") or ""),
         "full_output_budget_chars": estimated_output_capacity_chars(settings.aetherviz_edit_max_tokens),
         "edit_strategy": "full_html_regeneration",
+        "reasoning_enabled": settings.aetherviz_edit_enable_thinking,
+        "reasoning_effort": settings.aetherviz_edit_reasoning_effort,
     },
     reduce_fn=lambda items: _summarize_edit_stream(items),
 )
@@ -172,6 +210,13 @@ def _stream_edit_html_impl(
     message: str,
     current_html: str,
 ) -> Iterator[dict[str, Any] | HtmlStreamResult]:
+    if _targets_server_layout(message):
+        raise HtmlGenerationError(
+            "该修改涉及系统统一管理的页面外壳，当前课件不能单独修改这部分内容",
+            code="edit_server_layout_owned",
+            detail="server-owned layout change rejected before model invocation",
+        )
+
     if not has_primary_llm_config():
         raise HtmlGenerationError(
             "HTML 修改失败，未配置可用的模型服务，原页面已保留",
@@ -303,6 +348,14 @@ def _has_full_edit_budget(current_html: str) -> bool:
     return (
         len(current_html) <= MODEL_HTML_HARD_LIMIT_CHARS
         and len(current_html) + FULL_HTML_OUTPUT_RESERVE_CHARS <= estimated_capacity
+    )
+
+
+def _targets_server_layout(message: str) -> bool:
+    """Detect explicit requests to mutate layout owned by the server shell."""
+    normalized = " ".join((message or "").lower().split())
+    return bool(normalized) and any(target in normalized for target in _SERVER_LAYOUT_TARGETS) and any(
+        change in normalized for change in _SERVER_LAYOUT_CHANGES
     )
 
 

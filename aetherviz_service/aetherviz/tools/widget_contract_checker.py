@@ -6,7 +6,9 @@ import json
 import math
 import re
 
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, NavigableString, Tag
+
+from aetherviz_service.aetherviz.tools.javascript_object import matching_brace
 
 REQUIRED_CONTROL_IDS = ("play-animation", "pause-animation", "reset-animation")
 REQUIRED_RUNTIME_METHODS = ("play", "pause", "reset", "update", "getState")
@@ -68,6 +70,25 @@ _WIDGET_CONFIG_ALIAS_RE = re.compile(
     r"(?:const|let|var)\s+(?P<alias>[A-Za-z_$][\w$]*)\s*=\s*JSON\.parse\(\s*"
     r"document\.getElementById\(\s*['\"]widget-config['\"]\s*\)\.textContent\s*\)"
 )
+_FUNCTION_DECLARATION_RE = re.compile(
+    r"\bfunction\s*(?P<name>[A-Za-z_$][\w$]*)?\s*\([^)]*\)\s*\{"
+)
+_SCENE_BUILDER_NAME_RE = re.compile(
+    r"^(?:build|create|init|setup|mount)(?:Scene|Visual|Visualization|Graphics|Svg|Canvas)$",
+    re.IGNORECASE,
+)
+_DYNAMIC_NODE_ASSIGNMENT_RE = re.compile(
+    rf"\b(?P<name>{_JS_IDENTIFIER})\s*=\s*document\.createElement(?:NS)?\s*\("
+)
+_DYNAMIC_NODE_USE_RE_TEMPLATE = (
+    r"\b{name}\s*\.\s*(?:addEventListener|setAttribute|appendChild|replaceChildren|"
+    r"getContext|getScreenCTM)\s*\("
+)
+_VISIBLE_MATH_DELIMITER_RE = re.compile(
+    r"(?<!\\)\$\$(?!\s)([^$\r\n]+?)(?<!\s)\$\$|"
+    r"(?<![\\$])\$(?![\s$])([^$\r\n]+?)(?<![\s$])\$(?!\$)"
+)
+_NON_VISIBLE_MATH_PARENTS = {"script", "style", "code", "pre", "textarea", "noscript"}
 
 
 def check_widget_runtime_contract(html: str, *, soup: BeautifulSoup | None = None) -> dict:
@@ -109,6 +130,7 @@ def check_widget_runtime_contract(html: str, *, soup: BeautifulSoup | None = Non
 
     _check_append_child_arguments(script_text, errors)
     _check_unstable_preserved_children(script_text, errors)
+    _check_dynamic_nodes_used_before_initialization(business_script_text, errors)
     _check_duplicate_label_positions(parsed, script_text, warnings)
     _check_layout_risks(parsed, script_text, warnings)
     _check_svg_unit_system(parsed, script_text, warnings)
@@ -162,6 +184,20 @@ def check_widget_runtime_contract(html: str, *, soup: BeautifulSoup | None = Non
     has_formula_region = parsed.select_one('[data-region="formula"], .formula, .katex-target') is not None
     if external_katex and not has_formula_region:
         warnings.append(_warning("unused_katex_runtime", "页面未检测到公式区域，不应加载 KaTeX"))
+    if external_katex:
+        raw_math_examples = _visible_math_delimiter_examples(parsed)
+        if raw_math_examples:
+            errors.append(
+                _error(
+                    "unrendered_math_delimiter",
+                    "可见文本仍包含未交给 KaTeX 渲染的 $...$ 定界符："
+                    + "；".join(raw_math_examples[:3]),
+                    expected={
+                        "markup": '<span data-katex="\\theta">θ</span>',
+                        "renderer": "guarded window.katex.render with readable text fallback",
+                    },
+                )
+            )
 
     return {
         "ok": not errors,
@@ -170,6 +206,127 @@ def check_widget_runtime_contract(html: str, *, soup: BeautifulSoup | None = Non
         "errors": errors,
         "warnings": warnings,
     }
+
+
+def _check_dynamic_nodes_used_before_initialization(script_text: str, errors: list[dict]) -> None:
+    """Reject top-scope use of scene nodes that are created only by a later builder call.
+
+    This intentionally recognizes a narrow, high-confidence lifecycle shape:
+    a scene builder assigns a DOM/SVG node, while the builder's parent scope
+    dereferences that node before calling either the builder or a sibling wrapper
+    that calls it. Defining a later ``init()`` function is not initialization;
+    its invocation must precede the dereference.
+    """
+
+    functions = _javascript_function_ranges(script_text)
+    for builder in functions:
+        name = builder[0]
+        if not name or not _SCENE_BUILDER_NAME_RE.match(name):
+            continue
+        body = script_text[builder[2] + 1 : builder[3]]
+        assigned_names = {match.group("name") for match in _DYNAMIC_NODE_ASSIGNMENT_RE.finditer(body)}
+        if not assigned_names:
+            continue
+        parent = _containing_function(functions, builder[1])
+        sibling_wrappers = {
+            function[0]
+            for function in functions
+            if function[0]
+            and _containing_function(functions, function[1]) == parent
+            and re.search(rf"\b{re.escape(name)}\s*\(", script_text[function[2] + 1 : function[3]])
+        }
+        initializer_names = {name, *sibling_wrappers}
+        for node_name in sorted(assigned_names):
+            use_re = re.compile(_DYNAMIC_NODE_USE_RE_TEMPLATE.format(name=re.escape(node_name)))
+            for use in use_re.finditer(script_text):
+                if _innermost_function(functions, use.start()) != parent:
+                    continue
+                initialized = any(
+                    _has_same_scope_call_before(
+                        script_text,
+                        functions,
+                        parent,
+                        initializer_name,
+                        use.start(),
+                    )
+                    for initializer_name in initializer_names
+                )
+                if initialized:
+                    continue
+                method = re.search(r"\.\s*([A-Za-z_$][\w$]*)", use.group(0))
+                errors.append(
+                    _error(
+                        "dynamic_node_used_before_init",
+                        f"动态节点 {node_name} 仅在 {name}() 中创建，却在初始化调用前执行 "
+                        f"{method.group(1) if method else 'DOM 方法'}；脚本会在 init/ready 前中止。",
+                        expected={
+                            "order": f"{name}() -> bind interactions -> first render -> runtime ready",
+                            "node": node_name,
+                            "builder": name,
+                            "forbid": "guard-only early return that leaves the scene uninitialized",
+                        },
+                    )
+                )
+                break
+
+
+def _javascript_function_ranges(script_text: str) -> list[tuple[str | None, int, int, int]]:
+    ranges: list[tuple[str | None, int, int, int]] = []
+    for match in _FUNCTION_DECLARATION_RE.finditer(script_text):
+        opening = script_text.find("{", match.start(), match.end())
+        closing = matching_brace(script_text, opening)
+        if closing is not None:
+            ranges.append((match.group("name"), match.start(), opening, closing))
+    return ranges
+
+
+def _innermost_function(
+    functions: list[tuple[str | None, int, int, int]],
+    position: int,
+) -> tuple[str | None, int, int, int] | None:
+    containing = [function for function in functions if function[2] < position < function[3]]
+    return min(containing, key=lambda function: function[3] - function[2]) if containing else None
+
+
+def _containing_function(
+    functions: list[tuple[str | None, int, int, int]],
+    function_start: int,
+) -> tuple[str | None, int, int, int] | None:
+    containing = [function for function in functions if function[2] < function_start < function[3]]
+    return min(containing, key=lambda function: function[3] - function[2]) if containing else None
+
+
+def _has_same_scope_call_before(
+    script_text: str,
+    functions: list[tuple[str | None, int, int, int]],
+    scope: tuple[str | None, int, int, int] | None,
+    function_name: str,
+    before: int,
+) -> bool:
+    for call in re.finditer(rf"\b{re.escape(function_name)}\s*\(", script_text[:before]):
+        prefix = script_text[max(0, call.start() - 16) : call.start()]
+        if re.search(r"\bfunction\s*$", prefix):
+            continue
+        if _innermost_function(functions, call.start()) == scope:
+            return True
+    return False
+
+
+def _visible_math_delimiter_examples(parsed: BeautifulSoup) -> list[str]:
+    examples: list[str] = []
+    for text_node in parsed.find_all(string=True):
+        if not isinstance(text_node, NavigableString):
+            continue
+        parent = text_node.parent
+        if not isinstance(parent, Tag) or parent.name in _NON_VISIBLE_MATH_PARENTS:
+            continue
+        if parent.has_attr("data-katex") or parent.find_parent(attrs={"data-katex": True}) is not None:
+            continue
+        if "katex" in parent.get("class", []) or parent.find_parent(class_="katex") is not None:
+            continue
+        for match in _VISIBLE_MATH_DELIMITER_RE.finditer(str(text_node)):
+            examples.append(match.group(0)[:80])
+    return examples
 
 
 _NUMERIC_CONST_RE = re.compile(

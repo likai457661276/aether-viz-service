@@ -18,6 +18,8 @@ class Settings(BaseSettings):
     aetherviz_katex_js_url: str = "https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"
     aetherviz_html_enable_thinking: bool = False
     aetherviz_html_reasoning_effort: str | None = None
+    aetherviz_edit_enable_thinking: bool = True
+    aetherviz_edit_reasoning_effort: str | None = None
     aetherviz_html_max_tokens: int = 16384
     aetherviz_scene_max_tokens: int = 12288
     aetherviz_edit_max_tokens: int = 16384

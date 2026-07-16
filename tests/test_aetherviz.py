@@ -927,6 +927,10 @@ def test_server_control_contract_provides_button_and_select_feedback() -> None:
     assert 'button.av-reset-confirm' in css
     assert 'select:focus-visible' in css
     assert 'appearance:none' in css
+    assert "clamp(300px,30vw,380px)" in css
+    assert "grid-template-rows:auto auto" in css
+    assert ".control-label" in css
+    assert "grid-template-rows:auto 44px" not in css
     assert "aetherviz:animation-state" in control_script.get_text()
     assert "emit('playing')" in animation_script.get_text()
     assert "emit('paused')" in animation_script.get_text()
@@ -1552,6 +1556,38 @@ def test_edit_html_rejects_unchanged_regeneration(monkeypatch) -> None:
     assert "candidate_unchanged" in exc_info.value.detail
 
 
+def test_edit_html_rejects_server_layout_change_before_model_invocation(monkeypatch) -> None:
+    from aetherviz_service.aetherviz.workflow import edit_html_workflow
+
+    def fail_model_creation(kind: str):
+        raise AssertionError(f"外壳修改不应调用模型: {kind}")
+
+    monkeypatch.setattr(settings, "openai_api_key", "test-key")
+    monkeypatch.setattr(edit_html_workflow, "create_chat_model", fail_model_creation)
+
+    raw_events = list(
+        edit_html_workflow._run_edit_html_workflow_impl(
+            run_id="run-server-layout-owned",
+            current_html=sample_html(),
+            message="实验控制的动画演示标题被挤压，请优化布局",
+            context={"topic": "动画"},
+        )
+    )
+    events = parse_sse_events(type("SseResponse", (), {"text": "".join(raw_events)})())
+    error = next(data for event, data in events if event == "error")
+
+    assert error["data"]["code"] == "edit_server_layout_owned"
+    assert "页面外壳" in error["data"]["message"]
+
+
+def test_edit_html_does_not_reject_business_content_change() -> None:
+    from aetherviz_service.aetherviz.workflow.edit_html_workflow import _targets_server_layout
+
+    assert _targets_server_layout("把动画演示标题改成播放过程") is False
+    assert _targets_server_layout("修复主图居中和标签重叠") is False
+    assert _targets_server_layout("把右侧控制面板宽度增加一些") is True
+
+
 def test_edit_html_requires_model_configuration(monkeypatch) -> None:
     from aetherviz_service.aetherviz.agents.html_agent import HtmlGenerationError
     from aetherviz_service.aetherviz.workflow import edit_html_workflow
@@ -2009,6 +2045,8 @@ def test_edit_html_prompt_has_quantified_convergence_guidance() -> None:
     from aetherviz_service.aetherviz.agents.instructions import EDIT_HTML_SYSTEM_PROMPT
 
     assert "70%" in EDIT_HTML_SYSTEM_PROMPT
+    assert "不得仅增加空值 early-return" in EDIT_HTML_SYSTEM_PROMPT
+    assert "data-katex" in EDIT_HTML_SYSTEM_PROMPT
 
 
 def test_build_edit_html_prompt_excludes_plan_and_conversation_context() -> None:
@@ -2022,6 +2060,7 @@ def test_build_edit_html_prompt_excludes_plan_and_conversation_context() -> None
     assert "居中问题" in prompt
     assert "<html></html>" in prompt
     assert "可选上下文" not in prompt
+    assert "绝对不要原样输出" in prompt
 
 
 def test_build_repair_prompt_can_exclude_plan_context_for_edit_phase() -> None:

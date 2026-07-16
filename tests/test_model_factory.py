@@ -57,6 +57,8 @@ def test_planning_html_and_repair_models_are_configured_separately(monkeypatch) 
     monkeypatch.setattr(settings, "aetherviz_plan_max_tokens", 3072)
     monkeypatch.setattr(settings, "aetherviz_html_max_tokens", 8192)
     monkeypatch.setattr(settings, "aetherviz_edit_max_tokens", 9216)
+    monkeypatch.setattr(settings, "aetherviz_edit_enable_thinking", True)
+    monkeypatch.setattr(settings, "aetherviz_edit_reasoning_effort", "medium")
     monkeypatch.setattr(settings, "aetherviz_repair_max_tokens", 9216)
 
     model_factory.create_chat_model("planning")
@@ -77,9 +79,29 @@ def test_planning_html_and_repair_models_are_configured_separately(monkeypatch) 
     assert captured[0]["stream_usage"] is True
     assert "reasoning_effort" not in captured[0]
     assert captured[2]["timeout"] == settings.aetherviz_html_timeout_seconds
-    assert captured[2]["temperature"] == 0.0
-    assert captured[2]["extra_body"] == {"enable_thinking": False}
+    assert captured[2]["temperature"] == 0.1
+    assert captured[2]["extra_body"] == {"enable_thinking": True}
+    assert captured[2]["reasoning_effort"] == "medium"
     assert captured[3]["temperature"] == 0.0
+
+
+def test_edit_thinking_can_be_disabled_independently(monkeypatch) -> None:
+    captured: list[dict] = []
+
+    class FakeChatOpenAI:
+        def __init__(self, **kwargs) -> None:
+            captured.append(kwargs)
+
+    monkeypatch.setattr("langchain_openai.ChatOpenAI", FakeChatOpenAI)
+    monkeypatch.setattr(settings, "aetherviz_html_enable_thinking", True)
+    monkeypatch.setattr(settings, "aetherviz_html_reasoning_effort", "high")
+    monkeypatch.setattr(settings, "aetherviz_edit_enable_thinking", False)
+    monkeypatch.setattr(settings, "aetherviz_edit_reasoning_effort", "medium")
+
+    model_factory.create_chat_model("edit")
+
+    assert captured[0]["extra_body"] == {"enable_thinking": False}
+    assert "reasoning_effort" not in captured[0]
 
 
 def test_scene_model_uses_strict_response_schema_when_provided(monkeypatch) -> None:

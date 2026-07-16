@@ -153,6 +153,84 @@ def test_widget_contract_warns_when_katex_has_no_fallback(monkeypatch) -> None:
     assert any(warning["type"] == "missing_katex_fallback_guard" for warning in report["warnings"])
 
 
+def test_widget_contract_rejects_visible_unrendered_math_delimiters(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "aetherviz_katex_enabled", True)
+    html = sample_html().replace(
+        "</head>",
+        f'<link rel="stylesheet" href="{settings.aetherviz_katex_css_url}">'
+        f'<script src="{settings.aetherviz_katex_js_url}"></script></head>',
+    ).replace(
+        '<p id="animation-caption">',
+        '<div data-region="formula">当前角度：$\\theta$</div><p id="animation-caption">',
+    ).replace(
+        "window.__AETHERVIZ_RUNTIME_READY__ = true;",
+        "if (window.katex) { katex.render('x', document.querySelector('[data-region=formula]')); }\n"
+        "window.__AETHERVIZ_RUNTIME_READY__ = true;",
+    )
+
+    report = check_widget_runtime_contract(html)
+
+    assert any(error["type"] == "unrendered_math_delimiter" for error in report["errors"])
+
+
+def test_deterministic_repair_converts_visible_math_to_explicit_katex_targets(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "aetherviz_katex_enabled", True)
+    html = sample_html().replace(
+        "</head>",
+        f'<link rel="stylesheet" href="{settings.aetherviz_katex_css_url}">'
+        f'<script src="{settings.aetherviz_katex_js_url}"></script></head>',
+    ).replace(
+        '<p id="animation-caption">当前步骤：观察。</p>',
+        '<p id="animation-caption">观察角度 $\\theta$、点 $P$ 与点 $Q$。</p>'
+        '<div data-region="formula">$$\\sin(\\theta)=y$$</div>',
+    )
+    report = check_widget_runtime_contract(html)
+    assert any(error["type"] == "unrendered_math_delimiter" for error in report["errors"])
+
+    repaired = deterministic_repair_html(html, {"errors": report["errors"]}, plan=sample_plan())
+    repaired_report = check_widget_runtime_contract(repaired)
+
+    assert 'data-aetherviz-katex-contract="true"' in repaired
+    assert 'data-katex="\\theta"' in repaired
+    assert 'data-katex-display="true"' in repaired
+    assert '>θ</span>' in repaired
+    assert not any(error["type"] == "unrendered_math_delimiter" for error in repaired_report["errors"])
+
+
+def test_widget_contract_rejects_dynamic_node_listener_before_scene_init() -> None:
+    html = sample_html().replace(
+        "</body>",
+        """<script>(function(){
+let pointP;
+function buildScene(){pointP=document.createElementNS('http://www.w3.org/2000/svg','circle');}
+pointP.addEventListener('mousedown',function(){});
+function init(){buildScene();}
+init();
+})();</script></body>""",
+    )
+
+    report = check_widget_runtime_contract(html)
+
+    assert any(error["type"] == "dynamic_node_used_before_init" for error in report["errors"])
+
+
+def test_widget_contract_accepts_dynamic_node_listener_after_scene_init() -> None:
+    html = sample_html().replace(
+        "</body>",
+        """<script>(function(){
+let pointP;
+function buildScene(){pointP=document.createElementNS('http://www.w3.org/2000/svg','circle');}
+function init(){buildScene();}
+init();
+pointP.addEventListener('mousedown',function(){});
+})();</script></body>""",
+    )
+
+    report = check_widget_runtime_contract(html)
+
+    assert not any(error["type"] == "dynamic_node_used_before_init" for error in report["errors"])
+
+
 def test_widget_contract_rejects_non_node_append_child() -> None:
     html = sample_html().replace(
         "window.__AETHERVIZ_RUNTIME_READY__ = true;",
