@@ -55,6 +55,8 @@ def test_generation_prompt_compacts_plan_json_without_dropping_content() -> None
     assert "描述符驱动的统一格式化入口" in prompt
     assert "共享边只绘制一次" in prompt
     assert "预分配有界节点池" in system_prompt
+    assert "所有学生可见文字必须使用简体中文" in system_prompt
+    assert "中文展示自检" in prompt
     assert "禁止在逐帧函数中用 while/for" in system_prompt
     assert "静态 HTML" in prompt
     assert 'data-role="main-visual"' in prompt

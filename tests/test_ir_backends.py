@@ -370,6 +370,49 @@ def test_linked_coordinate_ir_rejects_unknown_curve_parameter_unit() -> None:
     assert any(error["type"] == "invalid_curve_parameter_unit" for error in report["errors"])
 
 
+def test_linked_coordinate_ir_warns_for_english_prose_system_labels_without_blocking() -> None:
+    candidate = deepcopy(_ir())
+    candidate["coordinate_systems"][0]["label"] = "Unit Circle"
+
+    report = validate_linked_coordinate_ir(candidate, _plan())
+
+    assert report["ok"], report
+    assert any(warning["type"] == "non_chinese_visible_label" for warning in report["warnings"])
+
+
+def test_linked_coordinate_ranking_prefers_chinese_label_but_keeps_english_fallback() -> None:
+    english = deepcopy(_ir())
+    english["coordinate_systems"][0]["label"] = "Unit Circle"
+    chinese = deepcopy(_ir())
+
+    preferred = rank_linked_coordinate_ir_candidates([english, chinese], _plan())
+    fallback = rank_linked_coordinate_ir_candidates([english], _plan())
+
+    assert preferred["ok"]
+    assert preferred["selected_index"] == 1
+    assert fallback["ok"]
+    assert fallback["selected_index"] == 0
+
+
+def test_linked_coordinate_ir_keeps_mathematical_point_symbols() -> None:
+    candidate = deepcopy(_ir())
+    candidate["points"][0]["label"] = "P"
+    candidate["points"][1]["label"] = "θ"
+
+    report = validate_linked_coordinate_ir(candidate, _plan())
+
+    assert report["ok"], report
+
+
+def test_linked_coordinate_ir_keeps_formula_only_system_label() -> None:
+    candidate = deepcopy(_ir())
+    candidate["coordinate_systems"][0]["label"] = "y=sin(x)"
+
+    report = validate_linked_coordinate_ir(candidate, _plan())
+
+    assert report["ok"], report
+
+
 def test_linked_coordinate_ranking_scopes_repair_report_to_one_candidate() -> None:
     first = deepcopy(_ir())
     second = deepcopy(_ir())

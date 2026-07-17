@@ -88,6 +88,8 @@ def test_planning_prompt_only_includes_selected_type_contract() -> None:
     assert "page_type、widget_type" in system_prompt
     assert "服务端选择 IR 实现的权威能力配置" in system_prompt
     assert "interaction_requirements 必须包含 reveal" in system_prompt
+    assert "产品默认面向中国市场" in system_prompt
+    assert "首次出现采用“中文（原文）”" in system_prompt
     assert "固定互动类型：simulation" in user_prompt
 
 

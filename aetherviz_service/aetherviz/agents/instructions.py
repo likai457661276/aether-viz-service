@@ -74,6 +74,7 @@ SERVER_LAYOUT_CONTRACT_PROMPT = """服务端布局契约（最高优先级）：
 """
 
 VISUAL_DESIGN_SYSTEM_PROMPT = """UI 视觉系统（与 AI动态课件前端一致）：
+- 产品默认面向中国市场。除数学公式、化学式、物理量、坐标轴、通用变量/点名（如 x、y、P、θ）、国际单位和确有教学必要的外语原文外，所有学生可见文字必须使用简体中文，包括图表标题、图例、按钮、状态、提示、坐标系说明和无障碍标签；不得用英文装饰词替代中文说明。必须保留外语术语时，首次出现采用“中文（原文）”。
 - 默认采用“清爽教学工作台”浅色主题，不生成整页深色/霓虹仪表盘。页面底色使用温和灰绿，主容器和主舞台使用白色/纸张色；以深森林绿承担标题和主要操作、清透绿色承担选中/进度/焦点。可参考语义色：brand #2d4f41、brand-strong #1d3a2f、accent #10b981、accent-soft #ecfdf5、canvas #f6f8f5、paper #ffffff、text #1e332b、muted #52665e、border rgba(45,79,65,.14)。plan.primary_color 只用于主视觉对象、数据系列或少量互动强调，不得把所有面板染成该颜色。
 - 采用 PingFang SC、Microsoft YaHei、Noto Sans SC 和系统无衬线字体栈；正文保持高可读性。标题、正文、辅助说明、数值读数建立明确层级，避免全粗体、超大标题、低对比灰字和装饰性英文。
 - 外层使用克制的细边框、8~16px 圆角和低透明柔和阴影；主舞台可用极淡点阵/网格帮助定位，但不能干扰图形。不要滥用玻璃拟态、发光、紫色渐变、厚重阴影、胶囊按钮或“每段内容一个卡片”的卡片墙。
@@ -397,5 +398,6 @@ def build_interactive_generation_prompt(topic: str, plan: dict) -> str:
 类型验收：{type_hint}
 关键落地：只生成服务端可装配的语义槽位，不创作页面布局；widget-config 原样承载 interactive_spec 且 type={interactive_type}；#aetherviz-stage 的静态 HTML 必须直接包含 SVG、Canvas 或 data-role="main-visual" 挂载节点；四类 message action必须作用于真实元素；教学流程与当前步骤同步；控件绑定真实功能；首屏不依赖异步资源。
 生成前执行通用一致性自检：连续计算状态与可见展示状态分离，所有动态数值均走描述符驱动的统一格式化入口；参数、preset、timeline、reset 和 message action 共用同一渲染路径；图形使用语义化描边层级，共享边只绘制一次；SVG/Canvas 在参数全范围和动画关键帧下保持线宽稳定、连接平滑、视觉重心稳定且标签不重叠。
+中文展示自检：遍历静态 DOM 文本、SVG text、Canvas fillText/strokeText、动态 textContent/innerText、按钮、图例、提示和 aria-label；说明性文案必须为简体中文。数学符号、公式、变量/点名、单位和确有教学必要的外语原文按 system 约束保留。
 SVG 最终硬验收：若使用数学/抽象 viewBox，SVG text 必须根据页面排版 token 与 getScreenCTM() 实际缩放统一换算，不能假定 CSS 字号等于屏幕字号；检查全部标签在初始状态、参数范围边界和动画关键帧下均不越界、不异常放大且不重叠。修复必须作用于通用布局/渲染路径，禁止按主题、标签 id、具体坐标或单个预设写特例。
 只输出完整 HTML；body 不得包含自定义 app shell。"""

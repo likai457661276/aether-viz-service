@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from copy import deepcopy
 from hashlib import sha256
 from typing import Any
@@ -14,6 +15,8 @@ LINKED_COORDINATE_INVARIANT_MAX_TOLERANCE = 0.001
 LINKED_COORDINATE_CANVAS_WIDTH = 960
 LINKED_COORDINATE_CANVAS_HEIGHT = 560
 LINKED_COORDINATE_PARAMETER_UNITS = {"radian", "degree", "scalar"}
+_CJK_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff]")
+_DESCRIPTIVE_LATIN_RE = re.compile(r"[A-Za-z]{2,}")
 _OPS = {
     "add",
     "sub",
@@ -188,7 +191,10 @@ def linked_coordinate_ir_response_schema() -> dict[str, Any]:
                             "minItems": 2,
                             "maxItems": 2,
                         },
-                        "label": {"type": "string"},
+                        "label": {
+                            "type": "string",
+                            "description": "面向学生的简体中文坐标系说明；数学符号、公式和单位可保留",
+                        },
                     },
                     "required": ["id", "x_domain", "y_domain", "label"],
                 },
@@ -587,6 +593,16 @@ def validate_linked_coordinate_ir(ir: object, plan: dict[str, Any]) -> dict[str,
         errors.append(_issue("invalid_animation_duration", "动画时长必须在 0.5~20 秒"))
 
     for system in systems:
+        if _requires_chinese_visible_label(system.get("label")):
+            warnings.append(
+                _issue(
+                    "non_chinese_visible_label",
+                    "坐标系说明标签建议使用简体中文；该质量提示不阻断 HTML 生成",
+                    id=system.get("id"),
+                    path="coordinate_systems.label",
+                    value=system.get("label"),
+                )
+            )
         if any(_number(system.get(key)) is None for key in ("x", "y", "width", "height")):
             errors.append(_issue("invalid_coordinate_bounds", "坐标系边界必须为有限数值", id=system.get("id")))
             continue
@@ -719,6 +735,14 @@ def validate_linked_coordinate_ir(ir: object, plan: dict[str, Any]) -> dict[str,
                     )
                 )
     return _report(errors, warnings)
+
+
+def _requires_chinese_visible_label(value: object) -> bool:
+    """Detect English prose labels while leaving mathematical notation untouched."""
+    text = str(value or "").strip()
+    compact = re.sub(r"\s+", "", text)
+    formula_only = compact == text and bool(re.search(r"[=()]", compact))
+    return bool(text and not _CJK_RE.search(text) and _DESCRIPTIVE_LATIN_RE.search(text) and not formula_only)
 
 
 def compile_linked_coordinate_ir(ir: dict[str, Any], plan: dict[str, Any]) -> str:
