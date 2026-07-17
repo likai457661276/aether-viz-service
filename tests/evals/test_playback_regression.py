@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from aetherviz_service.aetherviz.tools.layout_contract import assemble_layout_contract
+from aetherviz_service.aetherviz.contracts.layout import assemble_layout_contract
 from aetherviz_service.aetherviz.workflow.plan_contract import normalize_plan
 from evals.targets.visual import evaluate_playback_progress
 

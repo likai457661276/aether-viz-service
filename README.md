@@ -15,16 +15,18 @@ aether-viz-service/
 │   ├── config.py
 │   └── aetherviz/
 │       ├── api/              # HTTP schema、route、SSE 事件
-│       ├── agents/           # 模型调用、指令、topic profile、planner、html、repair、model factory
+│       ├── agents/           # planner、runtime 分发、model factory（兼容 shim 保留）
+│       ├── generate/         # 初始生成线：plan→HTML 编排、html_agent、生成向 prompts
+│       ├── edit/             # 后期编辑线：诊断、intent 验收、workflow、编辑 prompts（不以 plan 为基线）
+│       ├── contracts/        # 平台契约：layout 装配、validation、repair、delivery pipeline
 │       ├── ir/               # IR 注册表；每个 IR 家族独立拥有契约、Agent、编译器和 Runtime
-│       │   ├── recomposition/      # 几何切分重排 IR 的生成、契约、校验、编译与 Runtime
+│       │   ├── recomposition/      # 几何切分重排 IR
 │       │   ├── linked_coordinate/  # 联动坐标/动态数学场景 IR
-│       │   └── coordinate_graph/   # 单视图函数与坐标图 IR，共享坐标编译 Runtime
-│       ├── tools/            # HTML 提取/清理、parser、JS checker、安全、长度、validation report
-│       ├── workflow/         # plan contract、plan、revise_plan、approve_plan、generate、edit_html 编排
+│       │   └── coordinate_graph/   # 单视图函数与坐标图 IR
+│       ├── tools/            # 共享底层工具（function_patch、security_policy 等）与旧路径 shim
+│       ├── workflow/         # 仅 plan 相关：plan / revise_plan / approve_plan
 │       └── schemas/
 ├── tests/
-│   └── test_aetherviz.py
 ├── pyproject.toml
 ├── uv.lock
 ├── Dockerfile
@@ -33,6 +35,8 @@ aether-viz-service/
 ```
 
 Python 包名为 `aetherviz_service`，服务标题为 `AI教学动画`。
+
+生成线与编辑线物理隔离：`generate` 与 `edit` 互不 import；双方只依赖 `contracts` 做装配、校验与修复。视觉/数值/布局/舞台等生成向交付 prompt 仅属于 `generate/prompts.py`；编辑以当前业务 HTML 为唯一事实基线，不向模型再注入这些生成说明书。
 
 IR 扩展遵循固定边界：`ir/registry.py` 负责后端唯一注册和能力评估入口，`ir/router/` 负责确定性排序、低置信度模型仲裁和回退；每个 IR 子包自行拥有 `routing.py`、模型提示、JSON Schema、解析与确定性语义校验、编译器和服务端 Runtime。新增 IR 时注册一个带 `routing_profile` 和 `assess(plan)` 的 `IRBackend` 即可，不在生成工作流继续添加类型条件。几何重排实现和唯一导入边界完整归属 `ir/recomposition/`，不再通过 `agents/` 或 `tools/` 暴露旧入口。
 
@@ -143,7 +147,8 @@ docker compose -f docker-compose.prod.yml up -d app
 - 前端只消费后端返回的自包含 HTML，并通过 iframe 隔离预览。
 - 前端不向生成物注入 GSAP、KaTeX 或其他运行时依赖；后端返回的 HTML 可自带白名单 GSAP core CDN，并在公式非空时自带固定版本 KaTeX CSS/JS。GSAP 必须有 native fallback，KaTeX 必须有纯文本 fallback。
 - 前端按 `phase=plan -> phase=revise_plan -> phase=approve_plan -> phase=generate -> phase=edit_html` 工作；未确认计划时 chat 只修订计划，不触发 HTML 生成。
-- `phase=edit_html` 发送修改意见、选中 HTML 文件全文 `current_html` 和摘要型 `context`，用于基于已有 HTML 生成新的 HTML 分支；后端返回 HTML 硬上限为 42000 字符，前端应保留完整返回内容作为后续 `current_html`。
+- **教学方案（plan）仅在点击生成 HTML 之前可修订**；一旦发起生成，前端不再把 plan 作为可引用上下文，后续消息走 `edit_html`。
+- `phase=edit_html` 发送修改意见、选中 HTML 文件全文 `current_html` 和摘要型 `context`（**不含 `plan_summary`**），用于基于已有 HTML 生成新的 HTML 分支；后端返回 HTML 硬上限为 42000 字符，前端应保留完整返回内容作为后续 `current_html`。
 
 前端联调命令以该前端仓库 `package.json` 为准，常用命令：
 
@@ -233,18 +238,14 @@ HTML 文件编辑阶段请求示例：
       "html_size": 12345,
       "created_at": 1760000000000
     },
-    "plan_summary": {
-      "title": "熵增演示互动动画",
-      "goal": "用分层动画解释熵增的核心过程。",
-      "interactive_type": "simulation",
-      "widget_actions": [
-        {"type": "widget_setState", "state": {"speed": 1.2}},
-        {"type": "widget_highlight", "target": "[data-role='main-visual']"}
-      ]
-    }
+    "recent_messages": [
+      {"role": "user", "content": "再快一点"}
+    ]
   }
 }
 ```
+
+`phase=edit_html` 必须携带选中的 HTML 文件全文。**编辑线以当前 HTML 为唯一事实基线**；请求中的 `plan_summary`（若旧客户端仍携带）会被后端忽略，不参与需求编译与重生成。后端先剥离 `math-shell-v1`，并把外壳标题、学习目标和目标列表转换为可往返编辑的语义元数据，再从当前业务 HTML 确定性提取有界 DOM、CSS、函数、事件与 widget 摘要；当前校验报告、可选 `edit_target`、可选 `runtime_error` 和精简会话上下文一并交给编辑需求编译模型。编辑 system prompt 不再注入视觉/数值/布局/舞台等生成向交付片段（这些规则已沉淀在当前 HTML 中）。该模型默认使用 `deepseek-v4-flash`，把“再快一点”“修改刚才那个”等输入消歧为自包含的 `resolved_instruction`，同时输出可观察的 `change_requirements`、`preserve_requirements`、完整 `impact_areas`、`acceptance_criteria`，以及服务端可机器检查的 `change_checks` / `preserve_checks`（意图硬验收真源）。目标 selector 和函数仅作为证据，不限制实际修改范围。外壳、侧栏、控制面板、布局或挤压等自然语言不会在模型调用前触发关键词拒绝，而会结合当前 HTML 判断实际意图。只有高置信度实质歧义才要求澄清。执行阶段始终完整重生成业务 HTML；重生后由 `IntentSatisfiedChecker` 按 hard checks 验收，失败则把失败证据注入下一轮重试；通过后再经 `contracts` 统一装配、校验与必要修复，并用同一套 intent guard 防止修复冲掉意图。最终 metadata 的 `edit_strategy` 为 `full_html_regeneration`，并可含 `intent_passed` / `intent_check_count`。前端继续把结果保存为新分支，不覆盖原文件，并把新分支完整 HTML 作为下一次编辑的事实基线。
 
 计划修订请求示例：
 
@@ -266,8 +267,6 @@ HTML 文件编辑阶段请求示例：
 }
 ```
 
-`phase=edit_html` 必须携带选中的 HTML 文件全文。后端先剥离 `math-shell-v1`，并把外壳标题、学习目标和目标列表转换为可往返编辑的语义元数据，再从当前业务 HTML 确定性提取有界 DOM、CSS、函数、事件与 widget 摘要；当前校验报告、可选 `edit_target`、可选 `runtime_error` 和精简会话上下文一并交给编辑需求编译模型。该模型默认使用 `deepseek-v4-flash`，把“再快一点”“修改刚才那个”等输入消歧为自包含的 `resolved_instruction`，同时输出可观察的 `change_requirements`、`preserve_requirements`、完整 `impact_areas` 和 `acceptance_criteria`；目标 selector 和函数仅作为证据，不限制实际修改范围。外壳、侧栏、控制面板、布局或挤压等自然语言不会在模型调用前触发关键词拒绝，而会结合当前 HTML 判断实际意图。外壳标题、目标文案及各业务槽位内容可直接编辑；外壳 Grid、栏宽、断点和滚动归属等结构诉求会转换为内容优先级、槽位内部自适应、主视觉尺寸或动画渲染链路等可执行目标。只有高置信度实质歧义才要求澄清。用户明确要求整体重做时，可重做外壳文案、教学文案、主视觉、业务控件、状态、渲染、事件和动画运行时等全部可编辑内容，最终 `math-shell-v1` 结构仍由服务端统一重建。高置信度 DOM API 参数类型错误会先确定性修复当前基线，随后重新提取摘要并继续调用需求编译模型，不会短路用户本次动画修改。动画编辑要求联动检查事件、业务状态、状态推导、渲染、统一时间源、重置和重播链路。首轮若原样返回、被截断或破坏核心 Widget 契约，会按 `AETHERVIZ_EDIT_MAX_RETRIES` 携带失败原因整次重试；候选仍需通过统一静态校验与必要修复。最终 metadata 的 `edit_strategy` 为 `full_html_regeneration`，并保留需求编译结果、置信度和降级状态用于观测。前端继续把结果保存为新分支，不覆盖原文件，并把新分支完整 HTML 作为下一次编辑的事实基线。
-
 响应类型为 `text/event-stream`。事件包括：
 
 - `plan.started`
@@ -279,7 +278,7 @@ HTML 文件编辑阶段请求示例：
 - `html.generation_started`
 - `html.delta`：HTML 生成进度与实时大小更新；`data` 可含 `delta`、`html_steps`、`active_step_index`、累计 `bytes` 和 `chars`
 - `html.edit_started`
-- `html.edit_diagnosed`：结构化编辑目标、证据、策略、置信度和降级状态，不包含完整 HTML
+- `html.edit_diagnosed`：结构化编辑目标、`change_checks` / `preserve_checks`、证据、策略、置信度和降级状态，不包含完整 HTML
 - `validation.started`
 - `validation.report`
 - `validation.candidate`：仅表示尚未接受的修复候选，固定包含 `accepted=false`、`rolled_back=true`、`rejection_reason`，前端不得用其覆盖当前有效报告
@@ -316,7 +315,7 @@ HTML 文件编辑阶段请求示例：
 6. `validation_report` 聚合布局、HTML、JavaScript、安全、分阶段长度、Widget、动画生命周期和学科一致性检查。Widget 检查会识别主视觉挂载节点的直接查询及一层精确字符串常量查询，避免把可证明的 SVG/Canvas 动态挂载误判为空节点；仅在业务脚本直接调用 GSAP 时要求 fallback guard。业务脚本声明、遮蔽或覆盖服务端 `window.AetherVizAnimationController`，以及 GSAP `onUpdate` 经 `bind(this)` 改绑后仍调用 Tween 专属 `this.targets()`，均作为硬错误阻断。动画控制器 options 使用注释、字符串、正则和嵌套层级感知的顶层字段扫描，只有带源码范围、证据和高置信度的 `onUpdate` 误传、毫秒 duration 等明确契约错误才阻断；检查器显式标记为低置信度或非阻断的问题统一降级为 `validator_uncertain` warning 并继续交付。动画检查还会阻断 timeline/RAF 逐帧回调调用结构性 DOM/SVG 重建函数、可为空的 first/lastChild 清空后直接重挂载，并提示未清理或未经存在性校验的动态节点注册表、量化状态反复吞掉逐帧增量、对象方法或箭头属性形式的空 `setSpeed`、绕过统一动画控制器、局部几何与世界 transform 重复编码，以及 GSAP 直接污染 getState 可序列化业务对象的风险；学科启发式检查仍只产生 warning。
    Widget 校验还会识别由场景 builder 创建、却在 builder/init 调用前绑定事件或调用 DOM 方法的动态节点，并阻止仅通过空值 early-return 掩盖初始化失败的候选；KaTeX 页面中残留的可见数学定界符也会进入修复流程。
 7. 检查失败时先确定性修复业务 HTML。控制器顶层 `onUpdate` 误传会只改写为 `update`，不会重写完整文档；其他生命周期错误优先使用“报告点名函数/方法/箭头函数 + SHA-256 源哈希”的函数级替换，限制函数数量和总字符数，失败回滚后仍允许其他硬错误修复继续执行；其他硬错误才进入整页修复。截断源输出不进入修复循环；截断候选、无实际变化候选、引入 `js_syntax`/`missing_runtime_ready` 的候选、以及未严格减少硬错误的候选一律拒绝。候选检查只发送 `validation.candidate`，接受后才发送新的 `validation.report`。硬错误修复 prompt 不携带质量 warning；质量 warning 只允许确定性收尾，生产同步链路不再为其调用完整 HTML 模型修复。修复事件的 `attempt` / `repair_attempt` 从第一轮修复开始计为 1。
-8. 生成、编辑和模型修复的候选结果都会重新经过同一个服务端布局装配器。`phase=edit_html` 先执行 `extract_business_html` 和确定性摘要，再由需求编译模型将当前输入与最近对话整理为完整编辑任务；执行阶段始终使用当前完整业务 HTML 重生成，从而允许一次动画修改跨 DOM、CSS、SVG/Canvas、状态、渲染函数和控制器接线协同生效。计划摘要和短会话上下文只用于消除当前输入中的指代，不得覆盖当前 HTML 或恢复被否定的旧要求。业务 HTML 不能修改服务端布局外壳，只能处理数学内容、主视觉、业务交互与槽位优先级。候选继续执行确定性视觉/动画质量收尾；已证明的运行时错误仍作为硬验收条件，启发式目标不再因函数哈希未变化而误拒绝有效结果。结果仍生成新 HTML 分支，不覆盖旧 HTML。
+8. 生成、编辑和模型修复的候选结果都会重新经过同一个服务端布局装配器（`contracts`）。`phase=edit_html` 先执行 `extract_business_html` 和确定性摘要，再由需求编译模型将当前输入与最近对话整理为完整编辑任务与结构化 intent checks；**忽略 `plan_summary` 与 plan 时代 memory**，装配/校验用的 plan 由当前 HTML 的 `widget-config` 与外壳元数据推导，不按 topic 重推互动类型。执行阶段始终使用当前完整业务 HTML 重生成，并以 hard `change_checks` / `preserve_checks` 做意图验收与修复后守门。短会话上下文只用于消除指代，不得覆盖当前 HTML。业务 HTML 不能修改服务端布局外壳。结果仍生成新 HTML 分支，不覆盖旧 HTML。
 9. 通过校验的最终 HTML 仅通过 `html.done` 返回前端；校验失败但完整未截断的候选稿可通过 `html.repair_source` 返回并标记为不可渲染，仅供后续 `edit_html` 修复。服务端不保留 HTML 文件缓存或产物路径。
 
 生产同步链路不启动浏览器。几何 IR 只允许白名单 state/definition/local 引用、算术与几何操作符、SVG 图元和属性；通用 DSL 包含 `atan/atan2/hypot` 等角度与距离计算，并允许每个稳定图元声明 2~5 个 transform keyframes。计划中的 `recomposition_spec` 会由前后端类型和 approve/generate 请求契约完整传递；其中 `proof_constraints` 描述度量不变量、目标关系、目标拼合约束和教学阶段。每个 `stage_requirement` 由服务端归一化为唯一 `id`、`source/intermediate/target` 角色、确定时间点、几何证据类型和最小图元比例。IR 的教学帧必须用 `stage_id`/`at` 一一覆盖计划阶段；每个中间阶段必须有足够比例图元在同一时间点形成区别于首尾且偏离直接线性插值的几何关键状态，纯文字中间步骤会被阻断。`target_relations` 使用通用结构化关系 `equal_area` / `equal_length` / `equal_angle` / `parallel` / `perpendicular` / `coincident` / `collinear` / `congruent`，通过图元、顶点和线段引用表达；`target_assembly` 使用 `connected` / `non_overlapping` / `approximate_rectangle` 描述世界坐标下的连通性、重叠率、矩形度及参数趋势，不包含知识点分支。服务端会在默认、最小和最大状态展开图元，阻断无效尺寸、非有限值、重复 id、静止端点、源状态明显重叠、源/目标整体越界、缺失中间几何证据、明确违反度量不变量、结构化几何关系或显式目标拼合约束的结果；仅目标拼合整体越界且所有采样状态的联合包围盒可容纳于画布时，允许统一平移目标端点后重新执行完整校验。归一化计划始终保留 `piece_congruence`，因此 repeat 图元的局部几何不得直接或间接依赖 repeat 索引，索引只能用于 id、样式和 transform，防止局部角度与旋转重复编码。修复反馈只携带状态级拼合指标和阶段失败摘要，避免逐拼片诊断挤占模型上下文。未声明 `target_assembly` 时该评分项为 0，不再按满分处理。扇形 `sector_path` 支持确定性轮廓采样和面积计算，其他当前图元或引用不足以计算时产生 warning，且不可计算的显式关系不会获得完整数学评分。编译后的 Scene Module 还会在无 DOM/网络/动态代码能力的 Node `vm` 中执行低成本冒烟检查，检查器会从 IR 自动发现任意计划 state 名称并补齐采样值；真实浏览器布局与行为验证仍由离线流程负责。
@@ -397,7 +396,7 @@ uv run python evals/reporting/regression.py \
 - 计划对象继续以 `page_type: "interactive"` 为主，保留 `interactive_type` 兼容前端；可补充 `widget_type` / `widget_outline`，但不得破坏现有前端字段。
 - 后端按 `simulation`、`diagram`、`game` 拆分独立 prompt、分型 widget-config 和开发期分型校验。
 - 计划对象必须包含 `scene_outline`、`widget_outline`、`design_brief`、`widget_actions`、`knowledge_profile` 和 `discipline_spec`，作为后续 HTML 生成的唯一蓝图。知识画像只路由到通用概念族、表征和教学模式，不包含具体知识点专用模板。
-- 旧版共享模块和兼容层已移除；学科与互动类型选择在 `workflow/plan_detection.py`，计划规范化在 `workflow/plan_contract.py`，直接模型 prompt 在 `agents/instructions.py`，确定性修复在 `tools/deterministic_repair.py`。
+- 学科与互动类型选择在 `workflow/plan_detection.py`，计划规范化在 `workflow/plan_contract.py`；生成 prompt 在 `generate/prompts.py`，编辑 prompt 在 `edit/prompts.py`；HTML 装配/校验/修复在 `contracts/`。生成与编辑业务包互不 import。
 - `html.done.metadata.generation_backend` 为 `direct`、`recomposition_scene`、`linked_coordinate_scene` 或 `coordinate_graph_scene`；API/SSE 主结构不变，前端未声明 `representation_type` 固定枚举，无需同步类型迁移。
 - 前端可展示 `generation_attempts`、`repair_attempts`、兼容字段 `attempts`、`repaired`、`degraded`、`validation_warnings`、`context_status`、`bytes` 和 `chars`。
 - 计划中的 action 使用 `widget_setState`、`widget_highlight`、`widget_annotation`、`widget_reveal`；生成物 iframe 内部应兼容 `SET_WIDGET_STATE`、`HIGHLIGHT_ELEMENT`、`ANNOTATE_ELEMENT`、`REVEAL_ELEMENT` 消息。

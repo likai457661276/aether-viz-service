@@ -11,12 +11,77 @@ import tinycss2
 from bs4 import BeautifulSoup, Tag
 
 from aetherviz_service.aetherviz.tools.function_patch import extract_named_functions
+from aetherviz_service.aetherviz.workflow.plan_contract import normalize_plan
+from aetherviz_service.aetherviz.workflow.plan_detection import VALID_INTERACTIVE_TYPES
 
 MAX_DOM_TARGETS = 60
 MAX_CSS_RULES = 60
 MAX_FUNCTIONS = 60
 MAX_CONTEXT_MESSAGES = 4
 MAX_EDIT_CONTEXT_CHARS = 24_000
+
+
+def build_edit_assembly_plan(html: str, topic: str) -> dict[str, Any]:
+    """Derive a minimal assembly/validation plan from the current HTML.
+
+    Edit must not re-infer interactive_type from topic keywords (that can flip
+    diagram pages to simulation and harden animation checks incorrectly). Prefer
+    widget-config.type and shell content metadata already present in the page.
+    """
+    soup = BeautifulSoup(html or "", "html.parser")
+    raw: dict[str, Any] = {}
+    interactive_type = _widget_interactive_type(soup)
+    if interactive_type:
+        raw["interactive_type"] = interactive_type
+    shell_overrides = _shell_metadata_from_html(soup)
+    raw.update(shell_overrides)
+    return normalize_plan(raw, topic)
+
+
+def _widget_interactive_type(soup: BeautifulSoup) -> str | None:
+    script = soup.find("script", id="widget-config")
+    if script is None:
+        return None
+    try:
+        payload = json.loads(script.get_text())
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    value = str(payload.get("type") or payload.get("widget_type") or "").strip()
+    return value if value in VALID_INTERACTIVE_TYPES else None
+
+
+def _shell_metadata_from_html(soup: BeautifulSoup) -> dict[str, Any]:
+    region = soup.select_one('[data-shell-content-edit="true"]')
+    if isinstance(region, Tag):
+        overrides: dict[str, Any] = {}
+        title = str(region.get("data-title") or "").strip()
+        goal = str(region.get("data-goal") or "").strip()
+        objectives = [
+            item.get_text(" ", strip=True)[:300]
+            for item in region.select("li")
+            if item.get_text(strip=True)
+        ]
+        if title:
+            overrides["title"] = title[:160]
+        if goal:
+            overrides["goal"] = goal[:500]
+        if objectives:
+            overrides["key_points"] = objectives[:3]
+        return overrides
+    title_el = soup.select_one(".av-title")
+    goal_el = soup.select_one(".av-goal")
+    overrides = {}
+    if title_el is not None and title_el.get_text(strip=True):
+        overrides["title"] = title_el.get_text(" ", strip=True)[:160]
+    if goal_el is not None and goal_el.get_text(strip=True):
+        overrides["goal"] = goal_el.get_text(" ", strip=True)[:500]
+    objectives = [item.get_text(" ", strip=True)[:300] for item in soup.select(".av-objectives li") if item.get_text(strip=True)]
+    if objectives:
+        overrides["key_points"] = objectives[:3]
+    return overrides
+
 
 def build_edit_context_summary(
     *,
@@ -48,7 +113,7 @@ def build_edit_context_summary(
         "validation": _validation_summary(validation_report),
         "ownership": {
             "server_owned_selectors": ["#aetherviz-app-shell", ".av-*", "[data-aetherviz-shell]"],
-            "rule": "math-shell-v1 与 .av-* 由服务端重建；不得仅凭用户措辞拒绝编辑，需由意图模型判断并转换为业务内容目标",
+            "rule": "math-shell-v1 与 .av-* 由服务端重建；编辑以当前 HTML 为唯一事实基线，忽略 plan_summary",
         },
     }
     return _fit_context_budget(summary)
@@ -174,23 +239,21 @@ def _widget_config(soup: BeautifulSoup) -> dict[str, Any]:
 
 
 def _request_context(context: dict[str, Any] | None) -> dict[str, Any]:
+    """Build edit request context without plan or plan-era memory semantics.
+
+    Edit is HTML-baseline only. Client plan_summary and teaching-plan memory
+    summaries are dropped so stale plans cannot override the current page.
+    recent_messages remain for deictic resolution only.
+    """
     if not isinstance(context, dict):
         return {}
-    plan = _mapping(context.get("plan_summary"))
     selected = _mapping(context.get("selected_file"))
-    memory = _mapping(context.get("memory"))
     recent = context.get("recent_messages") if isinstance(context.get("recent_messages"), list) else []
     return {
         "topic": _compact_text(context.get("topic"), 200),
         "selected_file": {
             key: selected.get(key) for key in ("id", "title", "topic", "html_size") if selected.get(key) is not None
         },
-        "plan": {
-            key: _bounded_value(plan.get(key))
-            for key in ("title", "goal", "interactive_type", "subject", "stage_layout")
-            if plan.get(key) is not None
-        },
-        "memory_summary": _compact_text(memory.get("summary"), 500),
         "recent_messages": [
             {
                 "role": _compact_text(item.get("role"), 20),

@@ -5,7 +5,7 @@ from copy import deepcopy
 
 import pytest
 
-from aetherviz_service.aetherviz.agents.html_agent import HtmlStreamResult
+from aetherviz_service.aetherviz.generate.html_agent import HtmlStreamResult
 from aetherviz_service.aetherviz.ir.coordinate_graph import agent as coordinate_graph_agent
 from aetherviz_service.aetherviz.ir.coordinate_graph.contract import (
     COORDINATE_GRAPH_IR_VERSION,
@@ -34,8 +34,8 @@ from aetherviz_service.aetherviz.ir.registry import (
     IRBackend,
     IRBackendRegistry,
 )
-from aetherviz_service.aetherviz.tools.layout_contract import assemble_layout_contract
-from aetherviz_service.aetherviz.tools.validation_report import build_validation_report
+from aetherviz_service.aetherviz.contracts.layout import assemble_layout_contract
+from aetherviz_service.aetherviz.contracts.validation.report import build_validation_report
 from aetherviz_service.aetherviz.workflow.knowledge_profile import build_knowledge_profile
 from aetherviz_service.aetherviz.workflow.plan_contract import normalize_plan
 

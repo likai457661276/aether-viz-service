@@ -34,8 +34,8 @@ from aetherviz_service.aetherviz.ir.recomposition.scene_contract import validate
 from aetherviz_service.aetherviz.ir.recomposition.semantics import (
     evaluate_recomposition_semantics,
 )
-from aetherviz_service.aetherviz.tools.layout_contract import assemble_layout_contract
-from aetherviz_service.aetherviz.tools.validation_report import build_validation_report
+from aetherviz_service.aetherviz.contracts.layout import assemble_layout_contract
+from aetherviz_service.aetherviz.contracts.validation.report import build_validation_report
 from aetherviz_service.aetherviz.workflow.plan_contract import normalize_plan
 
 

@@ -11,7 +11,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langsmith import traceable
 from langsmith.run_helpers import get_current_run_tree
 
-from aetherviz_service.aetherviz.agents.html_agent import (
+from aetherviz_service.aetherviz.contracts.html_stream import (
     HtmlGenerationError,
     HtmlStreamResult,
     build_html_progress_payload,

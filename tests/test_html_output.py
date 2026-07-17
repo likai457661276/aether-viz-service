@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import pytest
 
-from aetherviz_service.aetherviz.tools.html_output import (
+from aetherviz_service.aetherviz.contracts.html_output import (
     AetherVizInteractiveHtmlError,
     parse_interactive_html,
 )
-from aetherviz_service.aetherviz.tools.js_checker import check_inline_javascript
+from aetherviz_service.aetherviz.contracts.validation.js_checker import check_inline_javascript
 
 TRUNCATED_MID_SWITCH_CASE = """<!DOCTYPE html>
 <html lang="zh-CN">

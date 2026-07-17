@@ -14,7 +14,7 @@ from aetherviz_service.aetherviz.api.sse import (
     register_langsmith_trace_id,
     unregister_langsmith_trace_id,
 )
-from aetherviz_service.aetherviz.workflow.generate_workflow import _summarize_sse_trace
+from aetherviz_service.aetherviz.contracts.pipeline import _summarize_sse_trace
 from aetherviz_service.config import settings
 from aetherviz_service.observability.langsmith import configure_langsmith
 

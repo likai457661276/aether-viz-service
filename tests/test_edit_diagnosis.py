@@ -4,11 +4,8 @@ import json
 from unittest.mock import MagicMock
 
 from aetherviz_service.aetherviz.agents import runtime as agent_runtime
-from aetherviz_service.aetherviz.agents.edit_diagnosis_agent import EditDiagnosis, _diagnose_edit_impl
-from aetherviz_service.aetherviz.agents.edit_function_agent import stream_edit_functions
-from aetherviz_service.aetherviz.agents.html_agent import HtmlStreamResult
-from aetherviz_service.aetherviz.tools.edit_context import build_edit_context_summary
-from aetherviz_service.aetherviz.tools.edit_operations import apply_diagnosed_operations, build_diagnosis_guard
+from aetherviz_service.aetherviz.edit.context import build_edit_context_summary
+from aetherviz_service.aetherviz.edit.diagnosis import _diagnose_edit_impl
 from aetherviz_service.aetherviz.tools.function_patch import extract_named_functions
 
 
@@ -27,6 +24,32 @@ def _compiled_fields(instruction: str) -> dict[str, object]:
         "impact_areas": ["dom", "css", "render"],
         "acceptance_criteria": ["修改结果在页面中可观察"],
         "ambiguities": [],
+        "change_checks": [
+            {
+                "id": "c1",
+                "kind": "css_declaration",
+                "selector": "#play",
+                "function": "",
+                "property": "font-size",
+                "expected": "16px",
+                "baseline_binding": "absolute",
+                "severity": "hard",
+                "rationale": "按钮字号应变为 16px",
+            }
+        ],
+        "preserve_checks": [
+            {
+                "id": "p1",
+                "kind": "widget_type_unchanged",
+                "selector": "",
+                "function": "",
+                "property": "",
+                "expected": "",
+                "baseline_binding": "must_match",
+                "severity": "hard",
+                "rationale": "保持 widget type",
+            }
+        ],
     }
 
 
@@ -69,19 +92,6 @@ def test_v4_flash_diagnosis_returns_verified_css_target(monkeypatch) -> None:
                 "confidence": 0.96,
             }
         ],
-        "operations": [
-            {
-                "op": "set_css",
-                "selector": "#play",
-                "property": "font-size",
-                "value": "16px",
-                "old_text": "",
-                "new_text": "",
-                "attribute": "",
-            }
-        ],
-        "assertions": [{"type": "selector_exists", "selector": "#play", "property": "", "expected": ""}],
-        "allowed_scope": ["style:#play"],
         "requires_clarification": False,
         "clarification_question": "",
         **_compiled_fields("将播放按钮字号调整为 16px，并保持播放行为不变"),
@@ -93,11 +103,11 @@ def test_v4_flash_diagnosis_returns_verified_css_target(monkeypatch) -> None:
             return MagicMock(content=json.dumps(payload, ensure_ascii=False))
 
     monkeypatch.setattr(
-        "aetherviz_service.aetherviz.agents.edit_diagnosis_agent.create_chat_model",
+        "aetherviz_service.aetherviz.edit.diagnosis.create_chat_model",
         lambda kind, response_schema=None: AnalysisModel(),
     )
     monkeypatch.setattr(
-        "aetherviz_service.aetherviz.agents.edit_diagnosis_agent.has_primary_llm_config",
+        "aetherviz_service.aetherviz.edit.diagnosis.has_primary_llm_config",
         lambda: True,
     )
 
@@ -112,6 +122,9 @@ def test_v4_flash_diagnosis_returns_verified_css_target(monkeypatch) -> None:
     assert diagnosis.confidence == 0.96
     assert diagnosis.resolved_instruction == "将播放按钮字号调整为 16px，并保持播放行为不变"
     assert diagnosis.change_requirements == ("将播放按钮字号调整为 16px，并保持播放行为不变",)
+    assert diagnosis.change_checks[0].kind == "css_declaration"
+    assert diagnosis.change_checks[0].expected == "16px"
+    assert diagnosis.preserve_checks[0].kind == "widget_type_unchanged"
 
 
 def test_v4_flash_interprets_layout_wording_as_business_visual_problem(monkeypatch) -> None:
@@ -122,9 +135,6 @@ def test_v4_flash_interprets_layout_wording_as_business_visual_problem(monkeypat
         "problem": "主视觉图形尺寸异常并超出舞台可视范围",
         "confidence": 0.97,
         "targets": [],
-        "operations": [],
-        "assertions": [],
-        "allowed_scope": [],
         "requires_clarification": False,
         "clarification_question": "",
         "resolved_instruction": "修复动画主视觉尺寸与自适应映射，使完整函数图像始终在舞台内清晰显示",
@@ -133,6 +143,8 @@ def test_v4_flash_interprets_layout_wording_as_business_visual_problem(monkeypat
         "impact_areas": ["css", "svg_canvas", "render", "animation"],
         "acceptance_criteria": ["初始状态和参数边界下均能看到完整图像"],
         "ambiguities": [],
+        "change_checks": [],
+        "preserve_checks": [],
     }
 
     class AnalysisModel:
@@ -141,11 +153,11 @@ def test_v4_flash_interprets_layout_wording_as_business_visual_problem(monkeypat
             return MagicMock(content=json.dumps(payload, ensure_ascii=False))
 
     monkeypatch.setattr(
-        "aetherviz_service.aetherviz.agents.edit_diagnosis_agent.create_chat_model",
+        "aetherviz_service.aetherviz.edit.diagnosis.create_chat_model",
         lambda kind, response_schema=None: AnalysisModel(),
     )
     monkeypatch.setattr(
-        "aetherviz_service.aetherviz.agents.edit_diagnosis_agent.has_primary_llm_config",
+        "aetherviz_service.aetherviz.edit.diagnosis.has_primary_llm_config",
         lambda: True,
     )
 
@@ -158,6 +170,8 @@ def test_v4_flash_interprets_layout_wording_as_business_visual_problem(monkeypat
     assert diagnosis.strategy == "full_html_regeneration"
     assert diagnosis.scope == "business_visual_and_animation"
     assert "主视觉尺寸" in diagnosis.resolved_instruction
+    assert diagnosis.change_checks[0].kind == "html_must_differ"
+    assert diagnosis.change_checks[0].id == "auto_html_must_differ"
 
 
 def test_v4_flash_can_authorize_redesign_of_all_business_content(monkeypatch) -> None:
@@ -168,9 +182,6 @@ def test_v4_flash_can_authorize_redesign_of_all_business_content(monkeypatch) ->
         "problem": "用户要求整体重做课件内容与交互",
         "confidence": 0.99,
         "targets": [],
-        "operations": [],
-        "assertions": [],
-        "allowed_scope": [],
         "requires_clarification": False,
         "clarification_question": "",
         "resolved_instruction": "重新设计全部教学文案、主视觉、业务控件、状态、渲染、事件和动画运行时",
@@ -179,6 +190,32 @@ def test_v4_flash_can_authorize_redesign_of_all_business_content(monkeypatch) ->
         "impact_areas": ["shell_content", "dom", "css", "svg_canvas", "state", "render", "events", "animation", "runtime"],
         "acceptance_criteria": ["新课件完整可运行且各项交互可观察"],
         "ambiguities": [],
+        "change_checks": [
+            {
+                "id": "c_all",
+                "kind": "html_must_differ",
+                "selector": "",
+                "function": "",
+                "property": "",
+                "expected": "",
+                "baseline_binding": "must_differ",
+                "severity": "hard",
+                "rationale": "整体重做必须可见变化",
+            }
+        ],
+        "preserve_checks": [
+            {
+                "id": "p_widget",
+                "kind": "widget_type_unchanged",
+                "selector": "",
+                "function": "",
+                "property": "",
+                "expected": "",
+                "baseline_binding": "must_match",
+                "severity": "hard",
+                "rationale": "保持契约",
+            }
+        ],
     }
 
     class AnalysisModel:
@@ -186,11 +223,11 @@ def test_v4_flash_can_authorize_redesign_of_all_business_content(monkeypatch) ->
             return MagicMock(content=json.dumps(payload, ensure_ascii=False))
 
     monkeypatch.setattr(
-        "aetherviz_service.aetherviz.agents.edit_diagnosis_agent.create_chat_model",
+        "aetherviz_service.aetherviz.edit.diagnosis.create_chat_model",
         lambda kind, response_schema=None: AnalysisModel(),
     )
     monkeypatch.setattr(
-        "aetherviz_service.aetherviz.agents.edit_diagnosis_agent.has_primary_llm_config",
+        "aetherviz_service.aetherviz.edit.diagnosis.has_primary_llm_config",
         lambda: True,
     )
 
@@ -223,24 +260,34 @@ def test_function_diagnosis_uses_server_verified_source_hash(monkeypatch) -> Non
         "problem": "播放函数报错",
         "confidence": 0.95,
         "targets": [{"kind": "function", "function": "play", "source_hash": "invented"}],
-        "operations": [],
-        "assertions": [{"type": "runtime_error_absent", "selector": "", "property": "", "expected": ""}],
-        "allowed_scope": ["function:play"],
         "requires_clarification": False,
         "clarification_question": "",
         **_compiled_fields("修复播放报错，并保持当前动画内容和控制方式"),
     }
+    payload["change_checks"] = [
+        {
+            "id": "c_fn",
+            "kind": "function_body_changed",
+            "selector": "",
+            "function": "play",
+            "property": "",
+            "expected": "",
+            "baseline_binding": "must_differ",
+            "severity": "hard",
+            "rationale": "play 函数体必须变化",
+        }
+    ]
 
     class AnalysisModel:
         def invoke(self, messages):
             return MagicMock(content=json.dumps(payload))
 
     monkeypatch.setattr(
-        "aetherviz_service.aetherviz.agents.edit_diagnosis_agent.create_chat_model",
+        "aetherviz_service.aetherviz.edit.diagnosis.create_chat_model",
         lambda kind, response_schema=None: AnalysisModel(),
     )
     monkeypatch.setattr(
-        "aetherviz_service.aetherviz.agents.edit_diagnosis_agent.has_primary_llm_config",
+        "aetherviz_service.aetherviz.edit.diagnosis.has_primary_llm_config",
         lambda: True,
     )
 
@@ -253,6 +300,7 @@ def test_function_diagnosis_uses_server_verified_source_hash(monkeypatch) -> Non
     expected = extract_named_functions(_html())["play"][0].source_hash
     assert diagnosis.strategy == "full_html_regeneration"
     assert diagnosis.targets[0]["source_hash"] == expected
+    assert diagnosis.change_checks[0].kind == "function_body_changed"
 
 
 def test_diagnosis_resolves_conversational_reference_into_self_contained_instruction(monkeypatch) -> None:
@@ -263,9 +311,6 @@ def test_diagnosis_resolves_conversational_reference_into_self_contained_instruc
         "problem": "当前单位圆联动动画节奏偏慢",
         "confidence": 0.93,
         "targets": [],
-        "operations": [],
-        "assertions": [],
-        "allowed_scope": [],
         "requires_clarification": False,
         "clarification_question": "",
         "resolved_instruction": "缩短单位圆与正弦曲线联动动画的总时长，使播放节奏明显加快，同时保持轨迹、暂停、重置和重播行为正确",
@@ -274,6 +319,20 @@ def test_diagnosis_resolves_conversational_reference_into_self_contained_instruc
         "impact_areas": ["state", "render", "events", "animation", "runtime"],
         "acceptance_criteria": ["播放后联动画面更快完成", "暂停后画面稳定且重播可用"],
         "ambiguities": [],
+        "change_checks": [
+            {
+                "id": "c_num",
+                "kind": "numeric_changed",
+                "selector": "",
+                "function": "",
+                "property": "",
+                "expected": "",
+                "baseline_binding": "must_differ",
+                "severity": "soft",
+                "rationale": "时长相关数值应变化",
+            }
+        ],
+        "preserve_checks": [],
     }
 
     class AnalysisModel:
@@ -283,11 +342,11 @@ def test_diagnosis_resolves_conversational_reference_into_self_contained_instruc
             return MagicMock(content=json.dumps(payload, ensure_ascii=False))
 
     monkeypatch.setattr(
-        "aetherviz_service.aetherviz.agents.edit_diagnosis_agent.create_chat_model",
+        "aetherviz_service.aetherviz.edit.diagnosis.create_chat_model",
         lambda kind, response_schema=None: AnalysisModel(),
     )
     monkeypatch.setattr(
-        "aetherviz_service.aetherviz.agents.edit_diagnosis_agent.has_primary_llm_config",
+        "aetherviz_service.aetherviz.edit.diagnosis.has_primary_llm_config",
         lambda: True,
     )
 
@@ -303,9 +362,11 @@ def test_diagnosis_resolves_conversational_reference_into_self_contained_instruc
     assert diagnosis.resolved_instruction.startswith("缩短单位圆与正弦曲线联动动画")
     assert diagnosis.impact_areas == ("state", "render", "events", "animation", "runtime")
     assert len(diagnosis.acceptance_criteria) == 2
+    # soft numeric + auto hard html_must_differ
+    assert any(check.kind == "html_must_differ" for check in diagnosis.change_checks)
 
 
-def test_diagnosis_downgrades_invented_local_selector_to_full_regeneration(monkeypatch) -> None:
+def test_diagnosis_downgrades_unknown_strategy_to_full_regeneration(monkeypatch) -> None:
     payload = {
         "intent": "edit",
         "scope": "business_css",
@@ -313,11 +374,22 @@ def test_diagnosis_downgrades_invented_local_selector_to_full_regeneration(monke
         "problem": "未知目标",
         "confidence": 0.9,
         "targets": [{"selector": "#missing", "kind": "css"}],
-        "operations": [],
-        "assertions": [],
-        "allowed_scope": [],
         "requires_clarification": False,
         "clarification_question": "",
+        "change_checks": [
+            {
+                "id": "c_bad",
+                "kind": "css_declaration",
+                "selector": "#missing",
+                "function": "",
+                "property": "color",
+                "expected": "red",
+                "baseline_binding": "absolute",
+                "severity": "hard",
+                "rationale": "假 selector",
+            }
+        ],
+        "preserve_checks": [],
     }
 
     class AnalysisModel:
@@ -325,11 +397,11 @@ def test_diagnosis_downgrades_invented_local_selector_to_full_regeneration(monke
             return MagicMock(content=json.dumps(payload))
 
     monkeypatch.setattr(
-        "aetherviz_service.aetherviz.agents.edit_diagnosis_agent.create_chat_model",
+        "aetherviz_service.aetherviz.edit.diagnosis.create_chat_model",
         lambda kind, response_schema=None: AnalysisModel(),
     )
     monkeypatch.setattr(
-        "aetherviz_service.aetherviz.agents.edit_diagnosis_agent.has_primary_llm_config",
+        "aetherviz_service.aetherviz.edit.diagnosis.has_primary_llm_config",
         lambda: True,
     )
 
@@ -340,166 +412,10 @@ def test_diagnosis_downgrades_invented_local_selector_to_full_regeneration(monke
     )
 
     assert diagnosis.strategy == "full_html_regeneration"
-
-
-def test_local_css_operation_applies_minimal_override_and_guard() -> None:
-    diagnosis = EditDiagnosis(
-        intent="increase_button_font",
-        scope="business_css",
-        strategy="css_declaration",
-        problem="字号偏小",
-        confidence=0.95,
-        targets=({"kind": "css", "selector": "#play"},),
-        operations=(
-            {
-                "op": "set_css",
-                "selector": "#play",
-                "property": "font-size",
-                "value": "16px",
-                "old_text": "",
-                "new_text": "",
-                "attribute": "",
-            },
-        ),
+    assert "c_bad" in diagnosis.degraded_checks
+    assert diagnosis.change_checks[0].severity == "soft" or any(
+        check.kind == "html_must_differ" for check in diagnosis.change_checks
     )
-
-    result = apply_diagnosed_operations(_html(), diagnosis)
-
-    assert result.applied == ("set_css:#play",)
-    assert "#play{font-size:16px;}" in result.html
-    assert result.html.replace("\n/* aetherviz-edit */\n#play{font-size:16px;}\n", "") == _html()
-    assert result.guard is not None
-    assert result.guard(result.html) == []
-    assert result.guard(_html()) == ["edit_css_operation_lost"]
-
-
-def test_local_text_operation_requires_unique_exact_source() -> None:
-    diagnosis = EditDiagnosis(
-        intent="rename_label",
-        scope="business_dom",
-        strategy="text_or_attribute",
-        problem="修改说明",
-        confidence=0.9,
-        targets=({"kind": "dom", "selector": ".label"},),
-        operations=(
-            {
-                "op": "replace_text",
-                "selector": ".label",
-                "old_text": "旧说明",
-                "new_text": "新说明",
-                "property": "",
-                "value": "",
-                "attribute": "",
-            },
-        ),
-    )
-
-    result = apply_diagnosed_operations(_html(), diagnosis)
-
-    assert result.applied == ("replace_text:.label",)
-    assert "新说明" in result.html
-    assert "旧说明" not in result.html
-
-
-def test_runtime_diagnosis_applies_hash_guarded_function_patch(monkeypatch) -> None:
-    function = extract_named_functions(_html())["play"][0]
-    diagnosis = EditDiagnosis(
-        intent="fix_runtime_error",
-        scope="business_runtime",
-        strategy="function_repair",
-        problem="play 没有更新播放状态",
-        confidence=0.94,
-        targets=(
-            {
-                "kind": "function",
-                "function": "play",
-                "source_hash": function.source_hash,
-                "evidence": "运行时堆栈指向 play",
-                "confidence": 0.94,
-            },
-        ),
-        allowed_scope=("function:play",),
-    )
-    replacement = {
-        "replacements": [
-            {
-                "function": "play",
-                "source_hash": function.source_hash,
-                "replacement": "function play(){window.started=true;window.playState='playing'}",
-            }
-        ]
-    }
-
-    class RepairModel:
-        def stream(self, messages):
-            yield MagicMock(content=json.dumps(replacement))
-
-    monkeypatch.setattr(
-        "aetherviz_service.aetherviz.agents.edit_function_agent.create_chat_model",
-        lambda kind: RepairModel(),
-    )
-    monkeypatch.setattr(
-        "aetherviz_service.aetherviz.agents.edit_function_agent.has_primary_llm_config",
-        lambda: True,
-    )
-
-    result = next(
-        item
-        for item in stream_edit_functions(
-            raw_html=_html(),
-            instruction="修复播放",
-            diagnosis=diagnosis,
-            runtime_error={"message": "play failed", "stack": "at play"},
-        )
-        if isinstance(item, HtmlStreamResult)
-    )
-
-    assert result.strategy == "function_patch"
-    assert result.patch_functions == ("play",)
-    assert "window.playState='playing'" in result.html
-    guard = build_diagnosis_guard(diagnosis, _html())
-    assert guard(_html()) == ["edit_runtime_not_changed"]
-    assert guard(result.html) == []
-
-
-def test_runtime_guard_accepts_fix_in_function_other_than_diagnosed_target() -> None:
-    source = _html().replace(
-        "function play(){window.started=true}",
-        "function play(){window.started=true}"
-        "function renderFormula(selector){return document.querySelector(selector)}"
-        "document.querySelectorAll('span').forEach(element=>renderFormula(element))",
-    )
-    play = extract_named_functions(source)["play"][0]
-    diagnosis = EditDiagnosis(
-        intent="fix_runtime_error",
-        scope="business_runtime",
-        strategy="function_repair",
-        problem="诊断目标可能不是实际根因函数",
-        confidence=0.8,
-        targets=(
-            {
-                "kind": "function",
-                "function": "play",
-                "source_hash": play.source_hash,
-                "evidence": "运行时阶段推断",
-                "confidence": 0.8,
-            },
-        ),
-        assertions=(
-            {
-                "type": "runtime_error_absent",
-                "selector": "",
-                "property": "querySelector",
-                "expected": "querySelector 不再接收 DOM 元素",
-            },
-        ),
-    )
-    candidate = source.replace(
-        "return document.querySelector(selector)",
-        "return typeof selector==='string'?document.querySelector(selector):selector",
-    )
-
-    assert build_diagnosis_guard(diagnosis, source)(candidate) == []
 
 
 def test_runtime_dispatch_passes_structured_edit_target_and_error(monkeypatch) -> None:

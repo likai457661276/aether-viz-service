@@ -15,8 +15,8 @@ from aetherviz_service.aetherviz.api.sse import (
     register_langsmith_trace_id,
     unregister_langsmith_trace_id,
 )
-from aetherviz_service.aetherviz.workflow.edit_html_workflow import run_edit_html_workflow
-from aetherviz_service.aetherviz.workflow.generate_workflow import run_generate_workflow
+from aetherviz_service.aetherviz.edit.workflow import run_edit_html_workflow
+from aetherviz_service.aetherviz.generate.workflow import run_generate_workflow
 from aetherviz_service.aetherviz.workflow.plan_contract import normalize_plan
 from aetherviz_service.aetherviz.workflow.plan_workflow import run_approve_plan_workflow, run_plan_workflow
 from aetherviz_service.aetherviz.workflow.revise_plan_workflow import run_revise_plan_workflow

@@ -262,8 +262,9 @@ def test_generate_phase_without_model_returns_explicit_error() -> None:
 
 
 def test_generate_phase_returns_error_when_html_agent_fails_completely(monkeypatch) -> None:
-    from aetherviz_service.aetherviz.agents import html_agent
-    from aetherviz_service.aetherviz.workflow import generate_workflow
+    from aetherviz_service.aetherviz.generate import html_agent
+    from aetherviz_service.aetherviz.contracts import pipeline as generate_workflow
+    from aetherviz_service.aetherviz.generate import workflow as _generate_entry
 
     monkeypatch.setattr(settings, "openai_api_key", "test-key")
 
@@ -271,7 +272,8 @@ def test_generate_phase_returns_error_when_html_agent_fails_completely(monkeypat
         raise html_agent.HtmlGenerationError("HTML 生成失败，未获得可用页面", detail="boom")
 
     monkeypatch.setattr(html_agent, "stream_generate_html", failing_stream)
-    monkeypatch.setattr(generate_workflow, "stream_generate_html", failing_stream)
+    monkeypatch.setattr(_generate_entry, "stream_generate_html", failing_stream)
+    monkeypatch.setattr(generate_workflow, "stream_generate_html", failing_stream, raising=False)
 
     response = client.post(
         AETHERVIZ_ENDPOINT,
@@ -312,7 +314,7 @@ def test_edit_html_without_model_returns_explicit_error() -> None:
 
 
 def test_validation_report_rejects_dangerous_external_resource() -> None:
-    from aetherviz_service.aetherviz.tools.validation_report import build_validation_report
+    from aetherviz_service.aetherviz.contracts.validation.report import build_validation_report
 
     bad_html = sample_html().replace(
         "</head>",
@@ -326,7 +328,7 @@ def test_validation_report_rejects_dangerous_external_resource() -> None:
 
 
 def test_security_checker_allows_only_configured_gsap_cdn(monkeypatch) -> None:
-    from aetherviz_service.aetherviz.tools.security_checker import check_security
+    from aetherviz_service.aetherviz.contracts.validation.security_checker import check_security
 
     custom_url = "https://assets.example.edu/vendor/gsap.min.js"
     monkeypatch.setattr(settings, "aetherviz_gsap_cdn_url", custom_url)
@@ -427,7 +429,7 @@ def test_plan_normalization_migrates_fields_and_expands_bounds_for_presets() -> 
 
 
 def test_validation_report_rejects_inline_script_syntax_error() -> None:
-    from aetherviz_service.aetherviz.tools.validation_report import build_validation_report
+    from aetherviz_service.aetherviz.contracts.validation.report import build_validation_report
 
     bad_html = sample_html().replace("const state = { progress: 0 };", "const state = ;")
 
@@ -438,7 +440,7 @@ def test_validation_report_rejects_inline_script_syntax_error() -> None:
 
 
 def test_validation_report_downgrades_explicit_low_confidence_error() -> None:
-    from aetherviz_service.aetherviz.tools.validation_report import _normalize_check_confidence
+    from aetherviz_service.aetherviz.contracts.validation.report import _normalize_check_confidence
 
     normalized = _normalize_check_confidence(
         {
@@ -464,7 +466,7 @@ def test_validation_report_downgrades_explicit_low_confidence_error() -> None:
 
 
 def test_validation_report_rejects_missing_widget_runtime_contract() -> None:
-    from aetherviz_service.aetherviz.tools.validation_report import build_validation_report
+    from aetherviz_service.aetherviz.contracts.validation.report import build_validation_report
 
     bad_html = "<!DOCTYPE html><html><body><script>const ok = true;</script></body></html>"
 
@@ -478,7 +480,7 @@ def test_validation_report_rejects_missing_widget_runtime_contract() -> None:
 
 
 def test_widget_contract_warns_when_animation_value_is_rendered_without_formatting() -> None:
-    from aetherviz_service.aetherviz.tools.widget_contract_checker import check_widget_runtime_contract
+    from aetherviz_service.aetherviz.contracts.validation.widget_contract_checker import check_widget_runtime_contract
 
     risky_html = sample_html().replace(
         "const state = { progress: 0 };",
@@ -491,7 +493,7 @@ def test_widget_contract_warns_when_animation_value_is_rendered_without_formatti
 
 
 def test_widget_contract_accepts_explicitly_formatted_animation_value() -> None:
-    from aetherviz_service.aetherviz.tools.widget_contract_checker import check_widget_runtime_contract
+    from aetherviz_service.aetherviz.contracts.validation.widget_contract_checker import check_widget_runtime_contract
 
     safe_html = sample_html().replace(
         "const state = { progress: 0 };",
@@ -504,7 +506,7 @@ def test_widget_contract_accepts_explicitly_formatted_animation_value() -> None:
 
 
 def test_widget_contract_ignores_text_and_preformatted_template_values() -> None:
-    from aetherviz_service.aetherviz.tools.widget_contract_checker import check_widget_runtime_contract
+    from aetherviz_service.aetherviz.contracts.validation.widget_contract_checker import check_widget_runtime_contract
 
     safe_html = sample_html().replace(
         "const state = { progress: 0 };",
@@ -519,7 +521,7 @@ def test_widget_contract_ignores_text_and_preformatted_template_values() -> None
 
 
 def test_widget_contract_accepts_provable_dynamic_stage_visual_as_legacy() -> None:
-    from aetherviz_service.aetherviz.tools.widget_contract_checker import check_widget_runtime_contract
+    from aetherviz_service.aetherviz.contracts.validation.widget_contract_checker import check_widget_runtime_contract
 
     html = sample_html().replace(
         '<svg viewBox="0 0 100 100"><circle id="dot" cx="20" cy="50" r="8"></circle></svg>',
@@ -539,7 +541,7 @@ def test_widget_contract_accepts_provable_dynamic_stage_visual_as_legacy() -> No
 
 
 def test_widget_contract_rejects_unmounted_dynamic_visual_with_acceptance_contract() -> None:
-    from aetherviz_service.aetherviz.tools.widget_contract_checker import check_widget_runtime_contract
+    from aetherviz_service.aetherviz.contracts.validation.widget_contract_checker import check_widget_runtime_contract
 
     html = sample_html().replace(
         '<svg viewBox="0 0 100 100"><circle id="dot" cx="20" cy="50" r="8"></circle></svg>',
@@ -559,7 +561,7 @@ def test_widget_contract_rejects_unmounted_dynamic_visual_with_acceptance_contra
 
 
 def test_widget_contract_accepts_static_main_visual_mount() -> None:
-    from aetherviz_service.aetherviz.tools.widget_contract_checker import check_widget_runtime_contract
+    from aetherviz_service.aetherviz.contracts.validation.widget_contract_checker import check_widget_runtime_contract
 
     html = sample_html().replace(
         '<svg viewBox="0 0 100 100"><circle id="dot" cx="20" cy="50" r="8"></circle></svg>',
@@ -572,7 +574,7 @@ def test_widget_contract_accepts_static_main_visual_mount() -> None:
 
 
 def test_widget_contract_accepts_dynamic_visual_mounted_into_static_main_visual() -> None:
-    from aetherviz_service.aetherviz.tools.widget_contract_checker import check_widget_runtime_contract
+    from aetherviz_service.aetherviz.contracts.validation.widget_contract_checker import check_widget_runtime_contract
 
     html = sample_html().replace(
         '<svg viewBox="0 0 100 100"><circle id="dot" cx="20" cy="50" r="8"></circle></svg>',
@@ -592,7 +594,7 @@ def test_widget_contract_accepts_dynamic_visual_mounted_into_static_main_visual(
 
 
 def test_widget_contract_accepts_visual_mounted_through_dom_cache_property() -> None:
-    from aetherviz_service.aetherviz.tools.widget_contract_checker import check_widget_runtime_contract
+    from aetherviz_service.aetherviz.contracts.validation.widget_contract_checker import check_widget_runtime_contract
 
     html = sample_html().replace(
         '<svg viewBox="0 0 100 100"><circle id="dot" cx="20" cy="50" r="8"></circle></svg>',
@@ -614,7 +616,7 @@ const state = { progress: 0 };""",
 
 
 def test_widget_contract_accepts_member_references_for_mount_and_visual() -> None:
-    from aetherviz_service.aetherviz.tools.widget_contract_checker import check_widget_runtime_contract
+    from aetherviz_service.aetherviz.contracts.validation.widget_contract_checker import check_widget_runtime_contract
 
     html = sample_html().replace(
         '<svg viewBox="0 0 100 100"><circle id="dot" cx="20" cy="50" r="8"></circle></svg>',
@@ -634,7 +636,7 @@ const state = { progress: 0 };""",
 
 
 def test_widget_contract_rejects_visual_appended_to_different_cache_property() -> None:
-    from aetherviz_service.aetherviz.tools.widget_contract_checker import check_widget_runtime_contract
+    from aetherviz_service.aetherviz.contracts.validation.widget_contract_checker import check_widget_runtime_contract
 
     html = sample_html().replace(
         '<svg viewBox="0 0 100 100"><circle id="dot" cx="20" cy="50" r="8"></circle></svg>',
@@ -657,7 +659,7 @@ const state = { progress: 0 };""",
 
 
 def test_widget_contract_accepts_get_element_by_id_mount_lookup() -> None:
-    from aetherviz_service.aetherviz.tools.widget_contract_checker import check_widget_runtime_contract
+    from aetherviz_service.aetherviz.contracts.validation.widget_contract_checker import check_widget_runtime_contract
 
     html = sample_html().replace(
         '<svg viewBox="0 0 100 100"><circle id="dot" cx="20" cy="50" r="8"></circle></svg>',
@@ -678,7 +680,7 @@ def test_widget_contract_accepts_get_element_by_id_mount_lookup() -> None:
 
 def test_widget_contract_accepts_mount_id_constant_cache_pattern() -> None:
     """Regression for getElementById + string-constant mount lookups (LangSmith fca017c8)."""
-    from aetherviz_service.aetherviz.tools.widget_contract_checker import check_widget_runtime_contract
+    from aetherviz_service.aetherviz.contracts.validation.widget_contract_checker import check_widget_runtime_contract
 
     html = sample_html().replace(
         '<svg viewBox="0 0 100 100"><circle id="dot" cx="20" cy="50" r="8"></circle></svg>',
@@ -711,7 +713,7 @@ const state = { progress: 0 };""",
 
 def test_widget_contract_accepts_mount_selector_constant_cache_pattern() -> None:
     """Regression for the selector-constant mount flow from LangSmith trace 13c07e7d."""
-    from aetherviz_service.aetherviz.tools.widget_contract_checker import check_widget_runtime_contract
+    from aetherviz_service.aetherviz.contracts.validation.widget_contract_checker import check_widget_runtime_contract
 
     html = sample_html().replace(
         '<svg viewBox="0 0 100 100"><circle id="dot" cx="20" cy="50" r="8"></circle></svg>',
@@ -741,7 +743,7 @@ const state = { progress: 0 };""",
 
 
 def test_widget_contract_rejects_unrelated_selector_constant_mount() -> None:
-    from aetherviz_service.aetherviz.tools.widget_contract_checker import check_widget_runtime_contract
+    from aetherviz_service.aetherviz.contracts.validation.widget_contract_checker import check_widget_runtime_contract
 
     html = sample_html().replace(
         '<svg viewBox="0 0 100 100"><circle id="dot" cx="20" cy="50" r="8"></circle></svg>',
@@ -766,7 +768,7 @@ def test_html_contract_dataset_rejects_mount_lookup_false_positive() -> None:
     import json
     from pathlib import Path
 
-    from aetherviz_service.aetherviz.tools.widget_contract_checker import check_widget_runtime_contract
+    from aetherviz_service.aetherviz.contracts.validation.widget_contract_checker import check_widget_runtime_contract
 
     sample_path = (
         Path(__file__).resolve().parents[1]
@@ -786,7 +788,7 @@ def test_html_contract_dataset_rejects_mount_lookup_false_positive() -> None:
 
 
 def test_widget_contract_accepts_query_selector_hash_mount_id() -> None:
-    from aetherviz_service.aetherviz.tools.widget_contract_checker import check_widget_runtime_contract
+    from aetherviz_service.aetherviz.contracts.validation.widget_contract_checker import check_widget_runtime_contract
 
     html = sample_html().replace(
         '<svg viewBox="0 0 100 100"><circle id="dot" cx="20" cy="50" r="8"></circle></svg>',
@@ -805,7 +807,7 @@ def test_widget_contract_accepts_query_selector_hash_mount_id() -> None:
 
 
 def test_deterministic_can_address_skips_empty_main_visual_only() -> None:
-    from aetherviz_service.aetherviz.tools.deterministic_repair import deterministic_can_address
+    from aetherviz_service.aetherviz.contracts.repair.deterministic import deterministic_can_address
 
     assert deterministic_can_address(
         {"errors": [{"type": "empty_main_visual_mount"}], "warnings": []}
@@ -816,7 +818,7 @@ def test_deterministic_can_address_skips_empty_main_visual_only() -> None:
 
 
 def test_widget_contract_warns_about_hardcoded_formatter_step_and_raw_formula_state() -> None:
-    from aetherviz_service.aetherviz.tools.widget_contract_checker import check_widget_runtime_contract
+    from aetherviz_service.aetherviz.contracts.validation.widget_contract_checker import check_widget_runtime_contract
 
     risky_html = sample_html().replace(
         "const state = { progress: 0 };",
@@ -836,8 +838,8 @@ def test_widget_contract_warns_about_hardcoded_formatter_step_and_raw_formula_st
 
 
 def test_validation_report_accepts_minimum_widget_runtime_contract() -> None:
-    from aetherviz_service.aetherviz.tools.layout_contract import assemble_layout_contract
-    from aetherviz_service.aetherviz.tools.validation_report import build_validation_report
+    from aetherviz_service.aetherviz.contracts.layout import assemble_layout_contract
+    from aetherviz_service.aetherviz.contracts.validation.report import build_validation_report
 
     report = build_validation_report(assemble_layout_contract(sample_html(), sample_plan()))
 
@@ -847,7 +849,7 @@ def test_validation_report_accepts_minimum_widget_runtime_contract() -> None:
 def test_server_layout_contract_replaces_model_shell_and_is_idempotent() -> None:
     from bs4 import BeautifulSoup
 
-    from aetherviz_service.aetherviz.tools.layout_contract import assemble_layout_contract
+    from aetherviz_service.aetherviz.contracts.layout import assemble_layout_contract
 
     raw = sample_html().replace("<body>", '<body><div class="model-grid">').replace(
         "</body>", "</div></body>"
@@ -865,7 +867,7 @@ def test_server_layout_contract_replaces_model_shell_and_is_idempotent() -> None
 
 
 def test_extract_business_html_removes_server_shell_and_round_trips() -> None:
-    from aetherviz_service.aetherviz.tools.layout_contract import (
+    from aetherviz_service.aetherviz.contracts.layout import (
         assemble_layout_contract,
         extract_business_html,
     )
@@ -885,7 +887,7 @@ def test_extract_business_html_removes_server_shell_and_round_trips() -> None:
 def test_extract_business_html_round_trips_editable_shell_content() -> None:
     from bs4 import BeautifulSoup
 
-    from aetherviz_service.aetherviz.tools.layout_contract import assemble_layout_contract, extract_business_html
+    from aetherviz_service.aetherviz.contracts.layout import assemble_layout_contract, extract_business_html
 
     assembled = assemble_layout_contract(sample_html(), sample_plan("二次函数"))
     business = extract_business_html(assembled)
@@ -908,7 +910,7 @@ def test_extract_business_html_round_trips_editable_shell_content() -> None:
 def test_server_range_contract_owns_track_progress_and_touch_target() -> None:
     from bs4 import BeautifulSoup
 
-    from aetherviz_service.aetherviz.tools.layout_contract import assemble_layout_contract
+    from aetherviz_service.aetherviz.contracts.layout import assemble_layout_contract
 
     source = sample_html().replace(
         '<button id="play-animation">播放</button>',
@@ -929,7 +931,7 @@ def test_server_range_contract_owns_track_progress_and_touch_target() -> None:
 def test_server_control_contract_provides_button_and_select_feedback() -> None:
     from bs4 import BeautifulSoup
 
-    from aetherviz_service.aetherviz.tools.layout_contract import assemble_layout_contract
+    from aetherviz_service.aetherviz.contracts.layout import assemble_layout_contract
 
     source = sample_html().replace(
         '<button id="play-animation">播放</button>',
@@ -963,7 +965,7 @@ def test_server_control_contract_provides_button_and_select_feedback() -> None:
 def test_layout_contract_promotes_model_button_rows_and_caps_compact_stage_height() -> None:
     from bs4 import BeautifulSoup
 
-    from aetherviz_service.aetherviz.tools.layout_contract import assemble_layout_contract
+    from aetherviz_service.aetherviz.contracts.layout import assemble_layout_contract
 
     source = sample_html().replace(
         '<button id="play-animation">播放</button>\n'
@@ -988,7 +990,7 @@ def test_layout_contract_promotes_model_button_rows_and_caps_compact_stage_heigh
 def test_server_layout_contract_sanitizes_model_owned_layout_and_range_css() -> None:
     from bs4 import BeautifulSoup
 
-    from aetherviz_service.aetherviz.tools.layout_contract import assemble_layout_contract
+    from aetherviz_service.aetherviz.contracts.layout import assemble_layout_contract
 
     source = sample_html().replace(
         "body{margin:0}",
@@ -1019,7 +1021,7 @@ def test_server_layout_contract_sanitizes_model_owned_layout_and_range_css() -> 
 def test_server_layout_contract_sanitizes_owned_selector_after_css_comment() -> None:
     from bs4 import BeautifulSoup
 
-    from aetherviz_service.aetherviz.tools.layout_contract import assemble_layout_contract
+    from aetherviz_service.aetherviz.contracts.layout import assemble_layout_contract
 
     source = sample_html().replace(
         "#aetherviz-stage{display:grid;place-items:center;min-height:240px}",
@@ -1036,7 +1038,7 @@ def test_server_layout_contract_sanitizes_owned_selector_after_css_comment() -> 
 def test_server_animation_controller_precedes_business_scripts_and_replays() -> None:
     from bs4 import BeautifulSoup
 
-    from aetherviz_service.aetherviz.tools.layout_contract import assemble_layout_contract
+    from aetherviz_service.aetherviz.contracts.layout import assemble_layout_contract
 
     parsed = BeautifulSoup(assemble_layout_contract(sample_html(), sample_plan()), "html.parser")
     scripts = parsed.body.find_all("script")
@@ -1053,7 +1055,7 @@ def test_server_animation_controller_precedes_business_scripts_and_replays() -> 
 
 
 def test_layout_contract_checker_rejects_unassembled_model_html() -> None:
-    from aetherviz_service.aetherviz.tools.layout_contract_checker import check_layout_contract
+    from aetherviz_service.aetherviz.contracts.validation.layout_checker import check_layout_contract
 
     report = check_layout_contract("<!DOCTYPE html><html><body><div id='aetherviz-stage'></div></body></html>")
 
@@ -1065,7 +1067,7 @@ def test_layout_contract_checker_rejects_unassembled_model_html() -> None:
 
 
 def test_widget_contract_warns_about_call_only_gsap_timeline() -> None:
-    from aetherviz_service.aetherviz.tools.widget_contract_checker import check_widget_runtime_contract
+    from aetherviz_service.aetherviz.contracts.validation.widget_contract_checker import check_widget_runtime_contract
 
     html = sample_html().replace(
         "</head>",
@@ -1083,7 +1085,7 @@ def test_widget_contract_warns_about_call_only_gsap_timeline() -> None:
 
 
 def test_widget_contract_accepts_duration_tween_in_gsap_timeline() -> None:
-    from aetherviz_service.aetherviz.tools.widget_contract_checker import check_widget_runtime_contract
+    from aetherviz_service.aetherviz.contracts.validation.widget_contract_checker import check_widget_runtime_contract
 
     html = sample_html().replace(
         "</head>",
@@ -1101,9 +1103,10 @@ def test_widget_contract_accepts_duration_tween_in_gsap_timeline() -> None:
 
 
 def test_generate_phase_triggers_repair_when_validation_fails(monkeypatch) -> None:
-    from aetherviz_service.aetherviz.agents import html_agent, repair_agent
-    from aetherviz_service.aetherviz.agents.html_agent import HtmlStreamResult, build_html_progress_payload
-    from aetherviz_service.aetherviz.agents.repair_agent import RepairStreamResult
+    from aetherviz_service.aetherviz.generate import html_agent
+    from aetherviz_service.aetherviz.contracts.repair import model as repair_agent
+    from aetherviz_service.aetherviz.generate.html_agent import HtmlStreamResult, build_html_progress_payload
+    from aetherviz_service.aetherviz.contracts.repair.model import RepairStreamResult
 
     monkeypatch.setattr(settings, "openai_api_key", "test-key")
 
@@ -1129,10 +1132,12 @@ def test_generate_phase_triggers_repair_when_validation_fails(monkeypatch) -> No
 
     monkeypatch.setattr(html_agent, "stream_generate_html", fake_stream)
     monkeypatch.setattr(repair_agent, "stream_repair_html", fake_repair_stream)
-    from aetherviz_service.aetherviz.workflow import generate_workflow
+    from aetherviz_service.aetherviz.contracts import pipeline as generate_workflow
+    from aetherviz_service.aetherviz.generate import workflow as _generate_entry
 
-    monkeypatch.setattr(generate_workflow, "stream_generate_html", fake_stream)
-    monkeypatch.setattr(generate_workflow, "stream_repair_html", fake_repair_stream)
+    monkeypatch.setattr(_generate_entry, "stream_generate_html", fake_stream)
+    monkeypatch.setattr(generate_workflow, "stream_generate_html", fake_stream, raising=False)
+    monkeypatch.setattr(generate_workflow, "stream_repair_html", fake_repair_stream, raising=False)
 
     response = client.post(
         AETHERVIZ_ENDPOINT,
@@ -1161,9 +1166,10 @@ def test_generate_phase_triggers_repair_when_validation_fails(monkeypatch) -> No
 
 def test_generate_phase_skips_deterministic_when_only_model_fixable_errors(monkeypatch) -> None:
     """empty_main_visual_mount alone must not burn a deterministic repair attempt."""
-    from aetherviz_service.aetherviz.agents.html_agent import HtmlStreamResult
-    from aetherviz_service.aetherviz.agents.repair_agent import RepairStreamResult
-    from aetherviz_service.aetherviz.workflow import generate_workflow
+    from aetherviz_service.aetherviz.generate.html_agent import HtmlStreamResult
+    from aetherviz_service.aetherviz.contracts.repair.model import RepairStreamResult
+    from aetherviz_service.aetherviz.contracts import pipeline as generate_workflow
+    from aetherviz_service.aetherviz.generate import workflow as _generate_entry
 
     empty_mount = sample_html().replace(
         '<svg viewBox="0 0 100 100"><circle id="dot" cx="20" cy="50" r="8"></circle></svg>',
@@ -1196,8 +1202,9 @@ def test_generate_phase_skips_deterministic_when_only_model_fixable_errors(monke
         return original_run(html, report, plan)
 
     monkeypatch.setattr(settings, "aetherviz_max_repair_attempts", 1)
-    monkeypatch.setattr(generate_workflow, "stream_generate_html", fake_stream)
-    monkeypatch.setattr(generate_workflow, "stream_repair_html", fake_repair_stream)
+    monkeypatch.setattr(_generate_entry, "stream_generate_html", fake_stream)
+    monkeypatch.setattr(generate_workflow, "stream_generate_html", fake_stream, raising=False)
+    monkeypatch.setattr(generate_workflow, "stream_repair_html", fake_repair_stream, raising=False)
     monkeypatch.setattr(generate_workflow, "_run_deterministic_repair", counting_run)
 
     response = client.post(
@@ -1217,9 +1224,10 @@ def test_generate_phase_skips_deterministic_when_only_model_fixable_errors(monke
 
 
 def test_generate_phase_rejects_stalled_model_repair_and_preserves_previous_html(monkeypatch) -> None:
-    from aetherviz_service.aetherviz.agents.html_agent import HtmlStreamResult
-    from aetherviz_service.aetherviz.agents.repair_agent import RepairStreamResult
-    from aetherviz_service.aetherviz.workflow import generate_workflow
+    from aetherviz_service.aetherviz.generate.html_agent import HtmlStreamResult
+    from aetherviz_service.aetherviz.contracts.repair.model import RepairStreamResult
+    from aetherviz_service.aetherviz.contracts import pipeline as generate_workflow
+    from aetherviz_service.aetherviz.generate import workflow as _generate_entry
 
     missing_visual = sample_html().replace(
         '<svg viewBox="0 0 100 100"><circle id="dot" cx="20" cy="50" r="8"></circle></svg>',
@@ -1242,8 +1250,9 @@ def test_generate_phase_rejects_stalled_model_repair_and_preserves_previous_html
         yield RepairStreamResult(html=unrelated_candidate, degraded=False)
 
     monkeypatch.setattr(settings, "aetherviz_max_repair_attempts", 1)
-    monkeypatch.setattr(generate_workflow, "stream_generate_html", fake_stream)
-    monkeypatch.setattr(generate_workflow, "stream_repair_html", fake_repair_stream)
+    monkeypatch.setattr(_generate_entry, "stream_generate_html", fake_stream)
+    monkeypatch.setattr(generate_workflow, "stream_generate_html", fake_stream, raising=False)
+    monkeypatch.setattr(generate_workflow, "stream_repair_html", fake_repair_stream, raising=False)
 
     response = client.post(
         AETHERVIZ_ENDPOINT,
@@ -1274,9 +1283,10 @@ def test_generate_phase_rejects_stalled_model_repair_and_preserves_previous_html
 
 
 def test_generate_phase_honors_multiple_model_repair_attempts(monkeypatch) -> None:
-    from aetherviz_service.aetherviz.agents.html_agent import HtmlStreamResult
-    from aetherviz_service.aetherviz.agents.repair_agent import RepairStreamResult
-    from aetherviz_service.aetherviz.workflow import generate_workflow
+    from aetherviz_service.aetherviz.generate.html_agent import HtmlStreamResult
+    from aetherviz_service.aetherviz.contracts.repair.model import RepairStreamResult
+    from aetherviz_service.aetherviz.contracts import pipeline as generate_workflow
+    from aetherviz_service.aetherviz.generate import workflow as _generate_entry
 
     complete = sample_html()
     missing_visual = complete.replace(
@@ -1296,8 +1306,9 @@ def test_generate_phase_honors_multiple_model_repair_attempts(monkeypatch) -> No
         yield RepairStreamResult(html=first_candidate if repair_calls == 1 else complete, degraded=False)
 
     monkeypatch.setattr(settings, "aetherviz_max_repair_attempts", 2)
-    monkeypatch.setattr(generate_workflow, "stream_generate_html", fake_stream)
-    monkeypatch.setattr(generate_workflow, "stream_repair_html", fake_repair_stream)
+    monkeypatch.setattr(_generate_entry, "stream_generate_html", fake_stream)
+    monkeypatch.setattr(generate_workflow, "stream_generate_html", fake_stream, raising=False)
+    monkeypatch.setattr(generate_workflow, "stream_repair_html", fake_repair_stream, raising=False)
     monkeypatch.setattr(generate_workflow, "deterministic_can_address", lambda report: False)
 
     response = client.post(
@@ -1311,9 +1322,10 @@ def test_generate_phase_honors_multiple_model_repair_attempts(monkeypatch) -> No
 
 
 def test_generate_phase_marks_unchanged_model_repair(monkeypatch) -> None:
-    from aetherviz_service.aetherviz.agents.html_agent import HtmlStreamResult
-    from aetherviz_service.aetherviz.agents.repair_agent import RepairStreamResult
-    from aetherviz_service.aetherviz.workflow import generate_workflow
+    from aetherviz_service.aetherviz.generate.html_agent import HtmlStreamResult
+    from aetherviz_service.aetherviz.contracts.repair.model import RepairStreamResult
+    from aetherviz_service.aetherviz.contracts import pipeline as generate_workflow
+    from aetherviz_service.aetherviz.generate import workflow as _generate_entry
 
     missing_visual = sample_html().replace(
         '<svg viewBox="0 0 100 100"><circle id="dot" cx="20" cy="50" r="8"></circle></svg>',
@@ -1327,8 +1339,9 @@ def test_generate_phase_marks_unchanged_model_repair(monkeypatch) -> None:
         yield RepairStreamResult(html=kwargs["raw_html"], degraded=False)
 
     monkeypatch.setattr(settings, "aetherviz_max_repair_attempts", 1)
-    monkeypatch.setattr(generate_workflow, "stream_generate_html", fake_stream)
-    monkeypatch.setattr(generate_workflow, "stream_repair_html", fake_repair_stream)
+    monkeypatch.setattr(_generate_entry, "stream_generate_html", fake_stream)
+    monkeypatch.setattr(generate_workflow, "stream_generate_html", fake_stream, raising=False)
+    monkeypatch.setattr(generate_workflow, "stream_repair_html", fake_repair_stream, raising=False)
 
     response = client.post(
         AETHERVIZ_ENDPOINT,
@@ -1348,8 +1361,9 @@ def test_generate_phase_marks_unchanged_model_repair(monkeypatch) -> None:
 
 
 def test_generate_phase_does_not_model_rewrite_quality_warning(monkeypatch) -> None:
-    from aetherviz_service.aetherviz.agents.html_agent import HtmlStreamResult
-    from aetherviz_service.aetherviz.workflow import generate_workflow
+    from aetherviz_service.aetherviz.generate.html_agent import HtmlStreamResult
+    from aetherviz_service.aetherviz.contracts import pipeline as generate_workflow
+    from aetherviz_service.aetherviz.generate import workflow as _generate_entry
 
     risky_html = sample_html().replace(
         "const state = { progress: 0 };",
@@ -1360,7 +1374,8 @@ def test_generate_phase_does_not_model_rewrite_quality_warning(monkeypatch) -> N
         yield HtmlStreamResult(html=risky_html, degraded=False)
 
     monkeypatch.setattr(settings, "aetherviz_max_repair_attempts", 1)
-    monkeypatch.setattr(generate_workflow, "stream_generate_html", fake_stream)
+    monkeypatch.setattr(_generate_entry, "stream_generate_html", fake_stream)
+    monkeypatch.setattr(generate_workflow, "stream_generate_html", fake_stream, raising=False)
     monkeypatch.setattr(
         generate_workflow,
         "stream_repair_html",
@@ -1382,8 +1397,9 @@ def test_generate_phase_does_not_model_rewrite_quality_warning(monkeypatch) -> N
 
 
 def test_generate_phase_runs_quality_repair_after_hard_error_is_repaired(monkeypatch) -> None:
-    from aetherviz_service.aetherviz.agents.html_agent import HtmlStreamResult
-    from aetherviz_service.aetherviz.workflow import generate_workflow
+    from aetherviz_service.aetherviz.generate.html_agent import HtmlStreamResult
+    from aetherviz_service.aetherviz.contracts import pipeline as generate_workflow
+    from aetherviz_service.aetherviz.generate import workflow as _generate_entry
 
     risky_html = sample_html().replace(
         "body{margin:0}",
@@ -1401,7 +1417,8 @@ def test_generate_phase_runs_quality_repair_after_hard_error_is_repaired(monkeyp
         yield HtmlStreamResult(html=risky_html, degraded=False)
 
     monkeypatch.setattr(settings, "aetherviz_max_repair_attempts", 1)
-    monkeypatch.setattr(generate_workflow, "stream_generate_html", fake_stream)
+    monkeypatch.setattr(_generate_entry, "stream_generate_html", fake_stream)
+    monkeypatch.setattr(generate_workflow, "stream_generate_html", fake_stream, raising=False)
 
     response = client.post(
         AETHERVIZ_ENDPOINT,
@@ -1420,8 +1437,9 @@ def test_generate_phase_runs_quality_repair_after_hard_error_is_repaired(monkeyp
 
 
 def test_edit_phase_applies_deterministic_quality_repair_without_model_rewrite(monkeypatch) -> None:
-    from aetherviz_service.aetherviz.agents.html_agent import HtmlStreamResult
-    from aetherviz_service.aetherviz.workflow import generate_workflow
+    from aetherviz_service.aetherviz.generate.html_agent import HtmlStreamResult
+    from aetherviz_service.aetherviz.contracts import pipeline as generate_workflow
+    from aetherviz_service.aetherviz.generate import workflow as _generate_entry
 
     risky_html = sample_html().replace(
         "body{margin:0}",
@@ -1436,7 +1454,7 @@ def test_edit_phase_applies_deterministic_quality_repair_without_model_rewrite(m
         raise AssertionError(f"edit warning 不应触发模型重写: {kwargs}")
 
     monkeypatch.setattr(settings, "aetherviz_max_repair_attempts", 1)
-    monkeypatch.setattr(generate_workflow, "stream_repair_html", fail_model_repair)
+    monkeypatch.setattr(generate_workflow, "stream_repair_html", fail_model_repair, raising=False)
     raw_events = list(
         generate_workflow.run_html_pipeline(
             run_id="run-edit-quality",
@@ -1463,7 +1481,7 @@ def test_edit_phase_applies_deterministic_quality_repair_without_model_rewrite(m
 def test_edit_html_stream_propagates_generator_exit(monkeypatch) -> None:
     from unittest.mock import MagicMock
 
-    from aetherviz_service.aetherviz.workflow import edit_html_workflow
+    from aetherviz_service.aetherviz.edit import workflow as edit_html_workflow
 
     monkeypatch.setattr(settings, "openai_api_key", "test-key")
 
@@ -1487,8 +1505,8 @@ def test_edit_html_stream_propagates_generator_exit(monkeypatch) -> None:
 def test_edit_html_always_regenerates_full_html_from_current_page(monkeypatch) -> None:
     from unittest.mock import MagicMock
 
-    from aetherviz_service.aetherviz.agents.html_agent import HtmlStreamResult
-    from aetherviz_service.aetherviz.workflow import edit_html_workflow
+    from aetherviz_service.aetherviz.generate.html_agent import HtmlStreamResult
+    from aetherviz_service.aetherviz.edit import workflow as edit_html_workflow
 
     source = sample_html()
     regenerated = source.replace("<title>熵增演示</title>", "<title>重新生成的熵增演示</title>")
@@ -1515,8 +1533,8 @@ def test_edit_html_always_regenerates_full_html_from_current_page(monkeypatch) -
 
 
 def test_edit_workflow_diagnoses_before_passing_current_business_html_to_regeneration(monkeypatch) -> None:
-    from aetherviz_service.aetherviz.agents.html_agent import HtmlStreamResult
-    from aetherviz_service.aetherviz.workflow import edit_html_workflow
+    from aetherviz_service.aetherviz.generate.html_agent import HtmlStreamResult
+    from aetherviz_service.aetherviz.edit import workflow as edit_html_workflow
 
     captured: dict[str, object] = {}
 
@@ -1549,24 +1567,26 @@ def test_edit_workflow_diagnoses_before_passing_current_business_html_to_regener
     assert "context" not in captured
 
 
-def test_full_html_edit_retries_unchanged_result_with_failure_feedback(monkeypatch) -> None:
-    from aetherviz_service.aetherviz.agents.html_agent import HtmlGenerationError, HtmlStreamResult
-    from aetherviz_service.aetherviz.workflow import edit_html_workflow
+def test_full_html_edit_retries_intent_failure_with_evidence(monkeypatch) -> None:
+    from aetherviz_service.aetherviz.generate.html_agent import HtmlGenerationError, HtmlStreamResult
+    from aetherviz_service.aetherviz.edit import workflow as edit_html_workflow
 
-    calls: list[dict[str, str]] = []
+    calls: list[dict[str, object]] = []
 
     def fake_stream_edit_html(**kwargs):
         calls.append(kwargs)
         if len(calls) == 1:
             raise HtmlGenerationError(
-                "HTML 修改失败，模型未产生实际变化，原页面已保留",
-                code="edit_no_change",
-                detail="candidate_unchanged",
+                "HTML 修改结果未满足本次编辑验收条件，原页面已保留",
+                code="edit_intent_not_satisfied",
+                detail="上一轮完整编辑未通过意图验收：\n- [id=c1 kind=html_must_differ group=change] html_unchanged",
             )
         yield HtmlStreamResult(
             html=kwargs["current_html"].replace("</body>", "<p>已修改</p></body>"),
             degraded=False,
             strategy="full_html_regeneration",
+            intent_passed=True,
+            intent_check_count=1,
         )
 
     monkeypatch.setattr(settings, "aetherviz_edit_max_retries", 1)
@@ -1583,15 +1603,16 @@ def test_full_html_edit_retries_unchanged_result_with_failure_feedback(monkeypat
     result = next(item for item in items if isinstance(item, HtmlStreamResult))
     assert len(calls) == 2
     assert calls[0]["current_html"] == calls[1]["current_html"]
-    assert "上一轮完整编辑未被接受：edit_no_change" in calls[1]["message"]
+    assert "上一轮完整编辑未被接受：edit_intent_not_satisfied" in str(calls[1]["message"])
+    assert "id=c1" in str(calls[1]["message"])
     assert "已修改" in result.html
 
 
 def test_edit_html_rejects_truncated_full_output_without_partial_repair(monkeypatch) -> None:
     from unittest.mock import MagicMock
 
-    from aetherviz_service.aetherviz.agents.html_agent import HtmlGenerationError
-    from aetherviz_service.aetherviz.workflow import edit_html_workflow
+    from aetherviz_service.aetherviz.generate.html_agent import HtmlGenerationError
+    from aetherviz_service.aetherviz.edit import workflow as edit_html_workflow
 
     class TruncatedModel:
         def stream(self, messages):
@@ -1617,8 +1638,8 @@ def test_edit_html_rejects_truncated_full_output_without_partial_repair(monkeypa
 def test_edit_html_reports_full_html_regeneration_strategy(monkeypatch) -> None:
     from unittest.mock import MagicMock
 
-    from aetherviz_service.aetherviz.agents.html_agent import HtmlStreamResult
-    from aetherviz_service.aetherviz.workflow import edit_html_workflow
+    from aetherviz_service.aetherviz.generate.html_agent import HtmlStreamResult
+    from aetherviz_service.aetherviz.edit import workflow as edit_html_workflow
 
     source = sample_html()
     edited = source.replace("<title>熵增演示</title>", "<title>已完整编辑</title>")
@@ -1647,8 +1668,8 @@ def test_edit_html_reports_full_html_regeneration_strategy(monkeypatch) -> None:
 def test_edit_html_rejects_unchanged_regeneration(monkeypatch) -> None:
     from unittest.mock import MagicMock
 
-    from aetherviz_service.aetherviz.agents.html_agent import HtmlGenerationError
-    from aetherviz_service.aetherviz.workflow import edit_html_workflow
+    from aetherviz_service.aetherviz.generate.html_agent import HtmlGenerationError
+    from aetherviz_service.aetherviz.edit import workflow as edit_html_workflow
 
     class UnchangedModel:
         def stream(self, messages):
@@ -1664,15 +1685,15 @@ def test_edit_html_rejects_unchanged_regeneration(monkeypatch) -> None:
             )
         )
 
-    assert exc_info.value.code == "edit_no_change"
-    assert "candidate_unchanged" in exc_info.value.detail
+    assert exc_info.value.code == "edit_intent_not_satisfied"
+    assert "html_must_differ" in exc_info.value.detail or "html_unchanged" in exc_info.value.detail
 
 
 def test_edit_html_layout_wording_reaches_model_instead_of_keyword_rejection(monkeypatch) -> None:
     from unittest.mock import MagicMock
 
-    from aetherviz_service.aetherviz.agents.html_agent import HtmlStreamResult
-    from aetherviz_service.aetherviz.workflow import edit_html_workflow
+    from aetherviz_service.aetherviz.generate.html_agent import HtmlStreamResult
+    from aetherviz_service.aetherviz.edit import workflow as edit_html_workflow
 
     source = sample_html()
     edited = source.replace("<title>熵增演示</title>", "<title>布局意图已处理</title>")
@@ -1698,8 +1719,8 @@ def test_edit_html_layout_wording_reaches_model_instead_of_keyword_rejection(mon
 
 
 def test_edit_html_requires_model_configuration(monkeypatch) -> None:
-    from aetherviz_service.aetherviz.agents.html_agent import HtmlGenerationError
-    from aetherviz_service.aetherviz.workflow import edit_html_workflow
+    from aetherviz_service.aetherviz.generate.html_agent import HtmlGenerationError
+    from aetherviz_service.aetherviz.edit import workflow as edit_html_workflow
 
     monkeypatch.setattr(settings, "openai_api_key", "")
 
@@ -1714,7 +1735,7 @@ def test_edit_html_requires_model_configuration(monkeypatch) -> None:
 
 
 def test_edit_html_preserves_widget_type_and_actions() -> None:
-    from aetherviz_service.aetherviz.workflow.edit_html_workflow import _edit_contract_errors
+    from aetherviz_service.aetherviz.edit.workflow import _edit_contract_errors
 
     source = sample_html().replace(
         "window.addEventListener('message', handleMessage);",
@@ -1733,7 +1754,7 @@ def test_edit_html_preserves_widget_type_and_actions() -> None:
 def test_repair_stream_propagates_generator_exit(monkeypatch) -> None:
     from unittest.mock import MagicMock
 
-    from aetherviz_service.aetherviz.agents import repair_agent
+    from aetherviz_service.aetherviz.contracts.repair import model as repair_agent
 
     monkeypatch.setattr(settings, "openai_api_key", "test-key")
 
@@ -1756,7 +1777,7 @@ def test_repair_stream_propagates_generator_exit(monkeypatch) -> None:
 
 
 def test_widget_contract_warns_about_duplicate_setattribute_label_positions() -> None:
-    from aetherviz_service.aetherviz.tools.widget_contract_checker import check_widget_runtime_contract
+    from aetherviz_service.aetherviz.contracts.validation.widget_contract_checker import check_widget_runtime_contract
 
     html = sample_html().replace(
         "function updateVisualization(){",
@@ -1776,7 +1797,7 @@ def test_widget_contract_warns_about_duplicate_setattribute_label_positions() ->
 
 
 def test_widget_contract_accepts_distinct_setattribute_label_positions() -> None:
-    from aetherviz_service.aetherviz.tools.widget_contract_checker import check_widget_runtime_contract
+    from aetherviz_service.aetherviz.contracts.validation.widget_contract_checker import check_widget_runtime_contract
 
     html = sample_html().replace(
         "function updateVisualization(){",
@@ -1793,7 +1814,7 @@ def test_widget_contract_accepts_distinct_setattribute_label_positions() -> None
 
 
 def test_widget_contract_warns_about_duplicate_static_text_positions() -> None:
-    from aetherviz_service.aetherviz.tools.widget_contract_checker import check_widget_runtime_contract
+    from aetherviz_service.aetherviz.contracts.validation.widget_contract_checker import check_widget_runtime_contract
 
     html = sample_html().replace(
         '<circle id="dot" cx="20" cy="50" r="8"></circle>',
@@ -1821,26 +1842,26 @@ def test_generation_and_edit_prompts_include_stage_centering_rules() -> None:
     )
 
     shared_rule_marker = STAGE_CENTERING_AND_LABEL_PROMPT.strip().splitlines()[-1]
-    for prompt in (SIMULATION_SYSTEM_PROMPT, EDIT_HTML_SYSTEM_PROMPT):
-        assert shared_rule_marker in prompt
-        assert "viewBox" in prompt
-        assert "页面排版 token" in prompt
-        assert "getScreenCTM()" in prompt
-        assert "getBoundingClientRect" in prompt
-        assert "禁止按具体文本内容、元素 id 或单个初始状态打补丁" in prompt
-        assert SERVER_LAYOUT_CONTRACT_PROMPT.strip().splitlines()[-1] in prompt
-        assert "ResizeObserver" in prompt
-        assert "不得创作外层 app shell" in prompt
-        assert VISUAL_DESIGN_SYSTEM_PROMPT.strip().splitlines()[-1] in prompt
-        assert "清爽教学工作台" in prompt
-        assert "#2d4f41" in prompt
-        assert NUMERIC_PRESENTATION_PROMPT.strip().splitlines()[-1] in prompt
-        assert GRAPHICS_CRAFT_PROMPT.strip().splitlines()[-1] in prompt
-        assert "连续计算状态与可见展示状态必须分离" in prompt
-        assert "共享边、连接点和轮廓" in prompt
-        assert "统一局部坐标系" in prompt
-        assert "AetherVizAnimationController.create" in prompt
-        assert "禁止按具体图形、路径 id、坐标或预设写特例" in prompt
+    # Generation prompts keep full delivery rules.
+    assert shared_rule_marker in SIMULATION_SYSTEM_PROMPT
+    assert "viewBox" in SIMULATION_SYSTEM_PROMPT
+    assert "页面排版 token" in SIMULATION_SYSTEM_PROMPT
+    assert "getScreenCTM()" in SIMULATION_SYSTEM_PROMPT
+    assert "getBoundingClientRect" in SIMULATION_SYSTEM_PROMPT
+    assert SERVER_LAYOUT_CONTRACT_PROMPT.strip().splitlines()[-1] in SIMULATION_SYSTEM_PROMPT
+    assert VISUAL_DESIGN_SYSTEM_PROMPT.strip().splitlines()[-1] in SIMULATION_SYSTEM_PROMPT
+    assert "清爽教学工作台" in SIMULATION_SYSTEM_PROMPT
+    assert "#2d4f41" in SIMULATION_SYSTEM_PROMPT
+    assert NUMERIC_PRESENTATION_PROMPT.strip().splitlines()[-1] in SIMULATION_SYSTEM_PROMPT
+    assert GRAPHICS_CRAFT_PROMPT.strip().splitlines()[-1] in SIMULATION_SYSTEM_PROMPT
+    assert "连续计算状态与可见展示状态必须分离" in SIMULATION_SYSTEM_PROMPT
+    assert "AetherVizAnimationController.create" in SIMULATION_SYSTEM_PROMPT
+
+    # Edit prompts are HTML-baseline only and must not re-inject generation delivery fragments.
+    assert shared_rule_marker not in EDIT_HTML_SYSTEM_PROMPT
+    assert "清爽教学工作台" not in EDIT_HTML_SYSTEM_PROMPT
+    assert "服务端布局契约" not in EDIT_HTML_SYSTEM_PROMPT
+    assert "唯一事实基线" in EDIT_HTML_SYSTEM_PROMPT
 
     assert "浅色实验舞台" in SIMULATION_SYSTEM_PROMPT
     assert "widget-config.variables[].default" in SIMULATION_SYSTEM_PROMPT
@@ -1887,7 +1908,7 @@ def test_default_design_brief_matches_frontend_visual_language() -> None:
 
 
 def test_widget_contract_warns_about_fixed_sidebars_and_missing_stage_guards() -> None:
-    from aetherviz_service.aetherviz.tools.widget_contract_checker import check_widget_runtime_contract
+    from aetherviz_service.aetherviz.contracts.validation.widget_contract_checker import check_widget_runtime_contract
 
     html = sample_html().replace(
         "body{margin:0}",
@@ -1903,7 +1924,7 @@ def test_widget_contract_warns_about_fixed_sidebars_and_missing_stage_guards() -
 
 
 def test_widget_contract_warns_about_mixed_abstract_svg_units() -> None:
-    from aetherviz_service.aetherviz.tools.widget_contract_checker import check_widget_runtime_contract
+    from aetherviz_service.aetherviz.contracts.validation.widget_contract_checker import check_widget_runtime_contract
 
     html = sample_html().replace(
         "body{margin:0}",
@@ -1913,7 +1934,7 @@ def test_widget_contract_warns_about_mixed_abstract_svg_units() -> None:
         '<svg viewBox="-6 -6 12 12"><line class="axis-line" x1="-6" y1="0" x2="6" y2="0"></line>'
         '<text class="label-text">x</text>',
     )
-    from aetherviz_service.aetherviz.tools.layout_contract import assemble_layout_contract
+    from aetherviz_service.aetherviz.contracts.layout import assemble_layout_contract
 
     html = assemble_layout_contract(html, sample_plan())
 
@@ -1926,7 +1947,7 @@ def test_widget_contract_warns_about_mixed_abstract_svg_units() -> None:
 
 
 def test_svg_scale_guard_marker_alone_cannot_bypass_unit_validation() -> None:
-    from aetherviz_service.aetherviz.tools.widget_contract_checker import check_widget_runtime_contract
+    from aetherviz_service.aetherviz.contracts.validation.widget_contract_checker import check_widget_runtime_contract
 
     html = sample_html().replace(
         "body{margin:0}",
@@ -1945,8 +1966,8 @@ def test_svg_scale_guard_marker_alone_cannot_bypass_unit_validation() -> None:
 
 
 def test_deterministic_quality_repair_adds_generic_svg_guard_under_server_layout() -> None:
-    from aetherviz_service.aetherviz.tools.deterministic_repair import deterministic_repair_html
-    from aetherviz_service.aetherviz.tools.validation_report import build_validation_report
+    from aetherviz_service.aetherviz.contracts.repair.deterministic import deterministic_repair_html
+    from aetherviz_service.aetherviz.contracts.validation.report import build_validation_report
 
     html = sample_html().replace(
         "body{margin:0}",
@@ -1956,7 +1977,7 @@ def test_deterministic_quality_repair_adds_generic_svg_guard_under_server_layout
         '<svg viewBox="0 0 100 100">',
         '<svg viewBox="-6 -6 12 12"><line class="axis-line"></line><text class="label-text">x</text>',
     )
-    from aetherviz_service.aetherviz.tools.layout_contract import assemble_layout_contract
+    from aetherviz_service.aetherviz.contracts.layout import assemble_layout_contract
 
     html = assemble_layout_contract(html, sample_plan())
     report = build_validation_report(html)
@@ -1978,7 +1999,7 @@ def test_deterministic_quality_repair_adds_generic_svg_guard_under_server_layout
 
 
 def test_discipline_checker_accepts_runtime_svg_mounted_in_stage() -> None:
-    from aetherviz_service.aetherviz.tools.discipline_consistency_checker import check_discipline_consistency
+    from aetherviz_service.aetherviz.contracts.validation.discipline_consistency_checker import check_discipline_consistency
 
     html = sample_html().replace(
         '<svg viewBox="0 0 100 100"><circle id="dot" cx="20" cy="50" r="8"></circle></svg>',
@@ -2002,7 +2023,7 @@ def test_discipline_checker_accepts_runtime_svg_mounted_in_stage() -> None:
 
 def test_widget_contract_accepts_static_viewbox_for_attribute_only_redraw() -> None:
     """Attribute-only updates stay within a designable envelope: static viewBox is preferred."""
-    from aetherviz_service.aetherviz.tools.widget_contract_checker import check_widget_runtime_contract
+    from aetherviz_service.aetherviz.contracts.validation.widget_contract_checker import check_widget_runtime_contract
 
     html = sample_html().replace(
         '<button id="play-animation">播放</button>',
@@ -2019,7 +2040,7 @@ def test_widget_contract_accepts_static_viewbox_for_attribute_only_redraw() -> N
 
 
 def test_widget_contract_warns_when_static_geometry_is_mostly_outside_viewbox() -> None:
-    from aetherviz_service.aetherviz.tools.widget_contract_checker import check_widget_runtime_contract
+    from aetherviz_service.aetherviz.contracts.validation.widget_contract_checker import check_widget_runtime_contract
 
     html = sample_html().replace(
         '<svg viewBox="0 0 100 100"><circle id="dot" cx="20" cy="50" r="8"></circle></svg>',
@@ -2034,7 +2055,7 @@ def test_widget_contract_warns_when_static_geometry_is_mostly_outside_viewbox() 
 
 
 def test_widget_contract_accepts_centered_static_geometry_viewbox() -> None:
-    from aetherviz_service.aetherviz.tools.widget_contract_checker import check_widget_runtime_contract
+    from aetherviz_service.aetherviz.contracts.validation.widget_contract_checker import check_widget_runtime_contract
 
     html = sample_html().replace(
         '<svg viewBox="0 0 100 100"><circle id="dot" cx="20" cy="50" r="8"></circle></svg>',
@@ -2049,7 +2070,7 @@ def test_widget_contract_accepts_centered_static_geometry_viewbox() -> None:
 
 
 def test_widget_contract_does_not_treat_dynamic_text_labels_as_unknown_geometry() -> None:
-    from aetherviz_service.aetherviz.tools.widget_contract_checker import check_widget_runtime_contract
+    from aetherviz_service.aetherviz.contracts.validation.widget_contract_checker import check_widget_runtime_contract
 
     html = sample_html().replace(
         '<button id="play-animation">播放</button>',
@@ -2067,7 +2088,7 @@ def test_widget_contract_does_not_treat_dynamic_text_labels_as_unknown_geometry(
 
 
 def test_widget_contract_warns_when_structural_svg_mutation_keeps_static_viewbox() -> None:
-    from aetherviz_service.aetherviz.tools.widget_contract_checker import check_widget_runtime_contract
+    from aetherviz_service.aetherviz.contracts.validation.widget_contract_checker import check_widget_runtime_contract
 
     html = sample_html().replace(
         '<button id="play-animation">播放</button>',
@@ -2086,7 +2107,7 @@ def test_widget_contract_warns_when_structural_svg_mutation_keeps_static_viewbox
 
 
 def test_widget_contract_accepts_dynamic_viewbox_after_structural_mutation() -> None:
-    from aetherviz_service.aetherviz.tools.widget_contract_checker import check_widget_runtime_contract
+    from aetherviz_service.aetherviz.contracts.validation.widget_contract_checker import check_widget_runtime_contract
 
     html = sample_html().replace(
         '<button id="play-animation">播放</button>',
@@ -2105,7 +2126,7 @@ def test_widget_contract_accepts_dynamic_viewbox_after_structural_mutation() -> 
 
 
 def test_widget_contract_warns_about_per_frame_viewbox_refit() -> None:
-    from aetherviz_service.aetherviz.tools.widget_contract_checker import check_widget_runtime_contract
+    from aetherviz_service.aetherviz.contracts.validation.widget_contract_checker import check_widget_runtime_contract
 
     html = sample_html().replace(
         "function play(){ updateVisualization(); }",
@@ -2122,7 +2143,7 @@ def test_widget_contract_warns_about_per_frame_viewbox_refit() -> None:
 
 
 def test_widget_contract_warns_about_unguarded_resizeobserver_viewbox_write() -> None:
-    from aetherviz_service.aetherviz.tools.widget_contract_checker import check_widget_runtime_contract
+    from aetherviz_service.aetherviz.contracts.validation.widget_contract_checker import check_widget_runtime_contract
 
     html = sample_html().replace(
         "function play(){ updateVisualization(); }",
@@ -2139,7 +2160,7 @@ def test_widget_contract_warns_about_unguarded_resizeobserver_viewbox_write() ->
 
 
 def test_widget_contract_accepts_guarded_resizeobserver_viewbox_write() -> None:
-    from aetherviz_service.aetherviz.tools.widget_contract_checker import check_widget_runtime_contract
+    from aetherviz_service.aetherviz.contracts.validation.widget_contract_checker import check_widget_runtime_contract
 
     html = sample_html().replace(
         "function play(){ updateVisualization(); }",
@@ -2263,7 +2284,7 @@ def test_html_prompt_composes_subject_and_representation_modules() -> None:
 
 
 def test_discipline_consistency_checker_reports_non_blocking_representation_risk() -> None:
-    from aetherviz_service.aetherviz.tools.discipline_consistency_checker import check_discipline_consistency
+    from aetherviz_service.aetherviz.contracts.validation.discipline_consistency_checker import check_discipline_consistency
     from aetherviz_service.aetherviz.workflow.plan_contract import normalize_plan
 
     plan = normalize_plan({}, "函数图像与参数变化")

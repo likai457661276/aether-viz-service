@@ -1,10 +1,12 @@
-from aetherviz_service.aetherviz.tools.deterministic_repair import deterministic_repair_html
-from aetherviz_service.aetherviz.tools.dom_api_contract import (
+from aetherviz_service.aetherviz.contracts.repair.deterministic import deterministic_repair_html
+from aetherviz_service.aetherviz.contracts.validation.dom_api_contract import (
     find_dom_element_selector_mismatches,
     repair_dom_element_selector_mismatches,
 )
-from aetherviz_service.aetherviz.tools.validation_report import build_validation_report
-from aetherviz_service.aetherviz.workflow.edit_html_workflow import _deterministic_runtime_edit
+from aetherviz_service.aetherviz.contracts.validation.report import build_validation_report
+from aetherviz_service.aetherviz.edit.diagnosis import EditDiagnosis
+from aetherviz_service.aetherviz.edit.intent import IntentCheck
+from aetherviz_service.aetherviz.edit.runtime_prepair import try_deterministic_runtime_prepair
 
 
 def _mismatch_html() -> str:
@@ -19,6 +21,31 @@ document.querySelectorAll('[data-katex]').forEach(element => {
   renderFormula(element, element.getAttribute('data-katex'));
 });
 </script></body></html>"""
+
+
+def _edit_diagnosis() -> EditDiagnosis:
+    return EditDiagnosis(
+        intent="fix_and_change_animation",
+        scope="animation_pipeline",
+        strategy="full_html_regeneration",
+        problem="修复公式渲染错误并改变动画轨迹",
+        confidence=0.95,
+        resolved_instruction="修复公式渲染错误，并将动画轨迹改为更明显的联动效果",
+        change_requirements=("公式正常渲染", "动画轨迹产生明显变化"),
+        preserve_requirements=("保持原教学内容",),
+        impact_areas=("render", "animation", "runtime"),
+        acceptance_criteria=("页面无 querySelector 参数错误", "播放后轨迹变化可观察"),
+        change_checks=(
+            IntentCheck(
+                id="c1",
+                kind="html_must_differ",
+                severity="hard",
+                baseline_binding="must_differ",
+                rationale="必须产生可观察变化",
+                group="change",
+            ),
+        ),
+    )
 
 
 def test_detects_and_repairs_dom_element_used_as_selector() -> None:
@@ -53,32 +80,30 @@ def test_validation_and_deterministic_generation_repair_cover_mismatch() -> None
     assert not any(error["type"] == "dom_element_used_as_selector" for error in repaired_report["errors"])
 
 
-def test_runtime_edit_uses_deterministic_function_patch() -> None:
-    result = _deterministic_runtime_edit(
+def test_runtime_edit_uses_deterministic_prepair() -> None:
+    result = try_deterministic_runtime_prepair(
         _mismatch_html(),
         {"message": "Failed to execute 'querySelector': '[object HTMLSpanElement]' is not a valid selector"},
     )
 
     assert result is not None
-    diagnosis, operation = result
-    assert diagnosis.targets[0]["function"] == "renderFormula"
-    assert operation.strategy == "function_patch"
-    assert operation.applied == ("function:renderFormula",)
-    assert operation.guard is not None
-    assert operation.guard(operation.html) == []
+    assert result.applied == ("function:renderFormula",)
+    assert result.guard is not None
+    assert result.guard(result.html) == []
+    assert result.guard(_mismatch_html()) == ["edit_runtime_error_still_present:dom_element_used_as_selector"]
 
 
 def test_deterministic_runtime_repair_does_not_short_circuit_full_edit(monkeypatch) -> None:
-    from aetherviz_service.aetherviz.agents.html_agent import HtmlStreamResult
-    from aetherviz_service.aetherviz.workflow import edit_html_workflow
+    from aetherviz_service.aetherviz.generate.html_agent import HtmlStreamResult
+    from aetherviz_service.aetherviz.edit import workflow as edit_html_workflow
 
-    deterministic = _deterministic_runtime_edit(
+    prepair = try_deterministic_runtime_prepair(
         _mismatch_html(),
         {"message": "Failed to execute 'querySelector': '[object HTMLSpanElement]' is not a valid selector"},
     )
-    assert deterministic is not None
-    diagnosis, operation = deterministic
-    captured: dict[str, str] = {}
+    assert prepair is not None
+    diagnosis = _edit_diagnosis()
+    captured: dict[str, object] = {}
 
     def fake_full_edit(**kwargs):
         captured.update(kwargs)
@@ -94,39 +119,27 @@ def test_deterministic_runtime_repair_does_not_short_circuit_full_edit(monkeypat
         edit_html_workflow._stream_diagnosed_edit(
             topic="联动动画",
             message="修复错误并改变运动轨迹",
-            current_html=operation.html,
+            current_html=prepair.html,
             diagnosis=diagnosis,
             context_summary={"runtime_error": {"message": "querySelector error"}},
         )
     )
 
-    assert captured["current_html"] == operation.html
-    assert "改变运动轨迹" in captured["message"]
+    assert captured["current_html"] == prepair.html
+    assert "改变运动轨迹" in str(captured["message"])
     assert any(isinstance(item, HtmlStreamResult) for item in items)
 
 
 def test_workflow_rebuilds_context_and_calls_llm_after_deterministic_pre_repair(monkeypatch) -> None:
-    from aetherviz_service.aetherviz.agents.edit_diagnosis_agent import EditDiagnosis
-    from aetherviz_service.aetherviz.agents.html_agent import HtmlStreamResult
-    from aetherviz_service.aetherviz.workflow import edit_html_workflow
+    from aetherviz_service.aetherviz.generate.html_agent import HtmlStreamResult
+    from aetherviz_service.aetherviz.edit import workflow as edit_html_workflow
 
     captured: dict[str, object] = {}
 
     def fake_diagnose_edit(**kwargs):
         captured["diagnosis_business_html"] = kwargs["business_html"]
         captured["context_summary"] = kwargs["context_summary"]
-        return EditDiagnosis(
-            intent="fix_and_change_animation",
-            scope="animation_pipeline",
-            strategy="full_html_regeneration",
-            problem="修复公式渲染错误并改变动画轨迹",
-            confidence=0.95,
-            resolved_instruction="修复公式渲染错误，并将动画轨迹改为更明显的联动效果",
-            change_requirements=("公式正常渲染", "动画轨迹产生明显变化"),
-            preserve_requirements=("保持原教学内容",),
-            impact_areas=("render", "animation", "runtime"),
-            acceptance_criteria=("页面无 querySelector 参数错误", "播放后轨迹变化可观察"),
-        )
+        return _edit_diagnosis()
 
     def fake_full_edit(**kwargs):
         captured["generation_business_html"] = kwargs["current_html"]
@@ -163,4 +176,7 @@ def test_workflow_rebuilds_context_and_calls_llm_after_deterministic_pre_repair(
     assert captured["generation_business_html"] == captured["diagnosis_business_html"]
     assert "deterministic_pre_repair" in captured["context_summary"]
     assert "已编译编辑任务" in str(captured["generation_message"])
+    assert "change_checks" in str(captured["generation_message"])
     assert callable(captured["candidate_guard"])
+    # Combined guard should reject baseline mismatch HTML.
+    assert captured["candidate_guard"](_mismatch_html())
