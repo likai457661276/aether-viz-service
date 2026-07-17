@@ -80,6 +80,15 @@ def normalize_representation_spec(
         correspondences = correspondences or inferred["correspondences"]
         invariants = invariants or inferred["required_invariants"]
 
+    correspondences, invariants = _augment_linked_correspondence(
+        views=views,
+        states=states,
+        correspondences=correspondences,
+        invariants=invariants,
+        representation=representation,
+        semantic_text=semantic_text,
+    )
+
     if not interactions and interactive_spec.get("type") == "simulation":
         interactions = ["scrub", "play", "pause", "reset"]
     return {
@@ -90,6 +99,49 @@ def normalize_representation_spec(
         "required_invariants": invariants,
         "interaction_requirements": interactions,
     }
+
+
+def _augment_linked_correspondence(
+    *,
+    views: list[dict[str, str]],
+    states: list[dict[str, Any]],
+    correspondences: list[dict[str, str]],
+    invariants: list[str],
+    representation: str,
+    semantic_text: str,
+) -> tuple[list[dict[str, str]], list[str]]:
+    strong_types = {"point_on_curve", "projection", "equal_value", "coincident"}
+    if any(item["type"] in strong_types for item in correspondences) or not states:
+        return correspondences, invariants
+    coordinate_views = [item for item in views if item["kind"] == "coordinate_plane"]
+    source_views = [item for item in views if item["kind"] != "coordinate_plane"]
+    semantic_linked = (
+        any(cue in semantic_text for cue in _LINK_RELATIONS)
+        and any(cue in semantic_text for cue in _GRAPH_CONCEPTS)
+        and any(cue in semantic_text for cue in _SOURCE_MOTIONS)
+    )
+    if len(coordinate_views) != 1 or len(source_views) != 1 or not (
+        representation == "linked_coordinate_scene" or semantic_linked
+    ):
+        return correspondences, invariants
+    relation = "point_on_curve" if "point_on_curve" in invariants else "equal_value"
+    parameter = str(states[0]["id"])
+    augmented = [
+        *correspondences,
+        {
+            "type": relation,
+            "source_view": source_views[0]["id"],
+            "target_view": coordinate_views[0]["id"],
+            "parameter": parameter,
+            "source": "dynamic-value",
+            "target": "graph-value",
+        },
+    ]
+    required = list(invariants)
+    for invariant in ("point_on_curve", "equal_value"):
+        if invariant not in required:
+            required.append(invariant)
+    return augmented[:12], required[:12]
 
 
 def representation_spec_fingerprint(plan: dict[str, Any]) -> str:

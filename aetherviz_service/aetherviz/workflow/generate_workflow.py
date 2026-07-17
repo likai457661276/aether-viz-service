@@ -133,6 +133,9 @@ def _run_generate_workflow_impl(
             "generation_route_llm_accepted": route.llm_accepted,
             "generation_route_fallback": route.fallback,
             "generation_route_elapsed_ms": route.elapsed_ms,
+            "generation_route_plan_fingerprint": route.plan_fingerprint,
+            "generation_route_reasons": list(route.reasons),
+            "generation_route_candidates": [candidate.as_dict() for candidate in route.candidates],
         },
     )
 
@@ -286,6 +289,19 @@ def run_html_pipeline(
         )
         html = assemble_layout_contract(business_html, plan)
         if not report["ok"]:
+            if not source_truncated:
+                yield agent_sse_event(
+                    "html.repair_source",
+                    run_id=run_id,
+                    phase=phase,
+                    data={
+                        "html": html,
+                        "report": report,
+                        "renderable": False,
+                        "message": "保留完整失败候选稿，供后续 edit_html 定向修复",
+                    },
+                    metadata=_metadata(metadata, started_at, stage="validation"),
+                )
             yield agent_error_event(
                 run_id=run_id,
                 phase=phase,
@@ -349,6 +365,9 @@ def run_html_pipeline(
                 "first_chunk_elapsed_ms": metadata.get("first_chunk_elapsed_ms", 0),
                 "generation_elapsed_ms": metadata.get("generation_elapsed_ms", 0),
                 "generation_backend": metadata["generation_backend"],
+                "generation_route_plan_fingerprint": metadata.get("generation_route_plan_fingerprint"),
+                "generation_route_reasons": metadata.get("generation_route_reasons", []),
+                "generation_route_candidates": metadata.get("generation_route_candidates", []),
                 "layout_contract_version": LAYOUT_CONTRACT_VERSION,
                 "truncated": metadata.get("truncated", False),
                 "bytes": len(html.encode("utf-8")),

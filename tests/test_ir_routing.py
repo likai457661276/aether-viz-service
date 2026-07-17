@@ -75,6 +75,57 @@ def test_normalized_plan_contains_generic_representation_spec() -> None:
     }
 
 
+def test_partial_linked_spec_is_augmented_with_cross_view_relation() -> None:
+    plan = normalize_plan(
+        {
+            "interactive_type": "simulation",
+            "interactive_spec": {
+                "type": "simulation",
+                "concept": "单位圆运动与正弦曲线联动",
+                "description": "同一角度参数驱动圆周动点与坐标曲线",
+                "variables": [{"name": "theta", "min": 0, "max": 6.28, "default": 0}],
+                "presets": [],
+                "observations": [],
+            },
+            "representation_spec": {
+                "views": [
+                    {"id": "circle", "kind": "geometric_scene", "role": "圆周运动"},
+                    {"id": "graph", "kind": "coordinate_plane", "role": "函数曲线"},
+                ],
+                "state_variables": [{"id": "theta", "semantic_type": "angle"}],
+                "correspondences": [
+                    {
+                        "type": "shared_parameter",
+                        "source_view": "circle",
+                        "target_view": "graph",
+                        "parameter": "theta",
+                    }
+                ],
+                "required_invariants": ["point_on_curve", "equal_value"],
+            },
+        },
+        "单位圆运动与正弦曲线联动",
+    )
+
+    relation_types = {item["type"] for item in plan["representation_spec"]["correspondences"]}
+    assert relation_types >= {"shared_parameter", "point_on_curve"}
+    assert service.resolve_generation_route(plan).selected_backend == "linked_coordinate_scene"
+
+
+def test_unrelated_recomposition_payload_is_dropped_from_linked_plan() -> None:
+    plan = normalize_plan(
+        {
+            "recomposition_spec": {
+                "topology_variables": ["theta"],
+                "invariants": ["piece_identity_preserved"],
+            }
+        },
+        "单位圆投影与正弦曲线联动",
+    )
+
+    assert "recomposition_spec" not in plan
+
+
 def test_representation_state_range_is_bound_to_interactive_variable_contract() -> None:
     plan = normalize_plan(
         {

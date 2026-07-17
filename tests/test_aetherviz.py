@@ -1234,6 +1234,7 @@ def test_generate_phase_rejects_stalled_model_repair_and_preserves_previous_html
         if event == "repair.done" and data["data"].get("strategy") == "model"
     )
     error = next(data for event, data in events if event == "error")
+    repair_source_event = next(data for event, data in events if event == "html.repair_source")
 
     assert repair_calls == 1
     assert model_done["data"]["accepted"] is False
@@ -1242,6 +1243,10 @@ def test_generate_phase_rejects_stalled_model_repair_and_preserves_previous_html
     assert model_done["data"]["model_chars"] == len(repair_source)
     assert model_done["data"]["chars"] > model_done["data"]["model_chars"]
     assert error["data"]["code"] == "validation_failed"
+    assert repair_source_event["data"]["renderable"] is False
+    assert repair_source_event["data"]["html"].startswith("<!DOCTYPE html>")
+    assert repair_source_event["data"]["report"]["ok"] is False
+    assert [event for event, _ in events].index("html.repair_source") < [event for event, _ in events].index("error")
     assert not any(event == "html.done" for event, _ in events)
 
 

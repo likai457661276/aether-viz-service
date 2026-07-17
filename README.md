@@ -284,6 +284,7 @@ HTML 文件编辑阶段请求示例：
 - `validation.candidate`：仅表示尚未接受的修复候选，固定包含 `accepted=false`、`rolled_back=true`、`rejection_reason`，前端不得用其覆盖当前有效报告
 - `repair.started`
 - `repair.done`：修复结束状态，`data` 同时返回修复后最终 `bytes` 和 `chars`
+- `html.repair_source`：仅在完整、未截断的候选稿仍未通过硬校验时发送，携带 `renderable=false` 的完整 HTML 与校验报告，只允许前端作为下一次 `phase=edit_html` 的修复基线，不得预览或保存为成功产物
 - `html.done`：返回完整 HTML；metadata 额外包含最终 `bytes`、`chars`、`model_chars`、`assembled_chars`、`assembly_overhead_chars`、`assembly_count` 和 `truncated`
 - `context.compressed`：仅在传入规划上下文确实超过上限并被裁剪时发送
 - `error`：生成失败，包含用户可读 `message`、错误码 `code` 和调试用 `detail`。
@@ -315,7 +316,7 @@ HTML 文件编辑阶段请求示例：
    Widget 校验还会识别由场景 builder 创建、却在 builder/init 调用前绑定事件或调用 DOM 方法的动态节点，并阻止仅通过空值 early-return 掩盖初始化失败的候选；KaTeX 页面中残留的可见数学定界符也会进入修复流程。
 7. 检查失败时先确定性修复业务 HTML。控制器顶层 `onUpdate` 误传会只改写为 `update`，不会重写完整文档；其他生命周期错误优先使用“报告点名函数/方法/箭头函数 + SHA-256 源哈希”的函数级替换，限制函数数量和总字符数，失败回滚后仍允许其他硬错误修复继续执行；其他硬错误才进入整页修复。截断源输出不进入修复循环；截断候选、无实际变化候选、引入 `js_syntax`/`missing_runtime_ready` 的候选、以及未严格减少硬错误的候选一律拒绝。候选检查只发送 `validation.candidate`，接受后才发送新的 `validation.report`。硬错误修复 prompt 不携带质量 warning；质量 warning 只允许确定性收尾，生产同步链路不再为其调用完整 HTML 模型修复。修复事件的 `attempt` / `repair_attempt` 从第一轮修复开始计为 1。
 8. 生成、编辑和模型修复的候选结果都会重新经过同一个服务端布局装配器。`phase=edit_html` 先执行 `extract_business_html` 和确定性摘要，再由需求编译模型将当前输入与最近对话整理为完整编辑任务；执行阶段始终使用当前完整业务 HTML 重生成，从而允许一次动画修改跨 DOM、CSS、SVG/Canvas、状态、渲染函数和控制器接线协同生效。计划摘要和短会话上下文只用于消除当前输入中的指代，不得覆盖当前 HTML 或恢复被否定的旧要求。业务 HTML 不能修改服务端布局外壳，只能处理数学内容、主视觉、业务交互与槽位优先级。候选继续执行确定性视觉/动画质量收尾；已证明的运行时错误仍作为硬验收条件，启发式目标不再因函数哈希未变化而误拒绝有效结果。结果仍生成新 HTML 分支，不覆盖旧 HTML。
-9. 最终 HTML 仅通过 `html.done` 返回前端；服务端不保留 HTML 文件缓存或产物路径。
+9. 通过校验的最终 HTML 仅通过 `html.done` 返回前端；校验失败但完整未截断的候选稿可通过 `html.repair_source` 返回并标记为不可渲染，仅供后续 `edit_html` 修复。服务端不保留 HTML 文件缓存或产物路径。
 
 生产同步链路不启动浏览器。几何 IR 只允许白名单 state/definition/local 引用、算术与几何操作符、SVG 图元和属性；通用 DSL 包含 `atan/atan2/hypot` 等角度与距离计算，并允许每个稳定图元声明 2~5 个 transform keyframes。计划中的 `recomposition_spec` 会由前后端类型和 approve/generate 请求契约完整传递；其中 `proof_constraints` 描述度量不变量、目标关系、目标拼合约束和教学阶段。每个 `stage_requirement` 由服务端归一化为唯一 `id`、`source/intermediate/target` 角色、确定时间点、几何证据类型和最小图元比例。IR 的教学帧必须用 `stage_id`/`at` 一一覆盖计划阶段；每个中间阶段必须有足够比例图元在同一时间点形成区别于首尾且偏离直接线性插值的几何关键状态，纯文字中间步骤会被阻断。`target_relations` 使用通用结构化关系 `equal_area` / `equal_length` / `equal_angle` / `parallel` / `perpendicular` / `coincident` / `collinear` / `congruent`，通过图元、顶点和线段引用表达；`target_assembly` 使用 `connected` / `non_overlapping` / `approximate_rectangle` 描述世界坐标下的连通性、重叠率、矩形度及参数趋势，不包含知识点分支。服务端会在默认、最小和最大状态展开图元，阻断无效尺寸、非有限值、重复 id、静止端点、源状态明显重叠、源/目标整体越界、缺失中间几何证据、明确违反度量不变量、结构化几何关系或显式目标拼合约束的结果；仅目标拼合整体越界且所有采样状态的联合包围盒可容纳于画布时，允许统一平移目标端点后重新执行完整校验。归一化计划始终保留 `piece_congruence`，因此 repeat 图元的局部几何不得直接或间接依赖 repeat 索引，索引只能用于 id、样式和 transform，防止局部角度与旋转重复编码。修复反馈只携带状态级拼合指标和阶段失败摘要，避免逐拼片诊断挤占模型上下文。未声明 `target_assembly` 时该评分项为 0，不再按满分处理。扇形 `sector_path` 支持确定性轮廓采样和面积计算，其他当前图元或引用不足以计算时产生 warning，且不可计算的显式关系不会获得完整数学评分。编译后的 Scene Module 还会在无 DOM/网络/动态代码能力的 Node `vm` 中执行低成本冒烟检查，检查器会从 IR 自动发现任意计划 state 名称并补齐采样值；真实浏览器布局与行为验证仍由离线流程负责。
 

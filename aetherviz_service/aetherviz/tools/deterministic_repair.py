@@ -63,6 +63,7 @@ DETERMINISTIC_HARD_ERROR_TYPES = frozenset(
         "missing_message_listener",
         "missing_runtime_ready",
         "animation_controller_missing_update",
+        "animation_controller_duration_unit",
         "dom_element_used_as_selector",
     }
 )
@@ -128,6 +129,8 @@ def deterministic_repair_html(
         repaired = _render_explicit_katex_targets(repaired)
     if "animation_controller_missing_update" in error_types:
         repaired = _rename_controller_on_update(repaired)
+    if "animation_controller_duration_unit" in error_types:
+        repaired = _normalize_controller_duration_seconds(repaired)
     if "dom_element_used_as_selector" in error_types:
         repaired, _ = repair_dom_element_selector_mismatches(repaired)
     if "html_length_hard_limit" in error_types:
@@ -162,6 +165,40 @@ def deterministic_repair_html(
         if "missing_runtime_ready" in error_types:
             repaired = _insert_runtime_ready_guard(repaired)
     return repaired
+
+
+def _normalize_controller_duration_seconds(source: str) -> str:
+    """Convert only high-confidence controller duration literals from ms to seconds."""
+
+    replacements: list[tuple[int, int, str]] = []
+    for match in _ANIMATION_CONTROLLER_CREATE_RE.finditer(source):
+        opening = source.find("{", match.start(), match.end())
+        closing = matching_brace(source, opening)
+        if closing is None:
+            continue
+        properties = top_level_object_properties(source, opening, closing)
+        if properties is None:
+            continue
+        duration = next(
+            (item for item in properties if item.name == "duration" and item.value_start is not None),
+            None,
+        )
+        if duration is None:
+            continue
+        literal = re.match(r"\s*(\d+(?:\.\d+)?)\b", source[duration.value_start : duration.segment_end])
+        if literal is None:
+            continue
+        milliseconds = float(literal.group(1))
+        if not 600 < milliseconds <= 60_000:
+            continue
+        start = duration.value_start + literal.start(1)
+        end = duration.value_start + literal.end(1)
+        seconds = milliseconds / 1000
+        replacement = str(int(seconds)) if seconds.is_integer() else f"{seconds:.3f}".rstrip("0").rstrip(".")
+        replacements.append((start, end, replacement))
+    for start, end, replacement in reversed(replacements):
+        source = source[:start] + replacement + source[end:]
+    return source
 
 
 _VISIBLE_MATH_DELIMITER_RE = re.compile(

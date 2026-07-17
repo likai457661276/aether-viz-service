@@ -113,8 +113,7 @@ def normalize_plan(raw_plan: dict | None, topic: str, primary_color: str = DEFAU
 
     recomposition_spec = (
         _normalize_recomposition_spec(raw.get("recomposition_spec"), interactive_spec)
-        if knowledge_profile.get("representation_type") == "geometric_recomposition"
-        or isinstance(raw.get("recomposition_spec"), dict)
+        if _has_recomposition_evidence(raw, source_topic, interactive_spec, knowledge_profile)
         else None
     )
     discipline_spec = _normalize_discipline_spec(raw.get("discipline_spec"), baseline["discipline_spec"])
@@ -164,6 +163,34 @@ def normalize_plan(raw_plan: dict | None, topic: str, primary_color: str = DEFAU
         },
         "primary_color": _normalize_primary_color(raw.get("primary_color"), primary_color),
     }
+
+
+def _has_recomposition_evidence(
+    raw: dict[str, Any],
+    topic: str,
+    interactive_spec: dict[str, Any],
+    knowledge_profile: dict[str, Any],
+) -> bool:
+    if knowledge_profile.get("representation_type") == "geometric_recomposition":
+        return True
+    representation = raw.get("representation_spec")
+    if isinstance(representation, dict):
+        correspondences = representation.get("correspondences")
+        if isinstance(correspondences, list) and any(
+            isinstance(item, dict) and item.get("type") == "decompose_recompose"
+            for item in correspondences
+        ):
+            return True
+    semantic = " ".join(
+        (
+            topic,
+            str(interactive_spec.get("concept") or ""),
+            str(interactive_spec.get("description") or ""),
+            " ".join(str(item) for item in interactive_spec.get("observations", [])),
+        )
+    ).lower()
+    cues = ("切分", "重排", "拼接", "割补", "等积", "recompose", "rearrange", "dissect")
+    return isinstance(raw.get("recomposition_spec"), dict) and any(cue in semantic for cue in cues)
 
 
 def _default_plan(topic: str, primary_color: str) -> dict:

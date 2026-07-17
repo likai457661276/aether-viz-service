@@ -212,7 +212,7 @@ def linked_coordinate_ir_response_schema() -> dict[str, Any]:
                             "minItems": 2,
                             "maxItems": 2,
                         },
-                        "samples": {"type": "integer", "minimum": 24, "maximum": 240},
+                        "samples": {"type": "integer", "minimum": 48, "maximum": 240},
                         "x": {"$ref": "#/$defs/curve_expression"},
                         "y": {"$ref": "#/$defs/curve_expression"},
                         "stroke": {"type": "string"},
@@ -432,8 +432,8 @@ def validate_linked_coordinate_ir(ir: object, plan: dict[str, Any]) -> dict[str,
         if curve.get("system") not in system_ids or not _identifier(local):
             errors.append(_issue("invalid_curve_reference", "曲线必须引用坐标系并声明合法局部参数", id=curve.get("id")))
         samples = curve.get("samples")
-        if not isinstance(samples, int) or not 24 <= samples <= 240:
-            errors.append(_issue("invalid_curve_samples", "曲线采样数必须在 24~240", id=curve.get("id")))
+        if not isinstance(samples, int) or not 48 <= samples <= 240:
+            errors.append(_issue("invalid_curve_samples", "曲线采样数必须在 48~240", id=curve.get("id")))
         _validate_pair(curve.get("domain"), "curve_domain", state_ranges, definition_map, set(), errors)
         for key in ("x", "y"):
             _validate_expr(curve.get(key), state_ranges, definition_map, {local}, errors, f"curve.{key}")

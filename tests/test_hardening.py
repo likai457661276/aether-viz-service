@@ -683,6 +683,23 @@ def test_deterministic_repair_renames_only_controller_on_update_option() -> None
     assert not repaired_report["errors"]
 
 
+def test_deterministic_repair_converts_controller_duration_literal_to_seconds() -> None:
+    html = """<!DOCTYPE html><html><body><script>
+    const unrelated={duration:4000};
+    const controller=window.AetherVizAnimationController.create({
+      duration: 4000,
+      update(progress){stage.style.opacity=progress;}
+    });
+    </script></body></html>"""
+    report = check_animation_lifecycle(html)
+
+    repaired = deterministic_repair_html(html, report)
+
+    assert "const unrelated={duration:4000}" in repaired
+    assert "duration: 4," in repaired
+    assert not check_animation_lifecycle(repaired)["errors"]
+
+
 def test_animation_lifecycle_rejects_ephemeral_controller_across_actions() -> None:
     html = """<script>
     function draw(progress){stage.style.opacity=progress;}
