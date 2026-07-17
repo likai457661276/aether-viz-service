@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import json
 import math
+from copy import deepcopy
 from hashlib import sha256
 from typing import Any
 
 LINKED_COORDINATE_IR_VERSION = "aetherviz.linked-coordinate-ir.v1"
 LINKED_COORDINATE_IR_MAX_CHARS = 16_000
+LINKED_COORDINATE_INVARIANT_MAX_TOLERANCE = 0.001
 _OPS = {
     "add",
     "sub",
@@ -216,8 +218,33 @@ def linked_coordinate_ir_response_schema() -> dict[str, Any]:
                         "x": {"$ref": "#/$defs/curve_expression"},
                         "y": {"$ref": "#/$defs/curve_expression"},
                         "stroke": {"type": "string"},
+                        "reveal": {
+                            "anyOf": [
+                                {
+                                    "type": "object",
+                                    "additionalProperties": False,
+                                    "properties": {
+                                        "value": {"$ref": "#/$defs/state_expression"},
+                                        "from": {"$ref": "#/$defs/state_expression"},
+                                        "to": {"$ref": "#/$defs/state_expression"},
+                                    },
+                                    "required": ["value", "from", "to"],
+                                },
+                                {"type": "null"},
+                            ]
+                        },
                     },
-                    "required": ["id", "system", "parameter", "domain", "samples", "x", "y", "stroke"],
+                    "required": [
+                        "id",
+                        "system",
+                        "parameter",
+                        "domain",
+                        "samples",
+                        "x",
+                        "y",
+                        "stroke",
+                        "reveal",
+                    ],
                 },
             },
             "points": {
@@ -267,7 +294,11 @@ def linked_coordinate_ir_response_schema() -> dict[str, Any]:
                         "type": {"type": "string", "enum": ["point_on_curve", "equal_value", "coincident"]},
                         "left": {"$ref": "#/$defs/operand"},
                         "right": {"$ref": "#/$defs/operand"},
-                        "tolerance": {"type": "number", "minimum": 0, "maximum": 0.1},
+                        "tolerance": {
+                            "type": "number",
+                            "exclusiveMinimum": 0,
+                            "maximum": LINKED_COORDINATE_INVARIANT_MAX_TOLERANCE,
+                        },
                     },
                     "required": ["id", "type", "left", "right", "tolerance"],
                 },
@@ -334,18 +365,20 @@ def rank_linked_coordinate_ir_candidates(
 ) -> dict[str, Any]:
     reports: list[dict[str, Any]] = []
     for index, candidate in enumerate(candidates):
-        report = validate_linked_coordinate_ir(candidate, plan)
-        serialized = json.dumps(candidate, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        normalized = normalize_linked_coordinate_ir(candidate, plan)
+        report = validate_linked_coordinate_ir(normalized, plan)
+        serialized = json.dumps(normalized, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
         reports.append(
             {
                 "index": index,
                 "eligible": report["ok"],
+                "normalized": normalized != candidate,
                 "error_count": len(report.get("errors", [])),
                 "warning_count": len(report.get("warnings", [])),
                 "chars": len(serialized),
                 "fingerprint": sha256(serialized.encode("utf-8")).hexdigest(),
                 "report": report,
-                "ir": candidate,
+                "ir": normalized,
             }
         )
     eligible = sorted(
@@ -364,10 +397,64 @@ def rank_linked_coordinate_ir_candidates(
         "selected_ir": selected["ir"] if selected else None,
         "repair_candidate": repair["ir"] if repair else None,
         "candidates": [
-            {key: item[key] for key in ("index", "eligible", "error_count", "warning_count", "chars", "fingerprint", "report")}
+            {
+                key: item[key]
+                for key in (
+                    "index",
+                    "eligible",
+                    "normalized",
+                    "error_count",
+                    "warning_count",
+                    "chars",
+                    "fingerprint",
+                    "report",
+                )
+            }
             for item in reports
         ],
     }
+
+
+def normalize_linked_coordinate_ir(ir: object, plan: dict[str, Any]) -> object:
+    """Apply conservative, semantics-preserving fixes before hard validation."""
+    if not isinstance(ir, dict):
+        return ir
+    normalized = deepcopy(ir)
+    state_ranges = _state_ranges(plan)
+
+    invariants = normalized.get("invariants")
+    for invariant in invariants if isinstance(invariants, list) else []:
+        if not isinstance(invariant, dict):
+            continue
+        tolerance = _number(invariant.get("tolerance"))
+        if tolerance is not None and tolerance > LINKED_COORDINATE_INVARIANT_MAX_TOLERANCE:
+            invariant["tolerance"] = LINKED_COORDINATE_INVARIANT_MAX_TOLERANCE
+
+    curves = normalized.get("curves")
+    for curve in curves if isinstance(curves, list) else []:
+        if not isinstance(curve, dict) or curve.get("reveal") is not None:
+            continue
+        domain = curve.get("domain")
+        if not isinstance(domain, list) or len(domain) != 2:
+            continue
+        start = _number(domain[0])
+        end = domain[1]
+        if start is None or not isinstance(end, dict) or set(end) != {"state"}:
+            continue
+        variable = str(end["state"])
+        state_range = state_ranges.get(variable)
+        if state_range is None:
+            continue
+        minimum, _default, maximum = state_range
+        if not math.isclose(start, minimum, rel_tol=0, abs_tol=1e-12) or maximum <= start:
+            continue
+        curve["domain"] = [start, maximum]
+        curve["reveal"] = {
+            "value": {"state": variable},
+            "from": start,
+            "to": maximum,
+        }
+    return normalized
 
 
 def validate_linked_coordinate_ir(ir: object, plan: dict[str, Any]) -> dict[str, Any]:
@@ -439,6 +526,20 @@ def validate_linked_coordinate_ir(ir: object, plan: dict[str, Any]) -> dict[str,
             _validate_expr(curve.get(key), state_ranges, definition_map, {local}, errors, f"curve.{key}")
             if _is_degree_unit(state_units.get(animation_variable, "")):
                 _validate_degree_trig_locals(curve.get(key), {local}, errors, f"curve.{curve.get('id')}.{key}")
+        reveal = curve.get("reveal")
+        if reveal is not None:
+            if not isinstance(reveal, dict):
+                errors.append(_issue("invalid_curve_reveal", "曲线 reveal 必须是对象", id=curve.get("id")))
+            else:
+                for key in ("value", "from", "to"):
+                    _validate_expr(
+                        reveal.get(key),
+                        state_ranges,
+                        definition_map,
+                        set(),
+                        errors,
+                        f"curve.{curve.get('id')}.reveal.{key}",
+                    )
 
     for point in points:
         if point.get("system") not in system_ids:
@@ -456,8 +557,42 @@ def validate_linked_coordinate_ir(ir: object, plan: dict[str, Any]) -> dict[str,
         kind = invariant.get("type")
         if kind not in {"point_on_curve", "equal_value", "coincident"}:
             errors.append(_issue("invalid_invariant_type", "不变量类型不受支持", id=invariant.get("id")))
+        tolerance = _number(invariant.get("tolerance"))
+        if (
+            tolerance is None
+            or tolerance <= 0
+            or tolerance > LINKED_COORDINATE_INVARIANT_MAX_TOLERANCE
+        ):
+            errors.append(
+                _issue(
+                    "invalid_invariant_tolerance",
+                    f"不变量 tolerance 必须在 0~{LINKED_COORDINATE_INVARIANT_MAX_TOLERANCE} 之间",
+                    id=invariant.get("id"),
+                )
+            )
         for side in ("left", "right"):
             _validate_operand(invariant.get(side), point_ids, curve_ids, state_ranges, definition_map, errors)
+
+    required_invariants = {
+        str(item)
+        for item in (
+            (plan.get("representation_spec") or {}).get("required_invariants", [])
+            if isinstance(plan.get("representation_spec"), dict)
+            else []
+        )
+        if str(item) in {"point_on_curve", "equal_value", "coincident"}
+    }
+    provided_invariants = {
+        str(item.get("type")) for item in invariants if isinstance(item, dict)
+    }
+    for missing in sorted(required_invariants - provided_invariants):
+        errors.append(
+            _issue(
+                "missing_required_invariant",
+                f"IR 未覆盖计划要求的不变量：{missing}",
+                invariant=missing,
+            )
+        )
 
     if not errors:
         for state_name, state in _sample_states(state_ranges):
@@ -563,6 +698,13 @@ def _validate_domains(
         start, end = (evaluator.eval(value) for value in curve["domain"])
         if start >= end:
             raise ValueError(f"invalid_curve_domain:{curve.get('id')}")
+        reveal = curve.get("reveal")
+        if isinstance(reveal, dict):
+            reveal_from = evaluator.eval(reveal["from"])
+            reveal_to = evaluator.eval(reveal["to"])
+            evaluator.eval(reveal["value"])
+            if reveal_from >= reveal_to:
+                raise ValueError(f"invalid_curve_reveal:{curve.get('id')}")
         parameter = str(curve["parameter"])
         for value in (start, (start + end) / 2, end):
             evaluator.eval(curve["x"], {parameter: value})
@@ -844,10 +986,26 @@ def _is_degree_unit(unit: str) -> bool:
 
 
 def _sample_states(ranges: dict[str, tuple[float, float, float]]) -> list[tuple[str, dict[str, float]]]:
-    return [
+    baseline = {name: values[1] for name, values in ranges.items()}
+    candidates: list[tuple[str, dict[str, float]]] = [
         (label, {name: values[index] for name, values in ranges.items()})
         for index, label in enumerate(("minimum", "default", "maximum"))
     ]
+    for name, (minimum, _default, maximum) in ranges.items():
+        span = maximum - minimum
+        for label, ratio in (("quarter", 0.25), ("midpoint", 0.5), ("three_quarters", 0.75)):
+            state = dict(baseline)
+            state[name] = minimum + span * ratio
+            candidates.append((f"{name}:{label}", state))
+
+    result: list[tuple[str, dict[str, float]]] = []
+    seen: set[tuple[tuple[str, float], ...]] = set()
+    for label, state in candidates:
+        fingerprint = tuple(sorted(state.items()))
+        if fingerprint not in seen:
+            seen.add(fingerprint)
+            result.append((label, state))
+    return result
 
 
 def _objects(value: object, minimum: int, maximum: int, label: str, errors: list[dict[str, Any]]) -> list[dict[str, Any]]:

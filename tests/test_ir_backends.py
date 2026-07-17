@@ -5,6 +5,7 @@ from copy import deepcopy
 import pytest
 
 from aetherviz_service.aetherviz.ir.linked_coordinate.contract import (
+    LINKED_COORDINATE_INVARIANT_MAX_TOLERANCE,
     LINKED_COORDINATE_IR_VERSION,
     compile_linked_coordinate_ir,
     linked_coordinate_ir_candidates_response_schema,
@@ -211,6 +212,11 @@ def test_linked_coordinate_schema_separates_state_and_curve_expression_scopes() 
 
     assert not any("local" in item.get("properties", {}) for item in state_variants)
     assert any("local" in item.get("properties", {}) for item in curve_variants)
+    curve_schema = schema["properties"]["curves"]["items"]
+    reveal = curve_schema["properties"]["reveal"]
+    assert "reveal" in curve_schema["required"]
+    assert set(reveal["anyOf"][0]["required"]) == {"value", "from", "to"}
+    assert reveal["anyOf"][1] == {"type": "null"}
 
 
 def test_linked_coordinate_ir_rejects_degree_state_without_explicit_conversion() -> None:
@@ -266,6 +272,59 @@ def test_linked_coordinate_candidate_schema_and_ranking_select_valid_ir() -> Non
     assert ranking["candidates"][0]["eligible"] is False
 
 
+def test_linked_coordinate_ranking_normalizes_progress_domain_and_tolerance() -> None:
+    plan = _plan()
+    plan["interactive_spec"]["variables"][0]["default"] = 0
+    plan["representation_spec"]["state_variables"][0]["default"] = 0
+    candidate = deepcopy(_ir())
+    candidate["curves"].append(
+        {
+            "id": "progressive-trace",
+            "system": "function-space",
+            "parameter": "t",
+            "domain": [0, {"state": "theta"}],
+            "samples": 60,
+            "x": {"local": "t"},
+            "y": {"op": "sin", "args": [{"local": "t"}]},
+            "stroke": "#ef4444",
+        }
+    )
+    for invariant in candidate["invariants"]:
+        invariant["tolerance"] = 0.1
+
+    ranking = rank_linked_coordinate_ir_candidates([candidate], plan)
+
+    assert ranking["ok"], ranking
+    assert ranking["candidates"][0]["normalized"] is True
+    selected = ranking["selected_ir"]
+    trace = next(curve for curve in selected["curves"] if curve["id"] == "progressive-trace")
+    maximum = plan["interactive_spec"]["variables"][0]["max"]
+    assert trace["domain"] == [0.0, maximum]
+    assert trace["reveal"] == {
+        "value": {"state": "theta"},
+        "from": 0.0,
+        "to": maximum,
+    }
+    assert all(
+        invariant["tolerance"] == LINKED_COORDINATE_INVARIANT_MAX_TOLERANCE
+        for invariant in selected["invariants"]
+    )
+
+
+def test_linked_coordinate_ir_rejects_degenerate_reveal_range() -> None:
+    broken = deepcopy(_ir())
+    broken["curves"][1]["reveal"] = {
+        "value": {"state": "theta"},
+        "from": 0,
+        "to": 0,
+    }
+
+    report = validate_linked_coordinate_ir(broken, _plan())
+
+    assert not report["ok"]
+    assert any("invalid_curve_reveal" in error["message"] for error in report["errors"])
+
+
 def test_linked_coordinate_ir_rejects_point_with_duplicated_wrong_sign() -> None:
     broken = deepcopy(_ir())
     broken["points"][1]["y"] = {
@@ -278,12 +337,63 @@ def test_linked_coordinate_ir_rejects_point_with_duplicated_wrong_sign() -> None
     assert any("function-membership" in error["message"] for error in report["errors"])
 
 
+def test_linked_coordinate_ir_checks_interior_states_when_endpoints_are_degenerate() -> None:
+    plan = _plan()
+    plan["interactive_spec"]["variables"][0]["default"] = 0
+    plan["representation_spec"]["state_variables"][0]["default"] = 0
+    broken = deepcopy(_ir())
+    broken["points"][1]["y"] = 0
+
+    report = validate_linked_coordinate_ir(broken, plan)
+
+    assert not report["ok"]
+    assert any(
+        error["type"] == "linked_coordinate_ir_semantics"
+        and error.get("state") == "theta:quarter"
+        for error in report["errors"]
+    )
+
+
+def test_linked_coordinate_ir_requires_plan_invariant_coverage() -> None:
+    broken = deepcopy(_ir())
+    broken["invariants"] = [
+        item for item in broken["invariants"] if item["type"] != "equal_value"
+    ]
+
+    report = validate_linked_coordinate_ir(broken, _plan())
+
+    assert not report["ok"]
+    assert any(
+        error["type"] == "missing_required_invariant"
+        and error.get("invariant") == "equal_value"
+        for error in report["errors"]
+    )
+
+
+def test_linked_coordinate_ir_rejects_overly_permissive_tolerance() -> None:
+    broken = deepcopy(_ir())
+    broken["invariants"][0]["tolerance"] = 0.1
+
+    report = validate_linked_coordinate_ir(broken, _plan())
+
+    assert not report["ok"]
+    assert any(error["type"] == "invalid_invariant_tolerance" for error in report["errors"])
+
+
 def test_linked_coordinate_runtime_is_server_owned_and_passes_html_contract() -> None:
     plan = _plan()
-    business_html = assemble_linked_coordinate_business_html(_ir(), plan, "参数联动")
+    ir = _ir()
+    ir["curves"][1]["reveal"] = {
+        "value": {"state": "theta"},
+        "from": 0,
+        "to": {"var": "tau"},
+    }
+    business_html = assemble_linked_coordinate_business_html(ir, plan, "参数联动")
     assert "requestAnimationFrame" not in business_html
     assert "AetherVizAnimationController.create" in business_html
     assert "aetherviz.linked-coordinate-ir.v1" in business_html
+    assert "pathLength:1" in business_html
+    assert "curve.reveal" in business_html
     html = assemble_layout_contract(business_html, plan)
     report = build_validation_report(html, plan=plan, model_html=business_html)
     assert report["ok"], report["errors"]
