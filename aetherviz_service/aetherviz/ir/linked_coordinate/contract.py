@@ -11,6 +11,9 @@ from typing import Any
 LINKED_COORDINATE_IR_VERSION = "aetherviz.linked-coordinate-ir.v1"
 LINKED_COORDINATE_IR_MAX_CHARS = 16_000
 LINKED_COORDINATE_INVARIANT_MAX_TOLERANCE = 0.001
+LINKED_COORDINATE_CANVAS_WIDTH = 960
+LINKED_COORDINATE_CANVAS_HEIGHT = 560
+LINKED_COORDINATE_PARAMETER_UNITS = {"radian", "degree", "scalar"}
 _OPS = {
     "add",
     "sub",
@@ -167,10 +170,6 @@ def linked_coordinate_ir_response_schema() -> dict[str, Any]:
                     "additionalProperties": False,
                     "properties": {
                         "id": {"type": "string"},
-                        "x": {"type": "number"},
-                        "y": {"type": "number"},
-                        "width": {"type": "number"},
-                        "height": {"type": "number"},
                         "x_domain": {
                             "type": "array",
                             "prefixItems": [
@@ -191,7 +190,7 @@ def linked_coordinate_ir_response_schema() -> dict[str, Any]:
                         },
                         "label": {"type": "string"},
                     },
-                    "required": ["id", "x", "y", "width", "height", "x_domain", "y_domain", "label"],
+                    "required": ["id", "x_domain", "y_domain", "label"],
                 },
             },
             "curves": {
@@ -205,6 +204,10 @@ def linked_coordinate_ir_response_schema() -> dict[str, Any]:
                         "id": {"type": "string"},
                         "system": {"type": "string"},
                         "parameter": {"type": "string"},
+                        "parameter_unit": {
+                            "type": "string",
+                            "enum": sorted(LINKED_COORDINATE_PARAMETER_UNITS),
+                        },
                         "domain": {
                             "type": "array",
                             "prefixItems": [
@@ -238,6 +241,7 @@ def linked_coordinate_ir_response_schema() -> dict[str, Any]:
                         "id",
                         "system",
                         "parameter",
+                        "parameter_unit",
                         "domain",
                         "samples",
                         "x",
@@ -360,9 +364,7 @@ def parse_linked_coordinate_ir_candidates(raw_text: str) -> list[object]:
     return candidates
 
 
-def rank_linked_coordinate_ir_candidates(
-    candidates: list[object], plan: dict[str, Any]
-) -> dict[str, Any]:
+def rank_linked_coordinate_ir_candidates(candidates: list[object], plan: dict[str, Any]) -> dict[str, Any]:
     reports: list[dict[str, Any]] = []
     for index, candidate in enumerate(candidates):
         normalized = normalize_linked_coordinate_ir(candidate, plan)
@@ -395,7 +397,9 @@ def rank_linked_coordinate_ir_candidates(
         "ok": selected is not None,
         "selected_index": selected["index"] if selected else None,
         "selected_ir": selected["ir"] if selected else None,
+        "repair_index": repair["index"] if repair else None,
         "repair_candidate": repair["ir"] if repair else None,
+        "repair_report": repair["report"] if repair else None,
         "candidates": [
             {
                 key: item[key]
@@ -422,6 +426,10 @@ def normalize_linked_coordinate_ir(ir: object, plan: dict[str, Any]) -> object:
     normalized = deepcopy(ir)
     state_ranges = _state_ranges(plan)
 
+    systems = normalized.get("coordinate_systems")
+    if isinstance(systems, list):
+        _apply_deterministic_coordinate_layout(systems)
+
     invariants = normalized.get("invariants")
     for invariant in invariants if isinstance(invariants, list) else []:
         if not isinstance(invariant, dict):
@@ -432,7 +440,11 @@ def normalize_linked_coordinate_ir(ir: object, plan: dict[str, Any]) -> object:
 
     curves = normalized.get("curves")
     for curve in curves if isinstance(curves, list) else []:
-        if not isinstance(curve, dict) or curve.get("reveal") is not None:
+        if not isinstance(curve, dict):
+            continue
+        if "parameter_unit" not in curve:
+            curve["parameter_unit"] = _infer_curve_parameter_unit(curve)
+        if curve.get("reveal") is not None:
             continue
         domain = curve.get("domain")
         if not isinstance(domain, list) or len(domain) != 2:
@@ -455,6 +467,77 @@ def normalize_linked_coordinate_ir(ir: object, plan: dict[str, Any]) -> object:
             "to": maximum,
         }
     return normalized
+
+
+def _apply_deterministic_coordinate_layout(systems: list[object]) -> None:
+    count = len(systems)
+    if not 1 <= count <= 4:
+        return
+    margin_x, margin_y, gap = 40.0, 40.0, 30.0
+    columns = count if count <= 3 else 2
+    rows = 1 if count <= 3 else 2
+    width = (LINKED_COORDINATE_CANVAS_WIDTH - 2 * margin_x - gap * (columns - 1)) / columns
+    height = (LINKED_COORDINATE_CANVAS_HEIGHT - 2 * margin_y - gap * (rows - 1)) / rows
+    for index, system in enumerate(systems):
+        if not isinstance(system, dict):
+            continue
+        column, row = index % columns, index // columns
+        system.update(
+            {
+                "x": margin_x + column * (width + gap),
+                "y": margin_y + row * (height + gap),
+                "width": width,
+                "height": height,
+            }
+        )
+
+
+def _infer_curve_parameter_unit(curve: dict[str, Any]) -> str:
+    parameter = str(curve.get("parameter") or "")
+    expressions = (curve.get("x"), curve.get("y"))
+    if parameter and any(_contains_converted_local(item, parameter) for item in expressions):
+        return "degree"
+    if parameter and any(_contains_trig_local(item, parameter) for item in expressions):
+        return "radian"
+    return "scalar"
+
+
+def _contains_converted_local(node: object, parameter: str) -> bool:
+    if not isinstance(node, dict):
+        return False
+    if node.get("op") == "deg_to_rad" and isinstance(node.get("args"), list):
+        if any(isinstance(item, dict) and item == {"local": parameter} for item in node["args"]):
+            return True
+    return (
+        any(_contains_converted_local(item, parameter) for item in node.get("args", []))
+        if isinstance(node.get("args"), list)
+        else False
+    )
+
+
+def _contains_trig_local(node: object, parameter: str) -> bool:
+    if not isinstance(node, dict):
+        return False
+    if node.get("op") in {"sin", "cos", "tan"} and isinstance(node.get("args"), list):
+        if any(_contains_local(item, parameter) for item in node["args"]):
+            return True
+    return (
+        any(_contains_trig_local(item, parameter) for item in node.get("args", []))
+        if isinstance(node.get("args"), list)
+        else False
+    )
+
+
+def _contains_local(node: object, parameter: str) -> bool:
+    if not isinstance(node, dict):
+        return False
+    if node == {"local": parameter}:
+        return True
+    return (
+        any(_contains_local(item, parameter) for item in node.get("args", []))
+        if isinstance(node.get("args"), list)
+        else False
+    )
 
 
 def validate_linked_coordinate_ir(ir: object, plan: dict[str, Any]) -> dict[str, Any]:
@@ -509,22 +592,52 @@ def validate_linked_coordinate_ir(ir: object, plan: dict[str, Any]) -> dict[str,
             continue
         x, y = float(system["x"]), float(system["y"])
         width, height = float(system["width"]), float(system["height"])
-        if width < 120 or height < 120 or x < 0 or y < 0 or x + width > 960 or y + height > 560:
-            errors.append(_issue("coordinate_bounds_outside_canvas", "坐标系必须位于 960×560 画布内且尺寸充足", id=system.get("id")))
+        violations: list[str] = []
+        if width < 120:
+            violations.append(f"width={width:g} < 120")
+        if height < 120:
+            violations.append(f"height={height:g} < 120")
+        if x < 0:
+            violations.append(f"x={x:g} < 0")
+        if y < 0:
+            violations.append(f"y={y:g} < 0")
+        if x + width > LINKED_COORDINATE_CANVAS_WIDTH:
+            violations.append(f"x + width={x + width:g} > {LINKED_COORDINATE_CANVAS_WIDTH}")
+        if y + height > LINKED_COORDINATE_CANVAS_HEIGHT:
+            violations.append(f"y + height={y + height:g} > {LINKED_COORDINATE_CANVAS_HEIGHT}")
+        if violations:
+            errors.append(
+                _issue(
+                    "coordinate_bounds_outside_canvas",
+                    "坐标系必须位于 960×560 画布内且尺寸充足",
+                    id=system.get("id"),
+                    bounds=[x, y, width, height],
+                    violations=violations,
+                )
+            )
         _validate_pair(system.get("x_domain"), "x_domain", state_ranges, definition_map, set(), errors)
         _validate_pair(system.get("y_domain"), "y_domain", state_ranges, definition_map, set(), errors)
 
     for curve in curves:
         local = str(curve.get("parameter") or "")
+        parameter_unit = curve.get("parameter_unit")
         if curve.get("system") not in system_ids or not _identifier(local):
             errors.append(_issue("invalid_curve_reference", "曲线必须引用坐标系并声明合法局部参数", id=curve.get("id")))
+        if parameter_unit not in LINKED_COORDINATE_PARAMETER_UNITS:
+            errors.append(
+                _issue(
+                    "invalid_curve_parameter_unit",
+                    "曲线 parameter_unit 必须是 radian、degree 或 scalar",
+                    id=curve.get("id"),
+                )
+            )
         samples = curve.get("samples")
         if not isinstance(samples, int) or not 48 <= samples <= 240:
             errors.append(_issue("invalid_curve_samples", "曲线采样数必须在 48~240", id=curve.get("id")))
         _validate_pair(curve.get("domain"), "curve_domain", state_ranges, definition_map, set(), errors)
         for key in ("x", "y"):
             _validate_expr(curve.get(key), state_ranges, definition_map, {local}, errors, f"curve.{key}")
-            if _is_degree_unit(state_units.get(animation_variable, "")):
+            if parameter_unit == "degree":
                 _validate_degree_trig_locals(curve.get(key), {local}, errors, f"curve.{curve.get('id')}.{key}")
         reveal = curve.get("reveal")
         if reveal is not None:
@@ -558,11 +671,7 @@ def validate_linked_coordinate_ir(ir: object, plan: dict[str, Any]) -> dict[str,
         if kind not in {"point_on_curve", "equal_value", "coincident"}:
             errors.append(_issue("invalid_invariant_type", "不变量类型不受支持", id=invariant.get("id")))
         tolerance = _number(invariant.get("tolerance"))
-        if (
-            tolerance is None
-            or tolerance <= 0
-            or tolerance > LINKED_COORDINATE_INVARIANT_MAX_TOLERANCE
-        ):
+        if tolerance is None or tolerance <= 0 or tolerance > LINKED_COORDINATE_INVARIANT_MAX_TOLERANCE:
             errors.append(
                 _issue(
                     "invalid_invariant_tolerance",
@@ -582,9 +691,7 @@ def validate_linked_coordinate_ir(ir: object, plan: dict[str, Any]) -> dict[str,
         )
         if str(item) in {"point_on_curve", "equal_value", "coincident"}
     }
-    provided_invariants = {
-        str(item.get("type")) for item in invariants if isinstance(item, dict)
-    }
+    provided_invariants = {str(item.get("type")) for item in invariants if isinstance(item, dict)}
     for missing in sorted(required_invariants - provided_invariants):
         errors.append(
             _issue(
@@ -615,10 +722,15 @@ def validate_linked_coordinate_ir(ir: object, plan: dict[str, Any]) -> dict[str,
 
 
 def compile_linked_coordinate_ir(ir: dict[str, Any], plan: dict[str, Any]) -> str:
-    report = validate_linked_coordinate_ir(ir, plan)
+    normalized = normalize_linked_coordinate_ir(ir, plan)
+    if not isinstance(normalized, dict):
+        raise LinkedCoordinateIRValidationError(
+            _report([_issue("invalid_linked_coordinate_ir", "联动坐标 IR 必须是 JSON 对象")], [])
+        )
+    report = validate_linked_coordinate_ir(normalized, plan)
     if not report["ok"]:
         raise LinkedCoordinateIRValidationError(report)
-    return json.dumps(ir, ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/")
+    return json.dumps(normalized, ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/")
 
 
 def _validate_operand(
@@ -686,9 +798,7 @@ def _operand_value(
     return pair[0] if axis == "x" else pair[1] if axis == "y" else pair
 
 
-def _validate_domains(
-    systems: list[dict[str, Any]], curves: list[dict[str, Any]], evaluator: _Evaluator
-) -> None:
+def _validate_domains(systems: list[dict[str, Any]], curves: list[dict[str, Any]], evaluator: _Evaluator) -> None:
     for item in systems:
         for key in ("x_domain", "y_domain"):
             pair = item[key]
@@ -938,15 +1048,17 @@ def _contains_unconverted_degree_state(
         name = str(node["var"])
         if name in resolving or name not in definitions:
             return False
-        return _contains_unconverted_degree_state(
-            definitions[name], state_units, definitions, {*resolving, name}
-        )
+        return _contains_unconverted_degree_state(definitions[name], state_units, definitions, {*resolving, name})
     if node.get("op") == "deg_to_rad":
         return False
-    return any(
-        _contains_unconverted_degree_state(item, state_units, definitions, resolving)
-        for item in node.get("args", [])
-    ) if isinstance(node.get("args"), list) else False
+    return (
+        any(
+            _contains_unconverted_degree_state(item, state_units, definitions, resolving)
+            for item in node.get("args", [])
+        )
+        if isinstance(node.get("args"), list)
+        else False
+    )
 
 
 def _validate_degree_trig_locals(
@@ -978,7 +1090,11 @@ def _contains_unconverted_degree_local(node: object, degree_locals: set[str]) ->
         return str(node["local"]) in degree_locals
     if node.get("op") == "deg_to_rad":
         return False
-    return any(_contains_unconverted_degree_local(item, degree_locals) for item in node.get("args", [])) if isinstance(node.get("args"), list) else False
+    return (
+        any(_contains_unconverted_degree_local(item, degree_locals) for item in node.get("args", []))
+        if isinstance(node.get("args"), list)
+        else False
+    )
 
 
 def _is_degree_unit(unit: str) -> bool:
@@ -1008,8 +1124,14 @@ def _sample_states(ranges: dict[str, tuple[float, float, float]]) -> list[tuple[
     return result
 
 
-def _objects(value: object, minimum: int, maximum: int, label: str, errors: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    if not isinstance(value, list) or not minimum <= len(value) <= maximum or not all(isinstance(item, dict) for item in value):
+def _objects(
+    value: object, minimum: int, maximum: int, label: str, errors: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    if (
+        not isinstance(value, list)
+        or not minimum <= len(value) <= maximum
+        or not all(isinstance(item, dict) for item in value)
+    ):
         errors.append(_issue("invalid_collection", f"{label} 数量或结构无效"))
         return []
     return value

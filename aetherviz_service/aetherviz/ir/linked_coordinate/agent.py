@@ -46,8 +46,8 @@ LINKED_COORDINATE_SYSTEM_PROMPT = f"""你是动态数学场景的结构化联动
 IR 顶层字段固定为 version、definitions、animation、coordinate_systems、curves、points、links、invariants：
 - definitions：0~32 个命名表达式。
 - animation：variable 必须是 allowed_state_variables 中一个可调变量；from/to 是其有效边界，duration 取 2~8 秒。
-- coordinate_systems：1~4 个坐标系，画布固定 960×560；x/y/width/height 是屏幕布局数值，宽高至少 120 且不得越界；x_domain/y_domain 是数学坐标范围。
-- curves：1~8 条完整曲线；parameter 是仅在本曲线采样时有效的局部变量，samples 为 48~160；x/y 都是数学坐标表达式。domain 是稳定的完整数学定义域，在所有合法状态下必须严格递增；每条曲线都必须输出 reveal，不需要渐进显示时填 null，需要时填 {{"value":状态表达式,"from":状态表达式,"to":状态表达式}}；不得把 domain 写成会在边界退化的 [常量, 状态变量]。
+- coordinate_systems：1~4 个坐标系；只描述 id、x_domain、y_domain、label，屏幕像素布局由服务端确定性分配，禁止输出 x/y/width/height。
+- curves：1~8 条完整曲线；parameter 是仅在本曲线采样时有效的局部变量，parameter_unit 必须为 radian、degree 或 scalar，表示该局部变量自身的单位，不得继承全局动画变量单位；samples 为 48~160；x/y 都是数学坐标表达式。domain 是稳定的完整数学定义域，在所有合法状态下必须严格递增；每条曲线都必须输出 reveal，不需要渐进显示时填 null，需要时填 {{"value":状态表达式,"from":状态表达式,"to":状态表达式}}；不得把 domain 写成会在边界退化的 [常量, 状态变量]。
 - points：1~16 个动态数学点；x/y 使用与对应曲线相同的定义和符号约定。
 - links：只连接已声明 point id，用于跨表征投影或对应关系。
 - invariants：至少 1 项，必须覆盖每个关键动态对应关系。type 只允许 point_on_curve、equal_value、coincident。
@@ -82,9 +82,7 @@ def stream_generate_linked_coordinate_html(
     metadata={"component": "aetherviz", "stage": "linked_coordinate_ir_generation"},
     process_inputs=lambda inputs: {
         "topic": inputs.get("topic"),
-        "representation_type": ((inputs.get("plan") or {}).get("knowledge_profile") or {}).get(
-            "representation_type"
-        ),
+        "representation_type": ((inputs.get("plan") or {}).get("knowledge_profile") or {}).get("representation_type"),
     },
     reduce_fn=lambda items: {
         "completed": any(isinstance(item, HtmlStreamResult) for item in items),
@@ -134,7 +132,7 @@ def _stream_generate_linked_coordinate_html_impl(
     else:
         degraded = True
         repair_candidate = ranking.get("repair_candidate")
-        repair_report = _ranking_report(ranking)
+        repair_report = ranking.get("repair_report") or _ranking_report(ranking)
         repair_prompt = _build_repair_prompt(topic, plan, repair_candidate, repair_report)
         repaired = _stream_ir(
             repair_prompt,
@@ -205,23 +203,21 @@ def _build_prompt(topic: str, plan: dict[str, Any]) -> str:
     }
     return (
         "根据已确认计划一次生成两个相互独立的通用联动坐标 IR 候选。顶层严格输出 "
-        "{\"candidates\":[IR1,IR2]}。每个候选先选择共享动画参数和数学定义，再布置坐标系，"
+        '{"candidates":[IR1,IR2]}。每个候选先选择共享动画参数和数学定义，再布置坐标系，'
         "最后让完整曲线、动态点和投影连线全部引用同一表达式，并用可计算不变量证明对应关系。"
         "两个候选必须采用不同的结构组织；候选 1 的所有 curve.domain 必须与状态无关。"
         "如果教学流程要求曲线逐渐延伸，使用稳定完整 domain 配合 reveal，禁止缩短数学定义域。"
-        "不得输出 HTML 或 JavaScript。\n"
-        + json.dumps(compact, ensure_ascii=False, separators=(",", ":"))
+        "不得输出 HTML 或 JavaScript。\n" + json.dumps(compact, ensure_ascii=False, separators=(",", ":"))
     )
 
 
-def _build_repair_prompt(
-    topic: str, plan: dict[str, Any], candidate: object, report: dict[str, Any]
-) -> str:
+def _build_repair_prompt(topic: str, plan: dict[str, Any], candidate: object, report: dict[str, Any]) -> str:
     return (
         "只修复下列联动坐标 IR 的确定性错误，输出完整单个 JSON 对象。保留教学意图和通用结构；"
         "统一数学坐标符号，修正曲线、动态点和不变量的同源表达式；严格遵守错误字段所处作用域，"
         "definitions 不得引用 local，依赖局部参数的函数直接内联到对应 curve.x/curve.y；"
-        "角度制进入 sin/cos/tan 前使用 deg_to_rad；不要通过放宽 tolerance 掩盖错误。"
+        "每条曲线根据自身局部参数填写 parameter_unit；degree 进入 sin/cos/tan 前使用 deg_to_rad，"
+        "radian 可直接进入三角函数；不要通过放宽 tolerance 掩盖错误。"
         f"tolerance 必须大于 0 且不超过 {LINKED_COORDINATE_INVARIANT_MAX_TOLERANCE}。"
         "每条 curve.domain 在所有合法状态下必须满足 start < end；若错误为 invalid_curve_domain，"
         "应改用稳定完整 domain，并用 reveal 表达随状态变化的视觉揭示，禁止保留退化定义域。\n"
@@ -241,18 +237,13 @@ def _build_repair_prompt(
 def _variables(plan: dict[str, Any]) -> list[dict[str, Any]]:
     spec = plan.get("interactive_spec") if isinstance(plan.get("interactive_spec"), dict) else {}
     return [
-        {
-            key: item.get(key)
-            for key in ("name", "label", "min", "max", "default", "step", "unit")
-        }
+        {key: item.get(key) for key in ("name", "label", "min", "max", "default", "step", "unit")}
         for item in spec.get("variables", [])
         if isinstance(item, dict) and not item.get("computed") and item.get("name")
     ]
 
 
-def _rank_linked_coordinate_ir_candidates(
-    candidates: list[object], plan: dict[str, Any]
-) -> dict[str, Any]:
+def _rank_linked_coordinate_ir_candidates(candidates: list[object], plan: dict[str, Any]) -> dict[str, Any]:
     runner = (
         _traced_rank_linked_coordinate_ir_candidates
         if settings.langsmith_tracing and get_current_run_tree() is not None
@@ -268,14 +259,13 @@ def _rank_linked_coordinate_ir_candidates(
     process_inputs=lambda inputs: {
         "candidate_count": len(inputs.get("candidates") or []),
         "required_invariants": list(
-            ((inputs.get("plan") or {}).get("representation_spec") or {}).get(
-                "required_invariants", []
-            )
+            ((inputs.get("plan") or {}).get("representation_spec") or {}).get("required_invariants", [])
         ),
     },
     process_outputs=lambda outputs: {
         "ok": outputs.get("ok"),
         "selected_index": outputs.get("selected_index"),
+        "repair_index": outputs.get("repair_index"),
         "candidates": [
             {
                 "index": item.get("index"),
@@ -298,9 +288,7 @@ def _rank_linked_coordinate_ir_candidates(
         ],
     },
 )
-def _traced_rank_linked_coordinate_ir_candidates(
-    candidates: list[object], plan: dict[str, Any]
-) -> dict[str, Any]:
+def _traced_rank_linked_coordinate_ir_candidates(candidates: list[object], plan: dict[str, Any]) -> dict[str, Any]:
     return rank_linked_coordinate_ir_candidates(candidates, plan)
 
 
@@ -315,15 +303,11 @@ def _parse_report(message: str) -> dict[str, Any]:
 
 
 def _ranking_report(ranking: dict[str, Any]) -> dict[str, Any]:
-    errors: list[dict[str, Any]] = []
+    repair_index = ranking.get("repair_index")
     for candidate in ranking.get("candidates", []):
+        if repair_index is not None and candidate.get("index") != repair_index:
+            continue
         report = candidate.get("report") if isinstance(candidate, dict) else None
         if isinstance(report, dict):
-            errors.extend(item for item in report.get("errors", []) if isinstance(item, dict))
-    return {
-        "ok": False,
-        "severity": "error",
-        "summary": "所有联动坐标 IR 候选均未通过确定性检查",
-        "errors": errors,
-        "warnings": [],
-    }
+            return report
+    return _parse_report("missing_linked_coordinate_ir_repair_candidate")
