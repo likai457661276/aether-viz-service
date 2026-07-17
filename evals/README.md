@@ -7,10 +7,17 @@
 ```text
 evals/
 ├── datasets/                 # 可提交的评测样本、失败 mutation 与阈值
+│   ├── generate_baseline/    # 生成流水线路由 / 硬校验 / 确定性 repair 基线
+│   ├── edit_html/            # 编辑诊断与端到端确定性样本
+│   ├── ir_routing/           # IR 路由回归
+│   └── recomposition/        # 几何重排回归
 ├── evaluators/               # 单指标确定性和视觉 evaluator
 ├── targets/                  # 被测生成链路与浏览器执行封装
 ├── reporting/                # 基线比较和失败聚合
 ├── reports/                  # 本地忽略的评测结果和阶段报告
+├── run_generate_baseline_eval.py
+├── run_edit_html_eval.py
+├── run_ir_routing_eval.py
 └── run_eval.py               # 统一的重组链路评测入口
 ```
 
@@ -70,6 +77,14 @@ uv run python evals/targets/css_edit.py /path/to/before.html /path/to/after.html
 ```bash
 uv run python evals/run_edit_html_eval.py
 ```
+
+运行生成流水线本地基线（路由命中、硬校验、确定性 repair）：
+
+```bash
+uv run python evals/run_generate_baseline_eval.py
+```
+
+`datasets/generate_baseline/pipeline_core.jsonl` 覆盖 IR/direct 路由样本、硬校验通过/失败夹具，以及可确定性修复的 HTML；默认不调用模型或远程 LangSmith。
 
 `datasets/edit_html/diagnosis.jsonl` 验证诊断策略、影响域、hard change claim 覆盖和
 claim 可绑定性；`datasets/edit_html/end_to_end.jsonl` 验证用户意图、preserve 约束、

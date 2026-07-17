@@ -237,6 +237,64 @@ def test_default_ir_registry_routes_all_independent_ir_families() -> None:
     assert coordinate and coordinate.key == "coordinate_graph_scene"
 
 
+def test_registry_select_for_route_prefers_ir_then_direct_fallback() -> None:
+    from aetherviz_service.aetherviz.ir.registry import DIRECT_GENERATION_BACKEND
+    from aetherviz_service.aetherviz.ir.router.contracts import IRRouteDecision
+
+    calls: list[str] = []
+
+    def direct_stream(topic: str, plan: dict):
+        calls.append(f"direct:{topic}")
+        yield {"delta": "x"}
+
+    def ir_stream(topic: str, plan: dict):
+        calls.append(f"ir:{topic}")
+        yield {"delta": "y"}
+
+    registry = IRBackendRegistry(
+        (IRBackend("demo_scene", frozenset({"demo_repr"}), ir_stream),)
+    )
+    ir_route = IRRouteDecision(
+        selected_backend="demo_scene",
+        source="deterministic",
+        confidence=0.9,
+        plan_fingerprint="fp",
+        candidates=(),
+    )
+    selection = registry.select_for_route(ir_route, topic="主题", plan={}, direct_stream=direct_stream)
+    assert selection.generation_backend == "demo_scene"
+    assert selection.ir_backend is not None
+    list(selection.stream_factory())
+    assert calls == ["ir:主题"]
+
+    direct_route = IRRouteDecision(
+        selected_backend=None,
+        source="fallback",
+        confidence=0.0,
+        plan_fingerprint="fp",
+        candidates=(),
+    )
+    direct = registry.select_for_route(direct_route, topic="主题", plan={}, direct_stream=direct_stream)
+    assert direct.generation_backend == DIRECT_GENERATION_BACKEND
+    assert direct.ir_backend is None
+    list(direct.stream_factory())
+    assert calls == ["ir:主题", "direct:主题"]
+
+    unknown = registry.select_for_route(
+        IRRouteDecision(
+            selected_backend="missing_backend",
+            source="llm",
+            confidence=0.5,
+            plan_fingerprint="fp",
+            candidates=(),
+        ),
+        topic="主题",
+        plan={},
+        direct_stream=direct_stream,
+    )
+    assert unknown.generation_backend == DIRECT_GENERATION_BACKEND
+
+
 def test_ir_registry_rejects_backend_and_representation_collisions() -> None:
     def stream(_topic: str, _plan: dict):
         yield from ()

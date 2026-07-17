@@ -4,9 +4,16 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
+from functools import partial
 from typing import Any
 
-from aetherviz_service.aetherviz.ir.router.contracts import IRRouteAssessment, IRRoutingProfile
+from aetherviz_service.aetherviz.ir.router.contracts import (
+    IRRouteAssessment,
+    IRRouteDecision,
+    IRRoutingProfile,
+)
+
+DIRECT_GENERATION_BACKEND = "direct"
 
 IRStream = Iterator[Any]
 IRStreamFactory = Callable[[str, dict[str, Any]], IRStream]
@@ -23,6 +30,15 @@ class IRBackend:
     assess: Callable[[dict[str, Any]], IRRouteAssessment] | None = None
 
 
+@dataclass(frozen=True)
+class GenerationStreamSelection:
+    """Resolved HTML/IR stream factory for one generate request."""
+
+    generation_backend: str
+    stream_factory: Callable[[], IRStream]
+    ir_backend: IRBackend | None = None
+
+
 class IRBackendRegistry:
     """Validated immutable-by-convention mapping of representations to backends."""
 
@@ -35,6 +51,8 @@ class IRBackendRegistry:
     def register(self, backend: IRBackend) -> None:
         if not backend.key or backend.key in self._by_key:
             raise ValueError(f"duplicate_ir_backend:{backend.key}")
+        if backend.key == DIRECT_GENERATION_BACKEND:
+            raise ValueError(f"reserved_ir_backend:{backend.key}")
         if not backend.representation_types:
             raise ValueError(f"ir_backend_without_representation:{backend.key}")
         overlaps = sorted(set(backend.representation_types) & set(self._by_representation))
@@ -58,6 +76,29 @@ class IRBackendRegistry:
     def assess(self, plan: dict[str, Any]) -> tuple[IRRouteAssessment, ...]:
         assessments = [backend.assess(plan) for backend in self.backends() if backend.assess is not None]
         return tuple(sorted(assessments, key=lambda item: (-item.score, item.backend_key)))
+
+    def select_for_route(
+        self,
+        route: IRRouteDecision,
+        *,
+        topic: str,
+        plan: dict[str, Any],
+        direct_stream: IRStreamFactory,
+    ) -> GenerationStreamSelection:
+        """Map a route decision to one stream factory; unknown/missing keys fall back to direct."""
+
+        backend = self.get(route.selected_backend) if route.selected_backend else None
+        if backend is None:
+            return GenerationStreamSelection(
+                generation_backend=DIRECT_GENERATION_BACKEND,
+                stream_factory=partial(direct_stream, topic, plan),
+                ir_backend=None,
+            )
+        return GenerationStreamSelection(
+            generation_backend=backend.key,
+            stream_factory=partial(backend.stream, topic, plan),
+            ir_backend=backend,
+        )
 
 
 def _build_default_registry() -> IRBackendRegistry:

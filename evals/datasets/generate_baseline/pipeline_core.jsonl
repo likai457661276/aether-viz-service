@@ -1,0 +1,7 @@
+{"suite":"route","inputs":{"topic":"单位圆上的点运动与正弦函数图像同步变化"},"outputs":{"selected_backend":"linked_coordinate_scene"},"tags":["route","linked"]}
+{"suite":"route","inputs":{"topic":"圆的面积切割重排推导"},"outputs":{"selected_backend":"recomposition_scene"},"tags":["route","recomposition"]}
+{"suite":"route","inputs":{"topic":"抛体运动轨迹和速度变化"},"outputs":{"selected_backend":null},"tags":["route","direct"]}
+{"suite":"route","inputs":{"topic":"用概率树展示随机事件分类"},"outputs":{"selected_backend":null},"tags":["route","direct"]}
+{"suite":"hard_validation","inputs":{"fixture":"valid_assembled.html","assemble":false},"outputs":{"ok":true},"tags":["validation","pass"]}
+{"suite":"hard_validation","inputs":{"fixture":"invalid_minimal.html","assemble":false},"outputs":{"ok":false},"tags":["validation","fail"]}
+{"suite":"repair","inputs":{"fixture":"repairable_missing_widget.html","strategy":"deterministic"},"outputs":{"repaired_ok":true},"tags":["repair","deterministic"]}

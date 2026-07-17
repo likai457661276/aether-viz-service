@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 
 from aetherviz_service.aetherviz.constants import get_gsap_core_cdn_url, get_katex_cdn_urls
 from aetherviz_service.aetherviz.contracts.layout import layout_contract_for_plan
@@ -184,6 +185,24 @@ SUBJECT_PROMPT_MODULES = {
 - 逐步揭示应保持上下文连续，避免把复杂关系退化为无关联卡片。""",
 }
 
+SUBJECT_GROUP_BY_SUBJECT = {
+    "math": "math",
+    "physics": "stem",
+    "chemistry": "stem",
+    "biology": "stem",
+    "programming": "stem",
+    "astronomy": "stem",
+    "chinese": "language_humanities",
+    "english": "language_humanities",
+    "geography": "language_humanities",
+}
+
+INTERACTIVE_TYPE_SYSTEM_PROMPTS = {
+    "simulation": SIMULATION_SYSTEM_PROMPT,
+    "diagram": DIAGRAM_SYSTEM_PROMPT,
+    "game": GAME_SYSTEM_PROMPT,
+}
+
 REPRESENTATION_PROMPT_MODULES = {
     "coordinate_graph": "坐标图表征：建立唯一 data-to-screen 坐标变换，坐标轴、整条曲线采样、动态关键点、切线/辅助线和读数必须全部调用该变换，禁止某条路径手工翻转 y 而其他对象不翻转。设置 ready 前在定义域边界、预设和动画端点验证关键点落在对应曲线且共享数据坐标映射到同一屏幕位置。",
     "geometric_construction": "几何构造表征：点、边、角、辅助线和度量来自统一几何模型；同一数学点在多个表征中的投影必须先由 deriveModel/deriveView 计算，再分别通过显式坐标系变换映射，禁止在曲线、动点和连线中重复手写正负号或比例。拖动、预设、动画端点和边界状态都要重算依赖对象，并在设置 ready 前验证计划中的共点、共线、等值或落在轨迹等不变量。",
@@ -201,35 +220,73 @@ REPRESENTATION_PROMPT_MODULES = {
     "concept_map": "概念图表征：概念节点、关系类型、证据与层级来自计划语义；连线方向和当前焦点清晰，避免退化为无关系卡片集合。",
 }
 
+# Below this confidence, skip representation-specific modules and keep the generic interactive prompt.
+REPRESENTATION_PROMPT_MIN_CONFIDENCE = 0.45
+
+
+@dataclass(frozen=True)
+class GenerationPromptSelection:
+    """Resolved prompt modules for one direct-HTML generation call."""
+
+    interactive_type: str
+    subject_group: str
+    representation_type: str
+    confidence: float
+    representation_applied: bool
+    fallback_reason: str | None
+    modules: tuple[str, ...]
+
+    def render(self) -> str:
+        return "\n\n".join(self.modules)
+
 
 def _compact_json(value: object) -> str:
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
 
 
-def system_prompt_for_interactive_type(plan: dict) -> str:
-    base = {
-        "simulation": SIMULATION_SYSTEM_PROMPT,
-        "diagram": DIAGRAM_SYSTEM_PROMPT,
-        "game": GAME_SYSTEM_PROMPT,
-    }.get(str(plan.get("interactive_type")), INTERACTIVE_HTML_SYSTEM_PROMPT)
+def resolve_generation_prompt_modules(plan: dict) -> GenerationPromptSelection:
+    """Table-driven prompt assembly with a single low-confidence / unknown representation fallback."""
+
+    interactive_type = str(plan.get("interactive_type") or "")
+    base = INTERACTIVE_TYPE_SYSTEM_PROMPTS.get(interactive_type, INTERACTIVE_HTML_SYSTEM_PROMPT)
     subject = str(plan.get("subject") or "general")
-    subject_group = (
-        "math"
-        if subject == "math"
-        else "stem"
-        if subject in {"physics", "chemistry", "biology", "programming", "astronomy"}
-        else "language_humanities"
-        if subject in {"chinese", "english", "geography"}
-        else ""
-    )
+    subject_group = SUBJECT_GROUP_BY_SUBJECT.get(subject, "")
     profile = plan.get("knowledge_profile") if isinstance(plan.get("knowledge_profile"), dict) else {}
     representation = str(profile.get("representation_type") or "")
-    modules = [base]
-    if subject_group:
+    try:
+        confidence = float(profile.get("confidence") if profile.get("confidence") is not None else 1.0)
+    except (TypeError, ValueError):
+        confidence = 1.0
+
+    modules: list[str] = [base]
+    if subject_group and subject_group in SUBJECT_PROMPT_MODULES:
         modules.append(SUBJECT_PROMPT_MODULES[subject_group])
-    if representation in REPRESENTATION_PROMPT_MODULES:
+
+    representation_applied = False
+    fallback_reason: str | None = None
+    if not representation:
+        fallback_reason = "missing_representation"
+    elif representation not in REPRESENTATION_PROMPT_MODULES:
+        fallback_reason = "unknown_representation"
+    elif confidence < REPRESENTATION_PROMPT_MIN_CONFIDENCE:
+        fallback_reason = "low_confidence"
+    else:
         modules.append(REPRESENTATION_PROMPT_MODULES[representation])
-    return "\n\n".join(modules)
+        representation_applied = True
+
+    return GenerationPromptSelection(
+        interactive_type=interactive_type or "interactive",
+        subject_group=subject_group,
+        representation_type=representation,
+        confidence=confidence,
+        representation_applied=representation_applied,
+        fallback_reason=fallback_reason,
+        modules=tuple(modules),
+    )
+
+
+def system_prompt_for_interactive_type(plan: dict) -> str:
+    return resolve_generation_prompt_modules(plan).render()
 
 
 def build_interactive_generation_prompt(topic: str, plan: dict) -> str:

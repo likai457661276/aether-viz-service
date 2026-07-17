@@ -304,6 +304,28 @@ HTML 文件编辑阶段请求示例：
 
 ## 生成流程
 
+### HTML 生成状态机
+
+`phase=generate` 使用固定 staged pipeline，**不是** LangChain `create_agent` / LangGraph / 多轮 tool 编排。模型调用保持单次（或有界重试）`ChatOpenAI.stream`；IR 后端选择由注册表与确定性评分完成，服务端硬校验与有界修复在模型之外执行。
+
+```text
+normalize_plan
+    → resolve_generation_route   # ir/router：assess → 阈值 / 可选 shadow 仲裁 → direct 降级
+    → generate                   # 单一后端一次产出：IR JSON→assemble 或 direct HTML stream
+    → assemble                   # contracts/layout：math-shell-v1 外壳装配
+    → validate                   # contracts/validation：硬错误阻断，质量启发式仅 warning
+    → repair                     # contracts/repair：确定性 → 函数级 → 整页模型（次数有界）
+    → html.done | validation_failed / error
+```
+
+| 阶段 | 权威入口 | 边界 |
+|------|----------|------|
+| route | `ir/router/service.py` + `ir/registry.py` | 只选已注册后端或 `direct`；不把后端注册成 LLM tools |
+| generate | `generate/workflow.py` → IR `stream` 或 `generate/html_agent.py` | 一次后端；残缺 `</html>` 至多重试一次，禁止占位降级交付 |
+| assemble / validate / repair | `contracts/pipeline.py` + `contracts/repair/` | 硬门禁在服务端；repair 为有界 `RepairSession`，非开放 Agent loop |
+
+主链路不引入通用 Agent harness。若需「看反馈再改」，只允许在 repair 子阶段扩展有界策略，不把 IR/direct 生成交给 LLM 自选工具。
+
 `/bingo-ai/generate-aetherviz-spec` 使用阶段化生成策略：
 
 1. `phase=plan` 由统一配置的模型执行单次规划，生成完整 `draft` 教案计划。
@@ -322,13 +344,16 @@ HTML 文件编辑阶段请求示例：
 
 ### 离线视觉稳定性验证
 
-IR 路由使用仓库内本地数据集进行确定性回归，不创建远程 LangSmith Dataset/Evaluator：
+IR 路由与生成流水线基线使用仓库内本地数据集进行确定性回归，不创建远程 LangSmith Dataset/Evaluator：
 
 ```bash
 uv run python evals/run_ir_routing_eval.py
 uv run python evals/run_ir_routing_eval.py --enable-llm --output /tmp/aetherviz-ir-routing-report.json
+uv run python evals/run_generate_baseline_eval.py
+uv run python evals/run_generate_baseline_eval.py --output evals/reports/generate-baseline-latest.json
 ```
 
+`run_generate_baseline_eval.py` 汇总三类本地基线：路由命中、硬校验通过/失败、确定性 repair 成功率；默认不调用模型。
 生成链路会静态检查抽象 SVG viewBox、屏幕像素字号、缩放描边和动画渲染生命周期。抽象 SVG 的确定性尺度修复先按初始 CTM 把用户单位换算为屏幕字号和线宽，再在 resize 时反算回用户单位，避免把 `0.2` 字号或 `0.05` 描边误当成亚像素屏幕值。纯 SVG simulation 若自行维护 RAF 且绕过服务端动画控制器会作为硬错误修复；Canvas 高频循环仍允许保留为非阻断 warning。结构创建应位于 `buildScene`，逐帧回调只通过 `deriveView/applyView` 更新既有节点；连续动画涉及有界离散拓扑数量时，应在 `buildScene` 按变量上界预分配节点池，逐帧仅切换可见性和属性。显式参数变更导致节点数量变化时需暂停动画、清空注册表并重建 timeline，渲染循环以实际注册表长度为边界或逐项校验节点存在。
 
 `math-shell-v1` 会移除模型对舞台高度和外层布局的覆盖（包括选择器前带 CSS 注释的情况），并把仅包含按钮的模型控件行归一化为整行 action group。959px 以下舞台高度使用视口相关上限，599px 以下控件改为单列，避免滑块、播放按钮和预设按钮互相挤压。

@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>熵增演示</title>
+<style>body{margin:0}#aetherviz-stage{display:grid;place-items:center;min-height:240px}</style>
+
+</head>
+<body>
+<main id="aetherviz-stage"><svg viewBox="0 0 100 100"><circle id="dot" cx="20" cy="50" r="8"></circle></svg></main>
+<p id="animation-caption">当前步骤：观察。</p>
+<button id="legacy-play-animation">播放</button>
+<button id="legacy-pause-animation">暂停</button>
+<button id="legacy-reset-animation">重置</button>
+<script>
+const state = { progress: 0 };
+const dot = document.getElementById('dot');
+const caption = document.getElementById('animation-caption');
+function updateVisualization(){
+  state.progress = (state.progress + 1) % 100;
+  dot.setAttribute('cx', String(20 + state.progress / 2));
+  caption.textContent = state.progress > 50 ? '当前步骤：归纳。' : '当前步骤：观察。';
+}
+function play(){ updateVisualization(); }
+function pause(){ state.paused = true; }
+function reset(){ state.progress = 0; updateVisualization(); }
+document.getElementById('play-animation').addEventListener('click', updateVisualization);
+document.getElementById('pause-animation').addEventListener('click', pause);
+document.getElementById('reset-animation').addEventListener('click', reset);
+window.addEventListener('message', function(event) {
+  const type = event.data && event.data.type;
+  if (type === 'SET_WIDGET_STATE') Object.assign(state, event.data.state || {});
+  if (type === 'HIGHLIGHT_ELEMENT') dot.dataset.highlighted = 'true';
+  if (type === 'ANNOTATE_ELEMENT') caption.textContent = event.data.content || '';
+  if (type === 'REVEAL_ELEMENT') dot.hidden = false;
+});
+window.AetherVizRuntime = { play, pause, reset, update: updateVisualization, getState: () => state };
+window.__AETHERVIZ_RUNTIME_READY__ = true;
+</script>
+</body>
+</html>

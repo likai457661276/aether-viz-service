@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
-from functools import partial
 from typing import Any
 
 from langsmith import traceable
@@ -66,21 +65,20 @@ def _run_generate_workflow_impl(
     approved_plan: dict[str, Any],
 ) -> Iterator[str]:
     route = resolve_generation_route(approved_plan)
-    ir_backend = DEFAULT_IR_REGISTRY.get(route.selected_backend) if route.selected_backend else None
-    if ir_backend is not None:
-        html_stream_factory = partial(ir_backend.stream, topic, approved_plan)
-        generation_backend = ir_backend.key
-    else:
-        html_stream_factory = partial(stream_generate_html, topic, approved_plan)
-        generation_backend = "direct"
+    selection = DEFAULT_IR_REGISTRY.select_for_route(
+        route,
+        topic=topic,
+        plan=approved_plan,
+        direct_stream=stream_generate_html,
+    )
     yield from run_html_pipeline(
         run_id=run_id,
         phase="generate",
         start_event="html.generation_started",
         topic=topic,
         plan=approved_plan,
-        html_stream_factory=html_stream_factory,
-        generation_backend=generation_backend,
+        html_stream_factory=selection.stream_factory,
+        generation_backend=selection.generation_backend,
         include_plan_in_repair=True,
         initial_metadata={
             "generation_route_source": route.source,
