@@ -13,12 +13,6 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langsmith import traceable
 from langsmith.run_helpers import get_current_run_tree
 
-from aetherviz_service.aetherviz.contracts.html_stream import (
-    HTML_SIZE_EVENT_INTERVAL_BYTES,
-    build_html_progress_payload,
-    build_html_size_payload,
-)
-from aetherviz_service.aetherviz.contracts.repair.prompts import REPAIR_SYSTEM_PROMPT, build_repair_prompt
 from aetherviz_service.aetherviz.agents.model_factory import (
     create_chat_model,
     extract_llm_text,
@@ -26,8 +20,14 @@ from aetherviz_service.aetherviz.agents.model_factory import (
     has_primary_llm_config,
 )
 from aetherviz_service.aetherviz.constants import HTML_OUTPUT_HARD_LIMIT_CHARS
-from aetherviz_service.aetherviz.contracts.repair.deterministic import deterministic_repair_html
 from aetherviz_service.aetherviz.contracts.html_output import parse_interactive_html, sanitize_aetherviz_html
+from aetherviz_service.aetherviz.contracts.html_stream import (
+    HTML_SIZE_EVENT_INTERVAL_BYTES,
+    build_html_progress_payload,
+    build_html_size_payload,
+)
+from aetherviz_service.aetherviz.contracts.repair.deterministic import deterministic_repair_html
+from aetherviz_service.aetherviz.contracts.repair.prompts import REPAIR_SYSTEM_PROMPT, build_repair_prompt
 from aetherviz_service.config import settings
 
 logger = logging.getLogger(__name__)

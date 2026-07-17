@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-
 HTML_SIZE_EVENT_INTERVAL_BYTES = 512
 HTML_REASONING_EVENT_INTERVAL_MS = 250
 
@@ -37,10 +36,6 @@ class HtmlStreamResult:
     output_tokens: int | None = None
     output_chars: int = 0
     generation_fallback: str | None = None
-    intent_passed: bool | None = None
-    intent_soft_failed: tuple[str, ...] = ()
-    intent_check_count: int = 0
-    intent_summary: str = ""
     intent_passed: bool | None = None
     intent_soft_failed: tuple[str, ...] = ()
     intent_check_count: int = 0

@@ -25,7 +25,7 @@ def sanitize_aetherviz_html(html: str) -> str:
 
 def _balance_js_brackets(script_chunk: str) -> str:
     """使用词法扫描状态机分析截断的 JavaScript 代码块，返回为使其无语法错误而必须追加的闭合字符后缀。
-    
+
     支持正确闭合：
     - 单行/多行注释 (//, /* */)
     - 单引号、双引号、反引号模板字符串 (', ", `)
@@ -37,74 +37,74 @@ def _balance_js_brackets(script_chunk: str) -> str:
     in_template_literal = False
     in_line_comment = False
     in_block_comment = False
-    
+
     braces_stack = []
-    
+
     i = 0
     n = len(script_chunk)
     while i < n:
         char = script_chunk[i]
-        
+
         # 处理转义字符
-        if char == '\\' and (in_single_quote or in_double_quote or in_template_literal):
+        if char == "\\" and (in_single_quote or in_double_quote or in_template_literal):
             i += 2
             continue
-            
+
         # 处理单行注释
         if in_line_comment:
-            if char == '\n':
+            if char == "\n":
                 in_line_comment = False
             i += 1
             continue
-            
+
         # 处理多行注释
         if in_block_comment:
-            if char == '*' and i + 1 < n and script_chunk[i+1] == '/':
+            if char == "*" and i + 1 < n and script_chunk[i + 1] == "/":
                 in_block_comment = False
                 i += 2
             else:
                 i += 1
             continue
-            
+
         # 处理单引号字符串
         if in_single_quote:
             if char == "'":
                 in_single_quote = False
             i += 1
             continue
-            
+
         # 处理双引号字符串
         if in_double_quote:
             if char == '"':
                 in_double_quote = False
             i += 1
             continue
-            
+
         # 处理模板字面量 (反引号)
         if in_template_literal:
             # 检查模板字符串内的 JS 表达式插值 ${
-            if char == '$' and i + 1 < n and script_chunk[i+1] == '{':
+            if char == "$" and i + 1 < n and script_chunk[i + 1] == "{":
                 braces_stack.append("${")
                 in_template_literal = False
                 i += 2
                 continue
-            elif char == '`':
+            elif char == "`":
                 in_template_literal = False
             i += 1
             continue
-            
+
         # 普通 JS 代码区域
         # 检查注释开头
-        if char == '/' and i + 1 < n:
-            if script_chunk[i+1] == '/':
+        if char == "/" and i + 1 < n:
+            if script_chunk[i + 1] == "/":
                 in_line_comment = True
                 i += 2
                 continue
-            elif script_chunk[i+1] == '*':
+            elif script_chunk[i + 1] == "*":
                 in_block_comment = True
                 i += 2
                 continue
-                
+
         # 检查字符串开头
         if char == "'":
             in_single_quote = True
@@ -114,20 +114,20 @@ def _balance_js_brackets(script_chunk: str) -> str:
             in_double_quote = True
             i += 1
             continue
-        elif char == '`':
+        elif char == "`":
             in_template_literal = True
             i += 1
             continue
-            
+
         # 检查大括号
-        if char == '{':
+        if char == "{":
             braces_stack.append("{")
-        elif char == '}':
+        elif char == "}":
             if braces_stack:
                 top = braces_stack.pop()
                 if top == "${":
                     in_template_literal = True
-                    
+
         i += 1
 
     suffix = ""
@@ -140,7 +140,7 @@ def _balance_js_brackets(script_chunk: str) -> str:
         suffix += "'"
     elif in_double_quote:
         suffix += '"'
-        
+
     # 2. 闭合大括号或 ${} 嵌套
     while braces_stack:
         top = braces_stack.pop()
@@ -148,13 +148,13 @@ def _balance_js_brackets(script_chunk: str) -> str:
             suffix += "}`"  # 先闭合表达式，再闭合外层反引号模板字符串
         else:
             suffix += "}"
-            
+
     return suffix
 
 
 def parse_interactive_html(raw_output: str) -> str:
     """从 LLM 输出中提取并验证自包含的交互式 HTML，并支持对截断内容的自动智能闭合。
-    
+
     该函数负责以下工作：
     1. 去除 LLM 输出中可能包含的 Markdown 代码围栏（```html...```）
     2. 提取以 <!DOCTYPE html> 或 <html> 开头的 HTML 内容
@@ -166,13 +166,13 @@ def parse_interactive_html(raw_output: str) -> str:
        - 如果 <style> 未闭合，自动添加 </style>
        - 自动添加缺失的 </body> 和 </html>
     6. 长度校验：确保生成的 HTML 内容足够完整（至少 150 字符）
-    
+
     参数:
         raw_output: LLM 原始输出字符串，可能包含 Markdown 围栏或截断内容
-        
+
     返回:
         清理后的完整 HTML 字符串
-        
+
     异常:
         AetherVizInteractiveHtmlError: 当输出为空、缺少 HTML 标记或内容过短时抛出
     """
@@ -194,7 +194,7 @@ def parse_interactive_html(raw_output: str) -> str:
     # 如果发现了 </html>，进行精确截取
     if "</HTML>" in stripped.upper():
         end_idx = stripped.upper().rfind("</HTML>")
-        stripped = stripped[:end_idx + 7]
+        stripped = stripped[: end_idx + 7]
 
     # 基本合规性校验
     lower_content = stripped.lower()
@@ -204,7 +204,7 @@ def parse_interactive_html(raw_output: str) -> str:
     # ─── 终极容错：智能补全闭合标签（防截断） ───
     if "</html" not in lower_content:
         logger.warning("AetherViz: 检测到大模型输出可能被截断，缺少 </html> 闭合标签，启动智能缝合补齐...")
-        
+
         # 1. 检查是否在 script 块内截断了 (即含有 <script 但在它之后没有 </script>)
         #    不再直接判失败：用词法状态机计算需要补齐的闭合字符，缝合后交由
         #    后续 JS 语法校验 + widget 契约校验决定是否需要走一次模型修复。

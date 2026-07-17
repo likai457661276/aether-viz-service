@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import ast
+import subprocess
+import sys
 from pathlib import Path
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1] / "aetherviz_service" / "aetherviz"
@@ -31,6 +33,17 @@ def test_edit_does_not_import_generate() -> None:
     imports = _imports_from(PACKAGE_ROOT / "edit")
     offenders = [name for name in imports if name.startswith("aetherviz_service.aetherviz.generate")]
     assert offenders == []
+
+
+def test_ir_import_is_independent_of_generate_package_import_order() -> None:
+    completed = subprocess.run(
+        [sys.executable, "-c", "import aetherviz_service.aetherviz.ir"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0, completed.stderr
 
 
 def test_contracts_does_not_import_edit_or_generate_business() -> None:
@@ -91,8 +104,8 @@ def test_edit_assembly_plan_prefers_widget_config_over_topic_inference() -> None
 
 
 def test_edit_assembly_plan_without_widget_config_does_not_force_simulation_from_math_topic() -> None:
-    from aetherviz_service.aetherviz.edit.context import build_edit_assembly_plan
     from aetherviz_service.aetherviz.contracts.validation.animation_lifecycle_checker import check_animation_lifecycle
+    from aetherviz_service.aetherviz.edit.context import build_edit_assembly_plan
 
     # No widget-config: topic may still normalize to simulation, but when config says diagram we already covered
     # that above. Here verify diagram config keeps rAF bypass non-blocking.

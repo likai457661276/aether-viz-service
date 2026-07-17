@@ -94,8 +94,8 @@ def test_runtime_edit_uses_deterministic_prepair() -> None:
 
 
 def test_deterministic_runtime_repair_does_not_short_circuit_full_edit(monkeypatch) -> None:
-    from aetherviz_service.aetherviz.generate.html_agent import HtmlStreamResult
     from aetherviz_service.aetherviz.edit import workflow as edit_html_workflow
+    from aetherviz_service.aetherviz.generate.html_agent import HtmlStreamResult
 
     prepair = try_deterministic_runtime_prepair(
         _mismatch_html(),
@@ -131,8 +131,8 @@ def test_deterministic_runtime_repair_does_not_short_circuit_full_edit(monkeypat
 
 
 def test_workflow_rebuilds_context_and_calls_llm_after_deterministic_pre_repair(monkeypatch) -> None:
-    from aetherviz_service.aetherviz.generate.html_agent import HtmlStreamResult
     from aetherviz_service.aetherviz.edit import workflow as edit_html_workflow
+    from aetherviz_service.aetherviz.generate.html_agent import HtmlStreamResult
 
     captured: dict[str, object] = {}
 

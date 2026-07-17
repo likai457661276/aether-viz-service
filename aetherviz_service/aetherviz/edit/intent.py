@@ -138,9 +138,7 @@ class IntentEvaluation:
         for item in self.failed:
             if item.check.severity != "hard":
                 continue
-            lines.append(
-                f"- [id={item.check.id} kind={item.check.kind} group={item.check.group}] {item.message}"
-            )
+            lines.append(f"- [id={item.check.id} kind={item.check.kind} group={item.check.group}] {item.message}")
         lines.append("请针对失败 hard checks 修正；已通过的 preserve hard checks 必须继续保持。")
         return "\n".join(lines)
 
@@ -285,13 +283,9 @@ def _evaluate_one(
         same = before == after
         return same, "css_drifted" if not same else "css_unchanged"
     if kind == "function_body_changed":
-        return _function_hash_changed(
-            baseline_functions, candidate_functions, check.function, expect_changed=True
-        )
+        return _function_hash_changed(baseline_functions, candidate_functions, check.function, expect_changed=True)
     if kind == "function_body_unchanged":
-        return _function_hash_changed(
-            baseline_functions, candidate_functions, check.function, expect_changed=False
-        )
+        return _function_hash_changed(baseline_functions, candidate_functions, check.function, expect_changed=False)
     if kind == "numeric_changed":
         before = _numbers_in_scope(baseline_soup, baseline_html, check.selector)
         after = _numbers_in_scope(candidate_soup, candidate_html, check.selector)
@@ -319,19 +313,13 @@ def _evaluate_one(
         return same, f"widget_type_changed:{before}->{after}" if not same else "widget_type_unchanged"
     if kind == "iframe_actions_unchanged":
         missing = [
-            action
-            for action in _REQUIRED_WIDGET_ACTIONS
-            if action in baseline_html and action not in candidate_html
+            action for action in _REQUIRED_WIDGET_ACTIONS if action in baseline_html and action not in candidate_html
         ]
-        return (not missing), (
-            f"widget_actions_missing:{','.join(missing)}" if missing else "iframe_actions_unchanged"
-        )
+        return (not missing), (f"widget_actions_missing:{','.join(missing)}" if missing else "iframe_actions_unchanged")
     return False, f"unknown_kind:{kind}"
 
 
-def _text_predicate(
-    soup: BeautifulSoup, selector: str, expected: str, *, contains: bool
-) -> tuple[bool, str]:
+def _text_predicate(soup: BeautifulSoup, selector: str, expected: str, *, contains: bool) -> tuple[bool, str]:
     texts = _collect_text(soup, selector)
     if contains:
         ok = bool(expected) and any(expected in text for text in texts)
@@ -347,9 +335,7 @@ def _collect_text(soup: BeautifulSoup, selector: str) -> tuple[str, ...]:
     return (soup.get_text(" ", strip=True),)
 
 
-def _attribute_equals(
-    soup: BeautifulSoup, selector: str, attribute: str, expected: str
-) -> tuple[bool, str]:
+def _attribute_equals(soup: BeautifulSoup, selector: str, attribute: str, expected: str) -> tuple[bool, str]:
     values = _attribute_values(soup, selector, attribute)
     ok = bool(values) and any(value == expected for value in values)
     return ok, "attribute_mismatch" if not ok else "attribute_equals"
@@ -396,11 +382,7 @@ def _shell_meta(soup: BeautifulSoup) -> dict[str, Any]:
         return {
             "title": str(region.get("data-title") or "").strip(),
             "goal": str(region.get("data-goal") or "").strip(),
-            "objectives": [
-                item.get_text(" ", strip=True)
-                for item in region.select("li")
-                if item.get_text(strip=True)
-            ],
+            "objectives": [item.get_text(" ", strip=True) for item in region.select("li") if item.get_text(strip=True)],
         }
     title_el = soup.select_one(".av-title")
     goal_el = soup.select_one(".av-goal")
@@ -408,9 +390,7 @@ def _shell_meta(soup: BeautifulSoup) -> dict[str, Any]:
         "title": title_el.get_text(" ", strip=True) if title_el else "",
         "goal": goal_el.get_text(" ", strip=True) if goal_el else "",
         "objectives": [
-            item.get_text(" ", strip=True)
-            for item in soup.select(".av-objectives li")
-            if item.get_text(strip=True)
+            item.get_text(" ", strip=True) for item in soup.select(".av-objectives li") if item.get_text(strip=True)
         ],
     }
 
@@ -444,15 +424,39 @@ def _css_values(soup: BeautifulSoup, selector: str, property_name: str) -> tuple
         for rule in tinycss2.parse_stylesheet(style.get_text() or "", skip_comments=True, skip_whitespace=True):
             if getattr(rule, "type", "") != "qualified-rule":
                 continue
-            if tinycss2.serialize(rule.prelude).strip() != selector:
+            if selector not in _css_rule_selectors(rule.prelude):
                 continue
-            for declaration in tinycss2.parse_declaration_list(
-                rule.content, skip_comments=True, skip_whitespace=True
-            ):
+            for declaration in tinycss2.parse_declaration_list(rule.content, skip_comments=True, skip_whitespace=True):
                 if getattr(declaration, "type", "") != "declaration" or declaration.name != property_name:
                     continue
                 values.append(tinycss2.serialize(declaration.value).strip())
+    for element in _select(soup, selector):
+        for declaration in tinycss2.parse_declaration_list(
+            str(element.get("style") or ""), skip_comments=True, skip_whitespace=True
+        ):
+            if getattr(declaration, "type", "") != "declaration" or declaration.name != property_name:
+                continue
+            values.append(tinycss2.serialize(declaration.value).strip())
     return tuple(values)
+
+
+def _css_rule_selectors(prelude: list[Any]) -> tuple[str, ...]:
+    """Split a qualified-rule prelude on top-level commas only."""
+
+    selectors: list[str] = []
+    current: list[Any] = []
+    for token in prelude:
+        if getattr(token, "type", "") == "literal" and getattr(token, "value", "") == ",":
+            rendered = tinycss2.serialize(current).strip()
+            if rendered:
+                selectors.append(rendered)
+            current = []
+            continue
+        current.append(token)
+    rendered = tinycss2.serialize(current).strip()
+    if rendered:
+        selectors.append(rendered)
+    return tuple(selectors)
 
 
 def _has_css_declaration(soup: BeautifulSoup, selector: str, property_name: str, expected: str) -> bool:

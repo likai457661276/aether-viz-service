@@ -5,6 +5,14 @@ from copy import deepcopy
 
 import pytest
 
+from aetherviz_service.aetherviz.contracts.layout import assemble_layout_contract
+from aetherviz_service.aetherviz.contracts.pipeline import (
+    _accept_hard_repair_candidate,
+    _hard_error_only_report,
+)
+from aetherviz_service.aetherviz.contracts.validation.animation_lifecycle_checker import check_animation_lifecycle
+from aetherviz_service.aetherviz.contracts.validation.report import build_validation_report
+from aetherviz_service.aetherviz.generate.workflow import run_generate_workflow
 from aetherviz_service.aetherviz.ir.recomposition.assembly import (
     evaluate_target_assembly,
     translate_target_assembly_into_canvas,
@@ -37,20 +45,12 @@ from aetherviz_service.aetherviz.ir.recomposition.semantics import (
 from aetherviz_service.aetherviz.ir.recomposition.waypoints import (
     complete_intermediate_waypoints,
 )
-from aetherviz_service.aetherviz.contracts.validation.animation_lifecycle_checker import check_animation_lifecycle
 from aetherviz_service.aetherviz.tools.function_patch import (
     apply_function_replacements,
     describe_target_functions,
     repair_function_targets,
     target_functions_from_report,
 )
-from aetherviz_service.aetherviz.contracts.layout import assemble_layout_contract
-from aetherviz_service.aetherviz.contracts.validation.report import build_validation_report
-from aetherviz_service.aetherviz.contracts.pipeline import (
-    _accept_hard_repair_candidate,
-    _hard_error_only_report,
-)
-from aetherviz_service.aetherviz.generate.workflow import run_generate_workflow
 from aetherviz_service.aetherviz.workflow.knowledge_profile import build_knowledge_profile
 from aetherviz_service.aetherviz.workflow.plan_contract import normalize_plan
 from aetherviz_service.config import settings

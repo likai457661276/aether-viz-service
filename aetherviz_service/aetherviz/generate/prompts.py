@@ -5,8 +5,8 @@ from __future__ import annotations
 import json
 
 from aetherviz_service.aetherviz.constants import get_gsap_core_cdn_url, get_katex_cdn_urls
-from aetherviz_service.aetherviz.limits import MODEL_HTML_HARD_LIMIT_CHARS, MODEL_HTML_TARGET_CHARS
 from aetherviz_service.aetherviz.contracts.layout import layout_contract_for_plan
+from aetherviz_service.aetherviz.limits import MODEL_HTML_HARD_LIMIT_CHARS, MODEL_HTML_TARGET_CHARS
 
 GSAP_CORE_CDN = get_gsap_core_cdn_url()
 KATEX_CSS_CDN, KATEX_JS_CDN = get_katex_cdn_urls()
@@ -201,8 +201,10 @@ REPRESENTATION_PROMPT_MODULES = {
     "concept_map": "概念图表征：概念节点、关系类型、证据与层级来自计划语义；连线方向和当前焦点清晰，避免退化为无关系卡片集合。",
 }
 
+
 def _compact_json(value: object) -> str:
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+
 
 def system_prompt_for_interactive_type(plan: dict) -> str:
     base = {
@@ -228,6 +230,7 @@ def system_prompt_for_interactive_type(plan: dict) -> str:
     if representation in REPRESENTATION_PROMPT_MODULES:
         modules.append(REPRESENTATION_PROMPT_MODULES[representation])
     return "\n\n".join(modules)
+
 
 def build_interactive_generation_prompt(topic: str, plan: dict) -> str:
     runtime = plan.get("runtime") if isinstance(plan.get("runtime"), dict) else {}
@@ -302,4 +305,3 @@ def build_interactive_generation_prompt(topic: str, plan: dict) -> str:
 中文展示自检：遍历静态 DOM 文本、SVG text、Canvas fillText/strokeText、动态 textContent/innerText、按钮、图例、提示和 aria-label；说明性文案必须为简体中文。数学符号、公式、变量/点名、单位和确有教学必要的外语原文按 system 约束保留。
 SVG 最终硬验收：若使用数学/抽象 viewBox，SVG text 必须根据页面排版 token 与 getScreenCTM() 实际缩放统一换算，不能假定 CSS 字号等于屏幕字号；检查全部标签在初始状态、参数范围边界和动画关键帧下均不越界、不异常放大且不重叠。修复必须作用于通用布局/渲染路径，禁止按主题、标签 id、具体坐标或单个预设写特例。
 只输出完整 HTML；body 不得包含自定义 app shell。"""
-

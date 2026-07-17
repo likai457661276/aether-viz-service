@@ -65,6 +65,27 @@ uv run python evals/targets/css_edit.py /path/to/before.html /path/to/after.html
 
 门禁会检查目标数量和可见性、computed style、主视觉、新增浏览器异常与交互动作，并通过目标打码截图阻断目标区域之外的意外变化。修改本身预期影响整体布局时使用 `--allow-outside-target-changes` 显式放宽截图约束。
 
+运行 Edit HTML 的诊断单步与端到端确定性回归：
+
+```bash
+uv run python evals/run_edit_html_eval.py
+```
+
+`datasets/edit_html/diagnosis.jsonl` 验证诊断策略、影响域、hard change claim 覆盖和
+claim 可绑定性；`datasets/edit_html/end_to_end.jsonl` 验证用户意图、preserve 约束、
+HTML validation 和最终 intent metadata。默认使用已审查 fixture，不调用模型或远程
+LangSmith 服务。真实模型风险抽样需显式开启：
+
+```bash
+uv run python evals/run_edit_html_eval.py --live-model --max-runs 3
+uv run python evals/run_edit_html_eval.py \
+  --suite end-to-end --live-model --browser --judge --max-runs 1
+```
+
+浏览器和 LLM-as-Judge 只用于有界风险抽样；judge 一次生成教学语义、视觉质量、编辑
+相关性三个结构化分数，再由三个单指标 evaluator 分别读取。所有报告仅写入本地忽略的
+`evals/reports/`，不得使用 LangSmith CLI/SDK 上传 Dataset、Evaluator 或实验。
+
 从已脱敏的本地 Trace 导出构建视觉 Dataset：
 
 ```bash

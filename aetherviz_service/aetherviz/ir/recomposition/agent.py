@@ -12,8 +12,8 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langsmith import traceable
 from langsmith.run_helpers import get_current_run_tree
 
-from aetherviz_service.aetherviz.contracts.html_stream import HtmlStreamResult, build_html_progress_payload
 from aetherviz_service.aetherviz.agents.model_factory import create_chat_model, extract_llm_text, has_primary_llm_config
+from aetherviz_service.aetherviz.contracts.html_stream import HtmlStreamResult, build_html_progress_payload
 from aetherviz_service.aetherviz.ir.recomposition.assembly import (
     translate_target_assembly_into_canvas,
 )

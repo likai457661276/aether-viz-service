@@ -8,7 +8,7 @@ from typing import Any
 
 from langsmith import traceable
 
-from aetherviz_service.aetherviz.contracts.pipeline import run_html_pipeline, _summarize_sse_trace
+from aetherviz_service.aetherviz.contracts.pipeline import _summarize_sse_trace, run_html_pipeline
 from aetherviz_service.aetherviz.generate.html_agent import stream_generate_html
 from aetherviz_service.aetherviz.ir.registry import DEFAULT_IR_REGISTRY
 from aetherviz_service.aetherviz.ir.router.service import resolve_generation_route

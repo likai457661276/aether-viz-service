@@ -9,16 +9,16 @@ import pytest
 from fastapi.testclient import TestClient
 
 from aetherviz_service.aetherviz.agents import planner_agent
-from aetherviz_service.aetherviz.contracts.repair import model as repair_agent
 from aetherviz_service.aetherviz.agents.planner_agent import PlanningStreamResult, stream_create_plan
-from aetherviz_service.aetherviz.limits import MODEL_HTML_HARD_LIMIT_CHARS
-from aetherviz_service.aetherviz.contracts.validation.animation_lifecycle_checker import check_animation_lifecycle
-from aetherviz_service.aetherviz.contracts.repair.deterministic import deterministic_repair_html
 from aetherviz_service.aetherviz.contracts.layout import assemble_layout_contract
+from aetherviz_service.aetherviz.contracts.pipeline import _validate
+from aetherviz_service.aetherviz.contracts.repair import model as repair_agent
+from aetherviz_service.aetherviz.contracts.repair.deterministic import deterministic_repair_html
+from aetherviz_service.aetherviz.contracts.validation.animation_lifecycle_checker import check_animation_lifecycle
 from aetherviz_service.aetherviz.contracts.validation.length_checker import check_length
 from aetherviz_service.aetherviz.contracts.validation.security_checker import check_security
 from aetherviz_service.aetherviz.contracts.validation.widget_contract_checker import check_widget_runtime_contract
-from aetherviz_service.aetherviz.contracts.pipeline import _validate
+from aetherviz_service.aetherviz.limits import MODEL_HTML_HARD_LIMIT_CHARS
 from aetherviz_service.aetherviz.workflow.plan_contract import normalize_plan
 from aetherviz_service.config import settings
 from aetherviz_service.main import app

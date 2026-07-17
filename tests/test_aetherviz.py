@@ -262,8 +262,8 @@ def test_generate_phase_without_model_returns_explicit_error() -> None:
 
 
 def test_generate_phase_returns_error_when_html_agent_fails_completely(monkeypatch) -> None:
-    from aetherviz_service.aetherviz.generate import html_agent
     from aetherviz_service.aetherviz.contracts import pipeline as generate_workflow
+    from aetherviz_service.aetherviz.generate import html_agent
     from aetherviz_service.aetherviz.generate import workflow as _generate_entry
 
     monkeypatch.setattr(settings, "openai_api_key", "test-key")
@@ -1103,10 +1103,10 @@ def test_widget_contract_accepts_duration_tween_in_gsap_timeline() -> None:
 
 
 def test_generate_phase_triggers_repair_when_validation_fails(monkeypatch) -> None:
-    from aetherviz_service.aetherviz.generate import html_agent
     from aetherviz_service.aetherviz.contracts.repair import model as repair_agent
-    from aetherviz_service.aetherviz.generate.html_agent import HtmlStreamResult, build_html_progress_payload
     from aetherviz_service.aetherviz.contracts.repair.model import RepairStreamResult
+    from aetherviz_service.aetherviz.generate import html_agent
+    from aetherviz_service.aetherviz.generate.html_agent import HtmlStreamResult, build_html_progress_payload
 
     monkeypatch.setattr(settings, "openai_api_key", "test-key")
 
@@ -1166,10 +1166,10 @@ def test_generate_phase_triggers_repair_when_validation_fails(monkeypatch) -> No
 
 def test_generate_phase_skips_deterministic_when_only_model_fixable_errors(monkeypatch) -> None:
     """empty_main_visual_mount alone must not burn a deterministic repair attempt."""
-    from aetherviz_service.aetherviz.generate.html_agent import HtmlStreamResult
-    from aetherviz_service.aetherviz.contracts.repair.model import RepairStreamResult
     from aetherviz_service.aetherviz.contracts import pipeline as generate_workflow
+    from aetherviz_service.aetherviz.contracts.repair.model import RepairStreamResult
     from aetherviz_service.aetherviz.generate import workflow as _generate_entry
+    from aetherviz_service.aetherviz.generate.html_agent import HtmlStreamResult
 
     empty_mount = sample_html().replace(
         '<svg viewBox="0 0 100 100"><circle id="dot" cx="20" cy="50" r="8"></circle></svg>',
@@ -1224,10 +1224,10 @@ def test_generate_phase_skips_deterministic_when_only_model_fixable_errors(monke
 
 
 def test_generate_phase_rejects_stalled_model_repair_and_preserves_previous_html(monkeypatch) -> None:
-    from aetherviz_service.aetherviz.generate.html_agent import HtmlStreamResult
-    from aetherviz_service.aetherviz.contracts.repair.model import RepairStreamResult
     from aetherviz_service.aetherviz.contracts import pipeline as generate_workflow
+    from aetherviz_service.aetherviz.contracts.repair.model import RepairStreamResult
     from aetherviz_service.aetherviz.generate import workflow as _generate_entry
+    from aetherviz_service.aetherviz.generate.html_agent import HtmlStreamResult
 
     missing_visual = sample_html().replace(
         '<svg viewBox="0 0 100 100"><circle id="dot" cx="20" cy="50" r="8"></circle></svg>',
@@ -1283,10 +1283,10 @@ def test_generate_phase_rejects_stalled_model_repair_and_preserves_previous_html
 
 
 def test_generate_phase_honors_multiple_model_repair_attempts(monkeypatch) -> None:
-    from aetherviz_service.aetherviz.generate.html_agent import HtmlStreamResult
-    from aetherviz_service.aetherviz.contracts.repair.model import RepairStreamResult
     from aetherviz_service.aetherviz.contracts import pipeline as generate_workflow
+    from aetherviz_service.aetherviz.contracts.repair.model import RepairStreamResult
     from aetherviz_service.aetherviz.generate import workflow as _generate_entry
+    from aetherviz_service.aetherviz.generate.html_agent import HtmlStreamResult
 
     complete = sample_html()
     missing_visual = complete.replace(
@@ -1322,10 +1322,10 @@ def test_generate_phase_honors_multiple_model_repair_attempts(monkeypatch) -> No
 
 
 def test_generate_phase_marks_unchanged_model_repair(monkeypatch) -> None:
-    from aetherviz_service.aetherviz.generate.html_agent import HtmlStreamResult
-    from aetherviz_service.aetherviz.contracts.repair.model import RepairStreamResult
     from aetherviz_service.aetherviz.contracts import pipeline as generate_workflow
+    from aetherviz_service.aetherviz.contracts.repair.model import RepairStreamResult
     from aetherviz_service.aetherviz.generate import workflow as _generate_entry
+    from aetherviz_service.aetherviz.generate.html_agent import HtmlStreamResult
 
     missing_visual = sample_html().replace(
         '<svg viewBox="0 0 100 100"><circle id="dot" cx="20" cy="50" r="8"></circle></svg>',
@@ -1361,9 +1361,9 @@ def test_generate_phase_marks_unchanged_model_repair(monkeypatch) -> None:
 
 
 def test_generate_phase_does_not_model_rewrite_quality_warning(monkeypatch) -> None:
-    from aetherviz_service.aetherviz.generate.html_agent import HtmlStreamResult
     from aetherviz_service.aetherviz.contracts import pipeline as generate_workflow
     from aetherviz_service.aetherviz.generate import workflow as _generate_entry
+    from aetherviz_service.aetherviz.generate.html_agent import HtmlStreamResult
 
     risky_html = sample_html().replace(
         "const state = { progress: 0 };",
@@ -1397,9 +1397,9 @@ def test_generate_phase_does_not_model_rewrite_quality_warning(monkeypatch) -> N
 
 
 def test_generate_phase_runs_quality_repair_after_hard_error_is_repaired(monkeypatch) -> None:
-    from aetherviz_service.aetherviz.generate.html_agent import HtmlStreamResult
     from aetherviz_service.aetherviz.contracts import pipeline as generate_workflow
     from aetherviz_service.aetherviz.generate import workflow as _generate_entry
+    from aetherviz_service.aetherviz.generate.html_agent import HtmlStreamResult
 
     risky_html = sample_html().replace(
         "body{margin:0}",
@@ -1437,9 +1437,8 @@ def test_generate_phase_runs_quality_repair_after_hard_error_is_repaired(monkeyp
 
 
 def test_edit_phase_applies_deterministic_quality_repair_without_model_rewrite(monkeypatch) -> None:
-    from aetherviz_service.aetherviz.generate.html_agent import HtmlStreamResult
     from aetherviz_service.aetherviz.contracts import pipeline as generate_workflow
-    from aetherviz_service.aetherviz.generate import workflow as _generate_entry
+    from aetherviz_service.aetherviz.generate.html_agent import HtmlStreamResult
 
     risky_html = sample_html().replace(
         "body{margin:0}",
@@ -1505,8 +1504,8 @@ def test_edit_html_stream_propagates_generator_exit(monkeypatch) -> None:
 def test_edit_html_always_regenerates_full_html_from_current_page(monkeypatch) -> None:
     from unittest.mock import MagicMock
 
-    from aetherviz_service.aetherviz.generate.html_agent import HtmlStreamResult
     from aetherviz_service.aetherviz.edit import workflow as edit_html_workflow
+    from aetherviz_service.aetherviz.generate.html_agent import HtmlStreamResult
 
     source = sample_html()
     regenerated = source.replace("<title>熵增演示</title>", "<title>重新生成的熵增演示</title>")
@@ -1533,8 +1532,8 @@ def test_edit_html_always_regenerates_full_html_from_current_page(monkeypatch) -
 
 
 def test_edit_workflow_diagnoses_before_passing_current_business_html_to_regeneration(monkeypatch) -> None:
-    from aetherviz_service.aetherviz.generate.html_agent import HtmlStreamResult
     from aetherviz_service.aetherviz.edit import workflow as edit_html_workflow
+    from aetherviz_service.aetherviz.generate.html_agent import HtmlStreamResult
 
     captured: dict[str, object] = {}
 
@@ -1568,8 +1567,8 @@ def test_edit_workflow_diagnoses_before_passing_current_business_html_to_regener
 
 
 def test_full_html_edit_retries_intent_failure_with_evidence(monkeypatch) -> None:
-    from aetherviz_service.aetherviz.generate.html_agent import HtmlGenerationError, HtmlStreamResult
     from aetherviz_service.aetherviz.edit import workflow as edit_html_workflow
+    from aetherviz_service.aetherviz.generate.html_agent import HtmlGenerationError, HtmlStreamResult
 
     calls: list[dict[str, object]] = []
 
@@ -1611,8 +1610,8 @@ def test_full_html_edit_retries_intent_failure_with_evidence(monkeypatch) -> Non
 def test_edit_html_rejects_truncated_full_output_without_partial_repair(monkeypatch) -> None:
     from unittest.mock import MagicMock
 
-    from aetherviz_service.aetherviz.generate.html_agent import HtmlGenerationError
     from aetherviz_service.aetherviz.edit import workflow as edit_html_workflow
+    from aetherviz_service.aetherviz.generate.html_agent import HtmlGenerationError
 
     class TruncatedModel:
         def stream(self, messages):
@@ -1638,8 +1637,8 @@ def test_edit_html_rejects_truncated_full_output_without_partial_repair(monkeypa
 def test_edit_html_reports_full_html_regeneration_strategy(monkeypatch) -> None:
     from unittest.mock import MagicMock
 
-    from aetherviz_service.aetherviz.generate.html_agent import HtmlStreamResult
     from aetherviz_service.aetherviz.edit import workflow as edit_html_workflow
+    from aetherviz_service.aetherviz.generate.html_agent import HtmlStreamResult
 
     source = sample_html()
     edited = source.replace("<title>熵增演示</title>", "<title>已完整编辑</title>")
@@ -1668,8 +1667,8 @@ def test_edit_html_reports_full_html_regeneration_strategy(monkeypatch) -> None:
 def test_edit_html_rejects_unchanged_regeneration(monkeypatch) -> None:
     from unittest.mock import MagicMock
 
-    from aetherviz_service.aetherviz.generate.html_agent import HtmlGenerationError
     from aetherviz_service.aetherviz.edit import workflow as edit_html_workflow
+    from aetherviz_service.aetherviz.generate.html_agent import HtmlGenerationError
 
     class UnchangedModel:
         def stream(self, messages):
@@ -1692,8 +1691,8 @@ def test_edit_html_rejects_unchanged_regeneration(monkeypatch) -> None:
 def test_edit_html_layout_wording_reaches_model_instead_of_keyword_rejection(monkeypatch) -> None:
     from unittest.mock import MagicMock
 
-    from aetherviz_service.aetherviz.generate.html_agent import HtmlStreamResult
     from aetherviz_service.aetherviz.edit import workflow as edit_html_workflow
+    from aetherviz_service.aetherviz.generate.html_agent import HtmlStreamResult
 
     source = sample_html()
     edited = source.replace("<title>熵增演示</title>", "<title>布局意图已处理</title>")
@@ -1719,8 +1718,8 @@ def test_edit_html_layout_wording_reaches_model_instead_of_keyword_rejection(mon
 
 
 def test_edit_html_requires_model_configuration(monkeypatch) -> None:
-    from aetherviz_service.aetherviz.generate.html_agent import HtmlGenerationError
     from aetherviz_service.aetherviz.edit import workflow as edit_html_workflow
+    from aetherviz_service.aetherviz.generate.html_agent import HtmlGenerationError
 
     monkeypatch.setattr(settings, "openai_api_key", "")
 
@@ -1999,7 +1998,9 @@ def test_deterministic_quality_repair_adds_generic_svg_guard_under_server_layout
 
 
 def test_discipline_checker_accepts_runtime_svg_mounted_in_stage() -> None:
-    from aetherviz_service.aetherviz.contracts.validation.discipline_consistency_checker import check_discipline_consistency
+    from aetherviz_service.aetherviz.contracts.validation.discipline_consistency_checker import (
+        check_discipline_consistency,
+    )
 
     html = sample_html().replace(
         '<svg viewBox="0 0 100 100"><circle id="dot" cx="20" cy="50" r="8"></circle></svg>',
@@ -2284,7 +2285,9 @@ def test_html_prompt_composes_subject_and_representation_modules() -> None:
 
 
 def test_discipline_consistency_checker_reports_non_blocking_representation_risk() -> None:
-    from aetherviz_service.aetherviz.contracts.validation.discipline_consistency_checker import check_discipline_consistency
+    from aetherviz_service.aetherviz.contracts.validation.discipline_consistency_checker import (
+        check_discipline_consistency,
+    )
     from aetherviz_service.aetherviz.workflow.plan_contract import normalize_plan
 
     plan = normalize_plan({}, "函数图像与参数变化")

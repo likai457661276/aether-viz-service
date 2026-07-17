@@ -12,11 +12,11 @@ from bs4 import BeautifulSoup, NavigableString, Tag
 from aetherviz_service.aetherviz.contracts.validation.dom_api_contract import (
     repair_dom_element_selector_mismatches,
 )
+from aetherviz_service.aetherviz.contracts.validation.widget_contract_checker import REQUIRED_RUNTIME_METHODS
 from aetherviz_service.aetherviz.tools.javascript_object import (
     matching_brace,
     top_level_object_properties,
 )
-from aetherviz_service.aetherviz.contracts.validation.widget_contract_checker import REQUIRED_RUNTIME_METHODS
 
 _JS_IDENTIFIER = r"[A-Za-z_$][\w$]*"
 _JS_MEMBER = rf"{_JS_IDENTIFIER}(?:\s*\.\s*{_JS_IDENTIFIER}|\s*\[\s*['\"]{_JS_IDENTIFIER}['\"]\s*\])*"

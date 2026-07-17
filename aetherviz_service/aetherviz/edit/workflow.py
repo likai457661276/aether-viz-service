@@ -13,20 +13,6 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langsmith import traceable
 from langsmith.run_helpers import get_current_run_tree
 
-from aetherviz_service.aetherviz.contracts.html_stream import (
-    HTML_SIZE_EVENT_INTERVAL_BYTES,
-    HtmlGenerationError,
-    HtmlStreamResult,
-    build_html_progress_payload,
-    build_html_size_payload,
-)
-from aetherviz_service.aetherviz.edit.diagnosis import EditDiagnosis, diagnose_edit
-from aetherviz_service.aetherviz.edit.intent import (
-    IntentCheck,
-    build_intent_guard,
-    evaluate_edit_intent,
-)
-from aetherviz_service.aetherviz.edit.prompts import EDIT_HTML_SYSTEM_PROMPT, build_edit_html_prompt
 from aetherviz_service.aetherviz.agents.model_factory import (
     create_chat_model,
     extract_llm_text,
@@ -34,20 +20,34 @@ from aetherviz_service.aetherviz.agents.model_factory import (
     has_primary_llm_config,
 )
 from aetherviz_service.aetherviz.api.sse import agent_error_event, agent_sse_event
+from aetherviz_service.aetherviz.contracts.html_output import parse_interactive_html, sanitize_aetherviz_html
+from aetherviz_service.aetherviz.contracts.html_stream import (
+    HTML_SIZE_EVENT_INTERVAL_BYTES,
+    HtmlGenerationError,
+    HtmlStreamResult,
+    build_html_progress_payload,
+    build_html_size_payload,
+)
+from aetherviz_service.aetherviz.contracts.layout import assemble_layout_contract, extract_business_html
+from aetherviz_service.aetherviz.contracts.pipeline import run_html_pipeline
+from aetherviz_service.aetherviz.contracts.validation.report import build_validation_report
+from aetherviz_service.aetherviz.edit.context import build_edit_assembly_plan, build_edit_context_summary
+from aetherviz_service.aetherviz.edit.diagnosis import EditDiagnosis, diagnose_edit
+from aetherviz_service.aetherviz.edit.intent import (
+    IntentCheck,
+    build_intent_guard,
+    evaluate_edit_intent,
+)
+from aetherviz_service.aetherviz.edit.prompts import EDIT_HTML_SYSTEM_PROMPT, build_edit_html_prompt
+from aetherviz_service.aetherviz.edit.runtime_prepair import (
+    combine_candidate_guards,
+    try_deterministic_runtime_prepair,
+)
 from aetherviz_service.aetherviz.limits import (
     FULL_HTML_OUTPUT_RESERVE_CHARS,
     MODEL_HTML_HARD_LIMIT_CHARS,
     estimated_output_capacity_chars,
 )
-from aetherviz_service.aetherviz.edit.context import build_edit_assembly_plan, build_edit_context_summary
-from aetherviz_service.aetherviz.edit.runtime_prepair import (
-    combine_candidate_guards,
-    try_deterministic_runtime_prepair,
-)
-from aetherviz_service.aetherviz.contracts.html_output import parse_interactive_html, sanitize_aetherviz_html
-from aetherviz_service.aetherviz.contracts.layout import assemble_layout_contract, extract_business_html
-from aetherviz_service.aetherviz.contracts.validation.report import build_validation_report
-from aetherviz_service.aetherviz.contracts.pipeline import run_html_pipeline
 from aetherviz_service.config import settings
 
 logger = logging.getLogger(__name__)
@@ -545,9 +545,7 @@ def _stream_edit_html_impl(
             output_tokens=output_tokens,
             output_chars=len(raw_text),
             intent_passed=True,
-            intent_soft_failed=tuple(
-                f"{item.check.id}:{item.message}" for item in intent.soft_failed
-            ),
+            intent_soft_failed=tuple(f"{item.check.id}:{item.message}" for item in intent.soft_failed),
             intent_check_count=len(intent.passed) + len(intent.failed) + len(intent.soft_failed),
             intent_summary=intent.summary,
         )
@@ -617,6 +615,10 @@ def _summarize_edit_stream(items: list[dict[str, Any] | HtmlStreamResult]) -> di
         "input_tokens": result.input_tokens,
         "output_tokens": result.output_tokens,
         "output_chars": result.output_chars or len(result.html),
+        "intent_passed": result.intent_passed,
+        "intent_soft_failed": list(result.intent_soft_failed),
+        "intent_check_count": result.intent_check_count,
+        "intent_summary": result.intent_summary,
         "chars_per_output_token": (
             round((result.output_chars or len(result.html)) / result.output_tokens, 3) if result.output_tokens else None
         ),

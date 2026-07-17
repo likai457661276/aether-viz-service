@@ -55,6 +55,31 @@ def test_html_must_differ_and_text_contains() -> None:
     assert evaluation.summary == "intent_ok"
 
 
+def test_css_declaration_accepts_grouped_selector_and_inline_style() -> None:
+    baseline = _baseline()
+    grouped = baseline.replace("#play{font-size:12px", "#play,.secondary{font-size:16px")
+    inline = baseline.replace('id="play"', 'id="play" style="font-size:16px"')
+    check = IntentCheck(
+        id="c_css",
+        kind="css_declaration",
+        selector="#play",
+        property="font-size",
+        expected="16px",
+        group="change",
+    )
+
+    assert evaluate_edit_intent(
+        baseline_html=baseline,
+        candidate_html=grouped,
+        change_checks=(check,),
+    ).ok
+    assert evaluate_edit_intent(
+        baseline_html=baseline,
+        candidate_html=inline,
+        change_checks=(check,),
+    ).ok
+
+
 def test_function_body_changed_and_preserve() -> None:
     baseline = _baseline()
     play_hash = extract_named_functions(baseline)["play"][0].source_hash
@@ -178,12 +203,8 @@ def test_retry_evidence_lists_failed_hard_checks() -> None:
     evaluation = evaluate_edit_intent(
         baseline_html=baseline,
         candidate_html=baseline,
-        change_checks=(
-            IntentCheck(id="c1", kind="html_must_differ", group="change", rationale="必须变化"),
-        ),
-        preserve_checks=(
-            IntentCheck(id="p1", kind="widget_type_unchanged", group="preserve"),
-        ),
+        change_checks=(IntentCheck(id="c1", kind="html_must_differ", group="change", rationale="必须变化"),),
+        preserve_checks=(IntentCheck(id="p1", kind="widget_type_unchanged", group="preserve"),),
     )
     evidence = evaluation.retry_evidence()
     assert "id=c1" in evidence

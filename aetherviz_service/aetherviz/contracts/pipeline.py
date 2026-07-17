@@ -12,6 +12,7 @@ from langsmith.run_helpers import get_current_run_tree
 
 from aetherviz_service.aetherviz.api.sse import agent_error_event, agent_sse_event
 from aetherviz_service.aetherviz.contracts.html_compare import normalize_html_for_compare
+from aetherviz_service.aetherviz.contracts.html_stream import HtmlGenerationError, HtmlStreamResult
 from aetherviz_service.aetherviz.contracts.layout import (
     LAYOUT_CONTRACT_VERSION,
     assemble_layout_contract,
@@ -23,7 +24,6 @@ from aetherviz_service.aetherviz.contracts.repair.deterministic import (
 from aetherviz_service.aetherviz.contracts.repair.function import FunctionRepairResult, stream_repair_functions
 from aetherviz_service.aetherviz.contracts.repair.model import RepairStreamResult, stream_repair_html
 from aetherviz_service.aetherviz.contracts.validation.report import build_validation_report
-from aetherviz_service.aetherviz.contracts.html_stream import HtmlGenerationError, HtmlStreamResult
 from aetherviz_service.aetherviz.tools.function_patch import (
     repair_function_targets,
     target_functions_from_report,
@@ -56,6 +56,7 @@ CANDIDATE_FATAL_ERROR_TYPES = {
     "missing_runtime_ready",
     "truncated_model_output",
 }
+
 
 def run_html_pipeline(
     *,
@@ -242,11 +243,7 @@ def run_html_pipeline(
             )
             return
 
-    if (
-        phase in {"generate", "edit_html"}
-        and report["ok"]
-        and _quality_warning_types(report)
-    ):
+    if phase in {"generate", "edit_html"} and report["ok"] and _quality_warning_types(report):
         business_html, report, quality_repaired, quality_degraded = yield from _attempt_quality_repair(
             run_id=run_id,
             phase=phase,
@@ -311,6 +308,10 @@ def run_html_pipeline(
                 "edit_diagnosis_strategy": metadata.get("edit_diagnosis_strategy"),
                 "edit_diagnosis_confidence": metadata.get("edit_diagnosis_confidence"),
                 "edit_diagnosis_degraded": metadata.get("edit_diagnosis_degraded", False),
+                "intent_passed": metadata.get("intent_passed"),
+                "intent_soft_failed": metadata.get("intent_soft_failed", []),
+                "intent_check_count": metadata.get("intent_check_count", 0),
+                "intent_summary": metadata.get("intent_summary", ""),
                 "model_finish_reason": metadata.get("model_finish_reason"),
                 "source_business_chars": metadata.get("source_business_chars", 0),
                 "patch_functions": metadata.get("patch_functions", []),
@@ -624,9 +625,7 @@ def _attempt_repair_loop(
                 data=item,
                 metadata=_metadata(metadata, started_at, stage="repair"),
             )
-        candidate_unchanged = normalize_html_for_compare(html) == normalize_html_for_compare(
-            previous_html
-        )
+        candidate_unchanged = normalize_html_for_compare(html) == normalize_html_for_compare(previous_html)
         assembled_html = assemble_layout_contract(html, plan)
         candidate_report = (
             previous_report
@@ -686,9 +685,7 @@ def _attempt_repair_loop(
             repaired = had_prior_repair
             metadata["degraded"] = previous_degraded
             metadata["truncated"] = previous_truncated
-            metadata["validation_warnings"] = [
-                warning["message"] for warning in report.get("warnings", [])
-            ]
+            metadata["validation_warnings"] = [warning["message"] for warning in report.get("warnings", [])]
             metadata["repair_rejected"] = True
             metadata["repair_rejected_error_types"] = candidate_error_types
             metadata["repair_rejection_reason"] = rejection_reason
@@ -946,11 +943,7 @@ def _validate(
     plan: dict[str, Any] | None = None,
     model_html: str | None = None,
 ) -> dict[str, Any]:
-    runner = (
-        _traced_validate
-        if settings.langsmith_tracing and get_current_run_tree() is not None
-        else _validate_impl
-    )
+    runner = _traced_validate if settings.langsmith_tracing and get_current_run_tree() is not None else _validate_impl
     return runner(html, truncated=truncated, plan=plan, model_html=model_html)
 
 
@@ -969,9 +962,7 @@ def _validate(
         "ok": report.get("ok"),
         "summary": report.get("summary"),
         "error_types": list(_error_signature(report)),
-        "warning_types": sorted(
-            str(item.get("type")) for item in report.get("warnings", []) if isinstance(item, dict)
-        ),
+        "warning_types": sorted(str(item.get("type")) for item in report.get("warnings", []) if isinstance(item, dict)),
     },
 )
 def _traced_validate(

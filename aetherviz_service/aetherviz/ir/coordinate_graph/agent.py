@@ -12,17 +12,17 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langsmith import traceable
 from langsmith.run_helpers import get_current_run_tree
 
+from aetherviz_service.aetherviz.agents.model_factory import (
+    create_chat_model,
+    extract_llm_text,
+    has_primary_llm_config,
+)
 from aetherviz_service.aetherviz.contracts.html_stream import (
     HtmlGenerationError,
     HtmlStreamResult,
     build_html_progress_payload,
 )
 from aetherviz_service.aetherviz.generate.html_agent import stream_generate_html
-from aetherviz_service.aetherviz.agents.model_factory import (
-    create_chat_model,
-    extract_llm_text,
-    has_primary_llm_config,
-)
 from aetherviz_service.aetherviz.ir.coordinate_graph.contract import (
     COORDINATE_GRAPH_IR_MAX_CHARS,
     COORDINATE_GRAPH_IR_VERSION,

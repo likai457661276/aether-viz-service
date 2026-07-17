@@ -7,22 +7,22 @@ from unittest.mock import MagicMock
 import pytest
 from httpx import RemoteProtocolError
 
-from aetherviz_service.aetherviz.generate import html_agent
 from aetherviz_service.aetherviz.contracts.repair.deterministic import deterministic_repair_html
 from aetherviz_service.aetherviz.contracts.validation.report import build_validation_report
+from aetherviz_service.aetherviz.generate import html_agent
 from tests.test_aetherviz import sample_html, sample_plan
 
 SAMPLE_HTML = sample_html()
+from aetherviz_service.aetherviz.agents.instructions import (
+    REPAIR_SYSTEM_PROMPT,
+    build_interactive_generation_prompt,
+    system_prompt_for_interactive_type,
+)
 from aetherviz_service.aetherviz.generate.html_agent import (
     HtmlGenerationError,
     HtmlStreamResult,
     build_html_progress_payload,
     stream_generate_html,
-)
-from aetherviz_service.aetherviz.agents.instructions import (
-    REPAIR_SYSTEM_PROMPT,
-    build_interactive_generation_prompt,
-    system_prompt_for_interactive_type,
 )
 
 
