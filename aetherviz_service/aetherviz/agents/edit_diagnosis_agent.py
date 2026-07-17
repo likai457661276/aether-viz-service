@@ -14,7 +14,6 @@ from langsmith import traceable
 from langsmith.run_helpers import get_current_run_tree
 
 from aetherviz_service.aetherviz.agents.model_factory import create_chat_model, extract_llm_text, has_primary_llm_config
-from aetherviz_service.aetherviz.tools.edit_context import is_server_layout_request
 from aetherviz_service.aetherviz.tools.function_patch import extract_named_functions
 
 logger = logging.getLogger(__name__)
@@ -25,7 +24,6 @@ EditStrategy = Literal[
     "function_repair",
     "dom_block",
     "full_html_regeneration",
-    "server_owned_rejected",
     "clarification_required",
 ]
 
@@ -58,7 +56,6 @@ EDIT_DIAGNOSIS_SCHEMA: dict[str, Any] = {
             "type": "string",
             "enum": [
                 "full_html_regeneration",
-                "server_owned_rejected",
                 "clarification_required",
             ],
         },
@@ -77,10 +74,10 @@ EDIT_DIAGNOSIS_SCHEMA: dict[str, Any] = {
         },
         "impact_areas": {
             "type": "array",
-            "maxItems": 8,
+            "maxItems": 9,
             "items": {
                 "type": "string",
-                "enum": ["dom", "css", "svg_canvas", "state", "render", "events", "animation", "runtime"],
+                "enum": ["shell_content", "dom", "css", "svg_canvas", "state", "render", "events", "animation", "runtime"],
             },
         },
         "acceptance_criteria": {
@@ -166,8 +163,10 @@ EDIT_DIAGNOSIS_SYSTEM_PROMPT = """你是 AetherViz HTML 编辑需求编译器，
 3. change_requirements 描述必须产生的可观察变化；preserve_requirements 描述不能意外改变的教学内容和交互；acceptance_criteria 描述结果表现，不限定必须修改某个函数或采用某种实现。
 4. impact_areas 必须覆盖实现该要求可能涉及的完整链路。动画变化重点检查 events -> state -> render -> animation -> reset/replay，不得只定位到一个函数。
 5. 执行阶段固定为完整 HTML 重生成，通常使用 full_html_regeneration，不再选择 CSS、文本或函数局部补丁策略。operations 和 allowed_scope 保持空数组。
-6. math-shell-v1、.av-*、#aetherviz-app-shell 的宽度、分栏、滚动和响应式属于服务端，明确命中时使用 server_owned_rejected。
-7. 只有缺少的信息会导致多个实质不同结果、且无法从当前 HTML、edit_target 或最近对话推断时，才使用 clarification_required；同时列出 ambiguities 并给出一个最小澄清问题。一般性的视觉或动画优化应直接形成合理任务，不要澄清。
+6. 用户通常描述可见现象而不是准确实现位置。即使输入提到“控制面板、外壳、侧栏、布局、挤压”等词，也必须结合当前 HTML、选中目标、运行时错误和对话判断真实意图；不得仅凭这些词拒绝编辑。若真实问题是主视觉尺寸、裁切、标签、业务控件密度或动画内容，应编译为对应业务 HTML 修改任务。
+7. 外壳中的标题、学习目标和目标列表属于可编辑内容，使用 shell_content 影响域；控制区、说明区、公式区和教学流程本来就是业务内容。math-shell-v1、.av-*、#aetherviz-app-shell 的具体宽度、分栏、滚动和响应式仍由服务端重建；用户对这些结构提出的诉求，应转换为业务内容优先级、槽位内部自适应、主视觉 viewBox/Canvas 尺寸、控件组织或内容精简等可执行要求，而不是要求模型仿制外壳。
+8. 用户明确要求“全部修改、整体重做、重新设计”时，允许重做全部可编辑内容，包括外壳文案、教学文案、主视觉、业务控件、状态、渲染、事件和动画运行时；只保留用户明确要求保留的内容及核心 Widget 运行契约。
+9. 只有缺少的信息会导致多个实质不同结果、且无法从当前 HTML、edit_target 或最近对话推断时，才使用 clarification_required；同时列出 ambiguities 并给出一个最小澄清问题。一般性的视觉或动画优化应直接形成合理任务，不要澄清。
 只输出符合 JSON Schema 的对象。"""
 
 
@@ -262,15 +261,6 @@ def _diagnose_edit_impl(
     business_html: str,
     context_summary: dict[str, Any],
 ) -> EditDiagnosis:
-    if is_server_layout_request(instruction):
-        return EditDiagnosis(
-            intent="server_layout_change",
-            scope="server_layout",
-            strategy="server_owned_rejected",
-            problem="修改目标属于服务端统一页面外壳",
-            confidence=1.0,
-            targets=({"kind": "server_layout", "evidence": "deterministic ownership match", "confidence": 1.0},),
-        )
     if not has_primary_llm_config():
         return _fallback_diagnosis(instruction, context_summary, "model_unavailable")
     try:
@@ -292,7 +282,7 @@ def _diagnose_edit_impl(
 
 
 def _normalize_diagnosis(payload: dict[str, Any], *, instruction: str, business_html: str) -> EditDiagnosis:
-    strategies = {"full_html_regeneration", "server_owned_rejected", "clarification_required"}
+    strategies = {"full_html_regeneration", "clarification_required"}
     strategy = str(payload.get("strategy") or "full_html_regeneration")
     if strategy not in strategies:
         strategy = "full_html_regeneration"
@@ -306,9 +296,19 @@ def _normalize_diagnosis(payload: dict[str, Any], *, instruction: str, business_
     resolved_instruction = str(payload.get("resolved_instruction") or instruction).strip()[:1600]
     change_requirements = _string_list(payload.get("change_requirements"), limit=10, chars=500)
     preserve_requirements = _string_list(payload.get("preserve_requirements"), limit=10, chars=500)
-    allowed_impact_areas = {"dom", "css", "svg_canvas", "state", "render", "events", "animation", "runtime"}
+    allowed_impact_areas = {
+        "shell_content",
+        "dom",
+        "css",
+        "svg_canvas",
+        "state",
+        "render",
+        "events",
+        "animation",
+        "runtime",
+    }
     impact_areas = tuple(
-        area for area in _string_list(payload.get("impact_areas"), limit=8, chars=40) if area in allowed_impact_areas
+        area for area in _string_list(payload.get("impact_areas"), limit=9, chars=40) if area in allowed_impact_areas
     )
     acceptance_criteria = _string_list(payload.get("acceptance_criteria"), limit=10, chars=500)
     ambiguities = _string_list(payload.get("ambiguities"), limit=6, chars=500)
@@ -324,10 +324,6 @@ def _normalize_diagnosis(payload: dict[str, Any], *, instruction: str, business_
             item["source_hash"] = (
                 functions[function_name][0].source_hash if len(functions.get(function_name, [])) == 1 else ""
             )
-    if strategy == "server_owned_rejected" and not is_server_layout_request(instruction):
-        has_server_evidence = any(item.get("kind") == "server_layout" for item in targets)
-        if not has_server_evidence:
-            strategy = "full_html_regeneration"
     can_block_for_clarification = bool(
         requires_clarification and ambiguities and question and confidence >= 0.85 and not targets
     )

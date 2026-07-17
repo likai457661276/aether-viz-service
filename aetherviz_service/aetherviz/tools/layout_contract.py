@@ -106,7 +106,7 @@ def assemble_layout_contract(html: str, plan: dict[str, Any] | None = None) -> s
 
     scripts = [node.extract() for node in list(soup.body.find_all("script"))]
     stage = _extract_first(soup.body, "#aetherviz-stage")
-    objectives = _extract_first(soup.body, '[data-region="learning-goal"], .learning-objectives')
+    shell_content = _extract_first(soup.body, '[data-shell-content-edit="true"]')
     caption = _extract_first(soup.body, '[data-region="caption"], .animation-caption, #animation-caption')
     formula = _extract_first(soup.body, '[data-region="formula"], .formula, .katex-target')
     teaching_flow = _extract_first(soup.body, '[data-region="teaching-flow"], .teaching-flow, .storyboard')
@@ -140,7 +140,9 @@ def assemble_layout_contract(html: str, plan: dict[str, Any] | None = None) -> s
         )
         existing_secondary.decompose()
 
-    plan = plan if isinstance(plan, dict) else {}
+    plan = dict(plan) if isinstance(plan, dict) else {}
+    if shell_content is not None:
+        plan.update(_shell_content_overrides(shell_content))
     shell = BeautifulSoup(_shell_markup(plan), "html.parser")
     shell_root = shell.select_one("#aetherviz-app-shell")
     assert shell_root is not None
@@ -157,8 +159,8 @@ def assemble_layout_contract(html: str, plan: dict[str, Any] | None = None) -> s
         placeholder.string = "主视觉正在初始化"
         target_stage.append(placeholder)
 
-    if objectives is not None:
-        objectives.decompose()
+    if shell_content is not None:
+        shell_content.decompose()
     _fill_slot(shell_root.select_one(".av-primary-controls"), controls)
     _fill_slot(shell_root.select_one(".av-caption"), caption, "操作参数并观察主视觉变化。")
     _fill_slot(shell_root.select_one(".av-formula"), formula, "关键关系将在此同步显示。")
@@ -212,6 +214,10 @@ def extract_business_html(html: str) -> str:
     assert soup.body is not None
     business_scripts = [script.extract() for script in list(soup.body.find_all("script"))]
     regions: list[Tag] = []
+
+    shell_content = _extract_shell_content(shell, soup)
+    if shell_content is not None:
+        regions.append(shell_content)
 
     stage = shell.select_one("#aetherviz-stage")
     if isinstance(stage, Tag):
@@ -268,6 +274,44 @@ def extract_business_html(html: str) -> str:
     for script in business_scripts:
         soup.body.append(script)
     return "<!DOCTYPE html>\n" + str(soup.html)
+
+
+def _extract_shell_content(shell: Tag, soup: BeautifulSoup) -> Tag | None:
+    title = shell.select_one(".av-title")
+    goal = shell.select_one(".av-goal")
+    objectives = [item.get_text(" ", strip=True) for item in shell.select(".av-objectives li")]
+    if title is None and goal is None and not objectives:
+        return None
+    region = soup.new_tag(
+        "section",
+        attrs={
+            "data-region": "learning-goal",
+            "data-shell-content-edit": "true",
+            "data-title": title.get_text(" ", strip=True)[:160] if title is not None else "",
+            "data-goal": goal.get_text(" ", strip=True)[:500] if goal is not None else "",
+        },
+    )
+    objective_list = soup.new_tag("ul")
+    for objective in objectives[:3]:
+        item = soup.new_tag("li")
+        item.string = objective[:300]
+        objective_list.append(item)
+    region.append(objective_list)
+    return region
+
+
+def _shell_content_overrides(region: Tag) -> dict[str, Any]:
+    overrides: dict[str, Any] = {}
+    title = str(region.get("data-title") or "").strip()
+    goal = str(region.get("data-goal") or "").strip()
+    objectives = [item.get_text(" ", strip=True)[:300] for item in region.select("li") if item.get_text(strip=True)]
+    if title:
+        overrides["title"] = title[:160]
+    if goal:
+        overrides["goal"] = goal[:500]
+    if objectives:
+        overrides["learning_objectives"] = objectives[:3]
+    return overrides
 
 
 def business_css_ownership_violations(css: str) -> list[str]:

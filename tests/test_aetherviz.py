@@ -882,6 +882,29 @@ def test_extract_business_html_removes_server_shell_and_round_trips() -> None:
     assert 'id="aetherviz-app-shell"' in round_tripped
 
 
+def test_extract_business_html_round_trips_editable_shell_content() -> None:
+    from bs4 import BeautifulSoup
+
+    from aetherviz_service.aetherviz.tools.layout_contract import assemble_layout_contract, extract_business_html
+
+    assembled = assemble_layout_contract(sample_html(), sample_plan("二次函数"))
+    business = extract_business_html(assembled)
+    parsed_business = BeautifulSoup(business, "html.parser")
+    shell_content = parsed_business.select_one('[data-shell-content-edit="true"]')
+    assert shell_content is not None
+    shell_content["data-title"] = "重新设计的标题"
+    shell_content["data-goal"] = "观察新的核心关系"
+    first_objective = shell_content.select_one("li")
+    assert first_objective is not None
+    first_objective.string = "新的学习目标"
+
+    edited = assemble_layout_contract(str(parsed_business), sample_plan("二次函数"))
+    parsed_edited = BeautifulSoup(edited, "html.parser")
+    assert parsed_edited.select_one(".av-title").get_text(strip=True) == "重新设计的标题"
+    assert parsed_edited.select_one(".av-goal").get_text(strip=True) == "观察新的核心关系"
+    assert parsed_edited.select_one(".av-objectives li").get_text(strip=True) == "新的学习目标"
+
+
 def test_server_range_contract_owns_track_progress_and_touch_target() -> None:
     from bs4 import BeautifulSoup
 
@@ -1645,36 +1668,33 @@ def test_edit_html_rejects_unchanged_regeneration(monkeypatch) -> None:
     assert "candidate_unchanged" in exc_info.value.detail
 
 
-def test_edit_html_rejects_server_layout_change_before_model_invocation(monkeypatch) -> None:
+def test_edit_html_layout_wording_reaches_model_instead_of_keyword_rejection(monkeypatch) -> None:
+    from unittest.mock import MagicMock
+
+    from aetherviz_service.aetherviz.agents.html_agent import HtmlStreamResult
     from aetherviz_service.aetherviz.workflow import edit_html_workflow
 
-    def fail_model_creation(kind: str):
-        raise AssertionError(f"外壳修改不应调用模型: {kind}")
+    source = sample_html()
+    edited = source.replace("<title>熵增演示</title>", "<title>布局意图已处理</title>")
+
+    class FullEditModel:
+        def stream(self, messages):
+            assert "实验控制的动画演示标题被挤压，请优化布局" in messages[1].content
+            yield MagicMock(content=edited, response_metadata={"finish_reason": "stop"})
 
     monkeypatch.setattr(settings, "openai_api_key", "test-key")
-    monkeypatch.setattr(edit_html_workflow, "create_chat_model", fail_model_creation)
+    monkeypatch.setattr(edit_html_workflow, "create_chat_model", lambda kind: FullEditModel())
 
-    raw_events = list(
-        edit_html_workflow._run_edit_html_workflow_impl(
-            run_id="run-server-layout-owned",
-            current_html=sample_html(),
+    items = list(
+        edit_html_workflow._stream_edit_html_impl(
+            topic="动画",
             message="实验控制的动画演示标题被挤压，请优化布局",
-            context={"topic": "动画"},
+            current_html=source,
         )
     )
-    events = parse_sse_events(type("SseResponse", (), {"text": "".join(raw_events)})())
-    error = next(data for event, data in events if event == "error")
 
-    assert error["data"]["code"] == "edit_server_layout_owned"
-    assert "页面外壳" in error["data"]["message"]
-
-
-def test_edit_html_does_not_reject_business_content_change() -> None:
-    from aetherviz_service.aetherviz.workflow.edit_html_workflow import _targets_server_layout
-
-    assert _targets_server_layout("把动画演示标题改成播放过程") is False
-    assert _targets_server_layout("修复主图居中和标签重叠") is False
-    assert _targets_server_layout("把右侧控制面板宽度增加一些") is True
+    result = next(item for item in items if isinstance(item, HtmlStreamResult))
+    assert "布局意图已处理" in result.html
 
 
 def test_edit_html_requires_model_configuration(monkeypatch) -> None:

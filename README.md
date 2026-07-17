@@ -265,7 +265,7 @@ HTML 文件编辑阶段请求示例：
 }
 ```
 
-`phase=edit_html` 必须携带选中的 HTML 文件全文。后端先剥离 `math-shell-v1`，再从当前业务 HTML 确定性提取有界 DOM、CSS、函数、事件与 widget 摘要，并将当前校验报告、可选 `edit_target`、可选 `runtime_error` 和精简会话上下文交给编辑需求编译模型。该模型把“再快一点”“修改刚才那个”等输入消歧为自包含的 `resolved_instruction`，同时输出可观察的 `change_requirements`、`preserve_requirements`、完整 `impact_areas` 和 `acceptance_criteria`；目标 selector 和函数仅作为证据，不限制实际修改范围。除服务端外壳拒绝与高置信度实质歧义外，所有用户编辑都由 `OPENAI_HTML_MODEL` 基于当前完整业务 HTML 重生成。高置信度 DOM API 参数类型错误会先确定性修复当前基线，随后重新提取摘要并继续调用需求编译模型，不会短路用户本次动画修改。动画编辑要求联动检查事件、业务状态、状态推导、渲染、统一时间源、重置和重播链路。首轮若原样返回、被截断或破坏核心 Widget 契约，会按 `AETHERVIZ_EDIT_MAX_RETRIES` 携带失败原因整次重试；候选仍需通过统一静态校验与必要修复。最终 metadata 的 `edit_strategy` 为 `full_html_regeneration`，并保留需求编译结果、置信度和降级状态用于观测。前端继续把结果保存为新分支，不覆盖原文件，并把新分支完整 HTML 作为下一次编辑的事实基线。
+`phase=edit_html` 必须携带选中的 HTML 文件全文。后端先剥离 `math-shell-v1`，并把外壳标题、学习目标和目标列表转换为可往返编辑的语义元数据，再从当前业务 HTML 确定性提取有界 DOM、CSS、函数、事件与 widget 摘要；当前校验报告、可选 `edit_target`、可选 `runtime_error` 和精简会话上下文一并交给编辑需求编译模型。该模型默认使用 `deepseek-v4-flash`，把“再快一点”“修改刚才那个”等输入消歧为自包含的 `resolved_instruction`，同时输出可观察的 `change_requirements`、`preserve_requirements`、完整 `impact_areas` 和 `acceptance_criteria`；目标 selector 和函数仅作为证据，不限制实际修改范围。外壳、侧栏、控制面板、布局或挤压等自然语言不会在模型调用前触发关键词拒绝，而会结合当前 HTML 判断实际意图。外壳标题、目标文案及各业务槽位内容可直接编辑；外壳 Grid、栏宽、断点和滚动归属等结构诉求会转换为内容优先级、槽位内部自适应、主视觉尺寸或动画渲染链路等可执行目标。只有高置信度实质歧义才要求澄清。用户明确要求整体重做时，可重做外壳文案、教学文案、主视觉、业务控件、状态、渲染、事件和动画运行时等全部可编辑内容，最终 `math-shell-v1` 结构仍由服务端统一重建。高置信度 DOM API 参数类型错误会先确定性修复当前基线，随后重新提取摘要并继续调用需求编译模型，不会短路用户本次动画修改。动画编辑要求联动检查事件、业务状态、状态推导、渲染、统一时间源、重置和重播链路。首轮若原样返回、被截断或破坏核心 Widget 契约，会按 `AETHERVIZ_EDIT_MAX_RETRIES` 携带失败原因整次重试；候选仍需通过统一静态校验与必要修复。最终 metadata 的 `edit_strategy` 为 `full_html_regeneration`，并保留需求编译结果、置信度和降级状态用于观测。前端继续把结果保存为新分支，不覆盖原文件，并把新分支完整 HTML 作为下一次编辑的事实基线。
 
 响应类型为 `text/event-stream`。事件包括：
 

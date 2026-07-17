@@ -38,7 +38,7 @@ from aetherviz_service.aetherviz.tools.dom_api_contract import (
     find_dom_element_selector_mismatches,
     repair_dom_element_selector_mismatches,
 )
-from aetherviz_service.aetherviz.tools.edit_context import build_edit_context_summary, is_server_layout_request
+from aetherviz_service.aetherviz.tools.edit_context import build_edit_context_summary
 from aetherviz_service.aetherviz.tools.edit_operations import (
     EditOperationResult,
 )
@@ -184,15 +184,6 @@ def _run_edit_html_workflow_impl(
         data=diagnosis.public_dict(),
         metadata={"degraded": diagnosis.degraded},
     )
-    if diagnosis.strategy == "server_owned_rejected":
-        yield agent_error_event(
-            run_id=run_id,
-            phase="edit_html",
-            code="edit_server_layout_owned",
-            message="该修改涉及系统统一管理的页面外壳，当前课件不能单独修改这部分内容",
-            detail=diagnosis.problem,
-        )
-        return
     if diagnosis.strategy == "clarification_required":
         yield agent_error_event(
             run_id=run_id,
@@ -420,13 +411,6 @@ def _stream_edit_html_impl(
     message: str,
     current_html: str,
 ) -> Iterator[dict[str, Any] | HtmlStreamResult]:
-    if _targets_server_layout(message):
-        raise HtmlGenerationError(
-            "该修改涉及系统统一管理的页面外壳，当前课件不能单独修改这部分内容",
-            code="edit_server_layout_owned",
-            detail="server-owned layout change rejected before model invocation",
-        )
-
     if not has_primary_llm_config():
         raise HtmlGenerationError(
             "HTML 修改失败，未配置可用的模型服务，原页面已保留",
@@ -559,11 +543,6 @@ def _has_full_edit_budget(current_html: str) -> bool:
         len(current_html) <= MODEL_HTML_HARD_LIMIT_CHARS
         and len(current_html) + FULL_HTML_OUTPUT_RESERVE_CHARS <= estimated_capacity
     )
-
-
-def _targets_server_layout(message: str) -> bool:
-    """Detect explicit requests to mutate layout owned by the server shell."""
-    return is_server_layout_request(message)
 
 
 def _edit_contract_errors(source_html: str, candidate_html: str) -> list[str]:

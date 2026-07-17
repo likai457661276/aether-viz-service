@@ -114,6 +114,107 @@ def test_v4_flash_diagnosis_returns_verified_css_target(monkeypatch) -> None:
     assert diagnosis.change_requirements == ("将播放按钮字号调整为 16px，并保持播放行为不变",)
 
 
+def test_v4_flash_interprets_layout_wording_as_business_visual_problem(monkeypatch) -> None:
+    payload = {
+        "intent": "repair_oversized_animation_content",
+        "scope": "business_visual_and_animation",
+        "strategy": "full_html_regeneration",
+        "problem": "主视觉图形尺寸异常并超出舞台可视范围",
+        "confidence": 0.97,
+        "targets": [],
+        "operations": [],
+        "assertions": [],
+        "allowed_scope": [],
+        "requires_clarification": False,
+        "clarification_question": "",
+        "resolved_instruction": "修复动画主视觉尺寸与自适应映射，使完整函数图像始终在舞台内清晰显示",
+        "change_requirements": ["完整函数图像不得被异常放大或裁切"],
+        "preserve_requirements": ["保持参数控制与函数变换教学关系"],
+        "impact_areas": ["css", "svg_canvas", "render", "animation"],
+        "acceptance_criteria": ["初始状态和参数边界下均能看到完整图像"],
+        "ambiguities": [],
+    }
+
+    class AnalysisModel:
+        def invoke(self, messages):
+            assert "控制面板" in messages[1].content
+            return MagicMock(content=json.dumps(payload, ensure_ascii=False))
+
+    monkeypatch.setattr(
+        "aetherviz_service.aetherviz.agents.edit_diagnosis_agent.create_chat_model",
+        lambda kind, response_schema=None: AnalysisModel(),
+    )
+    monkeypatch.setattr(
+        "aetherviz_service.aetherviz.agents.edit_diagnosis_agent.has_primary_llm_config",
+        lambda: True,
+    )
+
+    diagnosis = _diagnose_edit_impl(
+        instruction="控制面板旁边的动画内容尺寸显示错误，请修复",
+        business_html=_html(),
+        context_summary={"instruction": "控制面板旁边的动画内容尺寸显示错误，请修复"},
+    )
+
+    assert diagnosis.strategy == "full_html_regeneration"
+    assert diagnosis.scope == "business_visual_and_animation"
+    assert "主视觉尺寸" in diagnosis.resolved_instruction
+
+
+def test_v4_flash_can_authorize_redesign_of_all_business_content(monkeypatch) -> None:
+    payload = {
+        "intent": "redesign_all_business_content",
+        "scope": "all_business_html",
+        "strategy": "full_html_regeneration",
+        "problem": "用户要求整体重做课件内容与交互",
+        "confidence": 0.99,
+        "targets": [],
+        "operations": [],
+        "assertions": [],
+        "allowed_scope": [],
+        "requires_clarification": False,
+        "clarification_question": "",
+        "resolved_instruction": "重新设计全部教学文案、主视觉、业务控件、状态、渲染、事件和动画运行时",
+        "change_requirements": ["全部业务内容采用新的教学与视觉方案"],
+        "preserve_requirements": ["保持核心 Widget 运行契约"],
+        "impact_areas": ["shell_content", "dom", "css", "svg_canvas", "state", "render", "events", "animation", "runtime"],
+        "acceptance_criteria": ["新课件完整可运行且各项交互可观察"],
+        "ambiguities": [],
+    }
+
+    class AnalysisModel:
+        def invoke(self, messages):
+            return MagicMock(content=json.dumps(payload, ensure_ascii=False))
+
+    monkeypatch.setattr(
+        "aetherviz_service.aetherviz.agents.edit_diagnosis_agent.create_chat_model",
+        lambda kind, response_schema=None: AnalysisModel(),
+    )
+    monkeypatch.setattr(
+        "aetherviz_service.aetherviz.agents.edit_diagnosis_agent.has_primary_llm_config",
+        lambda: True,
+    )
+
+    diagnosis = _diagnose_edit_impl(
+        instruction="把所有内容都重新设计，包括动画和控件",
+        business_html=_html(),
+        context_summary={"instruction": "把所有内容都重新设计，包括动画和控件"},
+    )
+
+    assert diagnosis.scope == "all_business_html"
+    assert diagnosis.impact_areas == (
+        "shell_content",
+        "dom",
+        "css",
+        "svg_canvas",
+        "state",
+        "render",
+        "events",
+        "animation",
+        "runtime",
+    )
+    assert diagnosis.preserve_requirements == ("保持核心 Widget 运行契约",)
+
+
 def test_function_diagnosis_uses_server_verified_source_hash(monkeypatch) -> None:
     payload = {
         "intent": "fix_play",

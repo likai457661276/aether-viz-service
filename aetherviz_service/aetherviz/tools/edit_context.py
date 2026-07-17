@@ -18,52 +18,6 @@ MAX_FUNCTIONS = 60
 MAX_CONTEXT_MESSAGES = 4
 MAX_EDIT_CONTEXT_CHARS = 24_000
 
-SERVER_LAYOUT_TARGETS = (
-    "外壳",
-    "app shell",
-    "app-shell",
-    "aetherviz-app-shell",
-    "控制面板",
-    "实验控制",
-    "右侧面板",
-    "右侧栏",
-    "侧边栏",
-    "侧栏",
-    "左右栏",
-    "页面网格",
-    "整页布局",
-    "页面布局",
-    "页面滚动",
-    "响应式断点",
-)
-SERVER_LAYOUT_CHANGES = (
-    "宽度",
-    "高度",
-    "太宽",
-    "太窄",
-    "挤压",
-    "拥挤",
-    "间距",
-    "布局",
-    "分栏",
-    "位置",
-    "移动到",
-    "放到",
-    "滚动",
-    "溢出",
-    "断点",
-)
-
-
-def is_server_layout_request(message: str) -> bool:
-    normalized = " ".join((message or "").lower().split())
-    return (
-        bool(normalized)
-        and any(target in normalized for target in SERVER_LAYOUT_TARGETS)
-        and any(change in normalized for change in SERVER_LAYOUT_CHANGES)
-    )
-
-
 def build_edit_context_summary(
     *,
     instruction: str,
@@ -93,9 +47,8 @@ def build_edit_context_summary(
         "deterministic_pre_repair": _mapping(deterministic_pre_repair),
         "validation": _validation_summary(validation_report),
         "ownership": {
-            "deterministic_server_layout_match": is_server_layout_request(instruction),
             "server_owned_selectors": ["#aetherviz-app-shell", ".av-*", "[data-aetherviz-shell]"],
-            "rule": "math-shell-v1 与 .av-* 属于服务端；业务 HTML、主视觉、业务控件和运行时可编辑",
+            "rule": "math-shell-v1 与 .av-* 由服务端重建；不得仅凭用户措辞拒绝编辑，需由意图模型判断并转换为业务内容目标",
         },
     }
     return _fit_context_budget(summary)
