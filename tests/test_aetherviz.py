@@ -1415,8 +1415,8 @@ def test_generate_phase_runs_quality_repair_after_hard_error_is_repaired(monkeyp
     ]
     done = next(data for event, data in events if event == "html.done")
 
-    assert strategies == ["deterministic", "quality-deterministic"]
-    assert 'data-aetherviz-scale-guard="true"' in done["data"]["html"]
+    assert strategies == ["deterministic"]
+    assert 'data-aetherviz-scale-guard="2"' in done["data"]["html"]
 
 
 def test_edit_phase_applies_deterministic_quality_repair_without_model_rewrite(monkeypatch) -> None:
@@ -1456,8 +1456,8 @@ def test_edit_phase_applies_deterministic_quality_repair_without_model_rewrite(m
     ]
     done = next(data for event, data in events if event == "html.done")
 
-    assert strategies == ["quality-deterministic"]
-    assert 'data-aetherviz-scale-guard="true"' in done["data"]["html"]
+    assert strategies == ["deterministic"]
+    assert 'data-aetherviz-scale-guard="2"' in done["data"]["html"]
 
 
 def test_edit_html_stream_propagates_generator_exit(monkeypatch) -> None:
@@ -1921,7 +1921,27 @@ def test_widget_contract_warns_about_mixed_abstract_svg_units() -> None:
     warning_types = {warning["type"] for warning in report["warnings"]}
 
     assert {"abstract_svg_text_scale_risk", "abstract_svg_stroke_scale_risk", "mixed_svg_unit_system"} <= warning_types
-    assert report["ok"] is True
+    assert report["ok"] is False
+    assert any(error["type"] == "unsafe_abstract_svg_units" for error in report["errors"])
+
+
+def test_svg_scale_guard_marker_alone_cannot_bypass_unit_validation() -> None:
+    from aetherviz_service.aetherviz.tools.widget_contract_checker import check_widget_runtime_contract
+
+    html = sample_html().replace(
+        "body{margin:0}",
+        "body{margin:0}.axis-line{stroke:#333;stroke-width:1.5}.label-text{font-size:12px}",
+    ).replace(
+        '<svg viewBox="0 0 100 100">',
+        '<svg viewBox="-6 -6 12 12"><line class="axis-line"></line><text class="label-text">x</text>',
+    ).replace("</body>", '<script data-aetherviz-scale-guard="true"></script></body>')
+
+    report = check_widget_runtime_contract(html)
+    warning_types = {warning["type"] for warning in report["warnings"]}
+
+    assert report["ok"] is False
+    assert "invalid_svg_scale_guard" in warning_types
+    assert any(error["type"] == "unsafe_abstract_svg_units" for error in report["errors"])
 
 
 def test_deterministic_quality_repair_adds_generic_svg_guard_under_server_layout() -> None:
@@ -1944,14 +1964,16 @@ def test_deterministic_quality_repair_adds_generic_svg_guard_under_server_layout
     repaired_report = build_validation_report(repaired)
     warning_types = {warning["type"] for warning in repaired_report["warnings"]}
 
-    assert 'data-aetherviz-scale-guard="true"' in repaired
+    assert 'data-aetherviz-scale-guard="2"' in repaired
     assert 'data-aetherviz-layout-contract="math-shell-v1"' in repaired
     assert 'data-aetherviz-layout-guard="true"' not in repaired
     assert "abstract_svg_text_scale_risk" not in warning_types
     assert "abstract_svg_stroke_scale_risk" not in warning_types
     assert "missing_stage_shrink_guard" not in warning_types
     assert "unguarded_resize_viewbox_write" not in warning_types
-    assert "target=authored*scale" in repaired
+    assert "target=authoredNumber" in repaired
+    assert "target=authored*scale" not in repaired
+    assert "setProperty('font-size',(target/scale)+'px','important')" in repaired
     assert "aethervizScreenStroke" in repaired
 
 

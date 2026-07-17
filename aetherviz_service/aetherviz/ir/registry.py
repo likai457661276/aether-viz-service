@@ -63,10 +63,11 @@ class IRBackendRegistry:
 def _build_default_registry() -> IRBackendRegistry:
     # Imports stay local so each IR package can depend on shared agent primitives
     # without making the workflow import every compiler implementation.
+    from aetherviz_service.aetherviz.ir.coordinate_graph.backend import BACKEND as coordinate_graph
     from aetherviz_service.aetherviz.ir.linked_coordinate.backend import BACKEND as linked_coordinate
     from aetherviz_service.aetherviz.ir.recomposition.backend import BACKEND as recomposition
 
-    return IRBackendRegistry((recomposition, linked_coordinate))
+    return IRBackendRegistry((recomposition, linked_coordinate, coordinate_graph))
 
 
 DEFAULT_IR_REGISTRY = _build_default_registry()

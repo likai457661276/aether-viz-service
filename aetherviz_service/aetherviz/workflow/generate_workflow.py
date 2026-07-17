@@ -42,6 +42,7 @@ QUALITY_REPAIR_WARNING_TYPES = {
     "static_viewbox_for_variable_svg",
     "abstract_svg_text_scale_risk",
     "abstract_svg_stroke_scale_risk",
+    "abstract_svg_marker_scale_risk",
     "mixed_svg_unit_system",
     "missing_stage_shrink_guard",
     "missing_animation_controller_fallback",
@@ -203,6 +204,7 @@ def run_html_pipeline(
                 metadata["model_input_tokens"] = item.input_tokens
                 metadata["model_output_tokens"] = item.output_tokens
                 metadata["model_output_chars"] = item.output_chars or len(item.html)
+                metadata["generation_backend_fallback"] = item.generation_fallback
                 yield agent_sse_event(
                     "html.delta",
                     run_id=run_id,
@@ -365,6 +367,7 @@ def run_html_pipeline(
                 "first_chunk_elapsed_ms": metadata.get("first_chunk_elapsed_ms", 0),
                 "generation_elapsed_ms": metadata.get("generation_elapsed_ms", 0),
                 "generation_backend": metadata["generation_backend"],
+                "generation_backend_fallback": metadata.get("generation_backend_fallback"),
                 "generation_route_plan_fingerprint": metadata.get("generation_route_plan_fingerprint"),
                 "generation_route_reasons": metadata.get("generation_route_reasons", []),
                 "generation_route_candidates": metadata.get("generation_route_candidates", []),

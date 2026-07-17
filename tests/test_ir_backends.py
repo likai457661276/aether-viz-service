@@ -5,6 +5,17 @@ from copy import deepcopy
 
 import pytest
 
+from aetherviz_service.aetherviz.agents.html_agent import HtmlStreamResult
+from aetherviz_service.aetherviz.ir.coordinate_graph import agent as coordinate_graph_agent
+from aetherviz_service.aetherviz.ir.coordinate_graph.contract import (
+    COORDINATE_GRAPH_IR_VERSION,
+    compile_coordinate_graph_ir,
+    coordinate_graph_ir_response_schema,
+    validate_coordinate_graph_ir,
+)
+from aetherviz_service.aetherviz.ir.coordinate_graph.runtime import (
+    assemble_coordinate_graph_business_html,
+)
 from aetherviz_service.aetherviz.ir.linked_coordinate.contract import (
     LINKED_COORDINATE_INVARIANT_MAX_TOLERANCE,
     LINKED_COORDINATE_IR_VERSION,
@@ -169,14 +180,61 @@ def _ir() -> dict:
     }
 
 
-def test_default_ir_registry_routes_both_independent_ir_families() -> None:
+def _coordinate_plan() -> dict:
+    return normalize_plan(
+        {
+            "interactive_type": "simulation",
+            "interactive_spec": {
+                "type": "simulation",
+                "concept": "一次函数图像",
+                "description": "调节参数并观察单一坐标平面中的曲线变化",
+                "variables": [
+                    {
+                        "name": "theta",
+                        "label": "参数",
+                        "min": 0,
+                        "max": 6.283185307179586,
+                        "step": 0.01,
+                        "default": 1,
+                        "unit": "rad",
+                    }
+                ],
+                "presets": [],
+                "observations": ["动态点始终位于曲线上"],
+            },
+            "representation_spec": {
+                "views": [{"id": "graph", "kind": "coordinate_plane", "role": "函数图像"}],
+                "state_variables": [{"id": "theta", "semantic_type": "scalar"}],
+                "correspondences": [],
+                "required_invariants": ["point_on_curve"],
+            },
+        },
+        "一次函数图像",
+    )
+
+
+def _coordinate_ir() -> dict:
+    candidate = deepcopy(_ir())
+    candidate["version"] = COORDINATE_GRAPH_IR_VERSION
+    candidate["coordinate_systems"] = [candidate["coordinate_systems"][0]]
+    candidate["curves"] = [candidate["curves"][0]]
+    candidate["points"] = [candidate["points"][0]]
+    candidate["links"] = []
+    candidate["invariants"] = [candidate["invariants"][0]]
+    return candidate
+
+
+def test_default_ir_registry_routes_all_independent_ir_families() -> None:
     recomposition = DEFAULT_IR_REGISTRY.resolve(
         {"knowledge_profile": {"representation_type": "geometric_recomposition"}}
     )
     linked = DEFAULT_IR_REGISTRY.resolve({"knowledge_profile": {"representation_type": "linked_coordinate_scene"}})
     assert recomposition and recomposition.key == "recomposition_scene"
     assert linked and linked.key == "linked_coordinate_scene"
-    assert DEFAULT_IR_REGISTRY.resolve({"knowledge_profile": {"representation_type": "coordinate_graph"}}) is None
+    coordinate = DEFAULT_IR_REGISTRY.resolve(
+        {"knowledge_profile": {"representation_type": "coordinate_graph"}}
+    )
+    assert coordinate and coordinate.key == "coordinate_graph_scene"
 
 
 def test_ir_registry_rejects_backend_and_representation_collisions() -> None:
@@ -188,6 +246,87 @@ def test_ir_registry_rejects_backend_and_representation_collisions() -> None:
         registry.register(IRBackend("one", frozenset({"other"}), stream))
     with pytest.raises(ValueError, match="duplicate_ir_representation"):
         registry.register(IRBackend("two", frozenset({"shared"}), stream))
+
+
+def test_coordinate_graph_contract_requires_one_coordinate_system() -> None:
+    schema = coordinate_graph_ir_response_schema()
+    assert schema["properties"]["coordinate_systems"]["maxItems"] == 1
+    report = validate_coordinate_graph_ir(_coordinate_ir(), _coordinate_plan())
+    assert report["ok"], report
+
+    broken = _coordinate_ir()
+    broken["coordinate_systems"].append({**broken["coordinate_systems"][0], "id": "second"})
+    broken_report = validate_coordinate_graph_ir(broken, _coordinate_plan())
+    assert not broken_report["ok"]
+    assert any(
+        error["type"] == "coordinate_graph_requires_single_system"
+        for error in broken_report["errors"]
+    )
+
+
+def test_coordinate_graph_multivariable_animation_requires_complete_keyframes() -> None:
+    plan = _coordinate_plan()
+    plan["interactive_spec"]["variables"].append(
+        {"name": "h", "label": "水平平移", "min": -4, "max": 4, "default": 0, "step": 0.1, "unit": ""}
+    )
+    plan["representation_spec"]["state_variables"].append(
+        {
+            "id": "h",
+            "semantic_type": "scalar",
+            "minimum": -4,
+            "maximum": 4,
+            "default": 0,
+            "unit": "",
+            "display_unit": "",
+        }
+    )
+    candidate = _coordinate_ir()
+    missing = validate_coordinate_graph_ir(candidate, plan)
+    assert any(error["type"] == "missing_multi_state_keyframes" for error in missing["errors"])
+
+    candidate["animation"]["keyframes"] = [
+        {"progress": 0, "state": {"theta": 0, "h": -4}},
+        {"progress": 0.5, "state": {"theta": 3.141592653589793, "h": 0}},
+        {"progress": 1, "state": {"theta": 6.283185307179586, "h": 4}},
+    ]
+    report = validate_coordinate_graph_ir(candidate, plan)
+    assert report["ok"], report
+
+
+def test_coordinate_graph_runtime_owns_svg_units_and_family_metadata() -> None:
+    plan = _coordinate_plan()
+    compiled = json.loads(compile_coordinate_graph_ir(_coordinate_ir(), plan))
+    html = assemble_coordinate_graph_business_html(compiled, plan, "一次函数图像")
+    assembled = assemble_layout_contract(html, plan)
+    report = build_validation_report(assembled, plan=plan, model_html=html)
+
+    assert compiled["version"] == COORDINATE_GRAPH_IR_VERSION
+    assert 'viewBox="0 0 960 560"' in html
+    assert "vector-effect:non-scaling-stroke" in html
+    assert '"family":"coordinate_graph"' in html
+    assert "irFamily:'linked_coordinate'" not in html
+    assert report["ok"], report
+
+
+def test_coordinate_graph_ir_failure_falls_back_to_direct_html_with_metadata(monkeypatch) -> None:
+    responses = iter(['{"candidates":[{},{}]}', "{}"])
+    monkeypatch.setattr(coordinate_graph_agent, "has_primary_llm_config", lambda: True)
+    monkeypatch.setattr(coordinate_graph_agent, "_stream_ir", lambda *_args: next(responses))
+    monkeypatch.setattr(
+        coordinate_graph_agent,
+        "stream_generate_html",
+        lambda *_args: iter([HtmlStreamResult(html="<!DOCTYPE html><html></html>", degraded=False)]),
+    )
+
+    items = list(
+        coordinate_graph_agent.stream_generate_coordinate_graph_html(
+            "一次函数图像", _coordinate_plan()
+        )
+    )
+    result = next(item for item in items if isinstance(item, HtmlStreamResult))
+
+    assert result.degraded is True
+    assert result.generation_fallback == "coordinate_graph_ir_invalid"
 
 
 def test_linked_coordinate_profile_uses_generic_multi_representation_evidence() -> None:

@@ -65,6 +65,7 @@ DETERMINISTIC_HARD_ERROR_TYPES = frozenset(
         "animation_controller_missing_update",
         "animation_controller_duration_unit",
         "dom_element_used_as_selector",
+        "unsafe_abstract_svg_units",
     }
 )
 
@@ -136,9 +137,12 @@ def deterministic_repair_html(
     if "html_length_hard_limit" in error_types:
         repaired = re.sub(r"<!--(?!\[if)[\s\S]*?-->", "", repaired, flags=re.IGNORECASE)
         repaired = re.sub(r">\s+<", "><", repaired)
+    if "unsafe_abstract_svg_units" in error_types:
+        repaired = _insert_svg_scale_guard(repaired)
     if warning_types & {
         "abstract_svg_text_scale_risk",
         "abstract_svg_stroke_scale_risk",
+        "abstract_svg_marker_scale_risk",
         "mixed_svg_unit_system",
     }:
         repaired = _insert_svg_scale_guard(repaired)
@@ -308,12 +312,18 @@ def _insert_svg_scale_guard(html: str) -> str:
     recomputes its user-unit font size from the current screen CTM. It also makes
     authored strokes non-scaling. Mutation/resize hooks cover runtime-created SVG.
     """
-    if 'data-aetherviz-scale-guard="true"' in html:
-        return html
-    script = r'''<script data-aetherviz-scale-guard="true">(function(){
+    html = re.sub(
+        r"<script\b[^>]*data-aetherviz-scale-guard(?:\s*=\s*(['\"])[^'\"]*\1)?[^>]*>[\s\S]*?</script\s*>",
+        "",
+        html,
+        flags=re.IGNORECASE,
+    )
+    script = r'''<script data-aetherviz-scale-guard="2">(function(){
+function authoredNumber(el,property,attribute){var inline=parseFloat(el.style.getPropertyValue(property));if(Number.isFinite(inline)&&inline>0)return inline;var attr=parseFloat(el.getAttribute(attribute));if(Number.isFinite(attr)&&attr>0)return attr;var computed=parseFloat(getComputedStyle(el).getPropertyValue(property));return Number.isFinite(computed)&&computed>0?computed:NaN;}
+function normalizeMarker(svg,el,scale){['marker-start','marker-mid','marker-end'].forEach(function(property){var value=getComputedStyle(el).getPropertyValue(property)||el.getAttribute(property)||'',match=value.match(/#([^)'"\s]+)/);if(!match)return;var marker=svg.querySelector('#'+CSS.escape(match[1]));if(!marker)return;var width=parseFloat(marker.dataset.aethervizScreenMarkerWidth),height=parseFloat(marker.dataset.aethervizScreenMarkerHeight);if(!Number.isFinite(width)||width<=0){width=parseFloat(marker.getAttribute('markerWidth'))||6;marker.dataset.aethervizScreenMarkerWidth=String(width);}if(!Number.isFinite(height)||height<=0){height=parseFloat(marker.getAttribute('markerHeight'))||6;marker.dataset.aethervizScreenMarkerHeight=String(height);}marker.setAttribute('markerUnits','userSpaceOnUse');marker.setAttribute('markerWidth',String(width/scale));marker.setAttribute('markerHeight',String(height/scale));});}
 function normalize(root){(root||document).querySelectorAll('#aetherviz-stage svg').forEach(function(svg){
-svg.querySelectorAll('path,line,polyline,polygon,circle,ellipse,rect').forEach(function(el){var style=getComputedStyle(el),ctm=el.getScreenCTM();if(!ctm||!style.stroke||style.stroke==='none')return;var scale=Math.sqrt(Math.abs(ctm.a*ctm.d-ctm.b*ctm.c));if(!scale)return;var target=parseFloat(el.dataset.aethervizScreenStroke);if(!Number.isFinite(target)||target<=0){var authored=parseFloat(style.strokeWidth);target=authored*scale;if(!Number.isFinite(target)||target<=0)return;el.dataset.aethervizScreenStroke=String(target);}el.style.vectorEffect='non-scaling-stroke';el.style.strokeWidth=target+'px';});
-svg.querySelectorAll('text').forEach(function(el){var ctm=el.getScreenCTM();if(!ctm)return;var scale=Math.sqrt(Math.abs(ctm.a*ctm.d-ctm.b*ctm.c));if(!scale)return;var target=parseFloat(el.dataset.aethervizScreenFont);if(!Number.isFinite(target)||target<=0){var authored=parseFloat(getComputedStyle(el).fontSize);target=authored*scale;if(!Number.isFinite(target)||target<=0)return;el.dataset.aethervizScreenFont=String(target);}el.style.fontSize=(target/scale)+'px';});
+svg.querySelectorAll('path,line,polyline,polygon,circle,ellipse,rect').forEach(function(el){var style=getComputedStyle(el),ctm=el.getScreenCTM();if(!ctm||!style.stroke||style.stroke==='none')return;var scale=Math.sqrt(Math.abs(ctm.a*ctm.d-ctm.b*ctm.c));if(!scale)return;var target=parseFloat(el.dataset.aethervizScreenStroke);if(!Number.isFinite(target)||target<=0){target=authoredNumber(el,'stroke-width','stroke-width');if(!Number.isFinite(target)||target<=0)return;el.dataset.aethervizScreenStroke=String(target);}el.style.setProperty('vector-effect','non-scaling-stroke','important');el.style.setProperty('stroke-width',target+'px','important');normalizeMarker(svg,el,scale);});
+svg.querySelectorAll('text').forEach(function(el){var ctm=el.getScreenCTM();if(!ctm)return;var scale=Math.sqrt(Math.abs(ctm.a*ctm.d-ctm.b*ctm.c));if(!scale)return;var target=parseFloat(el.dataset.aethervizScreenFont);if(!Number.isFinite(target)||target<=0){target=authoredNumber(el,'font-size','font-size');if(!Number.isFinite(target)||target<=0)return;el.dataset.aethervizScreenFont=String(target);}el.style.setProperty('font-size',(target/scale)+'px','important');});
 });}
 var queued=false;function schedule(){if(queued)return;queued=true;requestAnimationFrame(function(){queued=false;normalize(document);});}
 schedule();new MutationObserver(schedule).observe(document.getElementById('aetherviz-stage')||document.body,{childList:true,subtree:true});

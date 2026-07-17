@@ -145,7 +145,7 @@ def check_widget_runtime_contract(html: str, *, soup: BeautifulSoup | None = Non
     _check_dynamic_nodes_used_before_initialization(business_script_text, errors)
     _check_duplicate_label_positions(parsed, script_text, warnings)
     _check_layout_risks(parsed, business_script_text, warnings)
-    _check_svg_unit_system(parsed, script_text, warnings)
+    _check_svg_unit_system(parsed, script_text, errors, warnings)
     _check_unformatted_dynamic_numbers(script_text, warnings)
 
     external_gsap = any("gsap" in str(script.get("src") or "").lower() for script in parsed.find_all("script"))
@@ -389,14 +389,35 @@ def _viewbox_short_sides(parsed: BeautifulSoup, script_text: str) -> list[float]
     return values
 
 
-def _check_svg_unit_system(parsed: BeautifulSoup, script_text: str, warnings: list[dict]) -> None:
+def _has_effective_svg_scale_guard(parsed: BeautifulSoup) -> bool:
+    """Require the current guard implementation, not only a marker attribute."""
+
+    guard = parsed.select_one('script[data-aetherviz-scale-guard="2"]')
+    if guard is None:
+        return False
+    source = guard.get_text("\n", strip=False)
+    required_fragments = (
+        "getScreenCTM",
+        "aethervizScreenFont",
+        "aethervizScreenStroke",
+        "setProperty('font-size'",
+        "setProperty('stroke-width'",
+        "non-scaling-stroke",
+    )
+    return all(fragment in source for fragment in required_fragments)
+
+
+def _check_svg_unit_system(
+    parsed: BeautifulSoup,
+    script_text: str,
+    errors: list[dict],
+    warnings: list[dict],
+) -> None:
     """Detect mixed screen-pixel and abstract SVG user-unit styling.
 
     The check is topic-independent and remains non-blocking because static CSS
     cannot prove the final browser geometry in every generated document.
     """
-    if parsed.select_one('script[data-aetherviz-scale-guard="true"]') is not None:
-        return
     short_sides = _viewbox_short_sides(parsed, script_text)
     if not short_sides or min(short_sides) > 100:
         return
@@ -416,6 +437,21 @@ def _check_svg_unit_system(parsed: BeautifulSoup, script_text: str, warnings: li
         and not re.search(r"vector-effect\s*:\s*non-scaling-stroke", declarations, re.IGNORECASE)
         for _, declarations in svg_rules
     )
+    scaling_marker = any(
+        str(marker.get("markerunits") or "strokeWidth").lower() == "strokewidth"
+        for marker in parsed.find_all("marker")
+    )
+    effective_guard = _has_effective_svg_scale_guard(parsed)
+    declared_guard = parsed.select_one("script[data-aetherviz-scale-guard]") is not None
+    if effective_guard:
+        return
+    if declared_guard:
+        warnings.append(
+            _warning(
+                "invalid_svg_scale_guard",
+                "检测到旧版或不完整的 SVG 尺度 guard；仍按实际 SVG/CSS 风险继续检查。",
+            )
+        )
     if text_px:
         warnings.append(
             _warning(
@@ -431,11 +467,24 @@ def _check_svg_unit_system(parsed: BeautifulSoup, script_text: str, warnings: li
                 "检测到小范围抽象 viewBox 中存在未使用 non-scaling-stroke 的描边；轴线、网格或轮廓可能异常粗大。",
             )
         )
+    if scaling_marker:
+        warnings.append(
+            _warning(
+                "abstract_svg_marker_scale_risk",
+                "检测到小范围抽象 viewBox 使用 markerUnits=strokeWidth；箭头或端点标记可能随描边一起异常放大。",
+            )
+        )
     if text_px and scaling_stroke:
         warnings.append(
             _warning(
                 "mixed_svg_unit_system",
                 "SVG 同时混用屏幕像素排版与抽象用户单位描边，视觉尺度在不同 iframe 尺寸下不稳定。",
+            )
+        )
+        errors.append(
+            _error(
+                "unsafe_abstract_svg_units",
+                "小范围抽象 viewBox 同时包含屏幕字号和缩放描边，已确定会产生不稳定的视觉尺度。",
             )
         )
 

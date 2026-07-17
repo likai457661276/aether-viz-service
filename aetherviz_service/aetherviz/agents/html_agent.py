@@ -82,6 +82,7 @@ class HtmlStreamResult:
     input_tokens: int | None = None
     output_tokens: int | None = None
     output_chars: int = 0
+    generation_fallback: str | None = None
 
 
 def stream_generate_html(topic: str, plan: dict[str, Any]) -> Iterator[dict[str, Any] | HtmlStreamResult]:

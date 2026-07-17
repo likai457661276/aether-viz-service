@@ -161,6 +161,23 @@ def linked_coordinate_ir_response_schema() -> dict[str, Any]:
                     "from": {"$ref": "#/$defs/state_expression"},
                     "to": {"$ref": "#/$defs/state_expression"},
                     "duration": {"type": "number", "minimum": 0.5, "maximum": 20},
+                    "keyframes": {
+                        "type": "array",
+                        "minItems": 2,
+                        "maxItems": 8,
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": False,
+                            "properties": {
+                                "progress": {"type": "number", "minimum": 0, "maximum": 1},
+                                "state": {
+                                    "type": "object",
+                                    "additionalProperties": {"type": "number"},
+                                },
+                            },
+                            "required": ["progress", "state"],
+                        },
+                    },
                 },
                 "required": ["variable", "from", "to", "duration"],
             },
@@ -591,6 +608,57 @@ def validate_linked_coordinate_ir(ir: object, plan: dict[str, Any]) -> dict[str,
     duration = _number(animation.get("duration"))
     if duration is None or not 0.5 <= duration <= 20:
         errors.append(_issue("invalid_animation_duration", "动画时长必须在 0.5~20 秒"))
+    keyframes = animation.get("keyframes")
+    if keyframes is not None:
+        if not isinstance(keyframes, list) or not 2 <= len(keyframes) <= 8:
+            errors.append(_issue("invalid_animation_keyframes", "动画关键帧必须包含 2~8 项"))
+        else:
+            previous = -1.0
+            for index, keyframe in enumerate(keyframes):
+                if not isinstance(keyframe, dict):
+                    errors.append(_issue("invalid_animation_keyframe", "动画关键帧必须是对象", index=index))
+                    continue
+                progress = _number(keyframe.get("progress"))
+                values = keyframe.get("state")
+                if progress is None or not 0 <= progress <= 1 or progress <= previous:
+                    errors.append(
+                        _issue(
+                            "invalid_animation_keyframe_progress",
+                            "动画关键帧 progress 必须在 0~1 内严格递增",
+                            index=index,
+                        )
+                    )
+                else:
+                    previous = progress
+                if not isinstance(values, dict) or not values:
+                    errors.append(_issue("invalid_animation_keyframe_state", "动画关键帧 state 不能为空", index=index))
+                    continue
+                for name, value in values.items():
+                    number = _number(value)
+                    if name not in state_ranges or number is None:
+                        errors.append(
+                            _issue(
+                                "invalid_animation_keyframe_value",
+                                "动画关键帧必须引用计划变量并提供有限数值",
+                                index=index,
+                                state=name,
+                            )
+                        )
+                        continue
+                    minimum, _default, maximum = state_ranges[name]
+                    if not minimum <= number <= maximum:
+                        errors.append(
+                            _issue(
+                                "animation_keyframe_out_of_range",
+                                "动画关键帧数值超出计划变量范围",
+                                index=index,
+                                state=name,
+                            )
+                        )
+            first_progress = _number(keyframes[0].get("progress")) if isinstance(keyframes[0], dict) else None
+            last_progress = _number(keyframes[-1].get("progress")) if isinstance(keyframes[-1], dict) else None
+            if first_progress != 0 or last_progress != 1:
+                errors.append(_issue("animation_keyframes_must_span_timeline", "动画关键帧必须从 0 覆盖到 1"))
 
     for system in systems:
         if _requires_chinese_visible_label(system.get("label")):

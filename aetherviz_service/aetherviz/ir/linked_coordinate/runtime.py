@@ -5,6 +5,7 @@ from __future__ import annotations
 import html
 import json
 import re
+from collections.abc import Callable
 from typing import Any
 
 from aetherviz_service.aetherviz.constants import get_gsap_core_cdn_url
@@ -14,9 +15,14 @@ _SAFE_ID_RE = re.compile(r"[^a-zA-Z0-9_-]+")
 
 
 def assemble_linked_coordinate_business_html(
-    ir: dict[str, Any], plan: dict[str, Any], topic: str
+    ir: dict[str, Any],
+    plan: dict[str, Any],
+    topic: str,
+    *,
+    ir_family: str = "linked_coordinate",
+    compile_ir: Callable[[dict[str, Any], dict[str, Any]], str] = compile_linked_coordinate_ir,
 ) -> str:
-    ir_json = compile_linked_coordinate_ir(ir, plan)
+    ir_json = compile_ir(ir, plan)
     title = html.escape(str(plan.get("title") or topic or "联动坐标互动课件"))
     goal = html.escape(str(plan.get("goal") or "观察多个数学表征之间的同步关系。"))
     topic_text = html.escape(str(topic or title))
@@ -44,10 +50,11 @@ def assemble_linked_coordinate_business_html(
         "type": plan.get("interactive_type", "simulation"),
         "concept": topic,
         "variables": variables,
-        "ir": {"family": "linked_coordinate", "version": ir.get("version")},
+        "ir": {"family": ir_family, "version": ir.get("version")},
     }
     runtime = _RUNTIME_SCRIPT.replace("__SCENE_IR__", ir_json)
     runtime = runtime.replace("__DEFAULT_STATE__", _json_for_script(defaults))
+    runtime = runtime.replace("__IR_FAMILY__", _json_for_script(ir_family))
     runtime = runtime.replace("__INITIAL_CAPTION__", _json_for_script(caption))
     runtime = runtime.replace("__INITIAL_FORMULA__", _json_for_script(formula))
     gsap_url = html.escape(get_gsap_core_cdn_url(), quote=True)
@@ -169,13 +176,13 @@ function svgNode(tag,attrs,parent){const node=document.createElementNS(SVG_NS,ta
 function buildSystems(){systemsLayer.replaceChildren();const evaluate=evaluator({});for(const system of IR.coordinate_systems){const xd=system.x_domain.map(evaluate),yd=system.y_domain.map(evaluate);const origin=mapPoint(system,0,0,evaluate);svgNode('rect',{x:system.x,y:system.y,width:system.width,height:system.height,rx:8,fill:'#fff',stroke:'#d9e7e1'},systemsLayer);for(let index=1;index<5;index++){const x=system.x+system.width*index/5,y=system.y+system.height*index/5;svgNode('line',{x1:x,y1:system.y,x2:x,y2:system.y+system.height,class:'linked-grid'},systemsLayer);svgNode('line',{x1:system.x,y1:y,x2:system.x+system.width,y2:y,class:'linked-grid'},systemsLayer);}if(origin.x>=system.x&&origin.x<=system.x+system.width)svgNode('line',{x1:origin.x,y1:system.y,x2:origin.x,y2:system.y+system.height,class:'linked-axis'},systemsLayer);if(origin.y>=system.y&&origin.y<=system.y+system.height)svgNode('line',{x1:system.x,y1:origin.y,x2:system.x+system.width,y2:origin.y,class:'linked-axis'},systemsLayer);const label=svgNode('text',{x:system.x+10,y:system.y+22,class:'linked-label'},systemsLayer);label.textContent=system.label;label.setAttribute('aria-label',system.label+'，横轴 '+xd[0].toFixed(2)+' 到 '+xd[1].toFixed(2)+'，纵轴 '+yd[0].toFixed(2)+' 到 '+yd[1].toFixed(2));}}
 function buildNodes(){curvesLayer.replaceChildren();linksLayer.replaceChildren();pointsLayer.replaceChildren();curveNodes.clear();pointNodes.clear();linkNodes.clear();labelNodes.clear();for(const curve of IR.curves)curveNodes.set(curve.id,svgNode('path',{class:'linked-curve',stroke:curve.stroke,pathLength:1,'data-curve-id':curve.id},curvesLayer));for(const link of IR.links)linkNodes.set(link.id,svgNode('line',{class:'linked-link',stroke:link.stroke,'stroke-dasharray':link.dash,'data-link-id':link.id},linksLayer));for(const point of IR.points){pointNodes.set(point.id,svgNode('circle',{class:'linked-point',r:point.radius,fill:point.fill,'data-point-id':point.id},pointsLayer));if(point.label){const label=svgNode('text',{class:'linked-label','data-label-for':point.id},pointsLayer);label.textContent=point.label;labelNodes.set(point.id,label);}}}
 function render(){const evaluate=evaluator({}),screenPoints=new Map(),readout=[];buildSystems();for(const curve of IR.curves){const system=systemMap.get(curve.system),domain=curve.domain.map(evaluate),parts=[];for(let index=0;index<curve.samples;index++){const t=domain[0]+(domain[1]-domain[0])*index/(curve.samples-1),localEval=evaluator({[curve.parameter]:t}),point=mapPoint(system,localEval(curve.x),localEval(curve.y),evaluate);parts.push((index?'L':'M')+point.x.toFixed(3)+' '+point.y.toFixed(3));}const curveNode=curveNodes.get(curve.id);curveNode.setAttribute('d',parts.join(' '));if(curve.reveal){const start=evaluate(curve.reveal.from),end=evaluate(curve.reveal.to),value=evaluate(curve.reveal.value),ratio=Math.max(0,Math.min(1,(value-start)/(end-start)));curveNode.setAttribute('stroke-dasharray',ratio.toFixed(6)+' 1');curveNode.setAttribute('visibility',ratio<=0?'hidden':'visible');}else{curveNode.removeAttribute('stroke-dasharray');curveNode.setAttribute('visibility','visible');}}for(const point of IR.points){const system=systemMap.get(point.system),x=evaluate(point.x),y=evaluate(point.y),screen=mapPoint(system,x,y,evaluate),node=pointNodes.get(point.id);screenPoints.set(point.id,screen);node.setAttribute('cx',screen.x.toFixed(3));node.setAttribute('cy',screen.y.toFixed(3));const label=labelNodes.get(point.id);if(label){label.setAttribute('x',(screen.x+10).toFixed(3));label.setAttribute('y',(screen.y-10).toFixed(3));}readout.push(point.label+': ('+x.toFixed(2)+', '+y.toFixed(2)+')');}for(const link of IR.links){const start=screenPoints.get(link.from),end=screenPoints.get(link.to),node=linkNodes.get(link.id);node.setAttribute('x1',start.x.toFixed(3));node.setAttribute('y1',start.y.toFixed(3));node.setAttribute('x2',end.x.toFixed(3));node.setAttribute('y2',end.y.toFixed(3));}for(const input of document.querySelectorAll('[data-var]')){const key=input.getAttribute('data-var');if(Object.prototype.hasOwnProperty.call(state,key)){input.value=String(state[key]);const output=document.querySelector('[data-output-for="'+CSS.escape(key)+'"]');if(output)output.textContent=Number(state[key]).toFixed(2);}}valueReadout.textContent=readout.join(' · ');const active=Math.max(0,Math.min(steps.length-1,Math.floor(currentProgress*Math.max(steps.length,1))));steps.forEach((step,index)=>index===active?step.setAttribute('aria-current','step'):step.removeAttribute('aria-current'));caption.textContent=__INITIAL_CAPTION__;formula.textContent=__INITIAL_FORMULA__;}
-function applyProgress(progress){currentProgress=Math.max(0,Math.min(1,Number(progress)||0));const evaluate=evaluator({}),animation=IR.animation;state[animation.variable]=evaluate(animation.from)+(evaluate(animation.to)-evaluate(animation.from))*currentProgress;render();if(currentProgress>=1)playing=false;}
+function applyProgress(progress){currentProgress=Math.max(0,Math.min(1,Number(progress)||0));const evaluate=evaluator({}),animation=IR.animation,frames=Array.isArray(animation.keyframes)?animation.keyframes:null;if(frames&&frames.length>=2){let endIndex=frames.findIndex((frame)=>currentProgress<=Number(frame.progress));if(endIndex<=0)endIndex=1;const start=frames[endIndex-1],end=frames[Math.min(endIndex,frames.length-1)],span=Number(end.progress)-Number(start.progress),ratio=span>0?(currentProgress-Number(start.progress))/span:0;for(const key of Object.keys(start.state)){if(Object.prototype.hasOwnProperty.call(end.state,key)&&Object.prototype.hasOwnProperty.call(DEFAULT_STATE,key))state[key]=finite(start.state[key])+(finite(end.state[key])-finite(start.state[key]))*Math.max(0,Math.min(1,ratio));}}else{state[animation.variable]=evaluate(animation.from)+(evaluate(animation.to)-evaluate(animation.from))*currentProgress;}render();if(currentProgress>=1)playing=false;}
 function update(patch){for(const key of Object.keys(DEFAULT_STATE)){if(Object.prototype.hasOwnProperty.call(patch||{},key)){const value=Number(patch[key]);if(Number.isFinite(value))state[key]=value;}}render();return getState();}
 function play(){playing=true;controller.play();}
 function pause(){playing=false;controller.pause();}
 function reset(){playing=false;Object.assign(state,DEFAULT_STATE);controller.reset();currentProgress=0;render();}
 function setSpeed(value){controller.setSpeed(value);}
-function getState(){return Object.assign({},state,{progress:currentProgress,isPlaying:playing,irFamily:'linked_coordinate'});}
+function getState(){return Object.assign({},state,{progress:currentProgress,isPlaying:playing,irFamily:__IR_FAMILY__});}
 function bindControls(){document.getElementById('play-animation').addEventListener('click',play);document.getElementById('pause-animation').addEventListener('click',pause);document.getElementById('reset-animation').addEventListener('click',reset);document.getElementById('animation-speed').addEventListener('change',(event)=>setSpeed(event.target.value));for(const input of document.querySelectorAll('[data-var]'))input.addEventListener('input',(event)=>update({[event.target.getAttribute('data-var')]:event.target.value}));}
 function handleWidgetAction(event){const message=event.data||{};if(message.type==='SET_WIDGET_STATE'&&message.state)update(message.state);if(message.type==='HIGHLIGHT_ELEMENT'&&message.target){const node=document.querySelector(message.target);if(node)node.setAttribute('data-highlighted','true');}if(message.type==='ANNOTATE_ELEMENT'&&message.content)caption.textContent=String(message.content);if(message.type==='REVEAL_ELEMENT'&&message.target){const node=document.querySelector(message.target);if(node)node.hidden=false;}}
 try{if(!window.AetherVizAnimationController)throw new Error('missing_animation_controller');buildSystems();buildNodes();render();controller=window.AetherVizAnimationController.create({duration:Number(IR.animation.duration)||4,update:applyProgress,ease:'power1.inOut'});bindControls();window.addEventListener('message',handleWidgetAction);window.AetherVizRuntime={play,pause,reset,setSpeed,update,getState};window.__AETHERVIZ_RUNTIME_READY__=true;}catch(error){window.__AETHERVIZ_RUNTIME_ERROR__=String(error&&error.message||error);caption.textContent='课件初始化失败：'+window.__AETHERVIZ_RUNTIME_ERROR__;}

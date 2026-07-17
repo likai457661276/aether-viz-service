@@ -13,7 +13,7 @@ def test_plan_aware_routing_fixes_known_false_negative_and_false_positive(monkey
     direct = service.resolve_generation_route(normalize_plan({}, "圆的标准方程与图像"))
 
     assert linked.selected_backend == "linked_coordinate_scene"
-    assert direct.selected_backend is None
+    assert direct.selected_backend == "coordinate_graph_scene"
 
 
 def test_router_uses_llm_only_for_prior_conflict_and_accepts_registered_candidate(monkeypatch) -> None:
@@ -73,6 +73,20 @@ def test_normalized_plan_contains_generic_representation_spec() -> None:
         "shared_parameter",
         "equal_value",
     }
+
+
+def test_single_coordinate_plane_routes_to_coordinate_graph_backend(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "aetherviz_ir_router_enabled", False)
+    plan = normalize_plan({}, "二次函数图像的平移与形变")
+
+    route = service.resolve_generation_route(plan)
+
+    assert route.selected_backend == "coordinate_graph_scene"
+    assessment = next(item for item in route.candidates if item.backend_key == "coordinate_graph_scene")
+    assert assessment.eligible is True
+    assert {"single_view", "coordinate_plane", "state_parameter"} <= set(
+        assessment.matched_capabilities
+    )
 
 
 def test_partial_linked_spec_is_augmented_with_cross_view_relation() -> None:

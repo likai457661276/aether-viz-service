@@ -2,7 +2,7 @@
 
 `AI教学动画` 是一个基于 Python 3.12 和 FastAPI 的后端服务，用于根据教学主题生成完整、可直接打开的互动教学 HTML。
 
-当前生成链路使用 LangChain `ChatOpenAI` 生成动态单页互动课件：先生成可确认的 `interactive` 教案计划，用户可多轮修订计划，确认后再生成 HTML。服务端根据主题生成通用 `knowledge_profile`（学科、概念族、表征类型、教学模式），规划模型同时输出描述视图、状态变量、跨视图关系和不变量的 `representation_spec`；各 IR 后端根据完整计划独立评分，高置信度结果确定性路由，候选冲突或画像先验与计划语义冲突时可由短 JSON 的 `deepseek-v4-flash` 仲裁，模型选择仍须通过注册表和硬排除校验。普通主题沿用直接 HTML 链路，结构化场景由 IR 注册表路由到独立后端。`geometric_recomposition` 负责几何切分重排，`linked_coordinate_scene` 负责多坐标系、函数曲线、轨迹、动态点和投影的参数联动；两者都只允许模型生成纯 JSON IR，不允许模型持有 DOM、动画循环或响应式布局。SVG、IR 解释器、动画控制器、参数生命周期和 iframe Runtime 由服务端编译。最终页面统一按 `math-shell-v1` 布局契约装配，不为单独知识点维护硬编码模板。HTML 只在请求内存中完成装配、检查和修复，通过 SSE 返回前端渲染与会话缓存；后端不落盘缓存 HTML、修复稿或检查报告。
+当前生成链路使用 LangChain `ChatOpenAI` 生成动态单页互动课件：先生成可确认的 `interactive` 教案计划，用户可多轮修订计划，确认后再生成 HTML。服务端根据主题生成通用 `knowledge_profile`（学科、概念族、表征类型、教学模式），规划模型同时输出描述视图、状态变量、跨视图关系和不变量的 `representation_spec`；各 IR 后端根据完整计划独立评分，高置信度结果确定性路由，候选冲突或画像先验与计划语义冲突时可由短 JSON 的 `deepseek-v4-flash` 仲裁，模型选择仍须通过注册表和硬排除校验。普通主题沿用直接 HTML 链路，结构化场景由 IR 注册表路由到独立后端。`geometric_recomposition` 负责几何切分重排，`linked_coordinate_scene` 负责多坐标系、函数曲线、轨迹、动态点和投影的参数联动，`coordinate_graph_scene` 负责单一坐标平面的函数、曲线和动态点；三者都只允许模型生成纯 JSON IR，不允许模型持有 DOM、动画循环或响应式布局。坐标类后端复用同一表达式校验和像素对齐 SVG Runtime，data-to-screen 映射、屏幕 y 轴翻转、字号与描边由服务端唯一控制。最终页面统一按 `math-shell-v1` 布局契约装配，不为单独知识点维护硬编码模板。HTML 只在请求内存中完成装配、检查和修复，通过 SSE 返回前端渲染与会话缓存；后端不落盘缓存 HTML、修复稿或检查报告。
 
 Docker 镜像内置 Node.js，用于内联 JavaScript `node --check` 和受限 Scene Module 隔离运行冒烟检查，保证 macOS 本地与 Linux 生产容器使用同等级检查；浏览器回归仍只在本地/离线流程运行。
 
@@ -18,7 +18,8 @@ aether-viz-service/
 │       ├── agents/           # 模型调用、指令、topic profile、planner、html、repair、model factory
 │       ├── ir/               # IR 注册表；每个 IR 家族独立拥有契约、Agent、编译器和 Runtime
 │       │   ├── recomposition/      # 几何切分重排 IR 的生成、契约、校验、编译与 Runtime
-│       │   └── linked_coordinate/  # 联动坐标/动态数学场景 IR
+│       │   ├── linked_coordinate/  # 联动坐标/动态数学场景 IR
+│       │   └── coordinate_graph/   # 单视图函数与坐标图 IR，共享坐标编译 Runtime
 │       ├── tools/            # HTML 提取/清理、parser、JS checker、安全、长度、validation report
 │       ├── workflow/         # plan contract、plan、revise_plan、approve_plan、generate、edit_html 编排
 │       └── schemas/
@@ -310,7 +311,7 @@ HTML 文件编辑阶段请求示例：
 2. `phase=revise_plan` 由规划模型接收 `current_plan + message`，重新生成完整 `revised` 计划，不返回局部 patch。
 3. `phase=approve_plan` 将计划状态置为 `approved`。
 4. `phase=generate` 根据 IR 路由结果选择后端：`geometric_recomposition` 由 `ir/recomposition/agent.py` 一次生成 3 个结构化几何 IR 候选，不生成多个 HTML；服务端淘汰确定性硬校验失败候选，对其余候选按固定权重和稳定指纹排序，只编译最高分 IR 并装配生命周期脚手架。目标拼合已满足连通、重叠和形状约束但仅整体越界时，服务端先对所有目标端点执行保持几何关系的统一平移归位；全部候选仅因中间 transform 证据不足而失败时，再用通用 waypoint 补全器生成有界、偏离首尾直线插值的独立中间状态并重新执行全部硬校验。仍失败才对最接近合格的 IR 做一次受限模型修复。计划声明显式 `target_assembly` 时，候选和修复均失败会明确终止生成，不再用无法证明原主题几何语义的通用 fallback 冒充正确结果。独立证据报告包含阶段、参数状态、piece id、失败原因、端点分离分数、直线路径偏离分数和各维度阈值；未命中 IR 的主题由 `html_agent` 直接生成业务 HTML。
-   IR 注册表在直接 HTML 之前解析已注册表征。规划模型通过 `representation_spec` 配置视图、共享状态、跨视图对应、必须证明的不变量和 `reveal` 等通用能力，不直接指定后端名称，服务端再确定性选择 IR。`linked_coordinate_scene` 由独立后端一次生成两个联动坐标 IR 候选；模型只描述坐标系的数学定义域，不负责 `960×560` 画布中的像素位置，服务端按坐标系数量确定性分配布局。每条曲线显式声明自身 `parameter_unit`（`radian`、`degree` 或 `scalar`），角度检查不再错误继承全局动画变量单位；旧候选缺失该字段时由表达式保守推断。面向学生的坐标系说明优先使用简体中文；纯英文说明只产生质量 warning 并降低候选排序，不触发模型修复或阻断 HTML 交付，数学公式、变量、点名和国际单位保持原符号。服务端还会将 `[变量下界, 状态变量]` 形式的退化动态曲线定义域归一化为“稳定完整定义域 + reveal”，并将过宽 tolerance 收紧到契约上限，再在计划变量边界、默认值和内部四分位状态展开坐标域、完整曲线、动态点和不变量，并要求覆盖计划声明的全部可计算不变量，最后按硬错误、警告、长度和稳定指纹确定性选优；曲线渐进显示由 Runtime 使用 SVG 路径揭示实现，不再改变数学定义域。全部首稿失败时只把最接近合格候选自身的错误交给一次受限 JSON 修复，不混入其他候选对象；仍无法证明 `point_on_curve`、`equal_value` 或 `coincident` 则明确失败。候选排名通过脱敏的 `aetherviz.linked_coordinate_ir_ranking` 子 Run 记录候选数量、归一化标记、错误类型、选择结果、修复候选和稳定指纹，不记录 IR 正文。服务端统一编译 data-to-screen 映射、SVG 节点注册、参数控件、动画控制器和响应式 Runtime，因此模型不再生成任意 JavaScript。此处“其他类型”仅指未命中 IR 注册表的表征。
+   IR 注册表在直接 HTML 之前解析已注册表征。规划模型通过 `representation_spec` 配置视图、共享状态、跨视图对应、必须证明的不变量和 `reveal` 等通用能力，不直接指定后端名称，服务端再确定性选择 IR。一个 `coordinate_plane` 且存在可调状态时路由到 `coordinate_graph_scene`；两个或更多视图、共享参数和跨视图关系完整时路由到 `linked_coordinate_scene`。两类坐标后端都一次生成两个结构化候选，模型只描述数学定义域、曲线、动态点和不变量，不负责 `960×560` 画布中的像素位置。单视图后端额外硬限制只能包含一个坐标系，并要求关键动态点通过 `point_on_curve` 证明与曲线同源；多变量计划必须用覆盖全部变量的 0~1 关键帧驱动播放。每条曲线显式声明自身 `parameter_unit`（`radian`、`degree` 或 `scalar`），角度检查不再错误继承全局动画变量单位；旧候选缺失该字段时由表达式保守推断。面向学生的坐标系说明优先使用简体中文；纯英文说明只产生质量 warning 并降低候选排序，不触发模型修复或阻断 HTML 交付，数学公式、变量、点名和国际单位保持原符号。服务端还会将 `[变量下界, 状态变量]` 形式的退化动态曲线定义域归一化为“稳定完整定义域 + reveal”，并将过宽 tolerance 收紧到契约上限，再在计划变量边界、默认值和内部四分位状态展开坐标域、完整曲线、动态点和不变量，并要求覆盖计划声明的全部可计算不变量，最后按硬错误、警告、长度和稳定指纹确定性选优；曲线渐进显示由 Runtime 使用 SVG 路径揭示实现，不再改变数学定义域。全部首稿失败时只把最接近合格候选自身的错误交给一次受限 JSON 修复，不混入其他候选对象；单视图坐标 IR 修复后仍不合格时转入完整直接 HTML 生成，并通过 `generation_backend_fallback` 明确记录原因，所得 HTML 仍执行相同装配和硬校验。服务端统一编译 data-to-screen 映射、SVG 节点注册、参数控件、动画控制器和响应式 Runtime，因此模型不再生成任意 JavaScript。此处“其他类型”仅指未命中 IR 注册表的表征。
 5. 模型业务 HTML 先执行 38000/42000 字符目标/硬限制，再经过 `math-shell-v1` 服务端装配器；模型外层布局不会进入最终 HTML。装配器会过滤业务 CSS 中的页面级、布局槽位根节点和 range 外观规则，标准 range 由 `range-v1` 独占尺寸与渲染，播放、暂停、重置按钮及 select 由服务端提供统一的按压、状态、焦点反馈，`controller-v1` 在业务脚本执行前提供 GSAP/RAF 共用动画控制接口并广播播放状态。最终装配只执行 64000 字符异常膨胀检查。
 6. `validation_report` 聚合布局、HTML、JavaScript、安全、分阶段长度、Widget、动画生命周期和学科一致性检查。Widget 检查会识别主视觉挂载节点的直接查询及一层精确字符串常量查询，避免把可证明的 SVG/Canvas 动态挂载误判为空节点；仅在业务脚本直接调用 GSAP 时要求 fallback guard。业务脚本声明、遮蔽或覆盖服务端 `window.AetherVizAnimationController`，以及 GSAP `onUpdate` 经 `bind(this)` 改绑后仍调用 Tween 专属 `this.targets()`，均作为硬错误阻断。动画控制器 options 使用注释、字符串、正则和嵌套层级感知的顶层字段扫描，只有带源码范围、证据和高置信度的 `onUpdate` 误传、毫秒 duration 等明确契约错误才阻断；检查器显式标记为低置信度或非阻断的问题统一降级为 `validator_uncertain` warning 并继续交付。动画检查还会阻断 timeline/RAF 逐帧回调调用结构性 DOM/SVG 重建函数、可为空的 first/lastChild 清空后直接重挂载，并提示未清理或未经存在性校验的动态节点注册表、量化状态反复吞掉逐帧增量、对象方法或箭头属性形式的空 `setSpeed`、绕过统一动画控制器、局部几何与世界 transform 重复编码，以及 GSAP 直接污染 getState 可序列化业务对象的风险；学科启发式检查仍只产生 warning。
    Widget 校验还会识别由场景 builder 创建、却在 builder/init 调用前绑定事件或调用 DOM 方法的动态节点，并阻止仅通过空值 early-return 掩盖初始化失败的候选；KaTeX 页面中残留的可见数学定界符也会进入修复流程。
@@ -397,7 +398,7 @@ uv run python evals/reporting/regression.py \
 - 后端按 `simulation`、`diagram`、`game` 拆分独立 prompt、分型 widget-config 和开发期分型校验。
 - 计划对象必须包含 `scene_outline`、`widget_outline`、`design_brief`、`widget_actions`、`knowledge_profile` 和 `discipline_spec`，作为后续 HTML 生成的唯一蓝图。知识画像只路由到通用概念族、表征和教学模式，不包含具体知识点专用模板。
 - 旧版共享模块和兼容层已移除；学科与互动类型选择在 `workflow/plan_detection.py`，计划规范化在 `workflow/plan_contract.py`，直接模型 prompt 在 `agents/instructions.py`，确定性修复在 `tools/deterministic_repair.py`。
-- `html.done.metadata.generation_backend` 为 `direct` 或 `recomposition_scene`；API/SSE 主结构不变，前端未声明 `representation_type` 固定枚举，无需同步类型迁移。
+- `html.done.metadata.generation_backend` 为 `direct`、`recomposition_scene`、`linked_coordinate_scene` 或 `coordinate_graph_scene`；API/SSE 主结构不变，前端未声明 `representation_type` 固定枚举，无需同步类型迁移。
 - 前端可展示 `generation_attempts`、`repair_attempts`、兼容字段 `attempts`、`repaired`、`degraded`、`validation_warnings`、`context_status`、`bytes` 和 `chars`。
 - 计划中的 action 使用 `widget_setState`、`widget_highlight`、`widget_annotation`、`widget_reveal`；生成物 iframe 内部应兼容 `SET_WIDGET_STATE`、`HIGHLIGHT_ELEMENT`、`ANNOTATE_ELEMENT`、`REVEAL_ELEMENT` 消息。
 
