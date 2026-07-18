@@ -322,10 +322,10 @@ def business_css_ownership_violations(css: str) -> list[str]:
         if selectors.startswith("@"):
             continue
         for selector in selectors.split(","):
-            normalized = selector.strip()
+            normalized = _normalize_business_selector(selector)
+            declarations = _business_declarations(match.group("body"))
             if normalized == ":root" and all(
-                not declaration.strip() or declaration.strip().startswith("--")
-                for declaration in match.group("body").split(";")
+                not declaration or declaration.startswith("--") for declaration in declarations
             ):
                 continue
             if _is_server_owned_selector(normalized):
@@ -344,19 +344,19 @@ def sanitize_business_css(css: str) -> str:
             return match.group(0)
         kept: list[str] = []
         for selector in selectors.split(","):
-            normalized = selector.strip()
+            normalized = _normalize_business_selector(selector)
             if normalized == ":root":
                 custom_properties = ";".join(
-                    declaration.strip()
-                    for declaration in body.split(";")
-                    if declaration.strip().startswith("--")
+                    declaration
+                    for declaration in _business_declarations(body)
+                    if declaration.startswith("--")
                 )
                 if custom_properties:
                     kept.append(":root")
                     body = custom_properties + ";"
                 continue
             if not _is_server_owned_selector(normalized):
-                kept.append(normalized)
+                kept.append(selector.strip())
         if not kept:
             return ""
         return f"{','.join(kept)}{{{body}}}"
@@ -364,8 +364,21 @@ def sanitize_business_css(css: str) -> str:
     return _CSS_RULE_RE.sub(rewrite, css or "")
 
 
+def _normalize_business_selector(selector: str) -> str:
+    """Remove comments before classifying a business CSS selector."""
+
+    return re.sub(r"/\*[\s\S]*?\*/", "", selector).strip()
+
+
+def _business_declarations(body: str) -> list[str]:
+    """Split declarations after removing comments between custom properties."""
+
+    commentless = re.sub(r"/\*[\s\S]*?\*/", "", body)
+    return [declaration.strip() for declaration in commentless.split(";")]
+
+
 def _is_server_owned_selector(selector: str) -> bool:
-    selector = re.sub(r"/\*[\s\S]*?\*/", "", selector).strip()
+    selector = _normalize_business_selector(selector)
     return bool(selector) and bool(
         selector == ":root"
         or _RANGE_SELECTOR_RE.search(selector)

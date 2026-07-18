@@ -1035,6 +1035,29 @@ def test_server_layout_contract_sanitizes_owned_selector_after_css_comment() -> 
     assert "height:500px" not in business_css.get_text()
 
 
+def test_server_layout_contract_preserves_custom_properties_after_css_comment() -> None:
+    from bs4 import BeautifulSoup
+
+    from aetherviz_service.aetherviz.contracts.layout import assemble_layout_contract
+
+    source = sample_html().replace(
+        "body{margin:0}",
+        "/* Visual tokens */\n"
+        ":root{--paper:#ffffff;--shape-fill:#3b82f6;"
+        "/* shape outline */--shape-stroke:#1d4ed8;color:red}"
+        "body{margin:0}"
+        ".main-shape{fill:var(--shape-fill);stroke:var(--shape-stroke)}",
+    )
+    parsed = BeautifulSoup(assemble_layout_contract(source, sample_plan()), "html.parser")
+    business_css = parsed.select_one('style[data-aetherviz-business-style="true"]')
+
+    assert business_css is not None
+    css = business_css.get_text()
+    assert ":root{--paper:#ffffff;--shape-fill:#3b82f6;--shape-stroke:#1d4ed8;}" in css
+    assert "color:red" not in css
+    assert ".main-shape{fill:var(--shape-fill);stroke:var(--shape-stroke)}" in css
+
+
 def test_server_animation_controller_precedes_business_scripts_and_replays() -> None:
     from bs4 import BeautifulSoup
 
