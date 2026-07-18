@@ -287,7 +287,7 @@ HTML 文件编辑阶段请求示例：
 - `html.repair_source`：仅在完整、未截断的候选稿仍未通过硬校验时发送，携带 `renderable=false` 的完整 HTML 与校验报告，只允许前端作为下一次 `phase=edit_html` 的修复基线，不得预览或保存为成功产物
 - `html.done`：返回完整 HTML；metadata 额外包含最终 `bytes`、`chars`、`model_chars`、`assembled_chars`、`assembly_overhead_chars`、`assembly_count` 和 `truncated`
 - `context.compressed`：仅在传入规划上下文确实超过上限并被裁剪时发送
-- `error`：生成失败，包含用户可读 `message`、错误码 `code` 和调试用 `detail`。
+- `error`：生成失败，包含用户可读 `message`、错误码 `code`、调试用 `detail` 和布尔值 `retryable`。仅 `edit_html` 的已知可恢复错误会标记为可重试，未知错误码默认不可重试。
 
 错误约定：
 

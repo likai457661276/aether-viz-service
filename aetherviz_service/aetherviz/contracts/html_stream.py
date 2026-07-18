@@ -8,6 +8,28 @@ from typing import Any
 HTML_SIZE_EVENT_INTERVAL_BYTES = 512
 HTML_REASONING_EVENT_INTERVAL_MS = 250
 
+# Edit failures that are suitable for a one-click client retry.
+# Unknown codes stay non-retryable so new configuration/request failures do not
+# accidentally trigger another model call.
+RETRYABLE_EDIT_ERROR_CODES = frozenset(
+    {
+        "edit_contract_changed",
+        "edit_failed",
+        "edit_intent_lost_after_repair",
+        "edit_intent_not_satisfied",
+        "edit_timeout",
+        "edit_truncated",
+        "runtime_error",
+        "validation_failed",
+    }
+)
+
+
+def is_retryable_edit_error(code: str) -> bool:
+    """Return whether an edit_html error is suitable for client-side auto-retry."""
+
+    return code in RETRYABLE_EDIT_ERROR_CODES
+
 
 class HtmlGenerationError(Exception):
     """Raised when an HTML producer cannot return usable HTML with a configured LLM."""

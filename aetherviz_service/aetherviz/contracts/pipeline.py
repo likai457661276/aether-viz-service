@@ -11,7 +11,11 @@ from langsmith import traceable
 from langsmith.run_helpers import get_current_run_tree
 
 from aetherviz_service.aetherviz.api.sse import agent_error_event, agent_sse_event
-from aetherviz_service.aetherviz.contracts.html_stream import HtmlGenerationError, HtmlStreamResult
+from aetherviz_service.aetherviz.contracts.html_stream import (
+    HtmlGenerationError,
+    HtmlStreamResult,
+    is_retryable_edit_error,
+)
 from aetherviz_service.aetherviz.contracts.layout import (
     LAYOUT_CONTRACT_VERSION,
     assemble_layout_contract,
@@ -157,6 +161,7 @@ def run_html_pipeline(
             code=exc.code,
             message=exc.message,
             detail=exc.detail,
+            retryable=_is_retryable_pipeline_error(phase, exc.code),
             metadata=_metadata(metadata, started_at, stage="generate"),
         )
         return
@@ -166,6 +171,7 @@ def run_html_pipeline(
             phase=phase,
             code="runtime_error",
             message="HTML 生成未返回结果",
+            retryable=_is_retryable_pipeline_error(phase, "runtime_error"),
         )
         return
     metadata["degraded"] = degraded
@@ -179,6 +185,7 @@ def run_html_pipeline(
                 code="edit_intent_not_satisfied",
                 message="HTML 修改结果未满足本次编辑验收条件，原页面已保留",
                 detail="; ".join(guard_errors[:8]),
+                retryable=_is_retryable_pipeline_error(phase, "edit_intent_not_satisfied"),
                 metadata=_metadata(metadata, started_at, stage="edit_guard"),
             )
             return
@@ -233,6 +240,7 @@ def run_html_pipeline(
                 code="validation_failed",
                 message="HTML 生成结果未通过确定性检查",
                 detail=report["summary"],
+                retryable=_is_retryable_pipeline_error(phase, "validation_failed"),
                 metadata=_metadata(metadata, started_at, stage="validation"),
             )
             return
@@ -261,6 +269,7 @@ def run_html_pipeline(
                 code="edit_intent_lost_after_repair",
                 message="自动修复未能保留本次编辑结果，原页面已保留",
                 detail="; ".join(guard_errors[:8]),
+                retryable=_is_retryable_pipeline_error(phase, "edit_intent_lost_after_repair"),
                 metadata=_metadata(metadata, started_at, stage="edit_guard"),
             )
             return
@@ -704,3 +713,7 @@ def _metadata(metadata: dict[str, Any], started_at: float, *, stage: str) -> dic
         "stage": stage,
         "elapsed_ms": int((time.monotonic() - started_at) * 1000),
     }
+
+
+def _is_retryable_pipeline_error(phase: str, code: str) -> bool:
+    return phase == "edit_html" and is_retryable_edit_error(code)

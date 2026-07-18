@@ -258,6 +258,7 @@ def test_generate_phase_without_model_returns_explicit_error() -> None:
     assert "html.generation_started" in names
     assert names[-1] == "error"
     assert events[-1][1]["data"]["code"] == "model_unavailable"
+    assert events[-1][1]["data"]["retryable"] is False
     assert "html.done" not in names
 
 
@@ -311,6 +312,109 @@ def test_edit_html_without_model_returns_explicit_error() -> None:
     assert names[-1] == "error"
     assert "html.done" not in names
     assert events[-1][1]["data"]["code"] == "model_unavailable"
+    assert events[-1][1]["data"]["retryable"] is False
+
+
+def test_is_retryable_edit_error_only_allows_known_recoverable_failures() -> None:
+    from aetherviz_service.aetherviz.contracts.html_stream import is_retryable_edit_error
+
+    assert is_retryable_edit_error("edit_intent_not_satisfied") is True
+    assert is_retryable_edit_error("edit_timeout") is True
+    assert is_retryable_edit_error("edit_truncated") is True
+    assert is_retryable_edit_error("edit_contract_changed") is True
+    assert is_retryable_edit_error("edit_intent_lost_after_repair") is True
+    assert is_retryable_edit_error("edit_failed") is True
+    assert is_retryable_edit_error("runtime_error") is True
+    assert is_retryable_edit_error("validation_failed") is True
+    assert is_retryable_edit_error("edit_clarification_required") is False
+    assert is_retryable_edit_error("model_unavailable") is False
+    assert is_retryable_edit_error("edit_budget_exceeded") is False
+    assert is_retryable_edit_error("invalid_phase") is False
+    assert is_retryable_edit_error("future_unknown_error") is False
+    assert is_retryable_edit_error("") is False
+
+
+def test_agent_error_event_includes_retryable_flag() -> None:
+    from aetherviz_service.aetherviz.api.sse import agent_error_event
+
+    payload = agent_error_event(
+        run_id="run-retryable",
+        phase="edit_html",
+        code="edit_intent_not_satisfied",
+        message="未通过验收",
+        detail="function_unchanged",
+        retryable=True,
+    )
+    events = parse_sse_events(type("SseResponse", (), {"text": payload})())
+    assert events[0][0] == "error"
+    assert events[0][1]["data"]["retryable"] is True
+    assert events[0][1]["data"]["code"] == "edit_intent_not_satisfied"
+
+
+def test_edit_pipeline_error_events_set_retryable_for_edit_phase() -> None:
+    from aetherviz_service.aetherviz.contracts import pipeline as generate_workflow
+    from aetherviz_service.aetherviz.generate.html_agent import HtmlGenerationError
+
+    def _pipeline_error(phase: str, code: str) -> dict:
+        def failing_stream():
+            raise HtmlGenerationError("编辑失败", code=code, detail="detail")
+            yield  # pragma: no cover
+
+        raw_events = list(
+            generate_workflow.run_html_pipeline(
+                run_id=f"run-{phase}-{code}",
+                phase=phase,
+                start_event="html.edit_started" if phase == "edit_html" else "html.generation_started",
+                topic="动画",
+                plan=sample_plan("动画"),
+                html_stream_factory=failing_stream,
+                emit_start_event=False,
+            )
+        )
+        return next(
+            data for event, data in parse_sse_events(type("SseResponse", (), {"text": "".join(raw_events)})()) if event == "error"
+        )
+
+    for code in ("edit_intent_not_satisfied", "edit_truncated", "edit_contract_changed"):
+        error = _pipeline_error("edit_html", code)
+        assert error["data"]["code"] == code
+        assert error["data"]["retryable"] is True
+
+    generate_error = _pipeline_error("generate", "edit_intent_not_satisfied")
+    assert generate_error["data"]["retryable"] is False
+
+
+def test_edit_clarification_required_is_not_retryable(monkeypatch) -> None:
+    from aetherviz_service.aetherviz.edit import workflow as edit_html_workflow
+    from aetherviz_service.aetherviz.edit.diagnosis import EditDiagnosis
+
+    monkeypatch.setattr(
+        edit_html_workflow,
+        "diagnose_edit",
+        lambda **kwargs: EditDiagnosis(
+            intent="clarification",
+            scope="unclear",
+            strategy="clarification_required",
+            problem="目标不明确",
+            confidence=0.9,
+            clarification_question="请说明要改哪个控件？",
+            ambiguities=("目标控件不明确",),
+            requires_clarification=True,
+        ),
+    )
+
+    raw_events = list(
+        edit_html_workflow._run_edit_html_workflow_impl(
+            run_id="run-clarify",
+            current_html=sample_html(),
+            message="改一下",
+            context={"topic": "动画"},
+        )
+    )
+    events = parse_sse_events(type("SseResponse", (), {"text": "".join(raw_events)})())
+    error = next(data for event, data in events if event == "error")
+    assert error["data"]["code"] == "edit_clarification_required"
+    assert error["data"]["retryable"] is False
 
 
 def test_validation_report_rejects_dangerous_external_resource() -> None:
