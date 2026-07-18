@@ -357,6 +357,7 @@ uv run python evals/run_generate_baseline_eval.py --output evals/reports/generat
 ```
 
 `run_generate_baseline_eval.py` 汇总三类本地基线：路由命中、硬校验通过/失败、确定性 repair 成功率；默认不调用模型。
+`run_ir_routing_eval.py` 同时接受主题样本和完整计划样本，并要求数据集覆盖注册表中的全部 IR 后端；新增 IR 未补路由样本时会直接失败。
 生成链路会静态检查抽象 SVG viewBox、屏幕像素字号、缩放描边和动画渲染生命周期。抽象 SVG 的确定性尺度修复先按初始 CTM 把用户单位换算为屏幕字号和线宽，再在 resize 时反算回用户单位，避免把 `0.2` 字号或 `0.05` 描边误当成亚像素屏幕值。纯 SVG simulation 若自行维护 RAF 且绕过服务端动画控制器会作为硬错误修复；Canvas 高频循环仍允许保留为非阻断 warning。结构创建应位于 `buildScene`，逐帧回调只通过 `deriveView/applyView` 更新既有节点；连续动画涉及有界离散拓扑数量时，应在 `buildScene` 按变量上界预分配节点池，逐帧仅切换可见性和属性。显式参数变更导致节点数量变化时需暂停动画、清空注册表并重建 timeline，渲染循环以实际注册表长度为边界或逐项校验节点存在。
 
 `math-shell-v1` 会移除模型对舞台高度和外层布局的覆盖（包括选择器前带 CSS 注释的情况），并把仅包含按钮的模型控件行归一化为整行 action group。959px 以下舞台高度使用视口相关上限，599px 以下控件改为单列，避免滑块、播放按钮和预设按钮互相挤压。

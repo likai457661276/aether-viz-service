@@ -8,12 +8,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from aetherviz_service.aetherviz.ir.registry import DEFAULT_IR_REGISTRY
 from aetherviz_service.aetherviz.ir.router.service import resolve_generation_route
 from aetherviz_service.aetherviz.workflow.plan_contract import normalize_plan
 from aetherviz_service.config import settings
 from evals.evaluators.ir_routing import route_exact_match, route_is_registered_or_direct
 
-DEFAULT_DATASET = Path(__file__).parent / "datasets" / "ir_routing" / "routing_core.jsonl"
+DEFAULT_DATASET = Path(__file__).parent / "datasets" / "ir_routing"
 
 
 @dataclass(frozen=True)
@@ -23,17 +24,11 @@ class LocalRecord:
 
 def run_route(inputs: dict[str, Any]) -> dict[str, Any]:
     topic = str(inputs.get("topic") or "")
-    return resolve_generation_route(normalize_plan({}, topic)).as_dict()
+    plan_seed = inputs.get("plan") if isinstance(inputs.get("plan"), dict) else {}
+    return resolve_generation_route(normalize_plan(plan_seed, topic)).as_dict()
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--dataset", type=Path, default=DEFAULT_DATASET)
-    parser.add_argument("--output", type=Path)
-    parser.add_argument("--enable-llm", action="store_true")
-    args = parser.parse_args()
-    settings.aetherviz_ir_router_enabled = bool(args.enable_llm)
-    rows = [json.loads(line) for line in args.dataset.read_text(encoding="utf-8").splitlines() if line.strip()]
+def evaluate_rows(rows: list[dict[str, Any]]) -> dict[str, Any]:
     results: list[dict[str, Any]] = []
     for row in rows:
         output = run_route(row["inputs"])
@@ -54,19 +49,52 @@ def main() -> int:
                 "tags": row.get("tags", []),
             }
         )
+    registered = {backend.key for backend in DEFAULT_IR_REGISTRY.backends()}
+    covered = {str(item["expected"]) for item in results if item["expected"] is not None}
+    missing = sorted(registered - covered)
     passed = sum(int(item["exact_match"]) for item in results)
-    report = {
-        "dataset": str(args.dataset),
+    return {
         "total": len(results),
         "passed": passed,
         "accuracy": round(passed / len(results), 4) if results else 0,
-        "llm_enabled": bool(args.enable_llm),
+        "backend_coverage": {
+            "registered": sorted(registered),
+            "covered": sorted(registered & covered),
+            "missing": missing,
+            "ok": not missing,
+        },
+        "ok": passed == len(results) and not missing,
         "results": results,
+    }
+
+
+def load_rows(path: Path) -> list[dict[str, Any]]:
+    files = sorted(path.glob("*.jsonl")) if path.is_dir() else [path]
+    return [
+        json.loads(line)
+        for file in files
+        for line in file.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--dataset", type=Path, default=DEFAULT_DATASET)
+    parser.add_argument("--output", type=Path)
+    parser.add_argument("--enable-llm", action="store_true")
+    args = parser.parse_args()
+    settings.aetherviz_ir_router_enabled = bool(args.enable_llm)
+    rows = load_rows(args.dataset)
+    report = {
+        "dataset": str(args.dataset),
+        "llm_enabled": bool(args.enable_llm),
+        **evaluate_rows(rows),
     }
     print(json.dumps(report, ensure_ascii=False, indent=2))
     if args.output:
         args.output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    return 0 if passed == len(results) else 1
+    return 0 if report["ok"] else 1
 
 
 if __name__ == "__main__":

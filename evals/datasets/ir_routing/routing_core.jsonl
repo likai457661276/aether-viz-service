@@ -7,11 +7,12 @@
 {"inputs":{"topic":"把平行四边形切割并重新拼成长方形证明面积公式"},"outputs":{"selected_backend":"recomposition_scene"},"tags":["recomposition","assembly"]}
 {"inputs":{"topic":"将圆柱切割重排并拼合推导体积公式"},"outputs":{"selected_backend":"recomposition_scene"},"tags":["recomposition","volume"]}
 {"inputs":{"topic":"三角形割补重排推导面积公式"},"outputs":{"selected_backend":"recomposition_scene"},"tags":["recomposition","proof"]}
-{"inputs":{"topic":"一次函数图像"},"outputs":{"selected_backend":null},"tags":["direct","single_view"]}
-{"inputs":{"topic":"圆的标准方程与图像"},"outputs":{"selected_backend":null},"tags":["direct","known_false_positive"]}
+{"inputs":{"topic":"一次函数图像"},"outputs":{"selected_backend":"coordinate_graph_scene"},"tags":["coordinate_graph","single_view"]}
+{"inputs":{"topic":"圆的标准方程与图像"},"outputs":{"selected_backend":"coordinate_graph_scene"},"tags":["coordinate_graph","implicit_curve"]}
 {"inputs":{"topic":"观察抛物线顶点随参数变化"},"outputs":{"selected_backend":null},"tags":["direct","single_graph"]}
-{"inputs":{"topic":"函数图像上一点的切线斜率变化"},"outputs":{"selected_backend":null},"tags":["direct","calculus"]}
-{"inputs":{"topic":"绘制正弦函数图像并调节振幅"},"outputs":{"selected_backend":null},"tags":["direct","single_graph"]}
+{"inputs":{"topic":"函数图像上一点的切线斜率变化"},"outputs":{"selected_backend":"coordinate_graph_scene"},"tags":["coordinate_graph","calculus"]}
+{"inputs":{"topic":"绘制正弦函数图像并调节振幅"},"outputs":{"selected_backend":"coordinate_graph_scene"},"tags":["coordinate_graph","single_graph"]}
+{"inputs":{"topic":"正多边形边数增加时周长逼近圆周长","plan":{"interactive_type":"simulation","interactive_spec":{"type":"simulation","concept":"离散正多边形逼近圆","description":"调节边数并观察周长误差","variables":[{"name":"sides","label":"边数","min":3,"max":100,"step":1,"default":6,"unit":"边"}],"presets":[],"observations":["边数增加时误差收敛"]},"knowledge_profile":{"subject":"math","concept_family":"geometry","representation_type":"geometric_construction","pedagogy_pattern":"parameter_exploration"},"representation_spec":{"views":[{"id":"geometry","kind":"geometric_scene","role":"圆与正多边形"},{"id":"measure","kind":"data_chart","role":"误差变化"}],"state_variables":[{"id":"sides","semantic_type":"discrete"}],"correspondences":[{"type":"derived_value","source_view":"geometry","target_view":"measure","parameter":"sides"}],"required_invariants":["length_preserved"],"interaction_requirements":["scrub","play","pause","reset"]}}},"outputs":{"selected_backend":"parametric_geometry_scene"},"tags":["parametric_geometry","discrete","convergence"]}
 {"inputs":{"topic":"观察物体做圆周运动的轨迹"},"outputs":{"selected_backend":null},"tags":["direct","single_motion"]}
 {"inputs":{"topic":"抛体运动轨迹和速度变化"},"outputs":{"selected_backend":null},"tags":["direct","physics"]}
 {"inputs":{"topic":"用概率树展示随机事件分类"},"outputs":{"selected_backend":null},"tags":["direct","non_ir"]}

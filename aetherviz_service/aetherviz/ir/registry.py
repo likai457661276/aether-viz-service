@@ -106,10 +106,11 @@ def _build_default_registry() -> IRBackendRegistry:
     # without making the workflow import every compiler implementation.
     from aetherviz_service.aetherviz.ir.coordinate_graph.backend import BACKEND as coordinate_graph
     from aetherviz_service.aetherviz.ir.linked_coordinate.backend import BACKEND as linked_coordinate
+    from aetherviz_service.aetherviz.ir.number_line.backend import BACKEND as number_line
     from aetherviz_service.aetherviz.ir.parametric_geometry.backend import BACKEND as parametric_geometry
     from aetherviz_service.aetherviz.ir.recomposition.backend import BACKEND as recomposition
 
-    return IRBackendRegistry((recomposition, linked_coordinate, coordinate_graph, parametric_geometry))
+    return IRBackendRegistry((recomposition, linked_coordinate, coordinate_graph, parametric_geometry, number_line))
 
 
 DEFAULT_IR_REGISTRY = _build_default_registry()

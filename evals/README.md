@@ -9,6 +9,7 @@ evals/
 ├── datasets/                 # 可提交的评测样本、失败 mutation 与阈值
 │   ├── generate_baseline/    # 生成流水线路由 / 硬校验 / 确定性 repair 基线
 │   ├── edit_html/            # 编辑诊断与端到端确定性样本
+│   ├── ir_candidates/        # 尚无专用后端的 IR 设计缺口样本
 │   ├── ir_routing/           # IR 路由回归
 │   └── recomposition/        # 几何重排回归
 ├── evaluators/               # 单指标确定性和视觉 evaluator
@@ -85,6 +86,21 @@ uv run python evals/run_generate_baseline_eval.py
 ```
 
 `datasets/generate_baseline/pipeline_core.jsonl` 覆盖 IR/direct 路由样本、硬校验通过/失败夹具，以及可确定性修复的 HTML；默认不调用模型或远程 LangSmith。
+
+运行全部已注册 IR 的路由回归：
+
+```bash
+uv run python evals/run_ir_routing_eval.py
+```
+
+`datasets/ir_routing/routing_core.jsonl` 同时支持主题输入和完整计划输入，并强制覆盖注册表中的每个 IR 后端；新增 IR 但未添加正向路由样本时回归会失败。
+
+`datasets/ir_candidates/` 为 `number_line_scene`、`geometric_constraint_scene` 和
+`distribution_chart_scene` 各保留 5 条 LangSmith 兼容的单步失败样本。它们记录目标能力、
+候选后端和当前应降级为 direct 的可观察缺口，不属于已注册 IR 的通过率门禁。首批样本来源
+标记为 `design_gap_seed`；只有经过脱敏并获准写入仓库的真实 Trace 才能标记为
+`trace_failure`。实现某个候选 IR 时，应把对应样本迁移为该后端的正向路由与运行时回归，
+而不是继续断言 direct 降级。
 
 `datasets/edit_html/diagnosis.jsonl` 验证诊断策略、影响域、hard change claim 覆盖和
 claim 可绑定性；`datasets/edit_html/end_to_end.jsonl` 验证用户意图、preserve 约束、

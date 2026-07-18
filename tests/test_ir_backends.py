@@ -243,6 +243,8 @@ def test_default_ir_registry_routes_all_independent_ir_families() -> None:
     assert coordinate and coordinate.key == "coordinate_graph_scene"
     parametric = DEFAULT_IR_REGISTRY.resolve({"knowledge_profile": {"representation_type": "geometric_construction"}})
     assert parametric and parametric.key == "parametric_geometry_scene"
+    number_line = DEFAULT_IR_REGISTRY.resolve({"knowledge_profile": {"representation_type": "number_line"}})
+    assert number_line and number_line.key == "number_line_scene"
 
 
 def _parametric_plan() -> dict:

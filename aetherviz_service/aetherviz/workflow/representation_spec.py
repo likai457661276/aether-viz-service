@@ -331,6 +331,12 @@ def _infer_structure(
             ],
             "required_invariants": ["piece_identity_preserved", "piece_count_constant", "piece_congruence"],
         }
+    if representation == "number_line":
+        return {
+            "views": [{"id": "number-line-view", "kind": "number_line", "role": "数、区间与一维关系"}],
+            "correspondences": [],
+            "required_invariants": ["equal_value"] if parameter else [],
+        }
     kind = "coordinate_plane" if any(cue in text for cue in _GRAPH_CONCEPTS) else "object_scene"
     return {
         "views": [{"id": "primary-view", "kind": kind, "role": "主要教学表征"}],
