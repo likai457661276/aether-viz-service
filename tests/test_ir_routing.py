@@ -36,6 +36,12 @@ def test_router_uses_llm_only_for_prior_conflict_and_accepts_registered_candidat
     assert route.source == "llm_judge"
     assert route.llm_invoked is True
     assert route.llm_accepted is True
+    assert route.llm_selected_backend == "linked_coordinate_scene"
+    assert route.llm_confidence == 0.92
+    assert route.llm_required_capabilities == ("multi_view", "shared_parameter")
+    payload = route.as_dict()
+    assert payload["llm_selected_backend"] == "linked_coordinate_scene"
+    assert payload["llm_required_capabilities"] == ["multi_view", "shared_parameter"]
 
 
 def test_router_rejects_unknown_llm_backend_and_falls_back(monkeypatch) -> None:
@@ -60,6 +66,37 @@ def test_router_rejects_unknown_llm_backend_and_falls_back(monkeypatch) -> None:
     assert route.source == "deterministic"
     assert route.llm_accepted is False
     assert route.fallback == "llm_selection_rejected"
+    assert route.llm_selected_backend == "unknown_backend"
+    assert route.llm_confidence == 0.99
+
+
+def test_router_shadow_mode_records_llm_disagreement_without_changing_selection(monkeypatch) -> None:
+    plan = normalize_plan({}, "旋转向量在纵轴的投影与正弦曲线联动")
+    monkeypatch.setattr(settings, "aetherviz_ir_router_enabled", True)
+    monkeypatch.setattr(settings, "aetherviz_ir_router_shadow_mode", True)
+    monkeypatch.setattr(service, "has_primary_llm_config", lambda: True)
+    monkeypatch.setattr(
+        service,
+        "judge_ir_route",
+        lambda *_args: {
+            "selected_backend": None,
+            "confidence": 0.91,
+            "required_capabilities": ["multi_view", "shared_parameter"],
+            "evidence": ["shadow 建议降级为 direct"],
+        },
+    )
+
+    route = service.resolve_generation_route(plan)
+
+    assert route.selected_backend == "linked_coordinate_scene"
+    assert route.source == "deterministic"
+    assert route.llm_invoked is True
+    assert route.llm_accepted is True
+    assert route.fallback == "shadow_mode"
+    assert route.llm_selected_backend is None
+    assert route.llm_confidence == 0.91
+    assert route.llm_required_capabilities == ("multi_view", "shared_parameter")
+    assert route.as_dict()["llm_selected_backend"] is None
 
 
 def test_normalized_plan_contains_generic_representation_spec() -> None:

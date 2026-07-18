@@ -1538,4 +1538,8 @@ def test_generate_workflow_routes_recomposition_to_scene_backend(monkeypatch: py
     done = next(event for event in events if event.startswith("event: html.done"))
     payload = json.loads(next(line[6:] for line in done.splitlines() if line.startswith("data: ")))
     assert payload["data"]["metadata"]["generation_backend"] == "recomposition_scene"
+    assert payload["data"]["metadata"]["generation_route_source"] == "deterministic"
+    assert payload["data"]["metadata"]["generation_route_llm_invoked"] is False
+    assert payload["data"]["metadata"]["generation_route_llm_selected_backend"] is None
+    assert payload["data"]["metadata"]["generation_route_llm_required_capabilities"] == []
     assert payload["data"]["metadata"]["truncated"] is False

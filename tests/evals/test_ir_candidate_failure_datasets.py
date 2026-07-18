@@ -15,6 +15,11 @@ EXPECTED_FAMILIES = {
     "geometric_constraint_scene",
     "distribution_chart_scene",
 }
+RESOLVED_CASES = {
+    "geometry-perpendicular-bisector": "constraint_geometry_scene",
+    "geometry-centroid-concurrency": "constraint_geometry_scene",
+    "distribution-histogram-binning": "data_distribution_scene",
+}
 
 
 def _rows() -> list[dict]:
@@ -39,11 +44,16 @@ def test_candidate_failure_datasets_are_complete_and_langsmith_compatible() -> N
 
 
 @pytest.mark.parametrize("row", _rows(), ids=lambda row: row["metadata"]["case_id"])
-def test_candidate_failure_is_an_observable_current_routing_gap(row: dict) -> None:
+def test_candidate_seed_is_either_resolved_or_an_observable_routing_gap(row: dict) -> None:
     registered = {backend.key for backend in DEFAULT_IR_REGISTRY.backends()}
     target = row["outputs"]["target_backend"]
     actual = run_route(row["inputs"])["selected_backend"]
+    resolved_backend = RESOLVED_CASES.get(row["metadata"]["case_id"])
 
     assert target not in registered
     assert row["outputs"]["current_expected_backend"] is None
-    assert actual is row["outputs"]["current_expected_backend"]
+    if resolved_backend:
+        assert resolved_backend in registered
+        assert actual == resolved_backend
+    else:
+        assert actual is row["outputs"]["current_expected_backend"]

@@ -90,5 +90,8 @@ def _run_generate_workflow_impl(
             "generation_route_plan_fingerprint": route.plan_fingerprint,
             "generation_route_reasons": list(route.reasons),
             "generation_route_candidates": [candidate.as_dict() for candidate in route.candidates],
+            "generation_route_llm_selected_backend": route.llm_selected_backend,
+            "generation_route_llm_confidence": route.llm_confidence,
+            "generation_route_llm_required_capabilities": list(route.llm_required_capabilities),
         },
     )

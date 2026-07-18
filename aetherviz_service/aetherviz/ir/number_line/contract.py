@@ -6,9 +6,10 @@ import json
 import math
 from copy import deepcopy
 from hashlib import sha256
+from itertools import product
 from typing import Any
 
-NUMBER_LINE_IR_VERSION = "aetherviz.number-line-ir.v1"
+NUMBER_LINE_IR_VERSION = "aetherviz.number-line-ir.v1.1"
 NUMBER_LINE_IR_MAX_CHARS = 12_000
 EXPRESSION_OPERATORS = {"add", "sub", "mul", "div", "min", "max", "neg", "abs"}
 ENDPOINT_STYLES = {"open", "closed"}
@@ -16,9 +17,9 @@ RAY_DIRECTIONS = {"left", "right"}
 INVARIANT_TYPES = {
     "ordered_interval",
     "point_on_number_line",
+    "ray_boundary_consistent",
     "distance_equals_absolute_difference",
     "movement_equals_sum",
-    "set_operation_consistent",
 }
 
 
@@ -74,6 +75,7 @@ def number_line_ir_response_schema() -> dict[str, Any]:
             "rays",
             "distances",
             "movements",
+            "derived_sets",
             "invariants",
         ],
         "properties": {
@@ -195,6 +197,25 @@ def number_line_ir_response_schema() -> dict[str, Any]:
                     },
                 },
             },
+            "derived_sets": {
+                "type": "array",
+                "maxItems": 8,
+                "items": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": [*visual_common, "operation", "inputs"],
+                    "properties": {
+                        **visual_common,
+                        "operation": {"type": "string", "enum": ["union", "intersection"]},
+                        "inputs": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "minItems": 2,
+                            "maxItems": 2,
+                        },
+                    },
+                },
+            },
             "invariants": {
                 "type": "array",
                 "minItems": 1,
@@ -250,7 +271,7 @@ def normalize_number_line_ir(ir: object, plan: dict[str, Any]) -> object:
         animation.setdefault("duration", 6)
         if len(ranges) == 1:
             animation.setdefault("keyframes", [])
-        elif not isinstance(animation.get("keyframes"), list):
+        elif not isinstance(animation.get("keyframes"), list) or len(animation["keyframes"]) < 2:
             animation["keyframes"] = [
                 {"progress": 0, "state": {name: values[0] for name, values in ranges.items()}},
                 {"progress": 1, "state": {name: values[2] for name, values in ranges.items()}},
@@ -258,6 +279,32 @@ def normalize_number_line_ir(ir: object, plan: dict[str, Any]) -> object:
         _ = default
     normalized["animation"] = animation
     return normalized
+
+
+def repair_number_line_ir(ir: object, plan: dict[str, Any]) -> object:
+    """Apply bounded, semantics-preserving repairs to a model-produced number-line IR."""
+    normalized = normalize_number_line_ir(ir, plan)
+    if not isinstance(normalized, dict):
+        return normalized
+    repaired = deepcopy(normalized)
+    ranges = _state_ranges(plan)
+    intervals = repaired.get("intervals")
+    if not isinstance(intervals, list):
+        return repaired
+
+    for interval in intervals:
+        if not isinstance(interval, dict) or "start" not in interval or "end" not in interval:
+            continue
+        if _interval_crosses(interval, ranges):
+            start, end = deepcopy(interval["start"]), deepcopy(interval["end"])
+            interval["start"] = {"op": "min", "args": [start, end]}
+            interval["end"] = {"op": "max", "args": [start, end]}
+
+    invariants = repaired.get("invariants")
+    if isinstance(invariants, list):
+        repaired["invariants"] = _repair_invariants(repaired)
+    _expand_domain_to_scene(repaired, ranges)
+    return repaired
 
 
 def validate_number_line_ir(ir: object, plan: dict[str, Any]) -> dict[str, Any]:
@@ -304,6 +351,7 @@ def validate_number_line_ir(ir: object, plan: dict[str, Any]) -> dict[str, Any]:
         "distances": _objects(normalized.get("distances"), 0, 8, "distances", errors),
         "movements": _objects(normalized.get("movements"), 0, 8, "movements", errors),
     }
+    derived_sets = _objects(normalized.get("derived_sets"), 0, 8, "derived_sets", errors)
     object_ids: set[str] = set()
     expression_fields = {
         "points": ("value",),
@@ -312,6 +360,7 @@ def validate_number_line_ir(ir: object, plan: dict[str, Any]) -> dict[str, Any]:
         "distances": ("start", "end"),
         "movements": ("start", "delta"),
     }
+    coordinate_fields = {**expression_fields, "movements": ("start",)}
     for collection_name, items in collections.items():
         identifiers = _unique_ids(items, collection_name[:-1], errors)
         duplicate_cross_type = object_ids & identifiers
@@ -325,11 +374,44 @@ def validate_number_line_ir(ir: object, plan: dict[str, Any]) -> dict[str, Any]:
                 errors.append(_issue("invalid_number_line_color", "数轴对象颜色必须是六位十六进制", id=item.get("id")))
             for field in expression_fields[collection_name]:
                 _validate_expr(item.get(field), ranges, errors, f"{collection_name}.{item.get('id')}.{field}")
+            if collection_name == "points" and item.get("endpoint") not in ENDPOINT_STYLES:
+                errors.append(_issue("invalid_number_line_endpoint", "点端点类型必须是 open 或 closed"))
+            if collection_name == "intervals" and (
+                item.get("left_endpoint") not in ENDPOINT_STYLES
+                or item.get("right_endpoint") not in ENDPOINT_STYLES
+            ):
+                errors.append(_issue("invalid_number_line_endpoint", "区间端点类型必须是 open 或 closed"))
+            if collection_name == "rays" and (
+                item.get("endpoint") not in ENDPOINT_STYLES or item.get("direction") not in RAY_DIRECTIONS
+            ):
+                errors.append(_issue("invalid_number_line_ray", "射线必须声明方向和开闭端点"))
     if not object_ids:
         errors.append(_issue("empty_number_line_scene", "数轴 IR 至少需要一个可视对象"))
 
+    interval_ids = {str(item.get("id")) for item in collections["intervals"]}
+    derived_ids = _unique_ids(derived_sets, "derived_set", errors)
+    if object_ids & derived_ids:
+        errors.append(_issue("duplicate_number_line_object", "数轴对象 id 必须全局唯一"))
+    for item in derived_sets:
+        if item.get("track") not in track_ids:
+            errors.append(_issue("unknown_number_line_track", "派生集合引用了不存在的轨道", id=item.get("id")))
+        if item.get("color") and not _valid_color(item.get("color")):
+            errors.append(_issue("invalid_number_line_color", "派生集合颜色必须是六位十六进制", id=item.get("id")))
+        inputs = item.get("inputs") if isinstance(item.get("inputs"), list) else []
+        if item.get("operation") not in {"union", "intersection"} or len(inputs) != 2:
+            errors.append(_issue("invalid_number_line_derived_set", "派生集合必须声明两个输入区间和集合运算"))
+        elif inputs[0] == inputs[1] or any(ref not in interval_ids for ref in inputs):
+            errors.append(_issue("invalid_number_line_derived_set_ref", "派生集合必须引用两个不同的输入区间"))
+
     invariants = _objects(normalized.get("invariants"), 1, 12, "invariants", errors)
     _unique_ids(invariants, "invariant", errors)
+    invariant_targets = {
+        "ordered_interval": {str(item.get("id")) for item in collections["intervals"]},
+        "point_on_number_line": {str(item.get("id")) for item in collections["points"]},
+        "ray_boundary_consistent": {str(item.get("id")) for item in collections["rays"]},
+        "distance_equals_absolute_difference": {str(item.get("id")) for item in collections["distances"]},
+        "movement_equals_sum": {str(item.get("id")) for item in collections["movements"]},
+    }
     for invariant in invariants:
         kind = invariant.get("type")
         refs = invariant.get("refs") if isinstance(invariant.get("refs"), list) else []
@@ -337,6 +419,8 @@ def validate_number_line_ir(ir: object, plan: dict[str, Any]) -> dict[str, Any]:
             errors.append(_issue("invalid_number_line_invariant", "数轴不变量类型不受支持"))
         if not refs or any(ref not in object_ids for ref in refs):
             errors.append(_issue("invalid_number_line_invariant_ref", "数轴不变量必须引用已声明对象"))
+        elif kind in invariant_targets and any(ref not in invariant_targets[kind] for ref in refs):
+            errors.append(_issue("invalid_number_line_invariant_target", "数轴不变量引用了错误的对象类型"))
 
     if not errors:
         for state_name, state in _sample_states(ranges):
@@ -348,7 +432,7 @@ def validate_number_line_ir(ir: object, plan: dict[str, Any]) -> dict[str, Any]:
                         raise ValueError(f"interval_not_ordered:{item['id']}")
                 for collection_name, items in collections.items():
                     for item in items:
-                        for field in expression_fields[collection_name]:
+                        for field in coordinate_fields[collection_name]:
                             value = _eval(item[field], state)
                             if not math.isfinite(value) or not domain_bounds[0] <= value <= domain_bounds[1]:
                                 raise ValueError(f"object_outside_domain:{item['id']}")
@@ -360,6 +444,80 @@ def validate_number_line_ir(ir: object, plan: dict[str, Any]) -> dict[str, Any]:
                 errors.append(_issue("number_line_ir_semantics", f"{state_name} 状态不满足数轴语义：{exc}"))
                 break
     return _report(errors, warnings)
+
+
+def _interval_crosses(interval: dict[str, Any], ranges: dict[str, tuple[float, float, float]]) -> bool:
+    try:
+        return any(
+            _eval(interval["start"], state) > _eval(interval["end"], state)
+            for _name, state in _sample_states(ranges)
+        )
+    except (KeyError, ValueError, ArithmeticError):
+        return False
+
+
+def _repair_invariants(ir: dict[str, Any]) -> list[dict[str, Any]]:
+    collections = {
+        "ordered_interval": ir.get("intervals", []),
+        "point_on_number_line": ir.get("points", []),
+        "ray_boundary_consistent": ir.get("rays", []),
+        "distance_equals_absolute_difference": ir.get("distances", []),
+        "movement_equals_sum": ir.get("movements", []),
+    }
+    repaired: list[dict[str, Any]] = []
+    for raw in ir.get("invariants", []):
+        if not isinstance(raw, dict) or raw.get("type") not in INVARIANT_TYPES:
+            continue
+        invariant = deepcopy(raw)
+        kind = str(invariant["type"])
+        refs = invariant.get("refs") if isinstance(invariant.get("refs"), list) else []
+        targets = [str(item.get("id")) for item in collections[kind] if isinstance(item, dict) and item.get("id")]
+        valid_refs = [ref for ref in refs if ref in targets]
+        if not valid_refs and targets:
+            valid_refs = targets
+        if valid_refs:
+            invariant["refs"] = valid_refs
+            repaired.append(invariant)
+    if repaired:
+        return repaired
+    for kind, items in collections.items():
+        targets = [str(item.get("id")) for item in items if isinstance(item, dict) and item.get("id")]
+        if targets:
+            return [{"id": "repaired-invariant", "type": kind, "refs": targets}]
+    return []
+
+
+def _expand_domain_to_scene(ir: dict[str, Any], ranges: dict[str, tuple[float, float, float]]) -> None:
+    domain = ir.get("domain")
+    if not isinstance(domain, list) or len(domain) != 2 or any(_number(value) is None for value in domain):
+        lower, upper = math.inf, -math.inf
+    else:
+        lower, upper = float(domain[0]), float(domain[1])
+    coordinate_fields = {
+        "points": ("value",),
+        "intervals": ("start", "end"),
+        "rays": ("boundary",),
+        "distances": ("start", "end"),
+    }
+    try:
+        for _name, state in _sample_states(ranges):
+            values: list[float] = []
+            for collection, fields in coordinate_fields.items():
+                for item in ir.get(collection, []):
+                    values.extend(_eval(item[field], state) for field in fields)
+            for item in ir.get("movements", []):
+                start = _eval(item["start"], state)
+                values.extend((start, start + _eval(item["delta"], state)))
+            if values:
+                lower = min(lower, *values)
+                upper = max(upper, *values)
+    except (TypeError, KeyError, ValueError, ArithmeticError):
+        return
+    if math.isfinite(lower) and math.isfinite(upper):
+        if lower == upper:
+            lower -= 1
+            upper += 1
+        ir["domain"] = [math.floor(lower), math.ceil(upper)]
 
 
 def rank_number_line_ir_candidates(candidates: list[object], plan: dict[str, Any]) -> dict[str, Any]:
@@ -517,6 +675,13 @@ def _sample_states(ranges: dict[str, tuple[float, float, float]]) -> list[tuple[
     for name, (minimum, _default, maximum) in ranges.items():
         result.append((f"{name}:minimum", {**defaults, name: minimum}))
         result.append((f"{name}:maximum", {**defaults, name: maximum}))
+    names = list(ranges)
+    if 1 < len(names) <= 5:
+        for values in product(*(ranges[name] for name in names)):
+            state = dict(zip(names, values, strict=True))
+            if state != defaults:
+                label = "combination:" + ",".join(f"{name}={state[name]:g}" for name in names)
+                result.append((label, state))
     return result
 
 

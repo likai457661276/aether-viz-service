@@ -58,8 +58,9 @@ def resolve_generation_route(
 
     try:
         judged = judge_ir_route(plan, candidates, registry.backends())
-        selected = judged.get("selected_backend")
+        selected = _llm_selected(judged.get("selected_backend"))
         confidence = _confidence(judged.get("confidence"))
+        llm_capabilities = _capabilities(judged.get("required_capabilities"))
         selected_assessment = next((item for item in eligible if item.backend_key == selected), None)
         accepted = (
             (selected is None or selected_assessment is not None)
@@ -77,6 +78,9 @@ def resolve_generation_route(
                 started,
                 llm_invoked=True,
                 llm_accepted=True,
+                llm_selected_backend=selected,
+                llm_confidence=confidence,
+                llm_required_capabilities=llm_capabilities,
             )
         fallback = "shadow_mode" if accepted else "llm_selection_rejected"
         return _decision(
@@ -90,6 +94,9 @@ def resolve_generation_route(
             llm_invoked=True,
             llm_accepted=accepted,
             fallback=fallback,
+            llm_selected_backend=selected,
+            llm_confidence=confidence,
+            llm_required_capabilities=llm_capabilities,
         )
     except Exception as exc:
         logger.warning("IR route judge failed; using deterministic candidate: %s", exc)
@@ -112,7 +119,15 @@ def _prior_backend(plan: dict[str, Any], registry: IRBackendRegistry) -> str | N
     if not representation:
         return None
     backend = registry.resolve(plan)
-    return backend.key if backend else "direct"
+    if backend is None:
+        return "direct"
+    assessment = backend.assess(plan) if backend.assess is not None else None
+    if assessment is not None and not assessment.eligible and representation == "geometric_construction":
+        # This legacy prior covers both continuous Euclidean construction and
+        # discrete regular-polygon convergence. Let plan capabilities decide
+        # between those geometry backends without forcing an LLM arbitration.
+        return None
+    return backend.key
 
 
 def _confidence(value: object) -> float:
@@ -120,6 +135,25 @@ def _confidence(value: object) -> float:
         return max(0.0, min(1.0, float(value)))
     except (TypeError, ValueError):
         return 0.0
+
+
+def _llm_selected(value: object) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value
+    return None
+
+
+def _capabilities(value: object) -> tuple[str, ...]:
+    if not isinstance(value, list):
+        return ()
+    result: list[str] = []
+    for item in value[:12]:
+        text = str(item or "").strip()
+        if text and text not in result:
+            result.append(text[:64])
+    return tuple(result)
 
 
 def _decision(
@@ -134,6 +168,9 @@ def _decision(
     llm_invoked: bool = False,
     llm_accepted: bool = False,
     fallback: str | None = None,
+    llm_selected_backend: str | None = None,
+    llm_confidence: float | None = None,
+    llm_required_capabilities: tuple[str, ...] = (),
 ) -> IRRouteDecision:
     return IRRouteDecision(
         selected_backend=selected,
@@ -146,4 +183,7 @@ def _decision(
         llm_accepted=llm_accepted,
         fallback=fallback,
         elapsed_ms=int((time.monotonic() - started) * 1000),
+        llm_selected_backend=llm_selected_backend,
+        llm_confidence=None if llm_confidence is None else round(llm_confidence, 3),
+        llm_required_capabilities=llm_required_capabilities,
     )

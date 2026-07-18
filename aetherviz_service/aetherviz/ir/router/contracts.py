@@ -40,6 +40,11 @@ class IRRouteDecision:
     llm_accepted: bool = False
     fallback: str | None = None
     elapsed_ms: int = 0
+    # Structured LLM judge output retained even in shadow/reject paths so
+    # deterministic top vs Flash suggestion can be compared offline.
+    llm_selected_backend: str | None = None
+    llm_confidence: float | None = None
+    llm_required_capabilities: tuple[str, ...] = ()
 
     def as_dict(self) -> dict:
         return {
@@ -54,4 +59,7 @@ class IRRouteDecision:
             "llm_accepted": self.llm_accepted,
             "fallback": self.fallback,
             "elapsed_ms": self.elapsed_ms,
+            "llm_selected_backend": self.llm_selected_backend,
+            "llm_confidence": self.llm_confidence,
+            "llm_required_capabilities": list(self.llm_required_capabilities),
         }

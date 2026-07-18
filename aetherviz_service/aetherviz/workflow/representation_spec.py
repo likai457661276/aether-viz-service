@@ -41,8 +41,17 @@ INVARIANT_TYPES = {
     "length_preserved",
     "angle_preserved",
     "piece_congruence",
+    "collinear",
+    "parallel",
+    "perpendicular",
+    "equal_length",
+    "midpoint",
+    "point_on_circle",
+    "tangent",
+    "equal_angle",
+    "supplementary",
 }
-INTERACTION_REQUIREMENTS = {"scrub", "play", "pause", "reset", "preset", "drag", "reveal"}
+INTERACTION_REQUIREMENTS = {"scrub", "play", "pause", "reset", "preset", "drag", "reveal", "trace"}
 
 _LINK_RELATIONS = ("联动", "对应", "同步", "映射", "投影", "共享参数", "同一参数")
 _GRAPH_CONCEPTS = ("函数", "图像", "坐标", "曲线", "波形", "正弦", "余弦")

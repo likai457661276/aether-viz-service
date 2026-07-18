@@ -11,6 +11,7 @@ evals/
 │   ├── edit_html/            # 编辑诊断与端到端确定性样本
 │   ├── ir_candidates/        # 尚无专用后端的 IR 设计缺口样本
 │   ├── ir_routing/           # IR 路由回归
+│   ├── number_line_ir/       # 数轴 IR repair 与动态集合 Runtime 回归
 │   └── recomposition/        # 几何重排回归
 ├── evaluators/               # 单指标确定性和视觉 evaluator
 ├── targets/                  # 被测生成链路与浏览器执行封装
@@ -93,9 +94,19 @@ uv run python evals/run_generate_baseline_eval.py
 uv run python evals/run_ir_routing_eval.py
 ```
 
-`datasets/ir_routing/routing_core.jsonl` 同时支持主题输入和完整计划输入，并强制覆盖注册表中的每个 IR 后端；新增 IR 但未添加正向路由样本时回归会失败。
+`datasets/ir_routing/` 下的 JSONL 同时支持主题输入和完整计划输入，并强制覆盖注册表中的每个 IR 后端；新增 IR 但未添加正向路由样本时回归会失败。`number_line.jsonl` 由候选设计缺口集晋级，覆盖区间端点、不等式射线、绝对距离、有向位移和集合区间五类正向路由。
 
-`datasets/ir_candidates/` 为 `number_line_scene`、`geometric_constraint_scene` 和
+运行数轴 IR 确定性 repair 与动态集合 Runtime 回归：
+
+```bash
+uv run python evals/run_number_line_ir_eval.py
+```
+
+`datasets/number_line_ir/regression.jsonl` 保存脱敏后的真实模型 repair 失败和设计缺口样本。
+当前覆盖动态端点交叉、intersection 非空到空集、union 单段到双段，以及开闭端点相遇。
+集合拓扑通过本地浏览器执行 `derived_sets` Runtime 验证；默认不调用模型或远程 LangSmith。
+
+`datasets/ir_candidates/` 为尚未实现的 `geometric_constraint_scene` 和
 `distribution_chart_scene` 各保留 5 条 LangSmith 兼容的单步失败样本。它们记录目标能力、
 候选后端和当前应降级为 direct 的可观察缺口，不属于已注册 IR 的通过率门禁。首批样本来源
 标记为 `design_gap_seed`；只有经过脱敏并获准写入仓库的真实 Trace 才能标记为
@@ -123,6 +134,34 @@ uv run python evals/run_edit_html_eval.py \
 uv run python evals/datasets/build_visual.py /tmp/trace.json \
   --output /tmp/aetherviz-visual-dataset.json
 ```
+
+### Router Feedback 回收（人工闸门）
+
+生产链路默认开启 IR 路由 shadow mode：确定性 `assess` 仍决定线上选型，Flash/LLM 仲裁结果以
+`generation_route_llm_selected_backend` / `generation_route_llm_confidence` /
+`generation_route_llm_required_capabilities` 结构化留痕。
+离线回收只处理本地脱敏 Trace，禁止创建或上传远程 LangSmith Dataset。
+
+```text
+脱敏本地 Trace
+    → build_ir_routing_regression.py
+    → pending_review 候选 JSONL（outputs.selected_backend = null）
+    → 人工标注 expected backend / 删除噪声
+    → 合并进 datasets/ir_routing/*.jsonl
+    → run_ir_routing_eval.py
+```
+
+从脱敏 Trace 挖掘路由分歧候选（shadow 分歧、LLM 选型被拒等）：
+
+```bash
+uv run python evals/datasets/build_ir_routing_regression.py /tmp/trace.json \
+  --output /tmp/ir-routing-pending.jsonl
+```
+
+候选行带 `pending_review` / `trace_candidate` 标签，并在 `metadata` 中保留
+`deterministic_selected` 与 `llm_selected_backend` 对照；**不会**自动写入
+`outputs.selected_backend`。人工确认期望后端后，再把样本并入 `datasets/ir_routing/`，
+最后运行 `uv run python evals/run_ir_routing_eval.py` 做回归。
 
 `datasets/recomposition/legacy-topics.jsonl` 保留早期开发/保留/挑战主题；当前跨维度回归入口默认使用 `datasets/recomposition/dataset.jsonl`。
 

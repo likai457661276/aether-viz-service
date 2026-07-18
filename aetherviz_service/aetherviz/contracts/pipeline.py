@@ -296,9 +296,22 @@ def run_html_pipeline(
                 "generation_elapsed_ms": metadata.get("generation_elapsed_ms", 0),
                 "generation_backend": metadata["generation_backend"],
                 "generation_backend_fallback": metadata.get("generation_backend_fallback"),
+                "generation_route_source": metadata.get("generation_route_source"),
+                "generation_route_confidence": metadata.get("generation_route_confidence"),
+                "generation_route_llm_invoked": metadata.get("generation_route_llm_invoked", False),
+                "generation_route_llm_accepted": metadata.get("generation_route_llm_accepted", False),
+                "generation_route_fallback": metadata.get("generation_route_fallback"),
+                "generation_route_elapsed_ms": metadata.get("generation_route_elapsed_ms", 0),
                 "generation_route_plan_fingerprint": metadata.get("generation_route_plan_fingerprint"),
                 "generation_route_reasons": metadata.get("generation_route_reasons", []),
                 "generation_route_candidates": metadata.get("generation_route_candidates", []),
+                "generation_route_llm_selected_backend": metadata.get(
+                    "generation_route_llm_selected_backend"
+                ),
+                "generation_route_llm_confidence": metadata.get("generation_route_llm_confidence"),
+                "generation_route_llm_required_capabilities": metadata.get(
+                    "generation_route_llm_required_capabilities", []
+                ),
                 "layout_contract_version": LAYOUT_CONTRACT_VERSION,
                 "truncated": metadata.get("truncated", False),
                 "bytes": len(html.encode("utf-8")),

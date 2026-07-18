@@ -16,7 +16,7 @@ def test_generate_baseline_eval_passes_locally() -> None:
     assert report["local_only"] is True
     assert report["live_model"] is False
     assert report["ok"] is True
-    assert report["total"] == 7
+    assert report["total"] == 8
     assert report["baselines"]["route"]["passed"] == report["baselines"]["route"]["total"]
     assert report["baselines"]["hard_validation"]["passed"] == report["baselines"]["hard_validation"]["total"]
     assert report["baselines"]["repair"]["passed"] == report["baselines"]["repair"]["total"]
