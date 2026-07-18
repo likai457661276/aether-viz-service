@@ -3,7 +3,34 @@
 from __future__ import annotations
 
 SUBJECT_KEYWORDS = {
-    "math": ["数学", "几何", "函数", "方程", "概率", "统计", "面积", "体积", "坐标", "圆", "抛物线", "定理", "证明", "公式", "导数", "极限", "积分", "向量", "矩阵", "数列", "集合", "逻辑", "不等式", "三角", "排列", "组合"],
+    "math": [
+        "数学",
+        "几何",
+        "函数",
+        "方程",
+        "概率",
+        "统计",
+        "面积",
+        "体积",
+        "坐标",
+        "圆",
+        "抛物线",
+        "定理",
+        "证明",
+        "公式",
+        "导数",
+        "极限",
+        "积分",
+        "向量",
+        "矩阵",
+        "数列",
+        "集合",
+        "逻辑",
+        "不等式",
+        "三角",
+        "排列",
+        "组合",
+    ],
     "physics": ["物理", "运动", "速度", "加速度", "力", "能量", "电流", "电压", "波", "光", "抛体"],
     "chemistry": ["化学", "反应", "分子", "原子", "离子", "酸", "碱", "盐", "溶液", "反应速率"],
     "biology": ["生物", "细胞", "基因", "dna", "蛋白质", "光合", "呼吸", "生态", "遗传"],
@@ -39,7 +66,7 @@ JSON 顶层字段必须且只能包含：
 - controls：只生成 1~2 个真实影响学习的控件，每项只含 id、label、type、bind；不要生成播放、暂停、重置按钮
 - formulas：0~3 个字符串
 - discipline_spec：只含 entities、relations、invariants、boundary_cases、representations；每项均为字符串数组，用通用学科语义描述实现所需对象、关系、不变量、边界/特殊情况和多重表征，不写 HTML/CSS/JS
-- representation_spec：这是服务端选择 IR 实现的权威能力配置，描述实现教学目标需要的通用视觉能力，但不直接填写 IR 或后端名称。只含 version、views、state_variables、correspondences、required_invariants、interaction_requirements。version 固定 1.0；views 每项只含 id、kind、role，kind 只能是 coordinate_plane、geometric_scene、number_line、data_chart、process_diagram、symbolic_panel、object_scene；state_variables 每项只含 id、semantic_type、minimum、maximum、default、unit、display_unit，id 必须引用 interactive_spec.variables.name，semantic_type 只能是 scalar、angle、length、time、ratio、vector、discrete；correspondences 每项只含 type、source_view、target_view、parameter、source、target，type 只能是 shared_parameter、point_on_curve、projection、equal_value、coincident、transform、decompose_recompose、derived_value；required_invariants 只使用 point_on_curve、equal_value、coincident、piece_identity_preserved、piece_count_constant、area_preserved、length_preserved、angle_preserved、piece_congruence、collinear、parallel、perpendicular、equal_length、midpoint、point_on_circle、tangent、equal_angle、supplementary；interaction_requirements 只使用 scrub、play、pause、reset、preset、drag、reveal、trace。不要写知识点专用模板、坐标、HTML、CSS 或 JS
+- representation_spec：这是服务端选择 IR 实现的权威能力配置，描述实现教学目标需要的通用视觉能力，但不直接填写 IR 或后端名称。只含 version、views、state_variables、correspondences、required_invariants、interaction_requirements。version 固定 1.0；views 每项只含 id、kind、role，kind 只能是 coordinate_plane、geometric_scene、number_line、data_chart、probability_experiment、probability_tree、discrete_structure、graph、tree、set_diagram、sequence、process_diagram、symbolic_panel、object_scene；state_variables 每项只含 id、semantic_type、minimum、maximum、default、unit、display_unit，id 必须引用 interactive_spec.variables.name，semantic_type 只能是 scalar、angle、length、time、ratio、vector、discrete；correspondences 每项只含 type、source_view、target_view、parameter、source、target，type 只能是 shared_parameter、point_on_curve、projection、equal_value、coincident、transform、decompose_recompose、derived_value；required_invariants 只使用 point_on_curve、equal_value、coincident、piece_identity_preserved、piece_count_constant、area_preserved、length_preserved、angle_preserved、piece_congruence、collinear、parallel、perpendicular、equal_length、midpoint、point_on_circle、tangent、equal_angle、supplementary、probability_mass、stable_identity、acyclic、set_membership；interaction_requirements 只使用 scrub、play、pause、reset、preset、drag、reveal、trace。不要写知识点专用模板、坐标、HTML、CSS 或 JS
 - recomposition_spec：当教学语义确实要求稳定拼片的切分、独立变换和目标重排时输出，服务端知识画像仅作为先验，不得阻止根据完整计划纠正分类；只含 topology_variables、geometry_variables、invariants、proof_constraints。proof_constraints 只含 measure_invariants、target_relations、target_assembly、stage_requirements；stage_requirements 为 3~5 项，每项只含 id、intent、min_piece_ratio、required_relations。第一项描述源状态，最后一项描述目标结论，中间 1~3 项必须描述可观察的切分、分离、对齐、旋转或拼合几何状态；min_piece_ratio 表示该阶段至少多少比例图元形成独立几何状态，取 0.1~1，建议 0.5。target_relations 是可计算对象数组，每项只含 id、type、left、right、points、tolerance，type 只能是 equal_area、equal_length、equal_angle、parallel、perpendicular、coincident、collinear、congruent。target_assembly 是 0~4 个通用目标拼合约束，每项只含 id、type、max_components、max_overlap_ratio、min_rectangularity、monotonic、trend_tolerance，type 只能是 connected、non_overlapping、approximate_rectangle；仅当学习目标明确要求目标拼成某种整体时输出。它描述可复用的图元集合、度量不变量、目标关系和教学阶段，不写具体坐标、SVG、HTML、JS 或知识点模板
 
 一致性要求：
@@ -80,8 +107,7 @@ INTERACTIVE_TYPE_CONTRACTS = {
 def detect_subject(topic: str) -> str:
     text = (topic or "").lower()
     scores = {
-        subject: sum(1 for keyword in keywords if keyword in text)
-        for subject, keywords in SUBJECT_KEYWORDS.items()
+        subject: sum(1 for keyword in keywords if keyword in text) for subject, keywords in SUBJECT_KEYWORDS.items()
     }
     best_score = max(scores.values(), default=0)
     if best_score:
@@ -106,7 +132,9 @@ def select_interactive_type(topic: str, subject: str) -> str:
 
 def select_render_stack(interactive_type: str, subject: str, topic: str) -> str:
     text = (topic or "").lower()
-    if interactive_type == "simulation" and any(keyword in text for keyword in ("粒子", "扩散", "轨迹", "运动", "波", "碰撞")):
+    if interactive_type == "simulation" and any(
+        keyword in text for keyword in ("粒子", "扩散", "轨迹", "运动", "波", "碰撞")
+    ):
         return "svg_canvas"
     if interactive_type in {"game", "diagram"}:
         return "dom_svg"
@@ -128,8 +156,14 @@ def build_planning_prompt(
 ) -> tuple[str, str]:
     from aetherviz_service.aetherviz.workflow.knowledge_profile import build_knowledge_profile
 
-    subject = subject_override if subject_override in {*SUBJECT_KEYWORDS, "astronomy", "general"} else detect_subject(topic)
-    interactive_type = interactive_type_override if interactive_type_override in VALID_INTERACTIVE_TYPES else select_interactive_type(topic, subject)
+    subject = (
+        subject_override if subject_override in {*SUBJECT_KEYWORDS, "astronomy", "general"} else detect_subject(topic)
+    )
+    interactive_type = (
+        interactive_type_override
+        if interactive_type_override in VALID_INTERACTIVE_TYPES
+        else select_interactive_type(topic, subject)
+    )
     render_stack = select_render_stack(interactive_type, subject, topic)
     animation_runtime = select_animation_runtime()
     knowledge_profile = build_knowledge_profile(topic, subject=subject)

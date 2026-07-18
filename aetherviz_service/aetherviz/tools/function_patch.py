@@ -44,7 +44,7 @@ _FUNCTION_PATTERNS = (
     _OBJECT_METHOD_START_RE,
     _STANDALONE_METHOD_START_RE,
 )
-_SCENE_BUILDER_NAMES = ("buildScene", "rebuildScene", "createScene", "initScene", "initializeScene")
+_SCENE_BUILDER_NAMES = ("buildScene", "createScene")
 
 @dataclass(frozen=True)
 class FunctionSource:
@@ -157,7 +157,6 @@ def parse_function_replacements(raw_text: str) -> list[dict[str, str]]:
         replacements.append(
             {
                 "function": str(item.get("function") or ""),
-                "target_id": str(item.get("target_id") or ""),
                 "source_hash": str(item.get("source_hash") or ""),
                 "replacement": str(item.get("replacement") or ""),
             }
@@ -171,7 +170,6 @@ def apply_function_replacements(
     *,
     allowed_functions: tuple[str, ...],
     allowed_targets: tuple[tuple[str, str], ...] = (),
-    allowed_target_ids: tuple[str, ...] = (),
 ) -> FunctionPatchResult:
     if not replacements:
         return FunctionPatchResult(html=html, applied=(), errors=("empty_replacements",))
@@ -181,11 +179,6 @@ def apply_function_replacements(
     if total_chars > MAX_FUNCTION_REPLACEMENT_CHARS:
         return FunctionPatchResult(html=html, applied=(), errors=("replacement_too_long",))
     functions = extract_named_functions(html)
-    functions_by_target_id = {
-        f"{function.name}:{function.start}:{function.source_hash[:12]}": function
-        for matches in functions.values()
-        for function in matches
-    }
     patches: list[tuple[int, int, str, str]] = []
     errors: list[str] = []
     seen: set[str] = set()
@@ -201,32 +194,17 @@ def apply_function_replacements(
             continue
         matches = functions.get(name, [])
         source_hash = item.get("source_hash") or ""
-        target_id = item.get("target_id") or ""
-        if allowed_target_ids:
-            if target_id not in allowed_target_ids:
-                errors.append(f"function_target_id_not_allowed:{name}")
-                continue
-            original = functions_by_target_id.get(target_id)
-            if original is None or original.name != name:
-                errors.append(f"function_target_id_mismatch:{name}")
-                continue
-            if original.source_hash != source_hash:
-                errors.append(f"source_hash_mismatch:{name}")
-                continue
-        else:
-            original = None
         if allowed_targets and (name, source_hash) not in allowed_targets:
             errors.append(f"function_target_not_allowed:{name}")
             continue
-        if original is None:
-            hash_matches = [match for match in matches if match.source_hash == source_hash]
-            if not hash_matches:
-                errors.append(f"source_hash_mismatch:{name}")
-                continue
-            if len(hash_matches) != 1:
-                errors.append(f"function_not_unique:{name}")
-                continue
-            original = hash_matches[0]
+        hash_matches = [match for match in matches if match.source_hash == source_hash]
+        if not hash_matches:
+            errors.append(f"source_hash_mismatch:{name}")
+            continue
+        if len(hash_matches) != 1:
+            errors.append(f"function_not_unique:{name}")
+            continue
+        original = hash_matches[0]
         replacement_functions = extract_named_functions(replacement)
         replacement_matches = replacement_functions.get(name, [])
         if len(replacement_matches) != 1 or replacement_matches[0].source.strip() != replacement:

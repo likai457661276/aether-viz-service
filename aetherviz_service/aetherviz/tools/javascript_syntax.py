@@ -31,7 +31,7 @@ def _check_javascript_syntax_with_node(node: str, script: str) -> str | None:
             timeout=5,
             check=False,
         )
-    except Exception:
+    except (OSError, subprocess.SubprocessError, TimeoutError):
         return _check_javascript_balance(script)
     finally:
         if temp_path is not None:

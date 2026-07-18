@@ -107,10 +107,13 @@ def _build_default_registry() -> IRBackendRegistry:
     from aetherviz_service.aetherviz.ir.constraint_geometry.backend import BACKEND as constraint_geometry
     from aetherviz_service.aetherviz.ir.coordinate_graph.backend import BACKEND as coordinate_graph
     from aetherviz_service.aetherviz.ir.data_distribution.backend import BACKEND as data_distribution
+    from aetherviz_service.aetherviz.ir.discrete_structure.backend import BACKEND as discrete_structure
     from aetherviz_service.aetherviz.ir.linked_coordinate.backend import BACKEND as linked_coordinate
     from aetherviz_service.aetherviz.ir.number_line.backend import BACKEND as number_line
     from aetherviz_service.aetherviz.ir.parametric_geometry.backend import BACKEND as parametric_geometry
+    from aetherviz_service.aetherviz.ir.probability_experiment.backend import BACKEND as probability_experiment
     from aetherviz_service.aetherviz.ir.recomposition.backend import BACKEND as recomposition
+    from aetherviz_service.aetherviz.ir.symbolic_derivation.backend import BACKEND as symbolic_derivation
 
     return IRBackendRegistry(
         (
@@ -121,6 +124,9 @@ def _build_default_registry() -> IRBackendRegistry:
             number_line,
             constraint_geometry,
             data_distribution,
+            symbolic_derivation,
+            probability_experiment,
+            discrete_structure,
         )
     )
 

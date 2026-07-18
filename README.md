@@ -12,6 +12,12 @@
 
 `data_distribution_scene` 后端覆盖固定样本身份下的表格、柱状图、折线图、散点图、直方图和箱线图。`data-distribution-ir.v1` 只允许模型声明原始字段、数据行、图表映射和统计量类型；服务端在计划变量边界验证数值表达式，并统一计算分箱、均值、中位数、总体/样本方差、标准差、四分位数、IQR 和一元线性回归。所有表征共享同一数据源，直方图限制为最多 80 箱。首版不覆盖随机试验累计、重复抽样、参数化离散分布或连续密度面积，这些计划继续使用直接 HTML。
 
+`symbolic_derivation_scene` 使用 `symbolic-derivation-ir.v1` 的受限多项式 AST 表示表达式和方程。服务端将每一步规范化为精确有理系数多项式：表达式变换必须恒等，方程变换的左右差式允许相差非零常数倍；步骤必须连续，乘除规则必须声明非零常数。首版覆盖展开、因式分解、交换结合、分配律和常数倍方程变换，不覆盖不等式、超越方程、根式有理化和数值近似证明。
+
+`probability_experiment_scene` 使用 `probability-experiment-ir.v1` 描述有限互斥样本点、正权重、事件集合、固定种子及样本空间、累计频率、概率树视图。服务端统一归一化理论概率，并由同一确定性随机序列驱动全部读数和图表。首版不覆盖连续分布、无限样本空间、马尔可夫链和贝叶斯网络。
+
+`discrete_structure_scene` 使用 `discrete-structure-ir.v1` 描述稳定节点 id、边拓扑、集合成员、有限序列和阶段可见区间。服务端验证引用完整性、节点顺序唯一性和树视图的单根无环约束，并统一布局图、树、集合、序列和排列视图。首版不执行最短路、最大流等图算法，也不提供自由图编辑。
+
 Docker 镜像内置 Node.js，用于内联 JavaScript `node --check` 和受限 Scene Module 隔离运行冒烟检查，保证 macOS 本地与 Linux 生产容器使用同等级检查；浏览器回归仍只在本地/离线流程运行。
 
 ## 目录结构
@@ -33,9 +39,12 @@ aether-viz-service/
 │       │   ├── coordinate_graph/   # 单视图函数与坐标图 IR
 │       │   ├── parametric_geometry/ # 离散参数几何与收敛 IR
 │       │   ├── number_line/         # 数轴、区间与集合运算 IR
-│       │   ├── constraint_geometry/ # 连续欧氏约束几何 IR
-│       │   └── data_distribution/   # 数据图表与确定性统计 IR
-│       ├── tools/            # 共享底层工具（function_patch、security_policy 等）与旧路径 shim
+│       │   ├── constraint_geometry/    # 连续欧氏约束几何 IR
+│       │   ├── data_distribution/      # 数据图表与确定性统计 IR
+│       │   ├── symbolic_derivation/    # 可验证符号推导 IR
+│       │   ├── probability_experiment/ # 有限随机试验 IR
+│       │   └── discrete_structure/     # 图、树、集合与序列 IR
+│       ├── tools/            # 共享底层工具（function_patch、security_policy、javascript_syntax 等）
 │       ├── workflow/         # 仅 plan 相关：plan / revise_plan / approve_plan
 │       └── schemas/
 ├── tests/
@@ -435,7 +444,7 @@ uv run python evals/reporting/regression.py \
 - 后端按 `simulation`、`diagram`、`game` 拆分独立 prompt、分型 widget-config 和开发期分型校验。
 - 计划对象必须包含 `scene_outline`、`widget_outline`、`design_brief`、`widget_actions`、`knowledge_profile` 和 `discipline_spec`，作为后续 HTML 生成的唯一蓝图。知识画像只路由到通用概念族、表征和教学模式，不包含具体知识点专用模板。
 - 学科与互动类型选择在 `workflow/plan_detection.py`，计划规范化在 `workflow/plan_contract.py`；生成 prompt 在 `generate/prompts.py`，编辑 prompt 在 `edit/prompts.py`；HTML 装配/校验/修复在 `contracts/`。生成与编辑业务包互不 import。
-- `html.done.metadata.generation_backend` 为 `direct`、`recomposition_scene`、`linked_coordinate_scene`、`coordinate_graph_scene`、`parametric_geometry_scene`、`number_line_scene`、`constraint_geometry_scene` 或 `data_distribution_scene`；API/SSE 主结构不变，前端未声明 `representation_type` 固定枚举，无需同步类型迁移。
+- `html.done.metadata.generation_backend` 为 `direct`、`recomposition_scene`、`linked_coordinate_scene`、`coordinate_graph_scene`、`parametric_geometry_scene`、`number_line_scene`、`constraint_geometry_scene`、`data_distribution_scene`、`symbolic_derivation_scene`、`probability_experiment_scene` 或 `discrete_structure_scene`；API/SSE 主结构不变，前端未声明 `representation_type` 固定枚举，无需同步类型迁移。
 - 前端可展示 `generation_attempts`、`repair_attempts`、兼容字段 `attempts`、`repaired`、`degraded`、`validation_warnings`、`context_status`、`bytes` 和 `chars`。
 - 计划中的 action 使用 `widget_setState`、`widget_highlight`、`widget_annotation`、`widget_reveal`；生成物 iframe 内部应兼容 `SET_WIDGET_STATE`、`HIGHLIGHT_ELEMENT`、`ANNOTATE_ELEMENT`、`REVEAL_ELEMENT` 消息。
 

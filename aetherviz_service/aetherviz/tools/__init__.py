@@ -1,1 +1,1 @@
-"""Deterministic validation tools exposed to AetherViz agents."""
+"""Shared low-level utilities for HTML/JS validation and bounded function patching."""

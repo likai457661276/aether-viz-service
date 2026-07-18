@@ -7,7 +7,7 @@ from aetherviz_service.aetherviz.tools.external_url import normalize_allowed_ext
 from aetherviz_service.config import settings
 
 
-def allowed_external_urls() -> set[str]:
+def _allowed_external_urls() -> set[str]:
     urls = {get_gsap_core_cdn_url()}
     if settings.aetherviz_katex_enabled:
         urls.update(get_katex_cdn_urls())
@@ -15,4 +15,4 @@ def allowed_external_urls() -> set[str]:
 
 
 def normalized_allowed_external_urls() -> set[str]:
-    return {normalize_allowed_external_url(url) for url in allowed_external_urls()}
+    return {normalize_allowed_external_url(url) for url in _allowed_external_urls()}

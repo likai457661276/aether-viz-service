@@ -16,6 +16,13 @@ VIEW_KINDS = {
     "geometric_scene",
     "number_line",
     "data_chart",
+    "probability_experiment",
+    "probability_tree",
+    "discrete_structure",
+    "graph",
+    "tree",
+    "set_diagram",
+    "sequence",
     "process_diagram",
     "symbolic_panel",
     "object_scene",
@@ -50,6 +57,10 @@ INVARIANT_TYPES = {
     "tangent",
     "equal_angle",
     "supplementary",
+    "probability_mass",
+    "stable_identity",
+    "acyclic",
+    "set_membership",
 }
 INTERACTION_REQUIREMENTS = {"scrub", "play", "pause", "reset", "preset", "drag", "reveal", "trace"}
 
