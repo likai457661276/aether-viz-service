@@ -137,7 +137,10 @@ def test_generate_aetherviz_spec_returns_400_when_topic_empty() -> None:
 
 def test_static_page_routes_are_removed() -> None:
     assert client.get("/aetherviz-static-knowledge-points").status_code == 404
-    assert client.get("/aetherviz-static-html", params={"knowledge_point_id": "physics/newton_second_law"}).status_code == 404
+    assert (
+        client.get("/aetherviz-static-html", params={"knowledge_point_id": "physics/newton_second_law"}).status_code
+        == 404
+    )
     assert client.get("/static-html/physics/newton-second-law.html").status_code == 404
 
 
@@ -303,7 +306,12 @@ def test_generate_phase_does_not_fallback_for_special_topic_without_model() -> N
 def test_edit_html_without_model_returns_explicit_error() -> None:
     response = client.post(
         AETHERVIZ_ENDPOINT,
-        json={"phase": "edit_html", "current_html": sample_html(), "message": "把按钮改大", "context": {"topic": "熵增演示"}},
+        json={
+            "phase": "edit_html",
+            "current_html": sample_html(),
+            "message": "把按钮改大",
+            "context": {"topic": "熵增演示"},
+        },
     )
 
     events = parse_sse_events(response)
@@ -372,7 +380,9 @@ def test_edit_pipeline_error_events_set_retryable_for_edit_phase() -> None:
             )
         )
         return next(
-            data for event, data in parse_sse_events(type("SseResponse", (), {"text": "".join(raw_events)})()) if event == "error"
+            data
+            for event, data in parse_sse_events(type("SseResponse", (), {"text": "".join(raw_events)})())
+            if event == "error"
         )
 
     for code in ("edit_intent_not_satisfied", "edit_truncated", "edit_contract_changed"):
@@ -627,15 +637,19 @@ def test_widget_contract_ignores_text_and_preformatted_template_values() -> None
 def test_widget_contract_accepts_provable_dynamic_stage_visual_as_legacy() -> None:
     from aetherviz_service.aetherviz.contracts.validation.widget_contract_checker import check_widget_runtime_contract
 
-    html = sample_html().replace(
-        '<svg viewBox="0 0 100 100"><circle id="dot" cx="20" cy="50" r="8"></circle></svg>',
-        "",
-    ).replace(
-        "const state = { progress: 0 };",
-        "const state = { progress: 0 };\n"
-        "const stage = document.getElementById('aetherviz-stage');\n"
-        "const visual = document.createElementNS('http://www.w3.org/2000/svg', 'svg');\n"
-        "stage.appendChild(visual);",
+    html = (
+        sample_html()
+        .replace(
+            '<svg viewBox="0 0 100 100"><circle id="dot" cx="20" cy="50" r="8"></circle></svg>',
+            "",
+        )
+        .replace(
+            "const state = { progress: 0 };",
+            "const state = { progress: 0 };\n"
+            "const stage = document.getElementById('aetherviz-stage');\n"
+            "const visual = document.createElementNS('http://www.w3.org/2000/svg', 'svg');\n"
+            "stage.appendChild(visual);",
+        )
     )
 
     report = check_widget_runtime_contract(html)
@@ -647,13 +661,17 @@ def test_widget_contract_accepts_provable_dynamic_stage_visual_as_legacy() -> No
 def test_widget_contract_rejects_unmounted_dynamic_visual_with_acceptance_contract() -> None:
     from aetherviz_service.aetherviz.contracts.validation.widget_contract_checker import check_widget_runtime_contract
 
-    html = sample_html().replace(
-        '<svg viewBox="0 0 100 100"><circle id="dot" cx="20" cy="50" r="8"></circle></svg>',
-        "",
-    ).replace(
-        "const state = { progress: 0 };",
-        "const state = { progress: 0 };\n"
-        "const visual = document.createElementNS('http://www.w3.org/2000/svg', 'svg');",
+    html = (
+        sample_html()
+        .replace(
+            '<svg viewBox="0 0 100 100"><circle id="dot" cx="20" cy="50" r="8"></circle></svg>',
+            "",
+        )
+        .replace(
+            "const state = { progress: 0 };",
+            "const state = { progress: 0 };\n"
+            "const visual = document.createElementNS('http://www.w3.org/2000/svg', 'svg');",
+        )
     )
 
     report = check_widget_runtime_contract(html)
@@ -680,15 +698,19 @@ def test_widget_contract_accepts_static_main_visual_mount() -> None:
 def test_widget_contract_accepts_dynamic_visual_mounted_into_static_main_visual() -> None:
     from aetherviz_service.aetherviz.contracts.validation.widget_contract_checker import check_widget_runtime_contract
 
-    html = sample_html().replace(
-        '<svg viewBox="0 0 100 100"><circle id="dot" cx="20" cy="50" r="8"></circle></svg>',
-        '<div data-role="main-visual"></div>',
-    ).replace(
-        "const state = { progress: 0 };",
-        "const state = { progress: 0 };\n"
-        "const mount = document.querySelector('[data-role=\"main-visual\"]');\n"
-        "const visual = document.createElementNS('http://www.w3.org/2000/svg', 'svg');\n"
-        "mount.appendChild(visual);",
+    html = (
+        sample_html()
+        .replace(
+            '<svg viewBox="0 0 100 100"><circle id="dot" cx="20" cy="50" r="8"></circle></svg>',
+            '<div data-role="main-visual"></div>',
+        )
+        .replace(
+            "const state = { progress: 0 };",
+            "const state = { progress: 0 };\n"
+            "const mount = document.querySelector('[data-role=\"main-visual\"]');\n"
+            "const visual = document.createElementNS('http://www.w3.org/2000/svg', 'svg');\n"
+            "mount.appendChild(visual);",
+        )
     )
 
     report = check_widget_runtime_contract(html)
@@ -700,17 +722,21 @@ def test_widget_contract_accepts_dynamic_visual_mounted_into_static_main_visual(
 def test_widget_contract_accepts_visual_mounted_through_dom_cache_property() -> None:
     from aetherviz_service.aetherviz.contracts.validation.widget_contract_checker import check_widget_runtime_contract
 
-    html = sample_html().replace(
-        '<svg viewBox="0 0 100 100"><circle id="dot" cx="20" cy="50" r="8"></circle></svg>',
-        '<div data-role="main-visual"></div>',
-    ).replace(
-        "const state = { progress: 0 };",
-        """const elements = {
+    html = (
+        sample_html()
+        .replace(
+            '<svg viewBox="0 0 100 100"><circle id="dot" cx="20" cy="50" r="8"></circle></svg>',
+            '<div data-role="main-visual"></div>',
+        )
+        .replace(
+            "const state = { progress: 0 };",
+            """const elements = {
   stage: document.querySelector('[data-role="main-visual"]')
 };
 const visual = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
 elements.stage.appendChild(visual);
 const state = { progress: 0 };""",
+        )
     )
 
     report = check_widget_runtime_contract(html)
@@ -722,16 +748,20 @@ const state = { progress: 0 };""",
 def test_widget_contract_accepts_member_references_for_mount_and_visual() -> None:
     from aetherviz_service.aetherviz.contracts.validation.widget_contract_checker import check_widget_runtime_contract
 
-    html = sample_html().replace(
-        '<svg viewBox="0 0 100 100"><circle id="dot" cx="20" cy="50" r="8"></circle></svg>',
-        '<div data-role="main-visual"></div>',
-    ).replace(
-        "const state = { progress: 0 };",
-        """const elements = {};
+    html = (
+        sample_html()
+        .replace(
+            '<svg viewBox="0 0 100 100"><circle id="dot" cx="20" cy="50" r="8"></circle></svg>',
+            '<div data-role="main-visual"></div>',
+        )
+        .replace(
+            "const state = { progress: 0 };",
+            """const elements = {};
 elements['stage'] = document.querySelector('[data-role="main-visual"]');
 elements.visual = document.createElement('canvas');
 elements.stage.replaceChildren(elements.visual);
 const state = { progress: 0 };""",
+        )
     )
 
     report = check_widget_runtime_contract(html)
@@ -742,18 +772,22 @@ const state = { progress: 0 };""",
 def test_widget_contract_rejects_visual_appended_to_different_cache_property() -> None:
     from aetherviz_service.aetherviz.contracts.validation.widget_contract_checker import check_widget_runtime_contract
 
-    html = sample_html().replace(
-        '<svg viewBox="0 0 100 100"><circle id="dot" cx="20" cy="50" r="8"></circle></svg>',
-        '<div data-role="main-visual"></div><div id="other"></div>',
-    ).replace(
-        "const state = { progress: 0 };",
-        """const elements = {
+    html = (
+        sample_html()
+        .replace(
+            '<svg viewBox="0 0 100 100"><circle id="dot" cx="20" cy="50" r="8"></circle></svg>',
+            '<div data-role="main-visual"></div><div id="other"></div>',
+        )
+        .replace(
+            "const state = { progress: 0 };",
+            """const elements = {
   stage: document.querySelector('[data-role="main-visual"]'),
   other: document.getElementById('other')
 };
 const visual = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
 elements.other.appendChild(visual);
 const state = { progress: 0 };""",
+        )
     )
 
     report = check_widget_runtime_contract(html)
@@ -765,15 +799,19 @@ const state = { progress: 0 };""",
 def test_widget_contract_accepts_get_element_by_id_mount_lookup() -> None:
     from aetherviz_service.aetherviz.contracts.validation.widget_contract_checker import check_widget_runtime_contract
 
-    html = sample_html().replace(
-        '<svg viewBox="0 0 100 100"><circle id="dot" cx="20" cy="50" r="8"></circle></svg>',
-        '<div data-role="main-visual" id="main-visual-mount"></div>',
-    ).replace(
-        "const state = { progress: 0 };",
-        "const state = { progress: 0 };\n"
-        "const mount = document.getElementById('main-visual-mount');\n"
-        "const visual = document.createElementNS('http://www.w3.org/2000/svg', 'svg');\n"
-        "mount.appendChild(visual);",
+    html = (
+        sample_html()
+        .replace(
+            '<svg viewBox="0 0 100 100"><circle id="dot" cx="20" cy="50" r="8"></circle></svg>',
+            '<div data-role="main-visual" id="main-visual-mount"></div>',
+        )
+        .replace(
+            "const state = { progress: 0 };",
+            "const state = { progress: 0 };\n"
+            "const mount = document.getElementById('main-visual-mount');\n"
+            "const visual = document.createElementNS('http://www.w3.org/2000/svg', 'svg');\n"
+            "mount.appendChild(visual);",
+        )
     )
 
     report = check_widget_runtime_contract(html)
@@ -786,12 +824,15 @@ def test_widget_contract_accepts_mount_id_constant_cache_pattern() -> None:
     """Regression for getElementById + string-constant mount lookups (LangSmith fca017c8)."""
     from aetherviz_service.aetherviz.contracts.validation.widget_contract_checker import check_widget_runtime_contract
 
-    html = sample_html().replace(
-        '<svg viewBox="0 0 100 100"><circle id="dot" cx="20" cy="50" r="8"></circle></svg>',
-        '<div data-role="main-visual" id="main-visual-mount" style="width:100%;height:100%;"></div>',
-    ).replace(
-        "const state = { progress: 0 };",
-        """const MOUNT_ID = 'main-visual-mount';
+    html = (
+        sample_html()
+        .replace(
+            '<svg viewBox="0 0 100 100"><circle id="dot" cx="20" cy="50" r="8"></circle></svg>',
+            '<div data-role="main-visual" id="main-visual-mount" style="width:100%;height:100%;"></div>',
+        )
+        .replace(
+            "const state = { progress: 0 };",
+            """const MOUNT_ID = 'main-visual-mount';
 const els = {
   mount: document.getElementById(MOUNT_ID),
   caption: document.getElementById('animation-caption'),
@@ -807,6 +848,7 @@ function initSVG() {
 }
 initSVG();
 const state = { progress: 0 };""",
+        )
     )
 
     report = check_widget_runtime_contract(html)
@@ -819,12 +861,15 @@ def test_widget_contract_accepts_mount_selector_constant_cache_pattern() -> None
     """Regression for the selector-constant mount flow from LangSmith trace 13c07e7d."""
     from aetherviz_service.aetherviz.contracts.validation.widget_contract_checker import check_widget_runtime_contract
 
-    html = sample_html().replace(
-        '<svg viewBox="0 0 100 100"><circle id="dot" cx="20" cy="50" r="8"></circle></svg>',
-        '<div data-role="main-visual"></div>',
-    ).replace(
-        "const state = { progress: 0 };",
-        """const MOUNT_SELECTOR = "[data-role='main-visual']";
+    html = (
+        sample_html()
+        .replace(
+            '<svg viewBox="0 0 100 100"><circle id="dot" cx="20" cy="50" r="8"></circle></svg>',
+            '<div data-role="main-visual"></div>',
+        )
+        .replace(
+            "const state = { progress: 0 };",
+            """const MOUNT_SELECTOR = "[data-role='main-visual']";
 const els = {
   mount: document.querySelector(MOUNT_SELECTOR),
   caption: document.getElementById('animation-caption')
@@ -838,6 +883,7 @@ function initSVG() {
 }
 initSVG();
 const state = { progress: 0 };""",
+        )
     )
 
     report = check_widget_runtime_contract(html)
@@ -849,16 +895,20 @@ const state = { progress: 0 };""",
 def test_widget_contract_rejects_unrelated_selector_constant_mount() -> None:
     from aetherviz_service.aetherviz.contracts.validation.widget_contract_checker import check_widget_runtime_contract
 
-    html = sample_html().replace(
-        '<svg viewBox="0 0 100 100"><circle id="dot" cx="20" cy="50" r="8"></circle></svg>',
-        '<div data-role="main-visual"></div><div id="other"></div>',
-    ).replace(
-        "const state = { progress: 0 };",
-        """const MOUNT_SELECTOR = '#other';
+    html = (
+        sample_html()
+        .replace(
+            '<svg viewBox="0 0 100 100"><circle id="dot" cx="20" cy="50" r="8"></circle></svg>',
+            '<div data-role="main-visual"></div><div id="other"></div>',
+        )
+        .replace(
+            "const state = { progress: 0 };",
+            """const MOUNT_SELECTOR = '#other';
 const mount = document.querySelector(MOUNT_SELECTOR);
 const visual = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
 mount.appendChild(visual);
 const state = { progress: 0 };""",
+        )
     )
 
     report = check_widget_runtime_contract(html)
@@ -886,23 +936,25 @@ def test_html_contract_dataset_rejects_mount_lookup_false_positive() -> None:
 
     forbidden = set(sample["expected"]["must_not_contain_error_types"])
     assert not forbidden.intersection(error["type"] for error in report["errors"])
-    assert report["ok"] is True or not any(
-        error["type"] == "empty_main_visual_mount" for error in report["errors"]
-    )
+    assert report["ok"] is True or not any(error["type"] == "empty_main_visual_mount" for error in report["errors"])
 
 
 def test_widget_contract_accepts_query_selector_hash_mount_id() -> None:
     from aetherviz_service.aetherviz.contracts.validation.widget_contract_checker import check_widget_runtime_contract
 
-    html = sample_html().replace(
-        '<svg viewBox="0 0 100 100"><circle id="dot" cx="20" cy="50" r="8"></circle></svg>',
-        '<div data-role="main-visual" id="main-visual-mount"></div>',
-    ).replace(
-        "const state = { progress: 0 };",
-        "const state = { progress: 0 };\n"
-        "const mount = document.querySelector('#main-visual-mount');\n"
-        "const visual = document.createElement('canvas');\n"
-        "mount.replaceChildren(visual);",
+    html = (
+        sample_html()
+        .replace(
+            '<svg viewBox="0 0 100 100"><circle id="dot" cx="20" cy="50" r="8"></circle></svg>',
+            '<div data-role="main-visual" id="main-visual-mount"></div>',
+        )
+        .replace(
+            "const state = { progress: 0 };",
+            "const state = { progress: 0 };\n"
+            "const mount = document.querySelector('#main-visual-mount');\n"
+            "const visual = document.createElement('canvas');\n"
+            "mount.replaceChildren(visual);",
+        )
     )
 
     report = check_widget_runtime_contract(html)
@@ -913,12 +965,8 @@ def test_widget_contract_accepts_query_selector_hash_mount_id() -> None:
 def test_deterministic_can_address_skips_empty_main_visual_only() -> None:
     from aetherviz_service.aetherviz.contracts.repair.deterministic import deterministic_can_address
 
-    assert deterministic_can_address(
-        {"errors": [{"type": "empty_main_visual_mount"}], "warnings": []}
-    ) is False
-    assert deterministic_can_address(
-        {"errors": [{"type": "missing_runtime_ready"}], "warnings": []}
-    ) is True
+    assert deterministic_can_address({"errors": [{"type": "empty_main_visual_mount"}], "warnings": []}) is False
+    assert deterministic_can_address({"errors": [{"type": "missing_runtime_ready"}], "warnings": []}) is True
 
 
 def test_widget_contract_warns_about_hardcoded_formatter_step_and_raw_formula_state() -> None:
@@ -955,9 +1003,7 @@ def test_server_layout_contract_replaces_model_shell_and_is_idempotent() -> None
 
     from aetherviz_service.aetherviz.contracts.layout import assemble_layout_contract
 
-    raw = sample_html().replace("<body>", '<body><div class="model-grid">').replace(
-        "</body>", "</div></body>"
-    )
+    raw = sample_html().replace("<body>", '<body><div class="model-grid">').replace("</body>", "</div></body>")
     once = assemble_layout_contract(raw, sample_plan("函数变化"))
     twice = assemble_layout_contract(once, sample_plan("函数变化"))
     parsed = BeautifulSoup(twice, "html.parser")
@@ -1018,8 +1064,7 @@ def test_server_range_contract_owns_track_progress_and_touch_target() -> None:
 
     source = sample_html().replace(
         '<button id="play-animation">播放</button>',
-        '<input type="range" id="speed-slider" min="-5" max="5" value="0">'
-        '<button id="play-animation">播放</button>',
+        '<input type="range" id="speed-slider" min="-5" max="5" value="0"><button id="play-animation">播放</button>',
     )
     assembled = assemble_layout_contract(source, sample_plan())
     parsed = BeautifulSoup(assembled, "html.parser")
@@ -1028,7 +1073,7 @@ def test_server_range_contract_owns_track_progress_and_touch_target() -> None:
     assert contract_css is not None
     assert "--av-range-progress" in contract_css.get_text()
     assert "linear-gradient(to right" in contract_css.get_text()
-    assert "input:not([type=\"range\"])" in contract_css.get_text()
+    assert 'input:not([type="range"])' in contract_css.get_text()
     assert len(parsed.select('script[data-aetherviz-control-contract="range-v1"]')) == 1
 
 
@@ -1051,11 +1096,11 @@ def test_server_control_contract_provides_button_and_select_feedback() -> None:
     assert control_script is not None
     assert animation_script is not None
     css = contract_css.get_text()
-    assert 'button:active' in css
+    assert "button:active" in css
     assert '#play-animation[aria-pressed="true"]' in css
-    assert 'button.av-reset-confirm' in css
-    assert 'select:focus-visible' in css
-    assert 'appearance:none' in css
+    assert "button.av-reset-confirm" in css
+    assert "select:focus-visible" in css
+    assert "appearance:none" in css
     assert "clamp(300px,30vw,380px)" in css
     assert "grid-template-rows:auto auto" in css
     assert ".control-label" in css
@@ -1170,7 +1215,9 @@ def test_server_animation_controller_precedes_business_scripts_and_replays() -> 
     parsed = BeautifulSoup(assemble_layout_contract(sample_html(), sample_plan()), "html.parser")
     scripts = parsed.body.find_all("script")
     controller_index = next(
-        index for index, script in enumerate(scripts) if script.get("data-aetherviz-animation-contract") == "controller-v1"
+        index
+        for index, script in enumerate(scripts)
+        if script.get("data-aetherviz-animation-contract") == "controller-v1"
     )
     business_index = next(index for index, script in enumerate(scripts) if "AetherVizRuntime" in script.get_text())
     controller_source = scripts[controller_index].get_text()
@@ -1196,14 +1243,18 @@ def test_layout_contract_checker_rejects_unassembled_model_html() -> None:
 def test_widget_contract_warns_about_call_only_gsap_timeline() -> None:
     from aetherviz_service.aetherviz.contracts.validation.widget_contract_checker import check_widget_runtime_contract
 
-    html = sample_html().replace(
-        "</head>",
-        '<script src="https://cdn.jsdelivr.net/npm/gsap@3/dist/gsap.min.js"></script></head>',
-    ).replace(
-        "const state = { progress: 0 };",
-        "const state = { progress: 0 }; const tl = gsap.timeline({paused:true}); "
-        "tl.call(() => updateVisualization()); tl.call(() => updateVisualization()); "
-        "if (!window.gsap) updateVisualization();",
+    html = (
+        sample_html()
+        .replace(
+            "</head>",
+            '<script src="https://cdn.jsdelivr.net/npm/gsap@3/dist/gsap.min.js"></script></head>',
+        )
+        .replace(
+            "const state = { progress: 0 };",
+            "const state = { progress: 0 }; const tl = gsap.timeline({paused:true}); "
+            "tl.call(() => updateVisualization()); tl.call(() => updateVisualization()); "
+            "if (!window.gsap) updateVisualization();",
+        )
     )
 
     report = check_widget_runtime_contract(html)
@@ -1214,14 +1265,18 @@ def test_widget_contract_warns_about_call_only_gsap_timeline() -> None:
 def test_widget_contract_accepts_duration_tween_in_gsap_timeline() -> None:
     from aetherviz_service.aetherviz.contracts.validation.widget_contract_checker import check_widget_runtime_contract
 
-    html = sample_html().replace(
-        "</head>",
-        '<script src="https://cdn.jsdelivr.net/npm/gsap@3/dist/gsap.min.js"></script></head>',
-    ).replace(
-        "const state = { progress: 0 };",
-        "const state = { progress: 0 }; const tl = gsap.timeline({paused:true}); "
-        "tl.to('#dot', {x: 20, duration: 0.6}).call(() => updateVisualization()); "
-        "if (!window.gsap) updateVisualization();",
+    html = (
+        sample_html()
+        .replace(
+            "</head>",
+            '<script src="https://cdn.jsdelivr.net/npm/gsap@3/dist/gsap.min.js"></script></head>',
+        )
+        .replace(
+            "const state = { progress: 0 };",
+            "const state = { progress: 0 }; const tl = gsap.timeline({paused:true}); "
+            "tl.to('#dot', {x: 20, duration: 0.6}).call(() => updateVisualization()); "
+            "if (!window.gsap) updateVisualization();",
+        )
     )
 
     report = check_widget_runtime_contract(html)
@@ -1302,16 +1357,20 @@ def test_generate_phase_skips_deterministic_when_only_model_fixable_errors(monke
         '<svg viewBox="0 0 100 100"><circle id="dot" cx="20" cy="50" r="8"></circle></svg>',
         '<div data-role="main-visual" id="main-visual-mount"></div>',
     )
-    fixed = sample_html().replace(
-        '<svg viewBox="0 0 100 100"><circle id="dot" cx="20" cy="50" r="8"></circle></svg>',
-        '<div data-role="main-visual" id="main-visual-mount"></div>',
-    ).replace(
-        "const state = { progress: 0 };",
-        "const MOUNT_ID = 'main-visual-mount';\n"
-        "const els = { mount: document.getElementById(MOUNT_ID) };\n"
-        "svgRoot = document.createElementNS('http://www.w3.org/2000/svg', 'svg');\n"
-        "els.mount.appendChild(svgRoot);\n"
-        "const state = { progress: 0 };",
+    fixed = (
+        sample_html()
+        .replace(
+            '<svg viewBox="0 0 100 100"><circle id="dot" cx="20" cy="50" r="8"></circle></svg>',
+            '<div data-role="main-visual" id="main-visual-mount"></div>',
+        )
+        .replace(
+            "const state = { progress: 0 };",
+            "const MOUNT_ID = 'main-visual-mount';\n"
+            "const els = { mount: document.getElementById(MOUNT_ID) };\n"
+            "svgRoot = document.createElementNS('http://www.w3.org/2000/svg', 'svg');\n"
+            "els.mount.appendChild(svgRoot);\n"
+            "const state = { progress: 0 };",
+        )
     )
     deterministic_calls = 0
 
@@ -1339,11 +1398,7 @@ def test_generate_phase_skips_deterministic_when_only_model_fixable_errors(monke
         json={"topic": "割圆法", "phase": "generate", "approved_plan": sample_plan("割圆法")},
     )
     events = parse_sse_events(response)
-    strategies = [
-        data["data"].get("strategy")
-        for event, data in events
-        if event == "repair.started"
-    ]
+    strategies = [data["data"].get("strategy") for event, data in events if event == "repair.started"]
 
     assert "deterministic" not in strategies
     assert deterministic_calls == 0
@@ -1388,9 +1443,7 @@ def test_generate_phase_rejects_stalled_model_repair_and_preserves_previous_html
 
     events = parse_sse_events(response)
     model_done = next(
-        data
-        for event, data in events
-        if event == "repair.done" and data["data"].get("strategy") == "model"
+        data for event, data in events if event == "repair.done" and data["data"].get("strategy") == "model"
     )
     error = next(data for event, data in events if event == "error")
     repair_source_event = next(data for event, data in events if event == "html.repair_source")
@@ -1477,9 +1530,7 @@ def test_generate_phase_marks_unchanged_model_repair(monkeypatch) -> None:
 
     events = parse_sse_events(response)
     model_done = next(
-        data
-        for event, data in events
-        if event == "repair.done" and data["data"].get("strategy") == "model"
+        data for event, data in events if event == "repair.done" and data["data"].get("strategy") == "model"
     )
 
     assert model_done["data"]["accepted"] is False
@@ -1528,16 +1579,21 @@ def test_generate_phase_runs_quality_repair_after_hard_error_is_repaired(monkeyp
     from aetherviz_service.aetherviz.generate import workflow as _generate_entry
     from aetherviz_service.aetherviz.generate.html_agent import HtmlStreamResult
 
-    risky_html = sample_html().replace(
-        "body{margin:0}",
-        ".app-shell{display:grid;grid-template-columns:1fr 320px}body{margin:0}"
-        ".axis-line{stroke:#333;stroke-width:1.5}.label-text{font-size:12px}",
-    ).replace(
-        '<svg viewBox="0 0 100 100">',
-        '<svg viewBox="-6 -6 12 12"><line class="axis-line"></line><text class="label-text">x</text>',
-    ).replace(
-        '<button id="play-animation">播放</button>',
-        '<button id="play-animation" onclick="window.AetherVizRuntime.play()">播放</button>',
+    risky_html = (
+        sample_html()
+        .replace(
+            "body{margin:0}",
+            ".app-shell{display:grid;grid-template-columns:1fr 320px}body{margin:0}"
+            ".axis-line{stroke:#333;stroke-width:1.5}.label-text{font-size:12px}",
+        )
+        .replace(
+            '<svg viewBox="0 0 100 100">',
+            '<svg viewBox="-6 -6 12 12"><line class="axis-line"></line><text class="label-text">x</text>',
+        )
+        .replace(
+            '<button id="play-animation">播放</button>',
+            '<button id="play-animation" onclick="window.AetherVizRuntime.play()">播放</button>',
+        )
     )
 
     def fake_stream(topic, plan):
@@ -1552,11 +1608,7 @@ def test_generate_phase_runs_quality_repair_after_hard_error_is_repaired(monkeyp
         json={"topic": "变量变化", "phase": "generate", "approved_plan": sample_plan("变量变化")},
     )
     events = parse_sse_events(response)
-    strategies = [
-        data["data"].get("strategy")
-        for event, data in events
-        if event == "repair.done"
-    ]
+    strategies = [data["data"].get("strategy") for event, data in events if event == "repair.done"]
     done = next(data for event, data in events if event == "html.done")
 
     assert strategies == ["deterministic"]
@@ -1567,13 +1619,16 @@ def test_edit_phase_applies_deterministic_quality_repair_without_model_rewrite(m
     from aetherviz_service.aetherviz.contracts import pipeline as generate_workflow
     from aetherviz_service.aetherviz.generate.html_agent import HtmlStreamResult
 
-    risky_html = sample_html().replace(
-        "body{margin:0}",
-        "body{margin:0}.axis-line{stroke:#333;stroke-width:1.5}.label-text{font-size:12px}",
-    ).replace(
-        '<svg viewBox="0 0 100 100">',
-        '<svg viewBox="-6 -6 12 12"><line class="axis-line"></line>'
-        '<text class="label-text">x</text>',
+    risky_html = (
+        sample_html()
+        .replace(
+            "body{margin:0}",
+            "body{margin:0}.axis-line{stroke:#333;stroke-width:1.5}.label-text{font-size:12px}",
+        )
+        .replace(
+            '<svg viewBox="0 0 100 100">',
+            '<svg viewBox="-6 -6 12 12"><line class="axis-line"></line><text class="label-text">x</text>',
+        )
     )
 
     def fail_model_repair(**kwargs):
@@ -1593,11 +1648,7 @@ def test_edit_phase_applies_deterministic_quality_repair_without_model_rewrite(m
     )
     response = type("SseResponse", (), {"text": "".join(raw_events)})()
     events = parse_sse_events(response)
-    strategies = [
-        data["data"].get("strategy")
-        for event, data in events
-        if event == "repair.done"
-    ]
+    strategies = [data["data"].get("strategy") for event, data in events if event == "repair.done"]
     done = next(data for event, data in events if event == "html.done")
 
     assert strategies == ["deterministic"]
@@ -1647,9 +1698,7 @@ def test_edit_html_always_regenerates_full_html_from_current_page(monkeypatch) -
 
     result = next(
         item
-        for item in edit_html_workflow._stream_edit_html(
-            topic="动画", message="点击播放没反应", current_html=source
-        )
+        for item in edit_html_workflow._stream_edit_html(topic="动画", message="点击播放没反应", current_html=source)
         if isinstance(item, HtmlStreamResult)
     )
 
@@ -1751,11 +1800,7 @@ def test_edit_html_rejects_truncated_full_output_without_partial_repair(monkeypa
     monkeypatch.setattr(edit_html_workflow, "create_chat_model", lambda kind: TruncatedModel())
 
     with pytest.raises(HtmlGenerationError) as exc_info:
-        list(
-            edit_html_workflow._stream_edit_html(
-                topic="动画", message="修改说明文字", current_html=sample_html()
-            )
-        )
+        list(edit_html_workflow._stream_edit_html(topic="动画", message="修改说明文字", current_html=sample_html()))
 
     assert exc_info.value.code == "edit_truncated"
     assert "原页面已保留" in exc_info.value.message
@@ -1805,14 +1850,11 @@ def test_edit_html_rejects_unchanged_regeneration(monkeypatch) -> None:
     monkeypatch.setattr(edit_html_workflow, "create_chat_model", lambda kind: UnchangedModel())
 
     with pytest.raises(HtmlGenerationError) as exc_info:
-        list(
-            edit_html_workflow._stream_edit_html(
-                topic="动画", message="把按钮改大", current_html=sample_html()
-            )
-        )
+        list(edit_html_workflow._stream_edit_html(topic="动画", message="把按钮改大", current_html=sample_html()))
 
     assert exc_info.value.code == "edit_intent_not_satisfied"
     assert "html_must_differ" in exc_info.value.detail or "html_unchanged" in exc_info.value.detail
+    assert "deterministic_validation:" in exc_info.value.detail
 
 
 def test_edit_html_layout_wording_reaches_model_instead_of_keyword_rejection(monkeypatch) -> None:
@@ -1851,11 +1893,7 @@ def test_edit_html_requires_model_configuration(monkeypatch) -> None:
     monkeypatch.setattr(settings, "openai_api_key", "")
 
     with pytest.raises(HtmlGenerationError) as exc_info:
-        list(
-            edit_html_workflow._stream_edit_html(
-                topic="动画", message="把按钮改大", current_html=sample_html()
-            )
-        )
+        list(edit_html_workflow._stream_edit_html(topic="动画", message="把按钮改大", current_html=sample_html()))
 
     assert exc_info.value.code == "model_unavailable"
 
@@ -1867,9 +1905,7 @@ def test_edit_html_preserves_widget_type_and_actions() -> None:
         "window.addEventListener('message', handleMessage);",
         "window.addEventListener('message', handleMessage); // SET_WIDGET_STATE HIGHLIGHT_ELEMENT",
     )
-    candidate = source.replace('"type":"simulation"', '"type":"diagram"').replace(
-        "HIGHLIGHT_ELEMENT", ""
-    )
+    candidate = source.replace('"type":"simulation"', '"type":"diagram"').replace("HIGHLIGHT_ELEMENT", "")
 
     errors = _edit_contract_errors(source, candidate)
 
@@ -2052,13 +2088,17 @@ def test_widget_contract_warns_about_fixed_sidebars_and_missing_stage_guards() -
 def test_widget_contract_warns_about_mixed_abstract_svg_units() -> None:
     from aetherviz_service.aetherviz.contracts.validation.widget_contract_checker import check_widget_runtime_contract
 
-    html = sample_html().replace(
-        "body{margin:0}",
-        "body{margin:0}.axis-line{stroke:#333;stroke-width:1.5}.label-text{font-size:12px}",
-    ).replace(
-        '<svg viewBox="0 0 100 100">',
-        '<svg viewBox="-6 -6 12 12"><line class="axis-line" x1="-6" y1="0" x2="6" y2="0"></line>'
-        '<text class="label-text">x</text>',
+    html = (
+        sample_html()
+        .replace(
+            "body{margin:0}",
+            "body{margin:0}.axis-line{stroke:#333;stroke-width:1.5}.label-text{font-size:12px}",
+        )
+        .replace(
+            '<svg viewBox="0 0 100 100">',
+            '<svg viewBox="-6 -6 12 12"><line class="axis-line" x1="-6" y1="0" x2="6" y2="0"></line>'
+            '<text class="label-text">x</text>',
+        )
     )
     from aetherviz_service.aetherviz.contracts.layout import assemble_layout_contract
 
@@ -2075,13 +2115,18 @@ def test_widget_contract_warns_about_mixed_abstract_svg_units() -> None:
 def test_svg_scale_guard_marker_alone_cannot_bypass_unit_validation() -> None:
     from aetherviz_service.aetherviz.contracts.validation.widget_contract_checker import check_widget_runtime_contract
 
-    html = sample_html().replace(
-        "body{margin:0}",
-        "body{margin:0}.axis-line{stroke:#333;stroke-width:1.5}.label-text{font-size:12px}",
-    ).replace(
-        '<svg viewBox="0 0 100 100">',
-        '<svg viewBox="-6 -6 12 12"><line class="axis-line"></line><text class="label-text">x</text>',
-    ).replace("</body>", '<script data-aetherviz-scale-guard="true"></script></body>')
+    html = (
+        sample_html()
+        .replace(
+            "body{margin:0}",
+            "body{margin:0}.axis-line{stroke:#333;stroke-width:1.5}.label-text{font-size:12px}",
+        )
+        .replace(
+            '<svg viewBox="0 0 100 100">',
+            '<svg viewBox="-6 -6 12 12"><line class="axis-line"></line><text class="label-text">x</text>',
+        )
+        .replace("</body>", '<script data-aetherviz-scale-guard="true"></script></body>')
+    )
 
     report = check_widget_runtime_contract(html)
     warning_types = {warning["type"] for warning in report["warnings"]}
@@ -2095,13 +2140,17 @@ def test_deterministic_quality_repair_adds_generic_svg_guard_under_server_layout
     from aetherviz_service.aetherviz.contracts.repair.deterministic import deterministic_repair_html
     from aetherviz_service.aetherviz.contracts.validation.report import build_validation_report
 
-    html = sample_html().replace(
-        "body{margin:0}",
-        ".app-shell{display:grid;grid-template-columns:1fr 320px}body{margin:0}"
-        ".axis-line{stroke:#333;stroke-width:1.5}.label-text{font-size:12px}",
-    ).replace(
-        '<svg viewBox="0 0 100 100">',
-        '<svg viewBox="-6 -6 12 12"><line class="axis-line"></line><text class="label-text">x</text>',
+    html = (
+        sample_html()
+        .replace(
+            "body{margin:0}",
+            ".app-shell{display:grid;grid-template-columns:1fr 320px}body{margin:0}"
+            ".axis-line{stroke:#333;stroke-width:1.5}.label-text{font-size:12px}",
+        )
+        .replace(
+            '<svg viewBox="0 0 100 100">',
+            '<svg viewBox="-6 -6 12 12"><line class="axis-line"></line><text class="label-text">x</text>',
+        )
     )
     from aetherviz_service.aetherviz.contracts.layout import assemble_layout_contract
 
@@ -2129,14 +2178,18 @@ def test_discipline_checker_accepts_runtime_svg_mounted_in_stage() -> None:
         check_discipline_consistency,
     )
 
-    html = sample_html().replace(
-        '<svg viewBox="0 0 100 100"><circle id="dot" cx="20" cy="50" r="8"></circle></svg>',
-        '<div data-role="main-visual"></div>',
-    ).replace(
-        "function updateVisualization(){",
-        "const mount=document.querySelector('[data-role=\"main-visual\"]');"
-        "const runtimeSvg=document.createElementNS('http://www.w3.org/2000/svg','svg');"
-        "mount.appendChild(runtimeSvg);function updateVisualization(){",
+    html = (
+        sample_html()
+        .replace(
+            '<svg viewBox="0 0 100 100"><circle id="dot" cx="20" cy="50" r="8"></circle></svg>',
+            '<div data-role="main-visual"></div>',
+        )
+        .replace(
+            "function updateVisualization(){",
+            "const mount=document.querySelector('[data-role=\"main-visual\"]');"
+            "const runtimeSvg=document.createElementNS('http://www.w3.org/2000/svg','svg');"
+            "mount.appendChild(runtimeSvg);function updateVisualization(){",
+        )
     )
     report = check_discipline_consistency(
         html,
@@ -2153,12 +2206,16 @@ def test_widget_contract_accepts_static_viewbox_for_attribute_only_redraw() -> N
     """Attribute-only updates stay within a designable envelope: static viewBox is preferred."""
     from aetherviz_service.aetherviz.contracts.validation.widget_contract_checker import check_widget_runtime_contract
 
-    html = sample_html().replace(
-        '<button id="play-animation">播放</button>',
-        '<input type="range" id="parameter-slider"><button id="play-animation">播放</button>',
-    ).replace(
-        "function updateVisualization(){",
-        "function updateVisualization(){ dot.setAttribute('x', state.progress);",
+    html = (
+        sample_html()
+        .replace(
+            '<button id="play-animation">播放</button>',
+            '<input type="range" id="parameter-slider"><button id="play-animation">播放</button>',
+        )
+        .replace(
+            "function updateVisualization(){",
+            "function updateVisualization(){ dot.setAttribute('x', state.progress);",
+        )
     )
 
     report = check_widget_runtime_contract(html)
@@ -2200,14 +2257,18 @@ def test_widget_contract_accepts_centered_static_geometry_viewbox() -> None:
 def test_widget_contract_does_not_treat_dynamic_text_labels_as_unknown_geometry() -> None:
     from aetherviz_service.aetherviz.contracts.validation.widget_contract_checker import check_widget_runtime_contract
 
-    html = sample_html().replace(
-        '<button id="play-animation">播放</button>',
-        '<input type="range" id="parameter-slider"><button id="play-animation">播放</button>',
-    ).replace(
-        "function updateVisualization(){",
-        "function updateVisualization(){ "
-        "const label = document.createElementNS('http://www.w3.org/2000/svg', 'text'); "
-        "document.querySelector('svg').appendChild(label);",
+    html = (
+        sample_html()
+        .replace(
+            '<button id="play-animation">播放</button>',
+            '<input type="range" id="parameter-slider"><button id="play-animation">播放</button>',
+        )
+        .replace(
+            "function updateVisualization(){",
+            "function updateVisualization(){ "
+            "const label = document.createElementNS('http://www.w3.org/2000/svg', 'text'); "
+            "document.querySelector('svg').appendChild(label);",
+        )
     )
 
     report = check_widget_runtime_contract(html)
@@ -2218,14 +2279,18 @@ def test_widget_contract_does_not_treat_dynamic_text_labels_as_unknown_geometry(
 def test_widget_contract_warns_when_structural_svg_mutation_keeps_static_viewbox() -> None:
     from aetherviz_service.aetherviz.contracts.validation.widget_contract_checker import check_widget_runtime_contract
 
-    html = sample_html().replace(
-        '<button id="play-animation">播放</button>',
-        '<input type="range" id="parameter-slider"><button id="play-animation">播放</button>',
-    ).replace(
-        "function updateVisualization(){",
-        "function updateVisualization(){ "
-        "const marker = document.createElementNS('http://www.w3.org/2000/svg', 'circle'); "
-        "document.querySelector('svg').appendChild(marker);",
+    html = (
+        sample_html()
+        .replace(
+            '<button id="play-animation">播放</button>',
+            '<input type="range" id="parameter-slider"><button id="play-animation">播放</button>',
+        )
+        .replace(
+            "function updateVisualization(){",
+            "function updateVisualization(){ "
+            "const marker = document.createElementNS('http://www.w3.org/2000/svg', 'circle'); "
+            "document.querySelector('svg').appendChild(marker);",
+        )
     )
 
     report = check_widget_runtime_contract(html)
@@ -2237,15 +2302,19 @@ def test_widget_contract_warns_when_structural_svg_mutation_keeps_static_viewbox
 def test_widget_contract_accepts_dynamic_viewbox_after_structural_mutation() -> None:
     from aetherviz_service.aetherviz.contracts.validation.widget_contract_checker import check_widget_runtime_contract
 
-    html = sample_html().replace(
-        '<button id="play-animation">播放</button>',
-        '<input type="range" id="parameter-slider"><button id="play-animation">播放</button>',
-    ).replace(
-        "function updateVisualization(){",
-        "function updateVisualization(){ "
-        "const marker = document.createElementNS('http://www.w3.org/2000/svg', 'circle'); "
-        "document.querySelector('svg').appendChild(marker); "
-        "const box = dot.getBBox(); document.querySelector('svg').setAttribute('viewBox', `${box.x} ${box.y} ${box.width} ${box.height}`);",
+    html = (
+        sample_html()
+        .replace(
+            '<button id="play-animation">播放</button>',
+            '<input type="range" id="parameter-slider"><button id="play-animation">播放</button>',
+        )
+        .replace(
+            "function updateVisualization(){",
+            "function updateVisualization(){ "
+            "const marker = document.createElementNS('http://www.w3.org/2000/svg', 'circle'); "
+            "document.querySelector('svg').appendChild(marker); "
+            "const box = dot.getBBox(); document.querySelector('svg').setAttribute('viewBox', `${box.x} ${box.y} ${box.width} ${box.height}`);",
+        )
     )
 
     report = check_widget_runtime_contract(html)
@@ -2314,7 +2383,7 @@ def test_repair_prompt_is_error_directed_and_does_not_force_unrelated_layout_cha
     prompt = build_repair_prompt(
         topic="勾股定理",
         plan=sample_plan("勾股定理"),
-        raw_html="<!DOCTYPE html><html><body><button onclick=\"go()\">播放</button></body></html>",
+        raw_html='<!DOCTYPE html><html><body><button onclick="go()">播放</button></body></html>',
         error_detail='{"errors":[{"type":"inline_event"}]}',
         source_label="确定性检查",
     )

@@ -187,7 +187,17 @@ def test_v4_flash_can_authorize_redesign_of_all_business_content(monkeypatch) ->
         "resolved_instruction": "重新设计全部教学文案、主视觉、业务控件、状态、渲染、事件和动画运行时",
         "change_requirements": ["全部业务内容采用新的教学与视觉方案"],
         "preserve_requirements": ["保持核心 Widget 运行契约"],
-        "impact_areas": ["shell_content", "dom", "css", "svg_canvas", "state", "render", "events", "animation", "runtime"],
+        "impact_areas": [
+            "shell_content",
+            "dom",
+            "css",
+            "svg_canvas",
+            "state",
+            "render",
+            "events",
+            "animation",
+            "runtime",
+        ],
         "acceptance_criteria": ["新课件完整可运行且各项交互可观察"],
         "ambiguities": [],
         "change_checks": [
@@ -300,7 +310,10 @@ def test_function_diagnosis_uses_server_verified_source_hash(monkeypatch) -> Non
     expected = extract_named_functions(_html())["play"][0].source_hash
     assert diagnosis.strategy == "full_html_regeneration"
     assert diagnosis.targets[0]["source_hash"] == expected
-    assert diagnosis.change_checks[0].kind == "function_body_changed"
+    function_check = next(check for check in diagnosis.change_checks if check.id == "c_fn")
+    assert function_check.kind == "function_body_changed"
+    assert function_check.severity == "soft"
+    assert "c_fn" in diagnosis.degraded_checks
 
 
 def test_diagnosis_resolves_conversational_reference_into_self_contained_instruction(monkeypatch) -> None:

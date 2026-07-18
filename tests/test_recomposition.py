@@ -111,13 +111,7 @@ def test_normalized_plan_overrides_stale_profile_and_classifies_state_variables(
 
 def test_normalized_recomposition_plan_always_preserves_piece_shape() -> None:
     plan = normalize_plan(
-        {
-            "recomposition_spec": {
-                "proof_constraints": {
-                    "measure_invariants": ["area_preserved", "length_preserved"]
-                }
-            }
-        },
+        {"recomposition_spec": {"proof_constraints": {"measure_invariants": ["area_preserved", "length_preserved"]}}},
         "组合图形切割重排证明",
     )
 
@@ -226,9 +220,7 @@ def test_target_assembly_rejects_scattered_candidate_and_selects_rectangle() -> 
         "op": "add",
         "args": [420, {"op": "mul", "args": [{"local": "i"}, 100]}],
     }
-    scattered["pieces"][0]["keyframes"][-1]["x"] = deepcopy(
-        scattered["pieces"][0]["target"]["x"]
-    )
+    scattered["pieces"][0]["keyframes"][-1]["x"] = deepcopy(scattered["pieces"][0]["target"]["x"])
 
     report = rank_geometry_ir_candidates([scattered, rectangle], plan)
 
@@ -332,11 +324,7 @@ def test_target_assembly_rejects_overlapping_source_and_canvas_overflow() -> Non
 def test_target_assembly_can_translate_an_otherwise_valid_target_into_canvas() -> None:
     plan = normalize_plan(
         {
-            "interactive_spec": {
-                "variables": [
-                    {"name": "sectorCount", "min": 4, "max": 32, "default": 8}
-                ]
-            },
+            "interactive_spec": {"variables": [{"name": "sectorCount", "min": 4, "max": 32, "default": 8}]},
             "recomposition_spec": {
                 "topology_variables": ["sectorCount"],
                 "proof_constraints": {
@@ -392,25 +380,17 @@ def test_target_assembly_can_translate_an_otherwise_valid_target_into_canvas() -
     repair = translate_target_assembly_into_canvas(geometry_ir, before)
     after = evaluate_target_assembly(repair["ir"], plan)
 
-    assert {item["type"] for item in before["errors"]} == {
-        "target_assembly_out_of_bounds"
-    }
+    assert {item["type"] for item in before["errors"]} == {"target_assembly_out_of_bounds"}
     assert repair["ok"] and repair["changed"]
     assert repair["translation"]["x"] < 0
     assert after["ok"], after
-    assert [item["rectangularity"] for item in after["states"]] == [
-        item["rectangularity"] for item in before["states"]
-    ]
-    assert [item["overlap_ratio"] for item in after["states"]] == [
-        item["overlap_ratio"] for item in before["states"]
-    ]
+    assert [item["rectangularity"] for item in after["states"]] == [item["rectangularity"] for item in before["states"]]
+    assert [item["overlap_ratio"] for item in after["states"]] == [item["overlap_ratio"] for item in before["states"]]
 
     from aetherviz_service.aetherviz.ir.recomposition import agent as recomposition_agent
 
     initial_ranking = rank_geometry_ir_candidates([geometry_ir], plan)
-    repaired_ranking, _ = recomposition_agent._attempt_target_bounds_completion(
-        [geometry_ir], plan, initial_ranking
-    )
+    repaired_ranking, _ = recomposition_agent._attempt_target_bounds_completion([geometry_ir], plan, initial_ranking)
     assert repaired_ranking["ok"]
     assert repaired_ranking["strategy"] == "deterministic_target_bounds_completion"
     assert repaired_ranking["target_bounds_completion"][0]["attempted"]
@@ -471,9 +451,7 @@ def test_explicit_target_assembly_does_not_use_generic_fallback_after_failed_rep
     monkeypatch.setattr(
         recomposition_agent,
         "_generate_scene_source",
-        lambda *_args: (_ for _ in ()).throw(
-            recomposition_agent.GeometryIRGenerationError("{}", failure_report)
-        ),
+        lambda *_args: (_ for _ in ()).throw(recomposition_agent.GeometryIRGenerationError("{}", failure_report)),
     )
     monkeypatch.setattr(
         recomposition_agent,
@@ -552,9 +530,7 @@ def test_geometry_ir_failure_reports_unique_actionable_reasons() -> None:
         }
     )
 
-    assert str(error) == (
-        "assembly:target_assembly_failed,teaching:missing_intermediate_geometry_stage"
-    )
+    assert str(error) == ("assembly:target_assembly_failed,teaching:missing_intermediate_geometry_stage")
     assert assembly == {
         "errors": [
             {
@@ -592,9 +568,7 @@ def test_scene_generation_selects_one_ir_from_single_three_candidate_response(
         yield {"content": json.dumps({"candidates": candidates}, ensure_ascii=False)}
 
     monkeypatch.setattr(recomposition_agent, "_stream_scene_response", fake_stream)
-    source, timed_out, ranking = recomposition_agent._generate_ranked_scene_source(
-        "组合图形面积切割重排证明", plan
-    )
+    source, timed_out, ranking = recomposition_agent._generate_ranked_scene_source("组合图形面积切割重排证明", plan)
     assert not timed_out
     assert ranking["ok"]
     assert len(ranking["candidates"]) == 3
@@ -618,9 +592,7 @@ def test_geometry_ir_checks_minimum_default_and_maximum_semantics() -> None:
     plan = normalize_plan(
         {
             "interactive_spec": {
-                "variables": [
-                    {"name": "radius", "label": "半径", "min": 0, "max": 8, "default": 4, "step": 1}
-                ]
+                "variables": [{"name": "radius", "label": "半径", "min": 0, "max": 8, "default": 4, "step": 1}]
             }
         },
         "弓形面积割补推导",
@@ -662,9 +634,7 @@ def test_geometry_ir_normalizes_only_unambiguous_dsl_aliases() -> None:
     plan = normalize_plan(
         {
             "interactive_spec": {
-                "variables": [
-                    {"name": "scale", "label": "尺度", "min": 1, "max": 8, "default": 4, "step": 1}
-                ]
+                "variables": [{"name": "scale", "label": "尺度", "min": 1, "max": 8, "default": 4, "step": 1}]
             }
         },
         "组合图形面积切割重排证明",
@@ -685,20 +655,14 @@ def test_geometry_ir_normalizes_strict_transport_and_expression_shorthand() -> N
     transport = {
         **geometry_ir,
         "definitions": [
-            *[
-                {"name": name, "value": value}
-                for name, value in geometry_ir["definitions"].items()
-            ],
+            *[{"name": name, "value": value} for name, value in geometry_ir["definitions"].items()],
             {"name": "negative", "value": {"neg": 12}},
         ],
         "pieces": [
             {
                 **geometry_ir["pieces"][0],
                 "repeat": geometry_ir["pieces"][0]["repeat"],
-                "attrs": [
-                    {"name": name, "value": value}
-                    for name, value in geometry_ir["pieces"][0]["attrs"].items()
-                ],
+                "attrs": [{"name": name, "value": value} for name, value in geometry_ir["pieces"][0]["attrs"].items()],
                 "keyframes": [],
             }
         ],
@@ -792,18 +756,16 @@ def test_semantic_evaluator_requires_independent_intermediate_geometry() -> None
     geometry_ir = build_deterministic_geometry_ir(plan)
     accepted = evaluate_recomposition_semantics(geometry_ir, plan)
     assert accepted["ok"]
-    assert {
-        check["state"]
-        for check in accepted["checks"]
-        if check.get("kind") == "intermediate_geometry"
-    } == {"minimum", "default", "maximum"}
+    assert {check["state"] for check in accepted["checks"] if check.get("kind") == "intermediate_geometry"} == {
+        "minimum",
+        "default",
+        "maximum",
+    }
 
     geometry_ir["pieces"][0].pop("keyframes")
     rejected = evaluate_recomposition_semantics(geometry_ir, plan)
     assert not rejected["ok"]
-    assert "missing_intermediate_geometry_stage" in {
-        item["type"] for item in rejected["errors"]
-    }
+    assert "missing_intermediate_geometry_stage" in {item["type"] for item in rejected["errors"]}
 
 
 def test_semantic_evaluator_rejects_text_stage_with_only_linear_geometry() -> None:
@@ -822,9 +784,7 @@ def test_intermediate_transform_evidence_reports_explainable_metrics() -> None:
         "id": "piece-0",
         "source": {"x": 100, "y": 100, "rotation": 0, "scale": 1, "opacity": 1},
         "target": {"x": 300, "y": 100, "rotation": 90, "scale": 1, "opacity": 1},
-        "keyframes": [
-            {"at": 0.5, "x": 200, "y": 100, "rotation": 45, "scale": 1, "opacity": 1}
-        ],
+        "keyframes": [{"at": 0.5, "x": 200, "y": 100, "rotation": 45, "scale": 1, "opacity": 1}],
     }
     evidence = evaluate_intermediate_transform_evidence(piece, 0.5)
     assert evidence["evidenced"] is False
@@ -864,10 +824,7 @@ def test_waypoint_completion_repairs_only_generic_intermediate_transform_evidenc
     for keyframe in geometry_ir["pieces"][0]["keyframes"][1:-1]:
         at = keyframe["at"]
         keyframe.update(
-            {
-                name: _test_lerp(source[name], target[name], at)
-                for name in ("x", "y", "rotation", "scale", "opacity")
-            }
+            {name: _test_lerp(source[name], target[name], at) for name in ("x", "y", "rotation", "scale", "opacity")}
         )
     before = evaluate_recomposition_semantics(geometry_ir, plan)
     assert not before["ok"]
@@ -1041,11 +998,35 @@ def test_mathematical_evaluator_computes_generic_relations() -> None:
                         "left": {"points": [_point("tri-a", 1), _point("tri-a", 0), _point("tri-a", 2)]},
                         "right": {"points": [_point("tri-b", 1), _point("tri-b", 0), _point("tri-b", 2)]},
                     },
-                    {"id": "parallel", "type": "parallel", "left": _segment("line-h", 0, 1), "right": _segment("line-h2", 0, 1)},
-                    {"id": "perpendicular", "type": "perpendicular", "left": _segment("line-h", 0, 1), "right": _segment("line-v", 0, 1)},
-                    {"id": "coincident", "type": "coincident", "left": _point("line-h", 1), "right": _point("line-h2", 0)},
-                    {"id": "collinear", "type": "collinear", "points": [_point("line-h", 0), _point("line-h", 1), _point("line-h2", 1)]},
-                    {"id": "congruent", "type": "congruent", "left": {"piece_id": "tri-a", "stage": "source"}, "right": {"piece_id": "tri-b", "stage": "target"}},
+                    {
+                        "id": "parallel",
+                        "type": "parallel",
+                        "left": _segment("line-h", 0, 1),
+                        "right": _segment("line-h2", 0, 1),
+                    },
+                    {
+                        "id": "perpendicular",
+                        "type": "perpendicular",
+                        "left": _segment("line-h", 0, 1),
+                        "right": _segment("line-v", 0, 1),
+                    },
+                    {
+                        "id": "coincident",
+                        "type": "coincident",
+                        "left": _point("line-h", 1),
+                        "right": _point("line-h2", 0),
+                    },
+                    {
+                        "id": "collinear",
+                        "type": "collinear",
+                        "points": [_point("line-h", 0), _point("line-h", 1), _point("line-h2", 1)],
+                    },
+                    {
+                        "id": "congruent",
+                        "type": "congruent",
+                        "left": {"piece_id": "tri-a", "stage": "source"},
+                        "right": {"piece_id": "tri-b", "stage": "target"},
+                    },
                 ],
             }
         },
@@ -1073,7 +1054,12 @@ def test_mathematical_evaluator_rejects_false_relation_and_warns_when_unavailabl
             "proof_constraints": {
                 "measure_invariants": [],
                 "target_relations": [
-                    {"id": "false-parallel", "type": "parallel", "left": _segment("line-h", 0, 1), "right": _segment("line-v", 0, 1)},
+                    {
+                        "id": "false-parallel",
+                        "type": "parallel",
+                        "left": _segment("line-h", 0, 1),
+                        "right": _segment("line-v", 0, 1),
+                    },
                     {
                         "id": "missing-piece",
                         "type": "coincident",
@@ -1242,7 +1228,10 @@ def _rectangular_assembly_ir(plan: dict[str, object]) -> dict[str, object]:
         },
         "y": {
             "op": "add",
-            "args": [260, {"op": "mul", "args": [{"op": "floor", "args": [{"op": "div", "args": [{"local": "i"}, 2]}]}, 30]}],
+            "args": [
+                260,
+                {"op": "mul", "args": [{"op": "floor", "args": [{"op": "div", "args": [{"local": "i"}, 2]}]}, 30]},
+            ],
         },
         "rotation": 0,
         "scale": 1,
@@ -1262,7 +1251,10 @@ def _rectangular_assembly_ir(plan: dict[str, object]) -> dict[str, object]:
                 {
                     "at": 0.5,
                     "x": {"op": "add", "args": [300, {"op": "mul", "args": [{"local": "i"}, 15]}]},
-                    "y": {"op": "add", "args": [170, {"op": "mul", "args": [{"op": "mod", "args": [{"local": "i"}, 2]}, 50]}]},
+                    "y": {
+                        "op": "add",
+                        "args": [170, {"op": "mul", "args": [{"op": "mod", "args": [{"local": "i"}, 2]}, 50]}],
+                    },
                     "rotation": 20,
                     "scale": 1,
                     "opacity": 1,
@@ -1391,9 +1383,7 @@ def test_server_scaffold_assembles_valid_bounded_html() -> None:
 
 
 def test_recomposition_regression_uses_project_html_hard_limit() -> None:
-    assert html_hard_validation_pass(
-        {"html_report": {"ok": True}, "business_chars": 24_469}, {}
-    )
+    assert html_hard_validation_pass({"html_report": {"ok": True}, "business_chars": 24_469}, {})
 
 
 def test_lifecycle_error_reports_full_call_chain_and_operation() -> None:
@@ -1441,10 +1431,7 @@ def test_function_patch_supports_arrow_and_object_methods() -> None:
     const loop = (now) => { state.progress = now; };
     const runtime = { setSpeed(value) { speed = value; } };
     </script>"""
-    descriptions = {
-        item["function"]: item
-        for item in describe_target_functions(html, ("loop", "setSpeed"))
-    }
+    descriptions = {item["function"]: item for item in describe_target_functions(html, ("loop", "setSpeed"))}
     result = apply_function_replacements(
         html,
         [
@@ -1483,10 +1470,10 @@ def test_function_repair_includes_scene_builder_for_variable_topology() -> None:
 
     assert target_functions_from_report(report) == ("updateView",)
     assert repair_function_targets(html, report) == ("updateView", "buildScene")
-    assert [
-        item["function"]
-        for item in describe_target_functions(html, repair_function_targets(html, report))
-    ] == ["updateView", "buildScene"]
+    assert [item["function"] for item in describe_target_functions(html, repair_function_targets(html, report))] == [
+        "updateView",
+        "buildScene",
+    ]
 
 
 def test_hard_repair_gate_rejects_truncation_and_new_fatal_errors() -> None:
@@ -1504,6 +1491,28 @@ def test_hard_repair_gate_rejects_truncation_and_new_fatal_errors() -> None:
     )
     assert not accepted
     assert reason == "new_fatal_errors:js_syntax"
+
+
+def test_hard_repair_gate_accepts_nonfatal_error_signature_progression() -> None:
+    baseline = {"ok": False, "errors": [{"type": "animation_controller_bypass"}]}
+    candidate = {"ok": False, "errors": [{"type": "animation_controller_missing_update"}]}
+
+    assert _accept_hard_repair_candidate(
+        baseline_report=baseline,
+        candidate_report=candidate,
+        candidate_truncated=False,
+    ) == (True, None)
+
+
+def test_hard_repair_gate_rejects_same_error_signature_without_reduction() -> None:
+    baseline = {"ok": False, "errors": [{"type": "animation_controller_bypass"}]}
+    candidate = {"ok": False, "errors": [{"type": "animation_controller_bypass"}]}
+
+    assert _accept_hard_repair_candidate(
+        baseline_report=baseline,
+        candidate_report=candidate,
+        candidate_truncated=False,
+    ) == (False, "no_hard_error_reduction")
 
 
 def test_hard_repair_report_excludes_quality_warnings() -> None:

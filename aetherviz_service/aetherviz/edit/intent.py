@@ -359,11 +359,16 @@ def _function_hash_changed(
         return False, "function_missing_name"
     baseline = baseline_functions.get(function_name) or []
     candidate = candidate_functions.get(function_name) or []
-    if len(baseline) != 1 or len(candidate) != 1:
+    if len(baseline) != 1:
+        return False, f"function_not_unique:{function_name}"
+    if expect_changed:
+        if not candidate:
+            return True, "function_removed_or_renamed"
+        changed = all(item.source_hash != baseline[0].source_hash for item in candidate)
+        return changed, "function_unchanged" if not changed else "function_body_changed"
+    if len(candidate) != 1:
         return False, f"function_not_unique:{function_name}"
     changed = baseline[0].source_hash != candidate[0].source_hash
-    if expect_changed:
-        return changed, "function_unchanged" if not changed else "function_body_changed"
     return (not changed), "function_drifted" if changed else "function_body_unchanged"
 
 

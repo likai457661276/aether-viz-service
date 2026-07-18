@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     aetherviz_repair_max_tokens: int = 16384
     aetherviz_max_repair_attempts: int = 1
     aetherviz_plan_max_tokens: int = 3072
-    aetherviz_edit_analysis_max_tokens: int = 1536
+    aetherviz_edit_analysis_max_tokens: int = 2048
     aetherviz_edit_analysis_timeout_seconds: int = 30
     aetherviz_edit_analysis_max_retries: int = 1
     aetherviz_edit_max_retries: int = 1

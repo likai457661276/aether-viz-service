@@ -19,7 +19,7 @@ def test_html_generation_thinking_disabled_by_default() -> None:
     assert settings.openai_repair_model == "deepseek-v4-flash"
     assert settings.openai_edit_analysis_model == "deepseek-v4-flash"
     assert settings.aetherviz_plan_max_tokens == 3072
-    assert settings.aetherviz_edit_analysis_max_tokens == 1536
+    assert settings.aetherviz_edit_analysis_max_tokens == 2048
     assert settings.aetherviz_edit_analysis_timeout_seconds == 30
     assert settings.aetherviz_html_max_tokens == 16384
     assert settings.aetherviz_edit_max_tokens == 16384

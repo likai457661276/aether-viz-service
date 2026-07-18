@@ -63,9 +63,7 @@ def normalize_representation_spec(
     states = _normalize_states(source.get("state_variables"), interactive_spec)
     correspondences = _normalize_correspondences(source.get("correspondences"), views, states)
     invariants = _string_enum_list(source.get("required_invariants"), INVARIANT_TYPES, 12)
-    interactions = _string_enum_list(
-        source.get("interaction_requirements"), INTERACTION_REQUIREMENTS, 8
-    )
+    interactions = _string_enum_list(source.get("interaction_requirements"), INTERACTION_REQUIREMENTS, 8)
 
     representation = str(knowledge_profile.get("representation_type") or "")
     semantic_text = _semantic_text(topic, discipline_spec, interactive_spec)
@@ -88,6 +86,12 @@ def normalize_representation_spec(
         representation=representation,
         semantic_text=semantic_text,
     )
+    invariants = _normalize_invariant_compatibility(
+        invariants,
+        representation=representation,
+        states=states,
+        correspondences=correspondences,
+    )
 
     if not interactions and interactive_spec.get("type") == "simulation":
         interactions = ["scrub", "play", "pause", "reset"]
@@ -99,6 +103,32 @@ def normalize_representation_spec(
         "required_invariants": invariants,
         "interaction_requirements": interactions,
     }
+
+
+def _normalize_invariant_compatibility(
+    invariants: list[str],
+    *,
+    representation: str,
+    states: list[dict[str, Any]],
+    correspondences: list[dict[str, str]],
+) -> list[str]:
+    """Remove topology invariants that contradict parameter-driven construction.
+
+    Piece identity/count/congruence describe a fixed recomposition topology. They
+    cannot be hard requirements when a discrete construction parameter changes
+    the number of generated vertices or edges.
+    """
+
+    recomposition = representation == "geometric_recomposition" or any(
+        item.get("type") == "decompose_recompose" for item in correspondences
+    )
+    topology_changes = representation == "geometric_construction" and any(
+        item.get("semantic_type") == "discrete" for item in states
+    )
+    if recomposition or not topology_changes:
+        return invariants
+    incompatible = {"piece_identity_preserved", "piece_count_constant", "piece_congruence"}
+    return [item for item in invariants if item not in incompatible]
 
 
 def _augment_linked_correspondence(
@@ -120,8 +150,10 @@ def _augment_linked_correspondence(
         and any(cue in semantic_text for cue in _GRAPH_CONCEPTS)
         and any(cue in semantic_text for cue in _SOURCE_MOTIONS)
     )
-    if len(coordinate_views) != 1 or len(source_views) != 1 or not (
-        representation == "linked_coordinate_scene" or semantic_linked
+    if (
+        len(coordinate_views) != 1
+        or len(source_views) != 1
+        or not (representation == "linked_coordinate_scene" or semantic_linked)
     ):
         return correspondences, invariants
     relation = "point_on_curve" if "point_on_curve" in invariants else "equal_value"
@@ -320,7 +352,10 @@ def _semantic_text(topic: str, discipline: dict[str, Any], interactive: dict[str
 
 
 def _infer_state_type(item: dict[str, Any], source: dict[str, Any]) -> str:
-    text = " ".join(str(value) for value in (item.get("id"), source.get("name"), source.get("label"), item.get("unit"), source.get("unit"))).lower()
+    text = " ".join(
+        str(value)
+        for value in (item.get("id"), source.get("name"), source.get("label"), item.get("unit"), source.get("unit"))
+    ).lower()
     if any(cue in text for cue in ("angle", "theta", "角", "°", "deg", "rad")):
         return "angle"
     if any(cue in text for cue in ("time", "时间", "秒")):

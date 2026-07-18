@@ -13,12 +13,8 @@ from aetherviz_service.aetherviz.tools.javascript_object import (
 )
 
 _FUNCTION_START_RE = re.compile(r"\bfunction\s+([A-Za-z_$][\w$]*)\s*\([^)]*\)\s*\{")
-_OBJECT_FUNCTION_START_RE = re.compile(
-    r"\b([A-Za-z_$][\w$]*)\s*:\s*function\s*\([^)]*\)\s*\{"
-)
-_OBJECT_METHOD_START_RE = re.compile(
-    r"(?:(?<=\{)|(?<=,))\s*([A-Za-z_$][\w$]*)\s*\([^)]*\)\s*\{"
-)
+_OBJECT_FUNCTION_START_RE = re.compile(r"\b([A-Za-z_$][\w$]*)\s*:\s*function\s*\([^)]*\)\s*\{")
+_OBJECT_METHOD_START_RE = re.compile(r"(?:(?<=\{)|(?<=,))\s*([A-Za-z_$][\w$]*)\s*\([^)]*\)\s*\{")
 _VARIABLE_ARROW_START_RE = re.compile(
     r"\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*"
     r"(?:async\s*)?(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*=>\s*\{"
@@ -37,9 +33,8 @@ _STRUCTURAL_MUTATION_RE = re.compile(
 )
 _CALL_RE = re.compile(r"\b([A-Za-z_$][\w$]*)\s*\(")
 _IGNORED_CALLS = {"if", "for", "while", "switch", "catch", "function"}
-_LEADING_NUMBER_RE = re.compile(
-    r"(?:\s|//[^\r\n]*(?:\r?\n|$)|/\*[\s\S]*?\*/)*(\d+(?:\.\d+)?)\b"
-)
+_LEADING_NUMBER_RE = re.compile(r"(?:\s|//[^\r\n]*(?:\r?\n|$)|/\*[\s\S]*?\*/)*(\d+(?:\.\d+)?)\b")
+_CONTROLLER_METHODS = {"play", "pause", "reset", "restart", "setSpeed", "getProgress", "setProgress"}
 
 
 def check_animation_lifecycle(
@@ -127,9 +122,7 @@ def check_animation_lifecycle(
         re.search(r"createElement\s*\(\s*['\"]canvas['\"]", business_script_text, re.IGNORECASE)
     )
     enforce_shared_controller = (
-        isinstance(plan, dict)
-        and plan.get("interactive_type") == "simulation"
-        and not has_canvas_runtime
+        isinstance(plan, dict) and plan.get("interactive_type") == "simulation" and not has_canvas_runtime
     )
     _check_playback_api_effects(
         business_script_text,
@@ -183,9 +176,7 @@ def _check_playback_api_effects(
     functions = _extract_function_bodies(script_text)
     set_speed = functions.get("setSpeed")
     if set_speed is not None:
-        meaningful = bool(
-            re.search(r"(?:\.setSpeed\s*\(|\.timeScale\s*\(|\bspeed\s*=|\bplaybackRate\s*=)", set_speed)
-        )
+        meaningful = bool(re.search(r"(?:\.setSpeed\s*\(|\.timeScale\s*\(|\bspeed\s*=|\bplaybackRate\s*=)", set_speed))
         if not meaningful:
             warnings.append(
                 _issue(
@@ -222,8 +213,7 @@ def _check_animation_controller_contract(
             warnings.append(
                 _issue(
                     "animation_controller_contract_uncertain",
-                    "无法可靠解析 AetherVizAnimationController.create 的 options；"
-                    "已保留页面并将该项降级为质量提示。",
+                    "无法可靠解析 AetherVizAnimationController.create 的 options；已保留页面并将该项降级为质量提示。",
                     confidence="low",
                     blocking=False,
                     line=_line_number(script_text, match.start()),
@@ -236,8 +226,7 @@ def _check_animation_controller_contract(
             warnings.append(
                 _issue(
                     "animation_controller_contract_uncertain",
-                    "无法可靠识别动画控制器 options 的顶层字段；"
-                    "已保留页面并将该项降级为质量提示。",
+                    "无法可靠识别动画控制器 options 的顶层字段；已保留页面并将该项降级为质量提示。",
                     confidence="low",
                     blocking=False,
                     line=_line_number(script_text, match.start()),
@@ -273,9 +262,7 @@ def _check_animation_controller_contract(
             None,
         )
         duration = (
-            _LEADING_NUMBER_RE.match(
-                script_text[duration_property.value_start : duration_property.segment_end]
-            )
+            _LEADING_NUMBER_RE.match(script_text[duration_property.value_start : duration_property.segment_end])
             if duration_property is not None
             else None
         )
@@ -298,9 +285,7 @@ def _check_animation_controller_contract(
 
     functions = _extract_function_bodies(script_text)
     for name, body in functions.items():
-        if not re.search(
-            r"\breturn\s+(?:window\.)?AetherVizAnimationController\.create\s*\(", body
-        ):
+        if not re.search(r"\breturn\s+(?:window\.)?AetherVizAnimationController\.create\s*\(", body):
             continue
         lifecycle_calls = set(
             re.findall(
@@ -317,6 +302,27 @@ def _check_animation_controller_contract(
                     "play/pause/reset/setSpeed 必须共享同一控制器实例。",
                     factory=name,
                     actions=sorted(lifecycle_calls),
+                )
+            )
+
+    controller_variables = set(
+        re.findall(
+            r"\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*"
+            r"(?:window\.)?AetherVizAnimationController\.create\s*\(",
+            script_text,
+        )
+    )
+    for variable in sorted(controller_variables):
+        used_methods = set(re.findall(rf"\b{re.escape(variable)}\s*\.\s*([A-Za-z_$][\w$]*)\s*\(", script_text))
+        unsupported = sorted(used_methods - _CONTROLLER_METHODS)
+        if unsupported:
+            errors.append(
+                _issue(
+                    "animation_controller_unsupported_method",
+                    f"AetherVizAnimationController controller-v1 不支持方法：{', '.join(unsupported)}；"
+                    "只能调用 play/pause/reset/restart/setSpeed/getProgress/setProgress。",
+                    controller=variable,
+                    methods=unsupported,
                 )
             )
 

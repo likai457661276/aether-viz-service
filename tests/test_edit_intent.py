@@ -112,6 +112,31 @@ def test_function_body_changed_and_preserve() -> None:
     assert extract_named_functions(candidate)["play"][0].source_hash != play_hash
 
 
+def test_function_body_changed_accepts_deletion_or_rename() -> None:
+    baseline = _baseline()
+    candidate = baseline.replace(
+        "function play(){window.started=true}",
+        "function startAnimation(){window.started=true}",
+    )
+
+    evaluation = evaluate_edit_intent(
+        baseline_html=baseline,
+        candidate_html=candidate,
+        change_checks=(
+            IntentCheck(
+                id="c1",
+                kind="function_body_changed",
+                function="play",
+                severity="soft",
+                group="change",
+            ),
+        ),
+    )
+
+    assert evaluation.ok
+    assert evaluation.passed[0].message == "function_removed_or_renamed"
+
+
 def test_unchanged_candidate_fails_hard() -> None:
     baseline = _baseline()
     evaluation = evaluate_edit_intent(

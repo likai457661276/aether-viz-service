@@ -72,7 +72,11 @@ def test_all_knowledge_profile_representations_have_prompt_modules(representatio
     from aetherviz_service.aetherviz.agents.instructions import system_prompt_for_interactive_type
 
     prompt = system_prompt_for_interactive_type(
-        {"interactive_type": "diagram", "subject": "general", "knowledge_profile": {"representation_type": representation}}
+        {
+            "interactive_type": "diagram",
+            "subject": "general",
+            "knowledge_profile": {"representation_type": representation},
+        }
     )
 
     assert marker in prompt
@@ -106,9 +110,7 @@ def test_security_rejects_tailwind_d3_and_unconfigured_katex() -> None:
 
 def test_security_rejects_allowlisted_url_with_query_and_network_apis() -> None:
     query_url = f"{settings.aetherviz_gsap_cdn_url}?unexpected=1"
-    query_report = check_security(
-        f'<!DOCTYPE html><html><head><script src="{query_url}"></script></head></html>'
-    )
+    query_report = check_security(f'<!DOCTYPE html><html><head><script src="{query_url}"></script></head></html>')
     fetch_report = check_security(
         "<!DOCTYPE html><html><body><script>fetch('https://example.com/data')</script></body></html>"
     )
@@ -126,7 +128,7 @@ def test_security_rejects_protocol_relative_data_and_obfuscated_javascript_urls(
     data_url = check_security('<!DOCTYPE html><html><img src="data:image/svg+xml,<svg></svg>"></html>')
     obfuscated_js = check_security('<!DOCTYPE html><html><a href="java\nscript:alert(1)">x</a></html>')
     srcset = check_security('<!DOCTYPE html><html><img srcset="/safe.png 1x, //evil.example/x.png 2x"></html>')
-    css_url = check_security('<!DOCTYPE html><html><style>.x{background:url(//evil.example/x.png)}</style></html>')
+    css_url = check_security("<!DOCTYPE html><html><style>.x{background:url(//evil.example/x.png)}</style></html>")
 
     assert all(not report["ok"] for report in (protocol_relative, data_url, obfuscated_js, srcset, css_url))
 
@@ -141,13 +143,17 @@ def test_security_scans_forbidden_patterns_only_in_executable_scripts() -> None:
 
 def test_widget_contract_warns_when_katex_has_no_fallback(monkeypatch) -> None:
     monkeypatch.setattr(settings, "aetherviz_katex_enabled", True)
-    html = sample_html().replace(
-        "</head>",
-        f'<link rel="stylesheet" href="{settings.aetherviz_katex_css_url}">'
-        f'<script src="{settings.aetherviz_katex_js_url}"></script></head>',
-    ).replace(
-        '<p id="animation-caption">',
-        '<div data-region="formula">a^2+b^2=c^2</div><p id="animation-caption">',
+    html = (
+        sample_html()
+        .replace(
+            "</head>",
+            f'<link rel="stylesheet" href="{settings.aetherviz_katex_css_url}">'
+            f'<script src="{settings.aetherviz_katex_js_url}"></script></head>',
+        )
+        .replace(
+            '<p id="animation-caption">',
+            '<div data-region="formula">a^2+b^2=c^2</div><p id="animation-caption">',
+        )
     )
 
     report = check_widget_runtime_contract(html)
@@ -157,17 +163,22 @@ def test_widget_contract_warns_when_katex_has_no_fallback(monkeypatch) -> None:
 
 def test_widget_contract_rejects_visible_unrendered_math_delimiters(monkeypatch) -> None:
     monkeypatch.setattr(settings, "aetherviz_katex_enabled", True)
-    html = sample_html().replace(
-        "</head>",
-        f'<link rel="stylesheet" href="{settings.aetherviz_katex_css_url}">'
-        f'<script src="{settings.aetherviz_katex_js_url}"></script></head>',
-    ).replace(
-        '<p id="animation-caption">',
-        '<div data-region="formula">当前角度：$\\theta$</div><p id="animation-caption">',
-    ).replace(
-        "window.__AETHERVIZ_RUNTIME_READY__ = true;",
-        "if (window.katex) { katex.render('x', document.querySelector('[data-region=formula]')); }\n"
-        "window.__AETHERVIZ_RUNTIME_READY__ = true;",
+    html = (
+        sample_html()
+        .replace(
+            "</head>",
+            f'<link rel="stylesheet" href="{settings.aetherviz_katex_css_url}">'
+            f'<script src="{settings.aetherviz_katex_js_url}"></script></head>',
+        )
+        .replace(
+            '<p id="animation-caption">',
+            '<div data-region="formula">当前角度：$\\theta$</div><p id="animation-caption">',
+        )
+        .replace(
+            "window.__AETHERVIZ_RUNTIME_READY__ = true;",
+            "if (window.katex) { katex.render('x', document.querySelector('[data-region=formula]')); }\n"
+            "window.__AETHERVIZ_RUNTIME_READY__ = true;",
+        )
     )
 
     report = check_widget_runtime_contract(html)
@@ -177,14 +188,18 @@ def test_widget_contract_rejects_visible_unrendered_math_delimiters(monkeypatch)
 
 def test_deterministic_repair_converts_visible_math_to_explicit_katex_targets(monkeypatch) -> None:
     monkeypatch.setattr(settings, "aetherviz_katex_enabled", True)
-    html = sample_html().replace(
-        "</head>",
-        f'<link rel="stylesheet" href="{settings.aetherviz_katex_css_url}">'
-        f'<script src="{settings.aetherviz_katex_js_url}"></script></head>',
-    ).replace(
-        '<p id="animation-caption">当前步骤：观察。</p>',
-        '<p id="animation-caption">观察角度 $\\theta$、点 $P$ 与点 $Q$。</p>'
-        '<div data-region="formula">$$\\sin(\\theta)=y$$</div>',
+    html = (
+        sample_html()
+        .replace(
+            "</head>",
+            f'<link rel="stylesheet" href="{settings.aetherviz_katex_css_url}">'
+            f'<script src="{settings.aetherviz_katex_js_url}"></script></head>',
+        )
+        .replace(
+            '<p id="animation-caption">当前步骤：观察。</p>',
+            '<p id="animation-caption">观察角度 $\\theta$、点 $P$ 与点 $Q$。</p>'
+            '<div data-region="formula">$$\\sin(\\theta)=y$$</div>',
+        )
     )
     report = check_widget_runtime_contract(html)
     assert any(error["type"] == "unrendered_math_delimiter" for error in report["errors"])
@@ -195,7 +210,7 @@ def test_deterministic_repair_converts_visible_math_to_explicit_katex_targets(mo
     assert 'data-aetherviz-katex-contract="true"' in repaired
     assert 'data-katex="\\theta"' in repaired
     assert 'data-katex-display="true"' in repaired
-    assert '>θ</span>' in repaired
+    assert ">θ</span>" in repaired
     assert not any(error["type"] == "unrendered_math_delimiter" for error in repaired_report["errors"])
 
 
@@ -271,8 +286,7 @@ def test_deterministic_repair_injects_missing_runtime_methods() -> None:
     repaired_report = check_widget_runtime_contract(repaired)
 
     assert not any(
-        error["type"] in {"missing_runtime", "missing_runtime_method"}
-        for error in repaired_report["errors"]
+        error["type"] in {"missing_runtime", "missing_runtime_method"} for error in repaired_report["errors"]
     )
     assert 'if(typeof r.getState!=="function")' in repaired
 
@@ -310,9 +324,7 @@ def test_deterministic_repair_guards_nullable_preserved_child() -> None:
     repaired_report = check_widget_runtime_contract(repaired)
 
     assert "if(sentinel instanceof Node){layer.appendChild(sentinel)}" in repaired
-    assert not any(
-        error["type"] == "unstable_preserved_child" for error in repaired_report["errors"]
-    )
+    assert not any(error["type"] == "unstable_preserved_child" for error in repaired_report["errors"])
 
 
 def test_deterministic_repair_adds_guarded_runtime_ready_marker() -> None:
@@ -329,10 +341,14 @@ def test_deterministic_repair_adds_guarded_runtime_ready_marker() -> None:
 
 
 def test_runtime_ready_repair_preserves_model_widget_config() -> None:
-    html = sample_html().replace(
-        '{"type":"simulation","concept":"熵增"}',
-        '{"type":"simulation","concept":"熵增","initial_state":{"sides":6}}',
-    ).replace("window.__AETHERVIZ_RUNTIME_READY__ = true;", "")
+    html = (
+        sample_html()
+        .replace(
+            '{"type":"simulation","concept":"熵增"}',
+            '{"type":"simulation","concept":"熵增","initial_state":{"sides":6}}',
+        )
+        .replace("window.__AETHERVIZ_RUNTIME_READY__ = true;", "")
+    )
     report = _validate(assemble_layout_contract(html, sample_plan()), plan=sample_plan(), model_html=html)
 
     repaired = deterministic_repair_html(html, {"errors": report["errors"]}, plan=sample_plan())
@@ -344,8 +360,7 @@ def test_runtime_ready_repair_preserves_model_widget_config() -> None:
 def test_missing_widget_config_repair_merges_runtime_only_fields() -> None:
     html = sample_html().replace(
         '{"type":"simulation","concept":"熵增"}',
-        '{"interactive_type":"simulation","initial_state":{"sides":6},'
-        '"animation_config":{"max_sides":96}}',
+        '{"interactive_type":"simulation","initial_state":{"sides":6},"animation_config":{"max_sides":96}}',
     )
 
     repaired = deterministic_repair_html(
@@ -468,9 +483,7 @@ def test_model_length_rejects_only_above_42000_character_hard_limit() -> None:
     assert hard_limit_report["ok"] is True
     assert hard_limit_report["errors"] == []
     assert over_hard_limit_report["ok"] is False
-    assert any(
-        error["type"] == "html_length_hard_limit" for error in over_hard_limit_report["errors"]
-    )
+    assert any(error["type"] == "html_length_hard_limit" for error in over_hard_limit_report["errors"])
 
 
 def test_model_length_ignores_deterministic_guard_overhead() -> None:
@@ -544,13 +557,17 @@ def test_svg_simulation_rejects_business_raf_controller_bypass() -> None:
 
 
 def test_canvas_simulation_keeps_custom_raf_as_non_blocking_warning() -> None:
-    html = sample_html().replace(
-        '<svg viewBox="0 0 100 100"><circle id="dot" cx="20" cy="50" r="8"></circle></svg>',
-        '<canvas id="stage-canvas"></canvas>',
-    ).replace(
-        "function play(){ updateVisualization(); }",
-        "function frame(){ updateVisualization(); requestAnimationFrame(frame); }"
-        "function play(){ requestAnimationFrame(frame); }",
+    html = (
+        sample_html()
+        .replace(
+            '<svg viewBox="0 0 100 100"><circle id="dot" cx="20" cy="50" r="8"></circle></svg>',
+            '<canvas id="stage-canvas"></canvas>',
+        )
+        .replace(
+            "function play(){ updateVisualization(); }",
+            "function frame(){ updateVisualization(); requestAnimationFrame(frame); }"
+            "function play(){ requestAnimationFrame(frame); }",
+        )
     )
 
     report = check_animation_lifecycle(html, plan=sample_plan())
@@ -573,10 +590,7 @@ def test_animation_lifecycle_rejects_bound_gsap_tween_context_mismatch() -> None
 
     report = check_animation_lifecycle(html)
 
-    assert any(
-        error["type"] == "bound_gsap_callback_context_mismatch"
-        for error in report["errors"]
-    )
+    assert any(error["type"] == "bound_gsap_callback_context_mismatch" for error in report["errors"])
 
 
 def test_animation_lifecycle_detects_no_op_object_set_speed() -> None:
@@ -718,6 +732,20 @@ def test_animation_lifecycle_rejects_ephemeral_controller_across_actions() -> No
     assert errors[0]["actions"] == ["pause", "play", "reset"]
 
 
+def test_animation_lifecycle_rejects_unsupported_controller_methods() -> None:
+    html = """<script>
+    const controller=window.AetherVizAnimationController.create({duration:8,update:draw});
+    function cleanup(){controller.destroy();}
+    function play(){controller.play();}
+    </script>"""
+
+    errors = check_animation_lifecycle(html)["errors"]
+
+    unsupported = next(item for item in errors if item["type"] == "animation_controller_unsupported_method")
+    assert unsupported["controller"] == "controller"
+    assert unsupported["methods"] == ["destroy"]
+
+
 def test_animation_lifecycle_warns_about_unchecked_dynamic_node_registry() -> None:
     html = sample_html().replace(
         "function updateVisualization(){",
@@ -730,10 +758,7 @@ def test_animation_lifecycle_warns_about_unchecked_dynamic_node_registry() -> No
 
     report = check_animation_lifecycle(html)
 
-    assert any(
-        warning["type"] == "unchecked_animation_node_registry"
-        for warning in report["warnings"]
-    )
+    assert any(warning["type"] == "unchecked_animation_node_registry" for warning in report["warnings"])
 
 
 def test_animation_lifecycle_warns_about_duplicate_geometry_rotation_encoding() -> None:
@@ -753,10 +778,7 @@ def test_animation_lifecycle_warns_about_duplicate_geometry_rotation_encoding() 
 
     report = check_animation_lifecycle(html)
 
-    assert any(
-        warning["type"] == "duplicate_geometry_transform_encoding"
-        for warning in report["warnings"]
-    )
+    assert any(warning["type"] == "duplicate_geometry_transform_encoding" for warning in report["warnings"])
 
     repaired = deterministic_repair_html(html, {"errors": [], "warnings": report["warnings"]})
     repaired_report = check_animation_lifecycle(repaired)
@@ -764,75 +786,105 @@ def test_animation_lifecycle_warns_about_duplicate_geometry_rotation_encoding() 
     assert "const startAngle= -angleStep/2;" in repaired
     assert "const endAngle= angleStep/2;" in repaired
     assert not any(
-        warning["type"] == "duplicate_geometry_transform_encoding"
-        for warning in repaired_report["warnings"]
+        warning["type"] == "duplicate_geometry_transform_encoding" for warning in repaired_report["warnings"]
     )
 
 
 def test_widget_contract_detects_direct_gsap_without_business_fallback_after_assembly() -> None:
-    html = sample_html().replace(
-        "</head>",
-        '<script src="https://cdn.jsdelivr.net/npm/gsap@3/dist/gsap.min.js"></script></head>',
-    ).replace(
-        "function updateVisualization(){",
-        "const timeline=gsap.timeline({paused:true}); timeline.to('#dot',{x:20,duration:1});\n"
-        "function updateVisualization(){",
+    html = (
+        sample_html()
+        .replace(
+            "</head>",
+            '<script src="https://cdn.jsdelivr.net/npm/gsap@3/dist/gsap.min.js"></script></head>',
+        )
+        .replace(
+            "function updateVisualization(){",
+            "const timeline=gsap.timeline({paused:true}); timeline.to('#dot',{x:20,duration:1});\n"
+            "function updateVisualization(){",
+        )
     )
 
     report = check_widget_runtime_contract(assemble_layout_contract(html, sample_plan()))
 
-    assert any(
-        warning["type"] == "missing_animation_controller_fallback"
-        for warning in report["warnings"]
-    )
+    assert any(warning["type"] == "missing_animation_controller_fallback" for warning in report["warnings"])
 
 
 def test_widget_contract_detects_gsap_mutating_serialized_runtime_state() -> None:
-    html = sample_html().replace(
-        "</head>",
-        '<script src="https://cdn.jsdelivr.net/npm/gsap@3/dist/gsap.min.js"></script></head>',
-    ).replace(
-        "function play(){ updateVisualization(); }",
-        "function play(){ gsap.to(state,{progress:1,duration:1}); }",
-    ).replace(
-        "getState: () => state",
-        "getState: () => ({ ...state })",
+    html = (
+        sample_html()
+        .replace(
+            "</head>",
+            '<script src="https://cdn.jsdelivr.net/npm/gsap@3/dist/gsap.min.js"></script></head>',
+        )
+        .replace(
+            "function play(){ updateVisualization(); }",
+            "function play(){ gsap.to(state,{progress:1,duration:1}); }",
+        )
+        .replace(
+            "getState: () => state",
+            "getState: () => ({ ...state })",
+        )
     )
 
     report = check_widget_runtime_contract(assemble_layout_contract(html, sample_plan()))
 
-    assert any(
-        warning["type"] == "gsap_mutates_serialized_state"
-        for warning in report["warnings"]
-    )
+    assert any(warning["type"] == "gsap_mutates_serialized_state" for warning in report["warnings"])
 
 
 def test_widget_contract_accepts_shared_animation_controller_fallback() -> None:
-    html = sample_html().replace(
-        "</head>",
-        '<script src="https://cdn.jsdelivr.net/npm/gsap@3/dist/gsap.min.js"></script></head>',
-    ).replace(
-        "function updateVisualization(){",
-        "const controller=window.AetherVizAnimationController.create({duration:1,update:()=>applyView()});\n"
-        "function applyView(){}\nfunction updateVisualization(){",
+    html = (
+        sample_html()
+        .replace(
+            "</head>",
+            '<script src="https://cdn.jsdelivr.net/npm/gsap@3/dist/gsap.min.js"></script></head>',
+        )
+        .replace(
+            "function updateVisualization(){",
+            "const controller=window.AetherVizAnimationController.create({duration:1,update:()=>applyView()});\n"
+            "function applyView(){}\nfunction updateVisualization(){",
+        )
     )
 
     report = check_widget_runtime_contract(assemble_layout_contract(html, sample_plan()))
 
-    assert not any(
-        warning["type"] == "missing_animation_controller_fallback"
-        for warning in report["warnings"]
-    )
+    assert not any(warning["type"] == "missing_animation_controller_fallback" for warning in report["warnings"])
 
 
 def test_widget_contract_rejects_business_animation_controller_shadowing() -> None:
+    html = (
+        sample_html()
+        .replace(
+            "</head>",
+            '<script src="https://cdn.jsdelivr.net/npm/gsap@3/dist/gsap.min.js"></script></head>',
+        )
+        .replace(
+            "function updateVisualization(){",
+            "const AetherVizAnimationController={create(){return {};}};\nfunction updateVisualization(){",
+        )
+    )
+
+    report = check_widget_runtime_contract(assemble_layout_contract(html, sample_plan()))
+
+    assert any(error["type"] == "shadowed_animation_controller" for error in report["errors"])
+
+
+def test_widget_contract_does_not_treat_controller_equality_check_as_shadowing() -> None:
     html = sample_html().replace(
-        "</head>",
-        '<script src="https://cdn.jsdelivr.net/npm/gsap@3/dist/gsap.min.js"></script></head>',
-    ).replace(
         "function updateVisualization(){",
-        "const AetherVizAnimationController={create(){return {};}};\n"
+        "if(typeof window.AetherVizAnimationController === 'undefined'){throw new Error('missing');}\n"
+        "const controller=window.AetherVizAnimationController.create({duration:1,update:()=>{}});\n"
         "function updateVisualization(){",
+    )
+
+    report = check_widget_runtime_contract(assemble_layout_contract(html, sample_plan()))
+
+    assert not any(error["type"] == "shadowed_animation_controller" for error in report["errors"])
+
+
+def test_widget_contract_rejects_business_animation_controller_assignment() -> None:
+    html = sample_html().replace(
+        "function updateVisualization(){",
+        "window.AetherVizAnimationController = {create(){return {};}};\nfunction updateVisualization(){",
     )
 
     report = check_widget_runtime_contract(assemble_layout_contract(html, sample_plan()))

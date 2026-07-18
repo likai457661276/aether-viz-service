@@ -168,7 +168,7 @@ EDIT_DIAGNOSIS_SYSTEM_PROMPT = """你是 AetherViz HTML 编辑需求编译器，
 3. change_requirements 描述必须产生的可观察变化；preserve_requirements 描述不能意外改变的教学内容和交互；acceptance_criteria 描述结果表现，不限定必须修改某个函数或采用某种实现。
 4. impact_areas 必须覆盖实现该要求可能涉及的完整链路。动画变化重点检查 events -> state -> render -> animation -> reset/replay，不得只定位到一个函数。
 5. 执行阶段固定为完整 HTML 重生成，strategy 只能是 full_html_regeneration 或 clarification_required。
-6. 必须输出 change_checks / preserve_checks：这些是服务端硬验收真源。kind 只能使用 schema 枚举；severity=hard 表示不满足则拒绝候选；无法可靠绑定 selector/function 时用 severity=soft。动画类要求尽量给出 function_body_changed 或 numeric_changed；若无法绑定则 soft + 叙述 requirements。
+6. 必须输出 change_checks / preserve_checks：这些是服务端验收真源。kind 只能使用 schema 枚举；severity=hard 只用于可观察结果或稳定契约，不满足则拒绝候选；函数体变化只属于实现线索，function_body_changed 必须为 soft，允许删除、重命名或用其他结构实现。无法可靠绑定 selector/function 时同样使用 soft + 叙述 requirements。
 7. 用户通常描述可见现象而不是准确实现位置。即使输入提到“控制面板、外壳、侧栏、布局、挤压”等词，也必须结合当前 HTML、选中目标、运行时错误和对话判断真实意图；不得仅凭这些词拒绝编辑。若真实问题是主视觉尺寸、裁切、标签、业务控件密度或动画内容，应编译为对应业务 HTML 修改任务。
 8. 外壳中的标题、学习目标和目标列表属于可编辑内容，使用 shell_content 影响域；控制区、说明区、公式区和教学流程本来就是业务内容。math-shell-v1、.av-*、#aetherviz-app-shell 的具体宽度、分栏、滚动和响应式仍由服务端重建；用户对这些结构提出的诉求，应转换为业务内容优先级、槽位内部自适应、主视觉 viewBox/Canvas 尺寸、控件组织或内容精简等可执行要求，而不是要求模型仿制外壳。
 9. 用户明确要求“全部修改、整体重做、重新设计”时，允许重做全部可编辑内容，包括外壳文案、教学文案、主视觉、业务控件、状态、渲染、事件和动画运行时；只保留用户明确要求保留的内容及核心 Widget 运行契约。
@@ -481,22 +481,30 @@ def _normalize_checks(
             bindable = False
         if function_name and len(functions.get(function_name, [])) != 1:
             bindable = False
-        if kind in {
-            "text_contains",
-            "text_absent",
-            "text_changed",
-            "text_unchanged",
-            "attribute_equals",
-            "attribute_changed",
-            "attribute_unchanged",
-            "css_declaration",
-            "css_changed",
-            "css_unchanged",
-            "numeric_changed",
-        } and selector and not bindable:
+        if (
+            kind
+            in {
+                "text_contains",
+                "text_absent",
+                "text_changed",
+                "text_unchanged",
+                "attribute_equals",
+                "attribute_changed",
+                "attribute_unchanged",
+                "css_declaration",
+                "css_changed",
+                "css_unchanged",
+                "numeric_changed",
+            }
+            and selector
+            and not bindable
+        ):
             severity = "soft"
             degraded.append(check_id)
         if kind in {"function_body_changed", "function_body_unchanged"} and not bindable:
+            severity = "soft"
+            degraded.append(check_id)
+        if kind == "function_body_changed" and severity != "soft":
             severity = "soft"
             degraded.append(check_id)
         if kind in {"attribute_equals", "css_declaration"} and not expected:

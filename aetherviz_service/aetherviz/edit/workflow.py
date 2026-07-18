@@ -522,10 +522,17 @@ def _stream_edit_html_impl(
             preserve_checks=active_diagnosis.preserve_checks,
         )
         if not intent.ok:
+            candidate_plan = build_edit_assembly_plan(current_html, topic)
+            candidate_report = build_validation_report(
+                assemble_layout_contract(edited_html, candidate_plan),
+                plan=candidate_plan,
+                model_html=edited_html,
+            )
+            validation_evidence = _validation_retry_evidence(candidate_report)
             raise HtmlGenerationError(
                 "HTML 修改结果未满足本次编辑验收条件，原页面已保留",
                 code="edit_intent_not_satisfied",
-                detail=intent.retry_evidence(),
+                detail="; ".join(part for part in (intent.retry_evidence(), validation_evidence) if part),
             )
         yield build_html_progress_payload(
             [
@@ -568,6 +575,17 @@ def _has_full_edit_budget(current_html: str) -> bool:
         len(current_html) <= MODEL_HTML_HARD_LIMIT_CHARS
         and len(current_html) + FULL_HTML_OUTPUT_RESERVE_CHARS <= estimated_capacity
     )
+
+
+def _validation_retry_evidence(report: dict[str, Any]) -> str:
+    errors = [
+        f"{str(item.get('type') or 'unknown')}:{str(item.get('message') or '')}"
+        for item in report.get("errors", [])
+        if isinstance(item, dict)
+    ]
+    if not errors:
+        return "deterministic_validation:passed"
+    return "deterministic_validation:" + " | ".join(errors[:5])
 
 
 def _edit_contract_errors(source_html: str, candidate_html: str) -> list[str]:

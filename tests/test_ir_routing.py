@@ -7,9 +7,7 @@ from aetherviz_service.config import settings
 
 def test_plan_aware_routing_fixes_known_false_negative_and_false_positive(monkeypatch) -> None:
     monkeypatch.setattr(settings, "aetherviz_ir_router_enabled", False)
-    linked = service.resolve_generation_route(
-        normalize_plan({}, "旋转向量在纵轴的投影与正弦曲线联动")
-    )
+    linked = service.resolve_generation_route(normalize_plan({}, "旋转向量在纵轴的投影与正弦曲线联动"))
     direct = service.resolve_generation_route(normalize_plan({}, "圆的标准方程与图像"))
 
     assert linked.selected_backend == "linked_coordinate_scene"
@@ -84,9 +82,7 @@ def test_single_coordinate_plane_routes_to_coordinate_graph_backend(monkeypatch)
     assert route.selected_backend == "coordinate_graph_scene"
     assessment = next(item for item in route.candidates if item.backend_key == "coordinate_graph_scene")
     assert assessment.eligible is True
-    assert {"single_view", "coordinate_plane", "state_parameter"} <= set(
-        assessment.matched_capabilities
-    )
+    assert {"single_view", "coordinate_plane", "state_parameter"} <= set(assessment.matched_capabilities)
 
 
 def test_partial_linked_spec_is_augmented_with_cross_view_relation() -> None:
@@ -124,6 +120,69 @@ def test_partial_linked_spec_is_augmented_with_cross_view_relation() -> None:
     relation_types = {item["type"] for item in plan["representation_spec"]["correspondences"]}
     assert relation_types >= {"shared_parameter", "point_on_curve"}
     assert service.resolve_generation_route(plan).selected_backend == "linked_coordinate_scene"
+
+
+def test_discrete_geometry_with_derived_measure_routes_to_parametric_geometry(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "aetherviz_ir_router_enabled", False)
+    plan = normalize_plan(
+        {
+            "interactive_type": "simulation",
+            "interactive_spec": {
+                "type": "simulation",
+                "concept": "正多边形参数构造",
+                "description": "改变离散边数并观察派生测量",
+                "variables": [{"name": "sides", "min": 3, "max": 100, "step": 1, "default": 6}],
+                "presets": [],
+                "observations": [],
+            },
+            "knowledge_profile": {"representation_type": "geometric_construction"},
+            "representation_spec": {
+                "views": [
+                    {"id": "geometry", "kind": "geometric_scene", "role": "参数几何"},
+                    {"id": "measure", "kind": "data_chart", "role": "派生测量"},
+                ],
+                "state_variables": [{"id": "sides", "semantic_type": "discrete"}],
+                "correspondences": [
+                    {"type": "derived_value", "source_view": "geometry", "target_view": "measure", "parameter": "sides"}
+                ],
+            },
+        },
+        "正多边形参数构造",
+    )
+
+    route = service.resolve_generation_route(plan)
+
+    assert route.selected_backend == "parametric_geometry_scene"
+
+
+def test_discrete_parametric_geometry_drops_fixed_piece_topology_invariants() -> None:
+    plan = normalize_plan(
+        {
+            "interactive_type": "simulation",
+            "interactive_spec": {
+                "type": "simulation",
+                "concept": "参数几何",
+                "description": "改变边数",
+                "variables": [{"name": "sides", "min": 3, "max": 20, "step": 1, "default": 6}],
+                "presets": [],
+                "observations": [],
+            },
+            "knowledge_profile": {"representation_type": "geometric_construction"},
+            "representation_spec": {
+                "views": [{"id": "geometry", "kind": "geometric_scene", "role": "参数几何"}],
+                "state_variables": [{"id": "sides", "semantic_type": "discrete"}],
+                "required_invariants": [
+                    "piece_identity_preserved",
+                    "piece_count_constant",
+                    "piece_congruence",
+                    "length_preserved",
+                ],
+            },
+        },
+        "参数几何构造",
+    )
+
+    assert plan["representation_spec"]["required_invariants"] == ["length_preserved"]
 
 
 def test_unrelated_recomposition_payload_is_dropped_from_linked_plan() -> None:

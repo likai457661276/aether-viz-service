@@ -31,6 +31,14 @@ from aetherviz_service.aetherviz.ir.linked_coordinate.contract import (
 from aetherviz_service.aetherviz.ir.linked_coordinate.runtime import (
     assemble_linked_coordinate_business_html,
 )
+from aetherviz_service.aetherviz.ir.parametric_geometry.contract import (
+    PARAMETRIC_GEOMETRY_IR_VERSION,
+    compile_parametric_geometry_ir,
+    validate_parametric_geometry_ir,
+)
+from aetherviz_service.aetherviz.ir.parametric_geometry.runtime import (
+    assemble_parametric_geometry_business_html,
+)
 from aetherviz_service.aetherviz.ir.registry import (
     DEFAULT_IR_REGISTRY,
     IRBackend,
@@ -231,10 +239,99 @@ def test_default_ir_registry_routes_all_independent_ir_families() -> None:
     linked = DEFAULT_IR_REGISTRY.resolve({"knowledge_profile": {"representation_type": "linked_coordinate_scene"}})
     assert recomposition and recomposition.key == "recomposition_scene"
     assert linked and linked.key == "linked_coordinate_scene"
-    coordinate = DEFAULT_IR_REGISTRY.resolve(
-        {"knowledge_profile": {"representation_type": "coordinate_graph"}}
-    )
+    coordinate = DEFAULT_IR_REGISTRY.resolve({"knowledge_profile": {"representation_type": "coordinate_graph"}})
     assert coordinate and coordinate.key == "coordinate_graph_scene"
+    parametric = DEFAULT_IR_REGISTRY.resolve({"knowledge_profile": {"representation_type": "geometric_construction"}})
+    assert parametric and parametric.key == "parametric_geometry_scene"
+
+
+def _parametric_plan() -> dict:
+    return normalize_plan(
+        {
+            "interactive_type": "simulation",
+            "interactive_spec": {
+                "type": "simulation",
+                "concept": "离散正多边形逼近圆",
+                "description": "调节边数并观察周长误差",
+                "variables": [
+                    {"name": "sides", "label": "边数", "min": 3, "max": 100, "step": 1, "default": 6, "unit": "边"}
+                ],
+                "presets": [],
+                "observations": ["边数增加时误差收敛"],
+            },
+            "knowledge_profile": {
+                "subject": "math",
+                "concept_family": "geometry",
+                "representation_type": "geometric_construction",
+                "pedagogy_pattern": "parameter_exploration",
+            },
+            "representation_spec": {
+                "views": [
+                    {"id": "geometry", "kind": "geometric_scene", "role": "圆与正多边形"},
+                    {"id": "measure", "kind": "data_chart", "role": "误差变化"},
+                ],
+                "state_variables": [{"id": "sides", "semantic_type": "discrete"}],
+                "correspondences": [
+                    {"type": "derived_value", "source_view": "geometry", "target_view": "measure", "parameter": "sides"}
+                ],
+                "required_invariants": ["length_preserved"],
+                "interaction_requirements": ["scrub", "play", "pause", "reset"],
+            },
+        },
+        "离散正多边形逼近圆",
+    )
+
+
+def _parametric_ir() -> dict:
+    return {
+        "version": PARAMETRIC_GEOMETRY_IR_VERSION,
+        "state": {
+            "variable": "sides",
+            "label": "边数",
+            "minimum": 3,
+            "maximum": 100,
+            "default": 6,
+            "step": 1,
+            "unit": "边",
+        },
+        "circle": {"radius": 1, "label": "目标圆"},
+        "polygons": [
+            {"id": "inner", "mode": "inscribed", "label": "内接正多边形", "color": "#2563EB"},
+            {"id": "outer", "mode": "circumscribed", "label": "外切正多边形", "color": "#F97316"},
+        ],
+        "measures": [
+            {"id": "inner-p", "type": "polygon_perimeter", "polygon": "inner", "label": "内接周长", "precision": 5},
+            {"id": "outer-p", "type": "polygon_perimeter", "polygon": "outer", "label": "外切周长", "precision": 5},
+            {"id": "inner-error", "type": "absolute_error", "polygon": "inner", "label": "内接误差", "precision": 6},
+        ],
+        "animation": {"duration": 6},
+        "invariants": ["regular_polygon", "vertex_on_circle", "bounded_by_circle", "monotonic_convergence"],
+    }
+
+
+def test_parametric_geometry_ir_compiles_and_runtime_is_server_owned() -> None:
+    plan = _parametric_plan()
+    ir = _parametric_ir()
+
+    assert validate_parametric_geometry_ir(ir, plan)["ok"]
+    assert PARAMETRIC_GEOMETRY_IR_VERSION in compile_parametric_geometry_ir(ir, plan)
+    business_html = assemble_parametric_geometry_business_html(ir, plan, "正多边形逼近")
+    assert "requestAnimationFrame" not in business_html
+    assert "AetherVizAnimationController.create" in business_html
+    assert "for(let i=0;i<IR.state.maximum;i++)" in business_html
+    assembled = assemble_layout_contract(business_html, plan)
+    report = build_validation_report(assembled, plan=plan, model_html=business_html)
+    assert report["ok"], report["errors"]
+
+
+def test_parametric_geometry_ir_rejects_convergence_without_error_measure() -> None:
+    ir = _parametric_ir()
+    ir["measures"] = [ir["measures"][0]]
+
+    report = validate_parametric_geometry_ir(ir, _parametric_plan())
+
+    assert not report["ok"]
+    assert any(item["type"] == "missing_convergence_measure" for item in report["errors"])
 
 
 def test_registry_select_for_route_prefers_ir_then_direct_fallback() -> None:
@@ -251,9 +348,7 @@ def test_registry_select_for_route_prefers_ir_then_direct_fallback() -> None:
         calls.append(f"ir:{topic}")
         yield {"delta": "y"}
 
-    registry = IRBackendRegistry(
-        (IRBackend("demo_scene", frozenset({"demo_repr"}), ir_stream),)
-    )
+    registry = IRBackendRegistry((IRBackend("demo_scene", frozenset({"demo_repr"}), ir_stream),))
     ir_route = IRRouteDecision(
         selected_backend="demo_scene",
         source="deterministic",
@@ -316,10 +411,7 @@ def test_coordinate_graph_contract_requires_one_coordinate_system() -> None:
     broken["coordinate_systems"].append({**broken["coordinate_systems"][0], "id": "second"})
     broken_report = validate_coordinate_graph_ir(broken, _coordinate_plan())
     assert not broken_report["ok"]
-    assert any(
-        error["type"] == "coordinate_graph_requires_single_system"
-        for error in broken_report["errors"]
-    )
+    assert any(error["type"] == "coordinate_graph_requires_single_system" for error in broken_report["errors"])
 
 
 def test_coordinate_graph_multivariable_animation_requires_complete_keyframes() -> None:
@@ -376,11 +468,7 @@ def test_coordinate_graph_ir_failure_falls_back_to_direct_html_with_metadata(mon
         lambda *_args: iter([HtmlStreamResult(html="<!DOCTYPE html><html></html>", degraded=False)]),
     )
 
-    items = list(
-        coordinate_graph_agent.stream_generate_coordinate_graph_html(
-            "一次函数图像", _coordinate_plan()
-        )
-    )
+    items = list(coordinate_graph_agent.stream_generate_coordinate_graph_html("一次函数图像", _coordinate_plan()))
     result = next(item for item in items if isinstance(item, HtmlStreamResult))
 
     assert result.degraded is True

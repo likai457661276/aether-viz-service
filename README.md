@@ -4,6 +4,8 @@
 
 当前生成链路使用 LangChain `ChatOpenAI` 生成动态单页互动课件：先生成可确认的 `interactive` 教案计划，用户可多轮修订计划，确认后再生成 HTML。服务端根据主题生成通用 `knowledge_profile`（学科、概念族、表征类型、教学模式），规划模型同时输出描述视图、状态变量、跨视图关系和不变量的 `representation_spec`；各 IR 后端根据完整计划独立评分，高置信度结果确定性路由，候选冲突或画像先验与计划语义冲突时可由短 JSON 的 `deepseek-v4-flash` 仲裁，模型选择仍须通过注册表和硬排除校验。普通主题沿用直接 HTML 链路，结构化场景由 IR 注册表路由到独立后端。`geometric_recomposition` 负责几何切分重排，`linked_coordinate_scene` 负责多坐标系、函数曲线、轨迹、动态点和投影的参数联动，`coordinate_graph_scene` 负责单一坐标平面的函数、曲线和动态点；三者都只允许模型生成纯 JSON IR，不允许模型持有 DOM、动画循环或响应式布局。坐标类后端复用同一表达式校验和像素对齐 SVG Runtime，data-to-screen 映射、屏幕 y 轴翻转、字号与描边由服务端唯一控制。最终页面统一按 `math-shell-v1` 布局契约装配，不为单独知识点维护硬编码模板。HTML 只在请求内存中完成装配、检查和修复，通过 SSE 返回前端渲染与会话缓存；后端不落盘缓存 HTML、修复稿或检查报告。
 
+新增 `parametric_geometry_scene` 后端覆盖离散参数驱动的圆/正多边形构造、边界测量和误差收敛。它按最大边数一次预分配 SVG 节点，播放期只更新属性和可见性，固定 viewBox 按最坏外切包络预留，并统一复用服务端动画控制器；不用于割补重排或连续自由拖拽构造。
+
 Docker 镜像内置 Node.js，用于内联 JavaScript `node --check` 和受限 Scene Module 隔离运行冒烟检查，保证 macOS 本地与 Linux 生产容器使用同等级检查；浏览器回归仍只在本地/离线流程运行。
 
 ## 目录结构
@@ -22,7 +24,8 @@ aether-viz-service/
 │       ├── ir/               # IR 注册表；每个 IR 家族独立拥有契约、Agent、编译器和 Runtime
 │       │   ├── recomposition/      # 几何切分重排 IR
 │       │   ├── linked_coordinate/  # 联动坐标/动态数学场景 IR
-│       │   └── coordinate_graph/   # 单视图函数与坐标图 IR
+│       │   ├── coordinate_graph/   # 单视图函数与坐标图 IR
+│       │   └── parametric_geometry/ # 离散参数几何与收敛 IR
 │       ├── tools/            # 共享底层工具（function_patch、security_policy 等）与旧路径 shim
 │       ├── workflow/         # 仅 plan 相关：plan / revise_plan / approve_plan
 │       └── schemas/
@@ -83,7 +86,7 @@ AETHERVIZ_EDIT_MAX_TOKENS=16384
 AETHERVIZ_EDIT_ENABLE_THINKING=true
 AETHERVIZ_EDIT_REASONING_EFFORT=
 AETHERVIZ_EDIT_TEMPERATURE=0.15
-AETHERVIZ_EDIT_ANALYSIS_MAX_TOKENS=1536
+AETHERVIZ_EDIT_ANALYSIS_MAX_TOKENS=2048
 AETHERVIZ_EDIT_ANALYSIS_TIMEOUT_SECONDS=30
 AETHERVIZ_EDIT_MAX_RETRIES=1
 AETHERVIZ_REPAIR_MAX_TOKENS=16384
@@ -422,7 +425,7 @@ uv run python evals/reporting/regression.py \
 - 后端按 `simulation`、`diagram`、`game` 拆分独立 prompt、分型 widget-config 和开发期分型校验。
 - 计划对象必须包含 `scene_outline`、`widget_outline`、`design_brief`、`widget_actions`、`knowledge_profile` 和 `discipline_spec`，作为后续 HTML 生成的唯一蓝图。知识画像只路由到通用概念族、表征和教学模式，不包含具体知识点专用模板。
 - 学科与互动类型选择在 `workflow/plan_detection.py`，计划规范化在 `workflow/plan_contract.py`；生成 prompt 在 `generate/prompts.py`，编辑 prompt 在 `edit/prompts.py`；HTML 装配/校验/修复在 `contracts/`。生成与编辑业务包互不 import。
-- `html.done.metadata.generation_backend` 为 `direct`、`recomposition_scene`、`linked_coordinate_scene` 或 `coordinate_graph_scene`；API/SSE 主结构不变，前端未声明 `representation_type` 固定枚举，无需同步类型迁移。
+- `html.done.metadata.generation_backend` 为 `direct`、`recomposition_scene`、`linked_coordinate_scene`、`coordinate_graph_scene` 或 `parametric_geometry_scene`；API/SSE 主结构不变，前端未声明 `representation_type` 固定枚举，无需同步类型迁移。
 - 前端可展示 `generation_attempts`、`repair_attempts`、兼容字段 `attempts`、`repaired`、`degraded`、`validation_warnings`、`context_status`、`bytes` 和 `chars`。
 - 计划中的 action 使用 `widget_setState`、`widget_highlight`、`widget_annotation`、`widget_reveal`；生成物 iframe 内部应兼容 `SET_WIDGET_STATE`、`HIGHLIGHT_ELEMENT`、`ANNOTATE_ELEMENT`、`REVEAL_ELEMENT` 消息。
 

@@ -24,12 +24,8 @@ REQUIRED_WIDGET_ACTIONS = (
 ALLOWED_WIDGET_TYPES = {"simulation", "diagram", "game"}
 SVG_GEOMETRY_TAGS = {"circle", "ellipse", "line", "polygon", "polyline", "rect"}
 
-_SET_ATTR_COORD_RE = re.compile(
-    r"([A-Za-z_$][\w.$]*)\.setAttribute\(\s*['\"](x|y)['\"]\s*,\s*([^)]+?)\s*\)"
-)
-_VISIBLE_TEMPLATE_ASSIGNMENT_RE = re.compile(
-    r"\.(?:textContent|innerText|innerHTML)\s*=\s*`([^`]*)`"
-)
+_SET_ATTR_COORD_RE = re.compile(r"([A-Za-z_$][\w.$]*)\.setAttribute\(\s*['\"](x|y)['\"]\s*,\s*([^)]+?)\s*\)")
+_VISIBLE_TEMPLATE_ASSIGNMENT_RE = re.compile(r"\.(?:textContent|innerText|innerHTML)\s*=\s*`([^`]*)`")
 _VISIBLE_TEXT_NAME_RE = re.compile(
     r"\b(?:latex|formula|caption|label|readout|display(?:Value|Text)?|hud(?:Value|Text)?)\b\s*=\s*`([^`]*)`",
     re.IGNORECASE,
@@ -73,16 +69,12 @@ _WIDGET_CONFIG_ALIAS_RE = re.compile(
     r"(?:const|let|var)\s+(?P<alias>[A-Za-z_$][\w$]*)\s*=\s*JSON\.parse\(\s*"
     r"document\.getElementById\(\s*['\"]widget-config['\"]\s*\)\.textContent\s*\)"
 )
-_FUNCTION_DECLARATION_RE = re.compile(
-    r"\bfunction\s*(?P<name>[A-Za-z_$][\w$]*)?\s*\([^)]*\)\s*\{"
-)
+_FUNCTION_DECLARATION_RE = re.compile(r"\bfunction\s*(?P<name>[A-Za-z_$][\w$]*)?\s*\([^)]*\)\s*\{")
 _SCENE_BUILDER_NAME_RE = re.compile(
     r"^(?:build|create|init|setup|mount)(?:Scene|Visual|Visualization|Graphics|Svg|Canvas)$",
     re.IGNORECASE,
 )
-_DYNAMIC_NODE_ASSIGNMENT_RE = re.compile(
-    rf"\b(?P<name>{_JS_IDENTIFIER})\s*=\s*document\.createElement(?:NS)?\s*\("
-)
+_DYNAMIC_NODE_ASSIGNMENT_RE = re.compile(rf"\b(?P<name>{_JS_IDENTIFIER})\s*=\s*document\.createElement(?:NS)?\s*\(")
 _DYNAMIC_NODE_USE_RE_TEMPLATE = (
     r"\b{name}\s*\.\s*(?:addEventListener|setAttribute|appendChild|replaceChildren|"
     r"getContext|getScreenCTM)\s*\("
@@ -150,13 +142,16 @@ def check_widget_runtime_contract(html: str, *, soup: BeautifulSoup | None = Non
 
     external_gsap = any("gsap" in str(script.get("src") or "").lower() for script in parsed.find_all("script"))
     uses_direct_gsap = bool(re.search(r"(?:window\.)?gsap\.(?:set|to|from|fromTo|timeline)\s*\(", business_script_text))
-    if external_gsap and uses_direct_gsap and not re.search(
-        r"window\.gsap|typeof\s+gsap|typeof\s+window\.gsap", business_script_text
+    if (
+        external_gsap
+        and uses_direct_gsap
+        and not re.search(r"window\.gsap|typeof\s+gsap|typeof\s+window\.gsap", business_script_text)
     ):
         warnings.append(_warning("missing_gsap_fallback_guard", "使用 GSAP CDN，但未检测到 native fallback 判断"))
     controller_override = re.search(
         r"\b(?:const|let|var|class|function)\s+AetherVizAnimationController\b|"
-        r"\bwindow\.AetherVizAnimationController\s*=",
+        # Match assignment, but never equality/arrow operators such as === or =>.
+        r"\bwindow\.AetherVizAnimationController\s*=(?!=|>)",
         business_script_text,
     )
     if controller_override:
@@ -188,11 +183,12 @@ def check_widget_runtime_contract(html: str, *, soup: BeautifulSoup | None = Non
         )
 
     external_katex = any(
-        "katex" in str(tag.get("src") or tag.get("href") or "").lower()
-        for tag in parsed.find_all(["script", "link"])
+        "katex" in str(tag.get("src") or tag.get("href") or "").lower() for tag in parsed.find_all(["script", "link"])
     )
     if external_katex and not re.search(r"window\.katex|typeof\s+katex|typeof\s+window\.katex", script_text):
-        warnings.append(_warning("missing_katex_fallback_guard", "加载 KaTeX，但未检测到 window.katex 守卫和纯文本 fallback"))
+        warnings.append(
+            _warning("missing_katex_fallback_guard", "加载 KaTeX，但未检测到 window.katex 守卫和纯文本 fallback")
+        )
     has_formula_region = parsed.select_one('[data-region="formula"], .formula, .katex-target') is not None
     if external_katex and not has_formula_region:
         warnings.append(_warning("unused_katex_runtime", "页面未检测到公式区域，不应加载 KaTeX"))
@@ -202,8 +198,7 @@ def check_widget_runtime_contract(html: str, *, soup: BeautifulSoup | None = Non
             errors.append(
                 _error(
                     "unrendered_math_delimiter",
-                    "可见文本仍包含未交给 KaTeX 渲染的 $...$ 定界符："
-                    + "；".join(raw_math_examples[:3]),
+                    "可见文本仍包含未交给 KaTeX 渲染的 $...$ 定界符：" + "；".join(raw_math_examples[:3]),
                     expected={
                         "markup": '<span data-katex="\\theta">θ</span>',
                         "renderer": "guarded window.katex.render with readable text fallback",
@@ -341,12 +336,8 @@ def _visible_math_delimiter_examples(parsed: BeautifulSoup) -> list[str]:
     return examples
 
 
-_NUMERIC_CONST_RE = re.compile(
-    r"\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(-?\d+(?:\.\d+)?)\s*;"
-)
-_VIEWBOX_LITERAL_RE = re.compile(
-    r"(?:viewBox\s*=\s*['\"]|setAttribute\(\s*['\"]viewBox['\"]\s*,\s*['\"])([^'\"]+)"
-)
+_NUMERIC_CONST_RE = re.compile(r"\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(-?\d+(?:\.\d+)?)\s*;")
+_VIEWBOX_LITERAL_RE = re.compile(r"(?:viewBox\s*=\s*['\"]|setAttribute\(\s*['\"]viewBox['\"]\s*,\s*['\"])([^'\"]+)")
 
 
 def _viewbox_short_sides(parsed: BeautifulSoup, script_text: str) -> list[float]:
@@ -371,9 +362,7 @@ def _viewbox_short_sides(parsed: BeautifulSoup, script_text: str) -> list[float]
             if width and height:
                 values.append(min(width, height))
     constants = {name: abs(float(value)) for name, value in _NUMERIC_CONST_RE.findall(script_text)}
-    for template in re.findall(
-        r"setAttribute\(\s*['\"]viewBox['\"]\s*,\s*`([^`]+)`\s*\)", script_text
-    ):
+    for template in re.findall(r"setAttribute\(\s*['\"]viewBox['\"]\s*,\s*`([^`]+)`\s*\)", script_text):
         expressions = re.findall(r"\$\{\s*([^}]+)\s*\}", template)
         if len(expressions) != 4:
             continue
@@ -438,8 +427,7 @@ def _check_svg_unit_system(
         for _, declarations in svg_rules
     )
     scaling_marker = any(
-        str(marker.get("markerunits") or "strokeWidth").lower() == "strokewidth"
-        for marker in parsed.find_all("marker")
+        str(marker.get("markerunits") or "strokeWidth").lower() == "strokewidth" for marker in parsed.find_all("marker")
     )
     effective_guard = _has_effective_svg_scale_guard(parsed)
     declared_guard = parsed.select_one("script[data-aetherviz-scale-guard]") is not None
@@ -636,11 +624,7 @@ def _check_unformatted_dynamic_numbers(script_text: str, warnings: list[dict]) -
         *_VISIBLE_TEXT_NAME_RE.findall(script_text),
     ]
     raw_template_values = sorted(
-        {
-            value
-            for template in visible_templates
-            for value in _RAW_TEMPLATE_VALUE_RE.findall(template)
-        }
+        {value for template in visible_templates for value in _RAW_TEMPLATE_VALUE_RE.findall(template)}
     )
     raw_assignments = _RAW_VISIBLE_ASSIGNMENT_RE.findall(script_text)
     all_bare_values = sorted(set(raw_template_values) | set(raw_assignments))
@@ -649,8 +633,7 @@ def _check_unformatted_dynamic_numbers(script_text: str, warnings: list[dict]) -
             _warning(
                 "unformatted_dynamic_value",
                 "检测到可见文本或公式直接插入未格式化的运行时值，动画插值可能显示过长小数；"
-                "请统一通过描述符驱动的 display state 输出："
-                + ", ".join(all_bare_values[:8]),
+                "请统一通过描述符驱动的 display state 输出：" + ", ".join(all_bare_values[:8]),
             )
         )
 
@@ -679,9 +662,7 @@ def _check_unformatted_dynamic_numbers(script_text: str, warnings: list[dict]) -
         r"function\s+(?:formatValue|formatDisplayValue)\s*\([^)]*\)\s*\{([\s\S]{0,1200}?)\n?\}",
         script_text,
     )
-    if formatter_body and re.search(
-        r"\b(?:const|let|var)\s+step\s*=\s*\d+(?:\.\d+)?\s*;", formatter_body.group(1)
-    ):
+    if formatter_body and re.search(r"\b(?:const|let|var)\s+step\s*=\s*\d+(?:\.\d+)?\s*;", formatter_body.group(1)):
         warnings.append(
             _warning(
                 "hardcoded_numeric_step",
@@ -799,7 +780,13 @@ def _check_layout_risks(parsed: BeautifulSoup, script_text: str, warnings: list[
     measures_content_bounds = bool(re.search(r"getBBox\s*\(", script_text))
     updates_viewbox = bool(re.search(r"setAttribute\s*\(\s*['\"]viewBox['\"]", script_text))
     has_dynamic_fit = measures_content_bounds and updates_viewbox
-    if svg is not None and svg.get("viewbox") and has_variable_control and mutates_svg_structure and not has_dynamic_fit:
+    if (
+        svg is not None
+        and svg.get("viewbox")
+        and has_variable_control
+        and mutates_svg_structure
+        and not has_dynamic_fit
+    ):
         warnings.append(
             _warning(
                 "static_viewbox_for_variable_svg",
@@ -998,9 +985,7 @@ def _has_call_only_gsap_timeline(script_text: str) -> bool:
     return has_timeline and has_call and not has_duration_tween and not has_positioned_call
 
 
-def _check_duplicate_label_positions(
-    parsed: BeautifulSoup, script_text: str, warnings: list[dict]
-) -> None:
+def _check_duplicate_label_positions(parsed: BeautifulSoup, script_text: str, warnings: list[dict]) -> None:
     """Warn when two different text labels resolve to the exact same coordinates.
 
     覆盖两种常见情况：模板里直接写死的静态 x/y 属性，以及运行时通过
@@ -1043,8 +1028,7 @@ def _check_duplicate_label_positions(
             warnings.append(
                 _warning(
                     "duplicate_label_position",
-                    f"检测到多个静态文本标签使用完全相同坐标 (x={x}, y={y})，可能互相重叠："
-                    f"{', '.join(sorted(labels))}",
+                    f"检测到多个静态文本标签使用完全相同坐标 (x={x}, y={y})，可能互相重叠：{', '.join(sorted(labels))}",
                 )
             )
 
@@ -1064,9 +1048,7 @@ def _check_widget_config(parsed: BeautifulSoup, script_text: str, errors: list[d
         return
     for alias_match in _WIDGET_CONFIG_ALIAS_RE.finditer(script_text):
         alias = alias_match.group("alias")
-        direct_access = re.compile(
-            rf"(?<![\w$?.]){re.escape(alias)}\s*\.\s*(?P<key>[A-Za-z_$][\w$]*)"
-        )
+        direct_access = re.compile(rf"(?<![\w$?.]){re.escape(alias)}\s*\.\s*(?P<key>[A-Za-z_$][\w$]*)")
         missing = sorted(
             {
                 match.group("key")
@@ -1120,7 +1102,7 @@ def _check_stage(
                     "accepted_mount_lookups": [
                         "document.querySelector(\"[data-role='main-visual']\")",
                         "document.querySelector(MOUNT_SELECTOR) where MOUNT_SELECTOR is the exact main-visual selector",
-                        "document.getElementById(\"<mount-id>\")",
+                        'document.getElementById("<mount-id>")',
                         "document.getElementById(MOUNT_ID) where MOUNT_ID is a string constant",
                     ],
                 },
@@ -1157,10 +1139,7 @@ def _has_provable_dynamic_stage_visual(script_text: str) -> bool:
 
 
 def _has_created_visual_appended_to(script_text: str, target_names: set[str]) -> bool:
-    visual_names = {
-        _normalize_reference(match.group("target"))
-        for match in _VISUAL_CREATION_RE.finditer(script_text)
-    }
+    visual_names = {_normalize_reference(match.group("target")) for match in _VISUAL_CREATION_RE.finditer(script_text)}
     for target_name in target_names:
         for visual_name in visual_names:
             if re.search(
@@ -1190,16 +1169,9 @@ def _find_main_visual_references(
     """
 
     query = _main_visual_lookup_pattern(script_text, mount_ids=mount_ids or set())
-    assignment_re = re.compile(
-        rf"(?:const|let|var)?\s*(?P<target>{_JS_MEMBER})\s*=\s*{query}"
-    )
-    object_property_re = re.compile(
-        rf"(?P<property>{_JS_IDENTIFIER}|['\"]{_JS_IDENTIFIER}['\"])\s*:\s*{query}"
-    )
-    references = {
-        _normalize_reference(match.group("target"))
-        for match in assignment_re.finditer(script_text)
-    }
+    assignment_re = re.compile(rf"(?:const|let|var)?\s*(?P<target>{_JS_MEMBER})\s*=\s*{query}")
+    object_property_re = re.compile(rf"(?P<property>{_JS_IDENTIFIER}|['\"]{_JS_IDENTIFIER}['\"])\s*:\s*{query}")
+    references = {_normalize_reference(match.group("target")) for match in assignment_re.finditer(script_text)}
     for declaration in _OBJECT_DECLARATION_RE.finditer(script_text):
         base = declaration.group("base")
         for prop_match in object_property_re.finditer(declaration.group("body")):
@@ -1219,31 +1191,19 @@ def _main_visual_lookup_pattern(script_text: str, *, mount_ids: set[str]) -> str
         )
     }
     aliases = {
-        match.group("name")
-        for match in _STRING_CONST_RE.finditer(script_text)
-        if match.group("value") in mount_ids
+        match.group("name") for match in _STRING_CONST_RE.finditer(script_text) if match.group("value") in mount_ids
     }
     for alias in sorted(selector_aliases):
         escaped_alias = re.escape(alias)
-        lookups.append(
-            rf"(?:document|{_JS_MEMBER})\.querySelector\(\s*{escaped_alias}\s*\)"
-        )
+        lookups.append(rf"(?:document|{_JS_MEMBER})\.querySelector\(\s*{escaped_alias}\s*\)")
     for mount_id in sorted(mount_ids):
         escaped = re.escape(mount_id)
-        lookups.append(
-            rf"(?:document|{_JS_MEMBER})\.getElementById\(\s*['\"]{escaped}['\"]\s*\)"
-        )
-        lookups.append(
-            rf"(?:document|{_JS_MEMBER})\.querySelector\(\s*['\"]#{escaped}['\"]\s*\)"
-        )
+        lookups.append(rf"(?:document|{_JS_MEMBER})\.getElementById\(\s*['\"]{escaped}['\"]\s*\)")
+        lookups.append(rf"(?:document|{_JS_MEMBER})\.querySelector\(\s*['\"]#{escaped}['\"]\s*\)")
     for alias in sorted(aliases):
         escaped_alias = re.escape(alias)
-        lookups.append(
-            rf"(?:document|{_JS_MEMBER})\.getElementById\(\s*{escaped_alias}\s*\)"
-        )
-        lookups.append(
-            rf"(?:document|{_JS_MEMBER})\.querySelector\(\s*['\"]#['\"]\s*\+\s*{escaped_alias}\s*\)"
-        )
+        lookups.append(rf"(?:document|{_JS_MEMBER})\.getElementById\(\s*{escaped_alias}\s*\)")
+        lookups.append(rf"(?:document|{_JS_MEMBER})\.querySelector\(\s*['\"]#['\"]\s*\+\s*{escaped_alias}\s*\)")
     return "(?:" + "|".join(lookups) + ")"
 
 

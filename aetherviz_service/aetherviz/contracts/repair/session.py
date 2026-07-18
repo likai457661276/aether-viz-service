@@ -182,6 +182,7 @@ class RepairSession:
             if report["ok"]:
                 return html, report, repaired, metadata["degraded"]
 
+        seen_error_signatures = {error_signature(report)}
         for _attempt in range(max_attempts):
             had_prior_repair = repaired
             previous_html = html
@@ -276,9 +277,13 @@ class RepairSession:
                     candidate_truncated=repair_truncated,
                 )
             candidate_error_types = list(error_signature(candidate_report))
+            candidate_signature = tuple(candidate_error_types)
+            if accepted and not candidate_report.get("ok") and candidate_signature in seen_error_signatures:
+                accepted, rejection_reason = False, "repair_cycle"
             if accepted:
                 report = candidate_report
                 repaired = True
+                seen_error_signatures.add(candidate_signature)
                 metadata["degraded"] = previous_degraded or repair_degraded
                 metadata["truncated"] = False
                 yield from pipeline_mod._emit_validation_events(
@@ -327,7 +332,7 @@ class RepairSession:
                     "strategy": "model",
                     "ok": report["ok"],
                     "accepted": accepted,
-                    "stalled": rejection_reason in {"no_hard_error_reduction", "unchanged_candidate"},
+                    "stalled": rejection_reason in {"no_hard_error_reduction", "unchanged_candidate", "repair_cycle"},
                     "rejection_reason": rejection_reason,
                     "remaining_error_types": candidate_error_types,
                     "summary": report.get("summary"),
@@ -481,6 +486,14 @@ def accept_hard_repair_candidate(
         return False, "new_fatal_errors:" + ",".join(sorted(new_fatal_errors))
     if candidate_report.get("ok"):
         return True, None
-    if len(candidate_report.get("errors", [])) < len(baseline_report.get("errors", [])):
+    baseline_error_count = len(baseline_report.get("errors", []))
+    candidate_error_count = len(candidate_report.get("errors", []))
+    if candidate_error_count < baseline_error_count:
+        return True, None
+    # A repair can legitimately expose a different, non-fatal contract error.
+    # Keep that candidate as the next baseline when it removed at least one old
+    # error without increasing the total hard-error count.
+    removed_errors = baseline_errors - candidate_errors
+    if removed_errors and candidate_error_count <= baseline_error_count:
         return True, None
     return False, "no_hard_error_reduction"
