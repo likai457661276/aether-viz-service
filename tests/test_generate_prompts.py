@@ -37,9 +37,7 @@ def test_prompt_modules_apply_known_high_confidence_representation() -> None:
 
 
 def test_prompt_modules_fallback_on_low_confidence() -> None:
-    selection = resolve_generation_prompt_modules(
-        _plan(confidence=REPRESENTATION_PROMPT_MIN_CONFIDENCE - 0.01)
-    )
+    selection = resolve_generation_prompt_modules(_plan(confidence=REPRESENTATION_PROMPT_MIN_CONFIDENCE - 0.01))
     assert selection.representation_applied is False
     assert selection.fallback_reason == "low_confidence"
     assert "坐标图表征" not in selection.render()

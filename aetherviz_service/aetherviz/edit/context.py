@@ -59,11 +59,7 @@ def _shell_metadata_from_html(soup: BeautifulSoup) -> dict[str, Any]:
         overrides: dict[str, Any] = {}
         title = str(region.get("data-title") or "").strip()
         goal = str(region.get("data-goal") or "").strip()
-        objectives = [
-            item.get_text(" ", strip=True)[:300]
-            for item in region.select("li")
-            if item.get_text(strip=True)
-        ]
+        objectives = [item.get_text(" ", strip=True)[:300] for item in region.select("li") if item.get_text(strip=True)]
         if title:
             overrides["title"] = title[:160]
         if goal:
@@ -78,7 +74,9 @@ def _shell_metadata_from_html(soup: BeautifulSoup) -> dict[str, Any]:
         overrides["title"] = title_el.get_text(" ", strip=True)[:160]
     if goal_el is not None and goal_el.get_text(strip=True):
         overrides["goal"] = goal_el.get_text(" ", strip=True)[:500]
-    objectives = [item.get_text(" ", strip=True)[:300] for item in soup.select(".av-objectives li") if item.get_text(strip=True)]
+    objectives = [
+        item.get_text(" ", strip=True)[:300] for item in soup.select(".av-objectives li") if item.get_text(strip=True)
+    ]
     if objectives:
         overrides["key_points"] = objectives[:3]
     return overrides

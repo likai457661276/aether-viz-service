@@ -44,7 +44,7 @@ def resolve_generation_route(
         or margin < settings.aetherviz_ir_router_min_margin
         or prior_conflict
     )
-    deterministic_reasons = (*top.reasons, *(('knowledge_profile_prior_conflict',) if prior_conflict else ()))
+    deterministic_reasons = (*top.reasons, *(("knowledge_profile_prior_conflict",) if prior_conflict else ()))
     if not ambiguous or not settings.aetherviz_ir_router_enabled or not has_primary_llm_config():
         return _decision(
             top.backend_key,
@@ -63,9 +63,8 @@ def resolve_generation_route(
         llm_capabilities = _capabilities(judged.get("required_capabilities"))
         selected_assessment = next((item for item in eligible if item.backend_key == selected), None)
         accepted = (
-            (selected is None or selected_assessment is not None)
-            and confidence >= settings.aetherviz_ir_router_confidence_threshold
-        )
+            selected is None or selected_assessment is not None
+        ) and confidence >= settings.aetherviz_ir_router_confidence_threshold
         evidence = tuple(str(item)[:180] for item in judged.get("evidence", []) if str(item).strip())
         if accepted and not settings.aetherviz_ir_router_shadow_mode:
             return _decision(

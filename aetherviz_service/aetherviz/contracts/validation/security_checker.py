@@ -43,7 +43,11 @@ def check_security(html: str, *, soup: BeautifulSoup | None = None) -> dict:
                 for resource_url in _resource_urls(lower_name, value):
                     error_type = _resource_error_type(resource_url, allowed_urls)
                     if error_type:
-                        message = "禁止 javascript: URL" if error_type == "javascript_url" else f"非白名单外部资源：{resource_url[:120]}"
+                        message = (
+                            "禁止 javascript: URL"
+                            if error_type == "javascript_url"
+                            else f"非白名单外部资源：{resource_url[:120]}"
+                        )
                         errors.append({"type": error_type, "message": message, "line": None})
     style_text = "\n".join(style.get_text("\n", strip=False) for style in parsed.find_all("style"))
     style_text += "\n" + "\n".join(str(tag.get("style") or "") for tag in parsed.find_all(style=True))
@@ -56,8 +60,7 @@ def check_security(html: str, *, soup: BeautifulSoup | None = None) -> dict:
         script.get_text("\n", strip=False)
         for script in parsed.find_all("script")
         if not script.get("src")
-        and str(script.get("type") or "").strip().lower()
-        not in {"application/json", "application/ld+json"}
+        and str(script.get("type") or "").strip().lower() not in {"application/json", "application/ld+json"}
     )
     for pattern, label in FORBIDDEN_PATTERNS:
         if pattern.search(executable_scripts):

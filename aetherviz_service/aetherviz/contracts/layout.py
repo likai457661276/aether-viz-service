@@ -49,7 +49,7 @@ html,body{width:100%;height:100%;margin:0;overflow:hidden}body{font-family:PingF
 </style>
 """
 
-CONTROL_CONTRACT_SCRIPT = r'''<script data-aetherviz-control-contract="range-v1">(function(){
+CONTROL_CONTRACT_SCRIPT = r"""<script data-aetherviz-control-contract="range-v1">(function(){
 var cache=new WeakMap(),running=false,resetTimer=0;
 function sync(el){var min=Number(el.min),max=Number(el.max),value=Number(el.value);if(!Number.isFinite(min))min=0;if(!Number.isFinite(max)||max<=min)max=min+100;if(!Number.isFinite(value))value=min;var percent=Math.max(0,Math.min(100,(value-min)/(max-min)*100));var key=min+'|'+max+'|'+value;if(cache.get(el)===key)return;cache.set(el,key);el.style.setProperty('--av-range-progress',percent+'%');el.setAttribute('aria-valuenow',String(value));}
 function syncAll(){document.querySelectorAll('#aetherviz-app-shell input[type="range"]').forEach(sync);}
@@ -60,9 +60,9 @@ document.addEventListener('input',function(e){if(e.target&&e.target.matches('inp
 document.addEventListener('aetherviz:animation-state',function(e){setPlaybackState(e.detail&&e.detail.state||'idle');});
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start,{once:true});else start();
 window.AetherVizControlContract={sync:sync,syncAll:syncAll,setPlaybackState:setPlaybackState,version:'range-v1'};
-})();</script>'''
+})();</script>"""
 
-ANIMATION_CONTRACT_SCRIPT = r'''<script data-aetherviz-animation-contract="controller-v1">(function(){
+ANIMATION_CONTRACT_SCRIPT = r"""<script data-aetherviz-animation-contract="controller-v1">(function(){
 function create(opts){opts=opts||{};var duration=Math.max(Number(opts.duration)||1,.001),update=typeof opts.update==='function'?opts.update:function(){},progress=0,speed=1,playing=false,raf=0,start=0,tween=null;
 function emit(state){document.dispatchEvent(new CustomEvent('aetherviz:animation-state',{detail:{state:state,progress:progress}}));}
 function apply(value){progress=Math.max(0,Math.min(1,Number(value)||0));update(progress);}
@@ -74,7 +74,7 @@ function reset(){playing=false;if(tween){tween.pause();tween.kill();tween=null;}
 function setSpeed(value){speed=Math.max(Number(value)||1,.01);if(tween)tween.timeScale(speed);if(playing&&!window.gsap){stopNative();start=0;raf=requestAnimationFrame(nativeFrame);}}
 return{play:play,pause:pause,reset:reset,restart:function(){reset();play();},setSpeed:setSpeed,getProgress:function(){return progress;},setProgress:apply};}
 window.AetherVizAnimationController={create:create,version:'controller-v1'};
-})();</script>'''
+})();</script>"""
 
 
 def assemble_layout_contract(html: str, plan: dict[str, Any] | None = None) -> str:
@@ -94,7 +94,7 @@ def assemble_layout_contract(html: str, plan: dict[str, Any] | None = None) -> s
 
     for old in soup.select(
         '[data-aetherviz-layout-contract], [data-aetherviz-layout-guard="true"], '
-        '[data-aetherviz-control-contract], [data-aetherviz-animation-contract]'
+        "[data-aetherviz-control-contract], [data-aetherviz-animation-contract]"
     ):
         old.decompose()
     for style in soup.find_all("style"):
@@ -130,9 +130,7 @@ def assemble_layout_contract(html: str, plan: dict[str, Any] | None = None) -> s
     secondary_controls: list[Tag] = []
     if controls is not None:
         secondary_controls = [
-            node.extract()
-            for node in controls.select('[data-control-priority="secondary"]')
-            if isinstance(node, Tag)
+            node.extract() for node in controls.select('[data-control-priority="secondary"]') if isinstance(node, Tag)
         ]
     if existing_secondary is not None:
         secondary_controls.extend(
@@ -207,7 +205,7 @@ def extract_business_html(html: str) -> str:
 
     for owned in soup.select(
         '[data-aetherviz-layout-contract], [data-aetherviz-layout-guard="true"], '
-        '[data-aetherviz-control-contract], [data-aetherviz-animation-contract]'
+        "[data-aetherviz-control-contract], [data-aetherviz-animation-contract]"
     ):
         owned.decompose()
 
@@ -347,9 +345,7 @@ def sanitize_business_css(css: str) -> str:
             normalized = _normalize_business_selector(selector)
             if normalized == ":root":
                 custom_properties = ";".join(
-                    declaration
-                    for declaration in _business_declarations(body)
-                    if declaration.startswith("--")
+                    declaration for declaration in _business_declarations(body) if declaration.startswith("--")
                 )
                 if custom_properties:
                     kept.append(":root")
@@ -380,9 +376,7 @@ def _business_declarations(body: str) -> list[str]:
 def _is_server_owned_selector(selector: str) -> bool:
     selector = _normalize_business_selector(selector)
     return bool(selector) and bool(
-        selector == ":root"
-        or _RANGE_SELECTOR_RE.search(selector)
-        or _SERVER_SELECTOR_RE.search(selector)
+        selector == ":root" or _RANGE_SELECTOR_RE.search(selector) or _SERVER_SELECTOR_RE.search(selector)
     )
 
 
@@ -423,12 +417,7 @@ def _normalize_control_groups(controls: Tag) -> None:
 def _shell_markup(plan: dict[str, Any]) -> str:
     title = html_lib.escape(str(plan.get("title") or "AI教学动画"))
     goal = html_lib.escape(str(plan.get("goal") or "观察、操作并解释关键关系"))
-    objectives = (
-        plan.get("learning_objectives")
-        or plan.get("objectives")
-        or plan.get("key_points")
-        or []
-    )
+    objectives = plan.get("learning_objectives") or plan.get("objectives") or plan.get("key_points") or []
     if not isinstance(objectives, list):
         objectives = []
     items = "".join(f"<li>{html_lib.escape(str(item))}</li>" for item in objectives[:3])

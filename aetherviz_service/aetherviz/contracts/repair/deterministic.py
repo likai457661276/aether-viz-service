@@ -35,9 +35,7 @@ _INDEXED_ANGLE_PAIR_RE = re.compile(
     rf"(?P<end_decl>(?:const|let|var)\s+(?P<end>{_JS_IDENTIFIER})\s*=)\s*"
     rf"\(\s*(?P=index)\s*\+\s*1\s*\)\s*\*\s*(?P=step)\s*;"
 )
-_ANIMATION_CONTROLLER_CREATE_RE = re.compile(
-    r"(?:window\.)?AetherVizAnimationController\.create\s*\(\s*\{"
-)
+_ANIMATION_CONTROLLER_CREATE_RE = re.compile(r"(?:window\.)?AetherVizAnimationController\.create\s*\(\s*\{")
 
 # Hard errors that deterministic_repair_html can address. Other hard errors
 # (for example empty_main_visual_mount) require model/function repair; running
@@ -73,11 +71,7 @@ DETERMINISTIC_HARD_ERROR_TYPES = frozenset(
 def deterministic_can_address(report: dict[str, Any] | None) -> bool:
     """Return True when the report contains hard errors this module can fix."""
 
-    error_types = {
-        str(error.get("type"))
-        for error in ((report or {}).get("errors") or [])
-        if isinstance(error, dict)
-    }
+    error_types = {str(error.get("type")) for error in ((report or {}).get("errors") or []) if isinstance(error, dict)}
     return bool(error_types & DETERMINISTIC_HARD_ERROR_TYPES)
 
 
@@ -100,15 +94,9 @@ def deterministic_repair_html(
             repaired += "\n</body>"
     if "</html>" not in repaired.lower():
         repaired += "\n</html>"
-    error_types = {
-        str(error.get("type"))
-        for error in ((report or {}).get("errors") or [])
-        if isinstance(error, dict)
-    }
+    error_types = {str(error.get("type")) for error in ((report or {}).get("errors") or []) if isinstance(error, dict)}
     warning_types = {
-        str(warning.get("type"))
-        for warning in ((report or {}).get("warnings") or [])
-        if isinstance(warning, dict)
+        str(warning.get("type")) for warning in ((report or {}).get("warnings") or []) if isinstance(warning, dict)
     }
     if error_types:
         # Keep hard-error repair minimal. Quality normalization runs in the
@@ -252,7 +240,7 @@ def _render_explicit_katex_targets(html: str) -> str:
     if not changed or soup.select_one('script[data-aetherviz-katex-contract="true"]') is not None:
         return "<!DOCTYPE html>\n" + str(soup.html) if soup.html is not None else str(soup)
     renderer = BeautifulSoup(
-        r'''<script data-aetherviz-katex-contract="true">(function(){
+        r"""<script data-aetherviz-katex-contract="true">(function(){
 function renderMath(root){(root||document).querySelectorAll('[data-katex]').forEach(function(node){
 var source=node.getAttribute('data-katex')||'';var fallback=node.textContent||source;
 if(!window.katex){node.textContent=fallback;return;}
@@ -260,7 +248,7 @@ try{window.katex.render(source,node,{throwOnError:false,displayMode:node.getAttr
 });}
 window.AetherVizRenderMath=renderMath;
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',function(){renderMath(document);},{once:true});else renderMath(document);
-})();</script>''',
+})();</script>""",
         "html.parser",
     ).script
     if renderer is not None:
@@ -275,10 +263,23 @@ if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',
 
 def _plain_math_fallback(latex: str) -> str:
     greek = {
-        "alpha": "α", "beta": "β", "gamma": "γ", "delta": "δ", "theta": "θ",
-        "lambda": "λ", "mu": "μ", "pi": "π", "rho": "ρ", "sigma": "σ",
-        "phi": "φ", "omega": "ω", "Delta": "Δ", "Theta": "Θ", "Sigma": "Σ",
-        "Phi": "Φ", "Omega": "Ω",
+        "alpha": "α",
+        "beta": "β",
+        "gamma": "γ",
+        "delta": "δ",
+        "theta": "θ",
+        "lambda": "λ",
+        "mu": "μ",
+        "pi": "π",
+        "rho": "ρ",
+        "sigma": "σ",
+        "phi": "φ",
+        "omega": "ω",
+        "Delta": "Δ",
+        "Theta": "Θ",
+        "Sigma": "Σ",
+        "Phi": "Φ",
+        "Omega": "Ω",
     }
     value = re.sub(r"\\([A-Za-z]+)", lambda match: greek.get(match.group(1), match.group(1)), latex)
     return value.replace("{", "").replace("}", "")
@@ -296,9 +297,7 @@ def _rename_controller_on_update(html: str) -> str:
         if properties is None or any(prop.name == "update" for prop in properties):
             continue
         replacements.extend(
-            (prop.start, prop.end)
-            for prop in properties
-            if prop.name == "onUpdate" and prop.syntax == "property"
+            (prop.start, prop.end) for prop in properties if prop.name == "onUpdate" and prop.syntax == "property"
         )
     for start, end in sorted(replacements, reverse=True):
         html = html[:start] + "update" + html[end:]
@@ -318,7 +317,7 @@ def _insert_svg_scale_guard(html: str) -> str:
         html,
         flags=re.IGNORECASE,
     )
-    script = r'''<script data-aetherviz-scale-guard="2">(function(){
+    script = r"""<script data-aetherviz-scale-guard="2">(function(){
 function authoredNumber(el,property,attribute){var inline=parseFloat(el.style.getPropertyValue(property));if(Number.isFinite(inline)&&inline>0)return inline;var attr=parseFloat(el.getAttribute(attribute));if(Number.isFinite(attr)&&attr>0)return attr;var computed=parseFloat(getComputedStyle(el).getPropertyValue(property));return Number.isFinite(computed)&&computed>0?computed:NaN;}
 function normalizeMarker(svg,el,scale){['marker-start','marker-mid','marker-end'].forEach(function(property){var value=getComputedStyle(el).getPropertyValue(property)||el.getAttribute(property)||'',match=value.match(/#([^)'"\s]+)/);if(!match)return;var marker=svg.querySelector('#'+CSS.escape(match[1]));if(!marker)return;var width=parseFloat(marker.dataset.aethervizScreenMarkerWidth),height=parseFloat(marker.dataset.aethervizScreenMarkerHeight);if(!Number.isFinite(width)||width<=0){width=parseFloat(marker.getAttribute('markerWidth'))||6;marker.dataset.aethervizScreenMarkerWidth=String(width);}if(!Number.isFinite(height)||height<=0){height=parseFloat(marker.getAttribute('markerHeight'))||6;marker.dataset.aethervizScreenMarkerHeight=String(height);}marker.setAttribute('markerUnits','userSpaceOnUse');marker.setAttribute('markerWidth',String(width/scale));marker.setAttribute('markerHeight',String(height/scale));});}
 function normalize(root){(root||document).querySelectorAll('#aetherviz-stage svg').forEach(function(svg){
@@ -329,7 +328,7 @@ var queued=false;function schedule(){if(queued)return;queued=true;requestAnimati
 schedule();new MutationObserver(schedule).observe(document.getElementById('aetherviz-stage')||document.body,{childList:true,subtree:true});
 if(window.ResizeObserver)new ResizeObserver(schedule).observe(document.getElementById('aetherviz-stage')||document.body);
 })();</script>
-'''
+"""
     body_close = re.search(r"</body\s*>", html, re.IGNORECASE)
     insert_at = body_close.start() if body_close else len(html)
     return html[:insert_at] + script + html[insert_at:]
@@ -340,10 +339,10 @@ def _insert_stage_shrink_guard(html: str) -> str:
         return html
     style = (
         '<style data-aetherviz-layout-guard="true">'
-        '#aetherviz-stage{min-width:0;min-height:0}'
+        "#aetherviz-stage{min-width:0;min-height:0}"
         '[data-region="app-shell"]>*{min-width:0;min-height:0}'
-        '@media(max-width:900px){#aetherviz-stage{min-height:clamp(240px,45vh,420px)}}'
-        '</style>\n'
+        "@media(max-width:900px){#aetherviz-stage{min-height:clamp(240px,45vh,420px)}}"
+        "</style>\n"
     )
     head_close = re.search(r"</head\s*>", html, re.IGNORECASE)
     insert_at = head_close.start() if head_close else 0
@@ -361,12 +360,10 @@ def _ensure_runtime_methods(html: str) -> str:
         for method in REQUIRED_RUNTIME_METHODS
     }
     patches = "".join(
-        f'if(typeof r.{method}!=="function")r.{method}={fallback};'
-        for method, fallback in fallbacks.items()
+        f'if(typeof r.{method}!=="function")r.{method}={fallback};' for method, fallback in fallbacks.items()
     )
     script = (
-        "<script>(function(){var r=window.AetherVizRuntime="
-        "window.AetherVizRuntime||{};" + patches + "})();</script>\n"
+        "<script>(function(){var r=window.AetherVizRuntime=window.AetherVizRuntime||{};" + patches + "})();</script>\n"
     )
     body_close = re.search(r"</body\s*>", html, re.IGNORECASE)
     insert_at = body_close.start() if body_close else len(html)
@@ -414,11 +411,7 @@ def _localize_indexed_angle_geometry(html: str) -> str:
 
     def rewrite(match: re.Match[str]) -> str:
         step = match.group("step")
-        return (
-            f"{match.group('start_decl')} -{step}/2;"
-            f"{match.group('between')}"
-            f"{match.group('end_decl')} {step}/2;"
-        )
+        return f"{match.group('start_decl')} -{step}/2;{match.group('between')}{match.group('end_decl')} {step}/2;"
 
     return _INDEXED_ANGLE_PAIR_RE.sub(rewrite, html)
 
@@ -426,11 +419,11 @@ def _localize_indexed_angle_geometry(html: str) -> str:
 def _insert_message_listener_bridge(html: str) -> str:
     if 'data-aetherviz-message-bridge="true"' in html:
         return html
-    script = r'''<script data-aetherviz-message-bridge="true">(function(){
+    script = r"""<script data-aetherviz-message-bridge="true">(function(){
 window.addEventListener('message',function(event){var data=event.data;if(!data||typeof data!=='object')return;var runtime=window.AetherVizRuntime||{};
 if(data.type==='SET_WIDGET_STATE'&&typeof runtime.update==='function')runtime.update(data.state||{});
 else if(data.type==='HIGHLIGHT_ELEMENT'||data.type==='REVEAL_ELEMENT'||data.type==='ANNOTATE_ELEMENT'){var target=typeof data.target==='string'?document.querySelector(data.target):null;if(!target)return;if(data.type==='HIGHLIGHT_ELEMENT')target.setAttribute('data-aetherviz-highlight','true');else if(data.type==='REVEAL_ELEMENT')target.hidden=false;else if(data.content!=null)target.setAttribute('aria-label',String(data.content));}
-});})();</script>'''
+});})();</script>"""
     return _insert_before_body_close(html, script)
 
 
@@ -438,10 +431,10 @@ def _insert_runtime_ready_guard(html: str) -> str:
     if 'data-aetherviz-ready-guard="true"' in html:
         return html
     methods = json.dumps(list(REQUIRED_RUNTIME_METHODS), separators=(",", ":"))
-    script = f'''<script data-aetherviz-ready-guard="true">(function(){{
+    script = f"""<script data-aetherviz-ready-guard="true">(function(){{
 function markReady(){{var runtime=window.AetherVizRuntime;if(window.__AETHERVIZ_RUNTIME_ERROR__||!runtime)return;if({methods}.every(function(name){{return typeof runtime[name]==='function';}}))window.__AETHERVIZ_RUNTIME_READY__=true;}}
 function schedule(){{requestAnimationFrame(markReady);}}if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',schedule,{{once:true}});else schedule();
-}})();</script>'''
+}})();</script>"""
     return _insert_before_body_close(html, script)
 
 
@@ -477,7 +470,9 @@ def _move_inline_events_to_listeners(html: str) -> str:
     if not handlers:
         return html
     bindings = "".join(
-        "var el=document.querySelector(" + json.dumps(f'[data-aetherviz-event="{marker}"]') + ");"
+        "var el=document.querySelector("
+        + json.dumps(f'[data-aetherviz-event="{marker}"]')
+        + ");"
         + f"if(el)el.addEventListener({json.dumps(event_name)},function(event){{{source}}});"
         for marker, event_name, source in handlers
     )
@@ -530,11 +525,7 @@ def _insert_runtime_controls(html: str) -> str:
         ("pause-animation", "暂停", "pause"),
         ("reset-animation", "重置", "reset"),
     )
-    missing = [
-        item
-        for item in controls
-        if not re.search(rf"\bid\s*=\s*(['\"]){item[0]}\1", html, re.IGNORECASE)
-    ]
+    missing = [item for item in controls if not re.search(rf"\bid\s*=\s*(['\"]){item[0]}\1", html, re.IGNORECASE)]
     if not missing:
         return html
     buttons = "".join(
@@ -546,9 +537,7 @@ def _insert_runtime_controls(html: str) -> str:
         body_close = re.search(r"</body\s*>", html, re.IGNORECASE)
         insert_at = body_close.start() if body_close else len(html)
         repaired = (
-            html[:insert_at]
-            + f'<div class="control-panel" data-region="controls">{buttons}</div>\n'
-            + html[insert_at:]
+            html[:insert_at] + f'<div class="control-panel" data-region="controls">{buttons}</div>\n' + html[insert_at:]
         )
 
     bindings = json.dumps({control_id: action for control_id, _, action in missing}, ensure_ascii=True)

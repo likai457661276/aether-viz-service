@@ -244,9 +244,7 @@ def _stream_generate_html_impl(topic: str, plan: dict[str, Any]) -> Iterator[dic
                 continue
             break
     failure_message = (
-        "HTML 生成失败，重试后仍未获得完整页面"
-        if attempts_started > 1
-        else "HTML 生成失败，未获得完整页面"
+        "HTML 生成失败，重试后仍未获得完整页面" if attempts_started > 1 else "HTML 生成失败，未获得完整页面"
     )
     raise HtmlGenerationError(
         failure_message,
@@ -284,9 +282,7 @@ def _summarize_html_stream(items: list[dict[str, Any] | HtmlStreamResult]) -> di
         "output_tokens": result.output_tokens,
         "output_chars": result.output_chars or len(result.html),
         "chars_per_output_token": (
-            round((result.output_chars or len(result.html)) / result.output_tokens, 3)
-            if result.output_tokens
-            else None
+            round((result.output_chars or len(result.html)) / result.output_tokens, 3) if result.output_tokens else None
         ),
         "progress_events": sum(isinstance(item, dict) for item in items),
     }

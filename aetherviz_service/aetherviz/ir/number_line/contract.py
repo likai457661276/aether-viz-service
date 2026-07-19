@@ -248,9 +248,7 @@ def number_line_ir_candidates_response_schema() -> dict[str, Any]:
         "additionalProperties": False,
         "$defs": definitions,
         "required": ["candidates"],
-        "properties": {
-            "candidates": {"type": "array", "minItems": 2, "maxItems": 2, "items": candidate}
-        },
+        "properties": {"candidates": {"type": "array", "minItems": 2, "maxItems": 2, "items": candidate}},
     }
 
 
@@ -377,8 +375,7 @@ def validate_number_line_ir(ir: object, plan: dict[str, Any]) -> dict[str, Any]:
             if collection_name == "points" and item.get("endpoint") not in ENDPOINT_STYLES:
                 errors.append(_issue("invalid_number_line_endpoint", "点端点类型必须是 open 或 closed"))
             if collection_name == "intervals" and (
-                item.get("left_endpoint") not in ENDPOINT_STYLES
-                or item.get("right_endpoint") not in ENDPOINT_STYLES
+                item.get("left_endpoint") not in ENDPOINT_STYLES or item.get("right_endpoint") not in ENDPOINT_STYLES
             ):
                 errors.append(_issue("invalid_number_line_endpoint", "区间端点类型必须是 open 或 closed"))
             if collection_name == "rays" and (
@@ -449,8 +446,7 @@ def validate_number_line_ir(ir: object, plan: dict[str, Any]) -> dict[str, Any]:
 def _interval_crosses(interval: dict[str, Any], ranges: dict[str, tuple[float, float, float]]) -> bool:
     try:
         return any(
-            _eval(interval["start"], state) > _eval(interval["end"], state)
-            for _name, state in _sample_states(ranges)
+            _eval(interval["start"], state) > _eval(interval["end"], state) for _name, state in _sample_states(ranges)
         )
     except (KeyError, ValueError, ArithmeticError):
         return False
@@ -617,9 +613,7 @@ def _validate_expr(value: object, ranges: dict[str, tuple[float, float, float]],
     if set(value) == {"op", "args"} and value.get("op") in EXPRESSION_OPERATORS and isinstance(value.get("args"), list):
         args = value["args"]
         arity = len(args)
-        if (value["op"] in {"neg", "abs"} and arity != 1) or (
-            value["op"] not in {"neg", "abs"} and arity < 2
-        ):
+        if (value["op"] in {"neg", "abs"} and arity != 1) or (value["op"] not in {"neg", "abs"} and arity < 2):
             errors.append(_issue("invalid_number_line_expression_arity", f"{path} 操作数数量无效"))
             return
         for index, item in enumerate(args):

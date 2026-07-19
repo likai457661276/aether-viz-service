@@ -64,6 +64,7 @@ _ALLOWED_OPS = _UNARY_OPS | _BINARY_OPS | _FOLD_OPS | _TERNARY_OPS | _VARIADIC_O
 
 def geometry_ir_response_schema() -> dict[str, Any]:
     """Strict transport schema; list pairs are normalized into internal maps."""
+
     def operator_variant(operators: set[str], minimum: int, maximum: int) -> dict[str, Any]:
         return {
             "type": "object",
@@ -149,7 +150,10 @@ def geometry_ir_response_schema() -> dict[str, Any]:
                                 {"type": "null"},
                                 {
                                     "type": "object",
-                                    "properties": {"count": {"$ref": "#/$defs/expression"}, "index": {"type": "string"}},
+                                    "properties": {
+                                        "count": {"$ref": "#/$defs/expression"},
+                                        "index": {"type": "string"},
+                                    },
                                     "required": ["count", "index"],
                                     "additionalProperties": False,
                                 },
@@ -161,7 +165,13 @@ def geometry_ir_response_schema() -> dict[str, Any]:
                             "type": "array",
                             "items": {
                                 "type": "object",
-                                "properties": {"name": {"type": "string", "enum": sorted(_COMMON_ATTRS | set().union(*_TAG_ATTRS.values()))}, "value": {"$ref": "#/$defs/expression"}},
+                                "properties": {
+                                    "name": {
+                                        "type": "string",
+                                        "enum": sorted(_COMMON_ATTRS | set().union(*_TAG_ATTRS.values())),
+                                    },
+                                    "value": {"$ref": "#/$defs/expression"},
+                                },
                                 "required": ["name", "value"],
                                 "additionalProperties": False,
                             },
@@ -181,7 +191,13 @@ def geometry_ir_response_schema() -> dict[str, Any]:
                 "type": "array",
                 "items": {
                     "type": "object",
-                    "properties": {"stage_id": {"type": "string"}, "at": {"type": "number"}, "caption": {"type": "string"}, "formula": {"type": "string"}, "step": {"type": "integer"}},
+                    "properties": {
+                        "stage_id": {"type": "string"},
+                        "at": {"type": "number"},
+                        "caption": {"type": "string"},
+                        "formula": {"type": "string"},
+                        "step": {"type": "integer"},
+                    },
                     "required": ["stage_id", "at", "caption", "formula", "step"],
                     "additionalProperties": False,
                 },
@@ -453,9 +469,7 @@ def build_deterministic_geometry_ir(plan: dict[str, Any]) -> dict[str, Any]:
     topology = next((str(name) for name in spec.get("topology_variables", []) if str(name)), "")
     geometry = next((str(name) for name in spec.get("geometry_variables", []) if str(name)), "")
     count_expr: object = (
-        {"op": "clamp", "args": [{"op": "round", "args": [{"state": topology}]}, 3, 20]}
-        if topology
-        else 6
+        {"op": "clamp", "args": [{"op": "round", "args": [{"state": topology}]}, 3, 20]} if topology else 6
     )
     scale_expr: object = (
         {
@@ -467,7 +481,13 @@ def build_deterministic_geometry_ir(plan: dict[str, Any]) -> dict[str, Any]:
     )
     source = {
         "x": {"op": "add", "args": [245, {"op": "mul", "args": [{"op": "mod", "args": [{"local": "i"}, 5]}, 72]}]},
-        "y": {"op": "add", "args": [145, {"op": "mul", "args": [{"op": "floor", "args": [{"op": "div", "args": [{"local": "i"}, 5]}]}, 76]}]},
+        "y": {
+            "op": "add",
+            "args": [
+                145,
+                {"op": "mul", "args": [{"op": "floor", "args": [{"op": "div", "args": [{"local": "i"}, 5]}]}, 76]},
+            ],
+        },
         "rotation": 0,
         "scale": {"var": "shapeScale"},
         "opacity": 1,
@@ -556,7 +576,11 @@ def build_deterministic_geometry_ir(plan: dict[str, Any]) -> dict[str, Any]:
                     "points": "0,0 54,0 0,54",
                     "fill": {
                         "op": "if",
-                        "args": [{"op": "eq", "args": [{"op": "mod", "args": [{"local": "i"}, 2]}, 0]}, "#fbbf24", "#34d399"],
+                        "args": [
+                            {"op": "eq", "args": [{"op": "mod", "args": [{"local": "i"}, 2]}, 0]},
+                            "#fbbf24",
+                            "#34d399",
+                        ],
                     },
                 },
                 "source": source,
@@ -579,7 +603,10 @@ def _stage_requirements(plan: dict[str, Any]) -> list[dict[str, Any]]:
         return [
             {
                 **stage,
-                "id": str(stage.get("id") or ("source" if index == 0 else "target" if index == count - 1 else f"transform-{index}")),
+                "id": str(
+                    stage.get("id")
+                    or ("source" if index == 0 else "target" if index == count - 1 else f"transform-{index}")
+                ),
                 "role": "source" if index == 0 else "target" if index == count - 1 else "intermediate",
                 "at": 0.0 if index == 0 else 1.0 if index == count - 1 else round(index / (count - 1), 6),
                 "intent": str(stage.get("intent") or "展示几何关系"),
@@ -622,8 +649,26 @@ def _validate_piece_template(
                 errors.append(_issue("invalid_repeat_index", "repeat.index 不合法", path=path))
             else:
                 local_names.add(local)
-            _validate_expression(repeat.get("count"), path=f"{path}.repeat.count", state_names=state_names, definition_names=definition_names, local_names=set(), depth=0, budget=budget, errors=errors)
-    _validate_expression(piece.get("id"), path=f"{path}.id", state_names=state_names, definition_names=definition_names, local_names=local_names, depth=0, budget=budget, errors=errors)
+            _validate_expression(
+                repeat.get("count"),
+                path=f"{path}.repeat.count",
+                state_names=state_names,
+                definition_names=definition_names,
+                local_names=set(),
+                depth=0,
+                budget=budget,
+                errors=errors,
+            )
+    _validate_expression(
+        piece.get("id"),
+        path=f"{path}.id",
+        state_names=state_names,
+        definition_names=definition_names,
+        local_names=local_names,
+        depth=0,
+        budget=budget,
+        errors=errors,
+    )
     attrs = piece.get("attrs")
     allowed_attrs = _COMMON_ATTRS | _TAG_ATTRS.get(tag, set())
     if not isinstance(attrs, dict) or not attrs:
@@ -632,7 +677,16 @@ def _validate_piece_template(
         for name, expression in attrs.items():
             if name not in allowed_attrs:
                 errors.append(_issue("forbidden_piece_attr", "图元属性不在白名单", path=path, attr=name))
-            _validate_expression(expression, path=f"{path}.attrs.{name}", state_names=state_names, definition_names=definition_names, local_names=local_names, depth=0, budget=budget, errors=errors)
+            _validate_expression(
+                expression,
+                path=f"{path}.attrs.{name}",
+                state_names=state_names,
+                definition_names=definition_names,
+                local_names=local_names,
+                depth=0,
+                budget=budget,
+                errors=errors,
+            )
             if (
                 repeat is not None
                 and require_index_independent_geometry
@@ -656,7 +710,16 @@ def _validate_piece_template(
         if unknown:
             errors.append(_issue("forbidden_transform_field", "变换字段不在白名单", path=path, fields=sorted(unknown)))
         for name, expression in transform.items():
-            _validate_expression(expression, path=f"{path}.{transform_name}.{name}", state_names=state_names, definition_names=definition_names, local_names=local_names, depth=0, budget=budget, errors=errors)
+            _validate_expression(
+                expression,
+                path=f"{path}.{transform_name}.{name}",
+                state_names=state_names,
+                definition_names=definition_names,
+                local_names=local_names,
+                depth=0,
+                budget=budget,
+                errors=errors,
+            )
     keyframes = piece.get("keyframes")
     if keyframes is not None:
         if not isinstance(keyframes, list) or not 2 <= len(keyframes) <= 5:
@@ -670,15 +733,33 @@ def _validate_piece_template(
                     continue
                 at = _finite_float(keyframe.get("at"))
                 if at is None or not 0 <= at <= 1 or at <= previous_at:
-                    errors.append(_issue("invalid_transform_keyframe_at", "变换阶段 at 必须在 0~1 严格递增", path=frame_path))
+                    errors.append(
+                        _issue("invalid_transform_keyframe_at", "变换阶段 at 必须在 0~1 严格递增", path=frame_path)
+                    )
                 else:
                     previous_at = at
                 unknown = set(keyframe) - {"at", *_TRANSFORM_KEYS}
                 if unknown:
-                    errors.append(_issue("forbidden_transform_keyframe_field", "变换阶段字段不在白名单", path=frame_path, fields=sorted(unknown)))
+                    errors.append(
+                        _issue(
+                            "forbidden_transform_keyframe_field",
+                            "变换阶段字段不在白名单",
+                            path=frame_path,
+                            fields=sorted(unknown),
+                        )
+                    )
                 for name, expression in keyframe.items():
                     if name != "at":
-                        _validate_expression(expression, path=f"{frame_path}.{name}", state_names=state_names, definition_names=definition_names, local_names=local_names, depth=0, budget=budget, errors=errors)
+                        _validate_expression(
+                            expression,
+                            path=f"{frame_path}.{name}",
+                            state_names=state_names,
+                            definition_names=definition_names,
+                            local_names=local_names,
+                            depth=0,
+                            budget=budget,
+                            errors=errors,
+                        )
             if isinstance(keyframes[0], dict) and keyframes[0].get("at") != 0:
                 errors.append(_issue("missing_initial_transform_keyframe", "第一个变换阶段 at 必须为 0", path=path))
             if isinstance(keyframes[-1], dict) and keyframes[-1].get("at") != 1:
@@ -692,10 +773,7 @@ def _expression_depends_on_local(
     resolving: set[str] | None = None,
 ) -> bool:
     if isinstance(expression, list):
-        return any(
-            _expression_depends_on_local(item, local_names, definitions, resolving)
-            for item in expression
-        )
+        return any(_expression_depends_on_local(item, local_names, definitions, resolving) for item in expression)
     if not isinstance(expression, dict):
         return False
     if set(expression) == {"local"}:
@@ -711,8 +789,7 @@ def _expression_depends_on_local(
             {*resolving, name} if resolving else {name},
         )
     return any(
-        _expression_depends_on_local(value, local_names, definitions, resolving)
-        for value in expression.values()
+        _expression_depends_on_local(value, local_names, definitions, resolving) for value in expression.values()
     )
 
 
@@ -751,7 +828,16 @@ def _validate_expression(
         if len(expression) > 64:
             errors.append(_issue("expression_array_too_long", "表达式数组过长", path=path))
         for index, item in enumerate(expression):
-            _validate_expression(item, path=f"{path}[{index}]", state_names=state_names, definition_names=definition_names, local_names=local_names, depth=depth + 1, budget=budget, errors=errors)
+            _validate_expression(
+                item,
+                path=f"{path}[{index}]",
+                state_names=state_names,
+                definition_names=definition_names,
+                local_names=local_names,
+                depth=depth + 1,
+                budget=budget,
+                errors=errors,
+            )
         return
     if not isinstance(expression, dict):
         errors.append(_issue("invalid_expression", "表达式必须是字面量、数组、ref 或 op", path=path))
@@ -817,7 +903,16 @@ def _validate_operator_expression(
     if not valid_arity:
         errors.append(_issue("invalid_operator_arity", "表达式参数数量不合法", path=path, operator=op, count=count))
     for index, item in enumerate(args):
-        _validate_expression(item, path=f"{path}.args[{index}]", state_names=state_names, definition_names=definition_names, local_names=local_names, depth=depth + 1, budget=budget, errors=errors)
+        _validate_expression(
+            item,
+            path=f"{path}.args[{index}]",
+            state_names=state_names,
+            definition_names=definition_names,
+            local_names=local_names,
+            depth=depth + 1,
+            budget=budget,
+            errors=errors,
+        )
 
 
 def _plan_state_names(plan: dict[str, Any]) -> set[str]:
@@ -834,7 +929,16 @@ def _sample_states(plan: dict[str, Any]) -> list[tuple[str, dict[str, float]]]:
     variables = [item for item in interactive.get("variables", []) if isinstance(item, dict)]
     states: list[tuple[str, dict[str, float]]] = []
     for label, field in (("default", "default"), ("minimum", "min"), ("maximum", "max")):
-        states.append((label, {str(item.get("name")): _finite_float(item.get(field)) or 0.0 for item in variables if str(item.get("name") or "").strip()}))
+        states.append(
+            (
+                label,
+                {
+                    str(item.get("name")): _finite_float(item.get(field)) or 0.0
+                    for item in variables
+                    if str(item.get("name") or "").strip()
+                },
+            )
+        )
     return states
 
 
@@ -877,17 +981,36 @@ def _expand_geometry(ir: dict[str, Any], state: dict[str, float]) -> list[dict[s
         else:
             scopes = [{}]
         for locals_ in scopes:
-            attrs = {name: _evaluate_expression(expr, state, locals_, resolve) for name, expr in template["attrs"].items()}
-            source = {name: _evaluate_expression(expr, state, locals_, resolve) for name, expr in template["source"].items()}
-            target = {name: _evaluate_expression(expr, state, locals_, resolve) for name, expr in template["target"].items()}
+            attrs = {
+                name: _evaluate_expression(expr, state, locals_, resolve) for name, expr in template["attrs"].items()
+            }
+            source = {
+                name: _evaluate_expression(expr, state, locals_, resolve) for name, expr in template["source"].items()
+            }
+            target = {
+                name: _evaluate_expression(expr, state, locals_, resolve) for name, expr in template["target"].items()
+            }
             keyframes = [
                 {
                     "at": frame["at"],
-                    **{name: _evaluate_expression(expr, state, locals_, resolve) for name, expr in frame.items() if name != "at"},
+                    **{
+                        name: _evaluate_expression(expr, state, locals_, resolve)
+                        for name, expr in frame.items()
+                        if name != "at"
+                    },
                 }
                 for frame in template.get("keyframes", [])
             ]
-            output.append({"id": _evaluate_expression(template["id"], state, locals_, resolve), "tag": template["tag"], "attrs": attrs, "source": source, "target": target, "keyframes": keyframes})
+            output.append(
+                {
+                    "id": _evaluate_expression(template["id"], state, locals_, resolve),
+                    "tag": template["tag"],
+                    "attrs": attrs,
+                    "source": source,
+                    "target": target,
+                    "keyframes": keyframes,
+                }
+            )
     return output
 
 
@@ -987,7 +1110,9 @@ def _apply_operator(op: str, args: list[Any]) -> Any:
     if op == "fixed":
         return f"{numbers[0]:.{max(0, min(6, int(numbers[1])))}f}"
     if op == "points":
-        return " ".join(f"{_number(pair[0]):g},{_number(pair[1]):g}" for pair in args if isinstance(pair, list) and len(pair) == 2)
+        return " ".join(
+            f"{_number(pair[0]):g},{_number(pair[1]):g}" for pair in args if isinstance(pair, list) and len(pair) == 2
+        )
     if op == "sector_path":
         cx, cy, radius, start, end = numbers[:5]
         if radius <= 0:

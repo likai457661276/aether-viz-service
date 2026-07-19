@@ -96,8 +96,7 @@ def test_deterministic_repair_restores_static_widget_contract() -> None:
 
     assert BeautifulSoup(repaired, "html.parser").select_one("#widget-config[type='application/json']") is not None
     assert all(
-        f'id="{control_id}"' in repaired
-        for control_id in ("play-animation", "pause-animation", "reset-animation")
+        f'id="{control_id}"' in repaired for control_id in ("play-animation", "pause-animation", "reset-animation")
     )
 
 
@@ -113,7 +112,7 @@ def test_deterministic_repair_moves_inline_events_without_model_rewrite() -> Non
 
     assert repaired_report["ok"] is True
     assert "onclick=" not in repaired
-    assert "addEventListener(\"click\"" in repaired
+    assert 'addEventListener("click"' in repaired
     assert "window.AetherVizRuntime.play()" in repaired
 
 

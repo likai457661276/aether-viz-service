@@ -104,9 +104,7 @@ def test_planning_trace_summary_includes_normalized_plan() -> None:
         "subject": "math",
     }
 
-    summary = _summarize_planning_trace(
-        [PlanningStreamResult(plan=plan, degraded=False, total_tokens=321)]
-    )
+    summary = _summarize_planning_trace([PlanningStreamResult(plan=plan, degraded=False, total_tokens=321)])
 
     assert summary["completed"] is True
     assert summary["plan"] == plan

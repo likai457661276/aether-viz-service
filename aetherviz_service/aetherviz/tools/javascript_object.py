@@ -183,11 +183,7 @@ def top_level_object_properties(
         index += 1
     segments.append((segment_start, closing))
 
-    properties = [
-        prop
-        for start, end in segments
-        if (prop := _parse_property(source, start, end)) is not None
-    ]
+    properties = [prop for start, end in segments if (prop := _parse_property(source, start, end)) is not None]
     return tuple(properties)
 
 
@@ -292,4 +288,8 @@ def _can_start_regex(source: str, index: int) -> bool:
     if prefix[-1] in "([{=,:;!?&|+-*%^~<>":
         return True
     word = re.search(r"([A-Za-z_$][\w$]*)$", prefix)
-    return bool(word and word.group(1) in {"await", "case", "delete", "in", "new", "of", "return", "throw", "typeof", "void", "yield"})
+    return bool(
+        word
+        and word.group(1)
+        in {"await", "case", "delete", "in", "new", "of", "return", "throw", "typeof", "void", "yield"}
+    )

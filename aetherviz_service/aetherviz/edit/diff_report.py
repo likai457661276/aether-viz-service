@@ -22,9 +22,7 @@ def build_edit_diff_report(baseline_html: str, candidate_html: str) -> dict[str,
     dom_added = sorted(set(candidate_dom) - set(baseline_dom))
     dom_removed = sorted(set(baseline_dom) - set(candidate_dom))
     dom_changed = sorted(
-        key
-        for key in set(baseline_dom) & set(candidate_dom)
-        if baseline_dom[key] != candidate_dom[key]
+        key for key in set(baseline_dom) & set(candidate_dom) if baseline_dom[key] != candidate_dom[key]
     )
 
     baseline_css = _css_index(baseline_soup)
@@ -133,9 +131,7 @@ def _css_index(soup: BeautifulSoup) -> dict[str, str]:
             if not selector:
                 continue
             declarations: dict[str, str] = {}
-            for declaration in tinycss2.parse_declaration_list(
-                rule.content, skip_comments=True, skip_whitespace=True
-            ):
+            for declaration in tinycss2.parse_declaration_list(rule.content, skip_comments=True, skip_whitespace=True):
                 if getattr(declaration, "type", "") != "declaration":
                     continue
                 declarations[str(declaration.name)] = tinycss2.serialize(declaration.value).strip()

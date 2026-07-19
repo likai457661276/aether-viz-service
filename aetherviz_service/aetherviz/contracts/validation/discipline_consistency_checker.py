@@ -22,7 +22,10 @@ def check_discipline_consistency(
     discipline_spec = plan.get("discipline_spec") if isinstance(plan.get("discipline_spec"), dict) else {}
     representation = str(profile.get("representation_type") or "")
 
-    if not any(discipline_spec.get(field) for field in ("entities", "relations", "invariants", "boundary_cases", "representations")):
+    if not any(
+        discipline_spec.get(field)
+        for field in ("entities", "relations", "invariants", "boundary_cases", "representations")
+    ):
         warnings.append(_warning("missing_discipline_spec", "计划缺少通用学科语义规格，生成结果难以进行语义对齐检查"))
 
     script_text = "\n".join(
@@ -33,7 +36,9 @@ def check_discipline_consistency(
     has_svg = parsed.find("svg") is not None or _has_runtime_stage_visual(script_text, "svg")
     has_canvas = parsed.find("canvas") is not None or _has_runtime_stage_visual(script_text, "canvas")
     if representation in {"coordinate_graph", "geometric_construction"} and not has_svg:
-        warnings.append(_warning("representation_mismatch", f"计划要求 {representation} 表征，但主页面未检测到 SVG 几何/坐标画布"))
+        warnings.append(
+            _warning("representation_mismatch", f"计划要求 {representation} 表征，但主页面未检测到 SVG 几何/坐标画布")
+        )
     if representation == "data_chart" and not (has_svg or has_canvas):
         warnings.append(_warning("representation_mismatch", "计划要求数据图表表征，但未检测到 SVG 或 Canvas"))
     if representation == "symbolic_derivation" and parsed.select_one('[data-region="formula"]') is None:
@@ -46,7 +51,9 @@ def check_discipline_consistency(
     boundary_cases = discipline_spec.get("boundary_cases") if isinstance(discipline_spec, dict) else []
     interactive_spec = plan.get("interactive_spec") if isinstance(plan.get("interactive_spec"), dict) else {}
     if boundary_cases and plan.get("interactive_type") == "simulation" and not interactive_spec.get("presets"):
-        warnings.append(_warning("missing_boundary_preset", "计划声明了边界/特殊状态，但 simulation 未提供可到达的 preset"))
+        warnings.append(
+            _warning("missing_boundary_preset", "计划声明了边界/特殊状态，但 simulation 未提供可到达的 preset")
+        )
     return _report(warnings)
 
 

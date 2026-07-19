@@ -28,9 +28,7 @@ def complete_intermediate_waypoints(ir: object, plan: dict[str, Any]) -> dict[st
         if error.get("type") == "missing_intermediate_geometry_stage"
     }
     other_errors = [
-        error
-        for error in before.get("errors", [])
-        if error.get("type") != "missing_intermediate_geometry_stage"
+        error for error in before.get("errors", []) if error.get("type") != "missing_intermediate_geometry_stage"
     ]
     if other_errors:
         return {

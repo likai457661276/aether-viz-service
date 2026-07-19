@@ -16,7 +16,11 @@ def assemble_number_line_business_html(ir: dict[str, Any], plan: dict[str, Any],
     variables = _variables(plan)
     defaults = {item["name"]: item["default"] for item in variables}
     config = json.dumps(
-        {"type": str(plan.get("interactive_type") or "simulation"), "version": "1.0", "defaults": {**defaults, "speed": 1}},
+        {
+            "type": str(plan.get("interactive_type") or "simulation"),
+            "version": "1.0",
+            "defaults": {**defaults, "speed": 1},
+        },
         ensure_ascii=False,
         separators=(",", ":"),
     ).replace("</", "<\\/")

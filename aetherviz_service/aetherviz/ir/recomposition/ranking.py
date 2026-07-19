@@ -39,7 +39,9 @@ def rank_geometry_ir_candidates(
 ) -> dict[str, Any]:
     """Reject deterministic failures and rank survivors with stable tie-breaking."""
     evaluated = [
-        _evaluate_candidate(candidate, plan, index, (origins or [])[index] if origins and index < len(origins) else "model")
+        _evaluate_candidate(
+            candidate, plan, index, (origins or [])[index] if origins and index < len(origins) else "model"
+        )
         for index, candidate in enumerate(candidates)
     ]
     eligible = [item for item in evaluated if item["eligible"]]
@@ -74,11 +76,7 @@ def rank_geometry_ir_candidates(
 
 def public_geometry_ir_ranking(report: dict[str, Any]) -> dict[str, Any]:
     """Remove candidate payloads while preserving the reproducible decision evidence."""
-    return {
-        key: value
-        for key, value in report.items()
-        if key not in {"selected_ir", "repair_candidate"}
-    }
+    return {key: value for key, value in report.items() if key not in {"selected_ir", "repair_candidate"}}
 
 
 def _evaluate_candidate(candidate: object, plan: dict[str, Any], index: int, origin: str) -> dict[str, Any]:
@@ -115,9 +113,7 @@ def _evaluate_candidate(candidate: object, plan: dict[str, Any], index: int, ori
     stage_errors = [
         error
         for error in semantic_report.get("errors", [])
-        if not str(error.get("type", "")).startswith(
-            ("mathematical_", "target_assembly_", "source_assembly_")
-        )
+        if not str(error.get("type", "")).startswith(("mathematical_", "target_assembly_", "source_assembly_"))
     ]
     hard_failures = [
         *_error_types(math_report, "mathematics"),
@@ -193,14 +189,26 @@ def _evaluate_motion_safety(ir: dict[str, Any], plan: dict[str, Any]) -> dict[st
                 y = _finite(transform.get("y"), math.inf)
                 scale = _finite(transform.get("scale"), math.inf)
                 if not (-CANVAS_WIDTH <= x <= CANVAS_WIDTH * 2 and -CANVAS_HEIGHT <= y <= CANVAS_HEIGHT * 2):
-                    errors.append({"type": "gross_transform_out_of_bounds", "state": state_label, "piece_id": piece["id"]})
+                    errors.append(
+                        {"type": "gross_transform_out_of_bounds", "state": state_label, "piece_id": piece["id"]}
+                    )
                 if not 0.05 <= scale <= 8:
-                    errors.append({"type": "unsafe_transform_scale", "state": state_label, "piece_id": piece["id"], "scale": scale})
+                    errors.append(
+                        {
+                            "type": "unsafe_transform_scale",
+                            "state": state_label,
+                            "piece_id": piece["id"],
+                            "scale": scale,
+                        }
+                    )
                 if 24 <= x <= CANVAS_WIDTH - 24 and 24 <= y <= CANVAS_HEIGHT - 24 and 0.2 <= scale <= 3.5:
                     safe_bounds += 1
             source = piece["source"]
             target = piece["target"]
-            distance = math.hypot(_finite(target.get("x"), 0) - _finite(source.get("x"), 0), _finite(target.get("y"), 0) - _finite(source.get("y"), 0))
+            distance = math.hypot(
+                _finite(target.get("x"), 0) - _finite(source.get("x"), 0),
+                _finite(target.get("y"), 0) - _finite(source.get("y"), 0),
+            )
             if 24 <= distance <= math.hypot(CANVAS_WIDTH, CANVAS_HEIGHT) * 0.85:
                 reasonable_motion += 1
     unique_errors = list({json.dumps(item, sort_keys=True, ensure_ascii=False): item for item in errors}.values())
@@ -245,7 +253,15 @@ def _score_transform_text_consistency(ir: dict[str, Any], plan: dict[str, Any]) 
         claims = {name: any(word in text for word in words) for name, words in keyword_groups.items()}
         contradictions = sorted(name for name, claimed in claims.items() if claimed and not deltas[name])
         described = any(claims[name] and deltas[name] for name in claims)
-        checks.append({"stage_id": frames[frame_index].get("stage_id"), "claims": claims, "motion": deltas, "contradictions": contradictions, "described": described})
+        checks.append(
+            {
+                "stage_id": frames[frame_index].get("stage_id"),
+                "claims": claims,
+                "motion": deltas,
+                "contradictions": contradictions,
+                "described": described,
+            }
+        )
     if not checks:
         return 0.0, {"checks": []}
     contradiction_ratio = sum(bool(item["contradictions"]) for item in checks) / len(checks)
@@ -256,14 +272,26 @@ def _score_transform_text_consistency(ir: dict[str, Any], plan: dict[str, Any]) 
 def _transform_at(piece: dict[str, Any], at: float) -> dict[str, float]:
     candidates = [*piece.get("keyframes", []), {"at": 0, **piece["source"]}, {"at": 1, **piece["target"]}]
     frame = min(candidates, key=lambda item: abs(_finite(item.get("at"), 0) - at))
-    return {name: _finite(frame.get(name), 1 if name in {"scale", "opacity"} else 0) for name in ("x", "y", "rotation", "scale", "opacity")}
+    return {
+        name: _finite(frame.get(name), 1 if name in {"scale", "opacity"} else 0)
+        for name in ("x", "y", "rotation", "scale", "opacity")
+    }
 
 
 def _origin_score(origin: str) -> float:
     return {"model": 1.0, "bounds": 0.9, "repair": 0.6, "fallback": 0.0}.get(origin, 0.5)
 
 
-def _candidate_result(*, index: int, origin: str, ir: dict[str, Any] | None, fingerprint: str, hard_failures: list[str], components: dict[str, float], details: dict[str, Any]) -> dict[str, Any]:
+def _candidate_result(
+    *,
+    index: int,
+    origin: str,
+    ir: dict[str, Any] | None,
+    fingerprint: str,
+    hard_failures: list[str],
+    components: dict[str, float],
+    details: dict[str, Any],
+) -> dict[str, Any]:
     return {
         "index": index,
         "origin": origin,

@@ -31,17 +31,16 @@ def assemble_linked_coordinate_business_html(
     defaults = {str(item["name"]): _finite(item.get("default"), 0) for item in variables}
     controls = "".join(_variable_control(item) for item in variables)
     teaching_flow = plan.get("teaching_flow") if isinstance(plan.get("teaching_flow"), list) else []
-    flow_markup = "".join(
-        f'<li data-step="{index}">{html.escape(str(item.get("label") or f"第{index + 1}步"))}</li>'
-        for index, item in enumerate(teaching_flow[:5])
-        if isinstance(item, dict)
-    ) or '<li data-step="0">观察对应对象</li><li data-step="1">改变参数</li><li data-step="2">归纳联动关系</li>'
+    flow_markup = (
+        "".join(
+            f'<li data-step="{index}">{html.escape(str(item.get("label") or f"第{index + 1}步"))}</li>'
+            for index, item in enumerate(teaching_flow[:5])
+            if isinstance(item, dict)
+        )
+        or '<li data-step="0">观察对应对象</li><li data-step="1">改变参数</li><li data-step="2">归纳联动关系</li>'
+    )
     caption = next(
-        (
-            str(item.get("caption"))
-            for item in teaching_flow
-            if isinstance(item, dict) and item.get("caption")
-        ),
+        (str(item.get("caption")) for item in teaching_flow if isinstance(item, dict) and item.get("caption")),
         "拖动参数，观察各坐标表征中的点、曲线与投影如何同步变化。",
     )
     formulas = plan.get("formulas") if isinstance(plan.get("formulas"), list) else []

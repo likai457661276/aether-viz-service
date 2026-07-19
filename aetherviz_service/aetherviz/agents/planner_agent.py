@@ -57,7 +57,9 @@ class PlanningStreamResult:
     total_tokens: int = 0
 
 
-def stream_create_plan(topic: str, *, context: dict[str, Any] | None = None) -> Iterator[dict[str, Any] | PlanningStreamResult]:
+def stream_create_plan(
+    topic: str, *, context: dict[str, Any] | None = None
+) -> Iterator[dict[str, Any] | PlanningStreamResult]:
     runner = (
         _traced_stream_create_plan
         if settings.langsmith_tracing and get_current_run_tree() is not None
@@ -351,9 +353,7 @@ def _iter_model_stream_chunks(model: Any, messages: list[Any], *, deadline: floa
         while True:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                raise TimeoutError(
-                    f"planning model timed out after {settings.aetherviz_plan_timeout_seconds}s"
-                )
+                raise TimeoutError(f"planning model timed out after {settings.aetherviz_plan_timeout_seconds}s")
             try:
                 item = chunk_queue.get(timeout=min(remaining, 0.5))
             except queue.Empty:
@@ -449,7 +449,7 @@ def _apply_deterministic_revision(plan: dict[str, Any], topic: str, message: str
     revised["status"] = "revised"
     revised["plan_id"] = _plan_id(topic, "revised")
     revised["revision_summary"] = message[:160]
-    revised["goal"] = f'{plan.get("goal", "")} 修订要求：{message[:80]}'.strip()[:180]
+    revised["goal"] = f"{plan.get('goal', '')} 修订要求：{message[:80]}".strip()[:180]
     revised["context_status"] = {"status": "normal"}
     return revised
 

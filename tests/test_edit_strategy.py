@@ -52,7 +52,16 @@ def test_route_prefers_deterministic_for_low_complexity_bindable_ops() -> None:
             ),
         ),
         impact_areas=("dom",),
-        targets=({"kind": "dom", "selector": "#play-animation", "function": "", "source_hash": "", "evidence": "", "confidence": 1.0},),
+        targets=(
+            {
+                "kind": "dom",
+                "selector": "#play-animation",
+                "function": "",
+                "source_hash": "",
+                "evidence": "",
+                "confidence": 1.0,
+            },
+        ),
     )
     html = "<button id='play-animation'>播放</button>"
     strategy, route = route_edit_strategy(diagnosis=diagnosis, business_html=html)

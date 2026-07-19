@@ -1,4 +1,5 @@
 """Shim: use aetherviz.generate.html_agent / contracts.html_stream."""
+
 from aetherviz_service.aetherviz.contracts.html_stream import (
     HTML_REASONING_EVENT_INTERVAL_MS,
     HTML_SIZE_EVENT_INTERVAL_BYTES,

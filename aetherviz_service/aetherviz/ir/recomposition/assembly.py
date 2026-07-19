@@ -111,16 +111,11 @@ def evaluate_target_assembly(ir: dict[str, Any], plan: dict[str, Any]) -> dict[s
             continue
         ordered_states = sorted(
             states,
-            key=lambda item: {"minimum": 0, "default": 1, "maximum": 2}.get(
-                str(item.get("state")), 3
-            ),
+            key=lambda item: {"minimum": 0, "default": 1, "maximum": 2}.get(str(item.get("state")), 3),
         )
         scores = [float(item["rectangularity"]) for item in ordered_states]
         tolerance = float(constraint.get("trend_tolerance", 0.08))
-        passed = all(
-            right + tolerance >= left
-            for left, right in zip(scores, scores[1:], strict=False)
-        )
+        passed = all(right + tolerance >= left for left, right in zip(scores, scores[1:], strict=False))
         checks.append(
             {
                 "kind": "target_assembly_trend",
@@ -179,11 +174,7 @@ def translate_target_assembly_into_canvas(
         }
     states = assembly_report.get("states")
     bboxes = (
-        [
-            item.get("bbox")
-            for item in states
-            if isinstance(item, dict) and _valid_bbox(item.get("bbox"))
-        ]
+        [item.get("bbox") for item in states if isinstance(item, dict) and _valid_bbox(item.get("bbox"))]
         if isinstance(states, list)
         else []
     )
@@ -235,11 +226,7 @@ def _valid_bbox(value: object) -> bool:
         numbers = [float(item) for item in value]
     except (TypeError, ValueError):
         return False
-    return (
-        all(math.isfinite(item) for item in numbers)
-        and numbers[0] <= numbers[2]
-        and numbers[1] <= numbers[3]
-    )
+    return all(math.isfinite(item) for item in numbers) and numbers[0] <= numbers[2] and numbers[1] <= numbers[3]
 
 
 def _axis_translation(minimum: float, maximum: float, limit: float) -> float:

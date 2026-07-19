@@ -46,6 +46,7 @@ _FUNCTION_PATTERNS = (
 )
 _SCENE_BUILDER_NAMES = ("buildScene", "createScene")
 
+
 @dataclass(frozen=True)
 class FunctionSource:
     name: str

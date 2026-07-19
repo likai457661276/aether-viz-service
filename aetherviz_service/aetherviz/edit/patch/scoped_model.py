@@ -118,9 +118,7 @@ def stream_scoped_model_patch(
     output_tokens: int | None = None
     try:
         model = create_chat_model("edit")
-        for chunk in model.stream(
-            [SystemMessage(content=SCOPED_EDIT_SYSTEM_PROMPT), HumanMessage(content=prompt)]
-        ):
+        for chunk in model.stream([SystemMessage(content=SCOPED_EDIT_SYSTEM_PROMPT), HumanMessage(content=prompt)]):
             chunk_input_tokens, chunk_output_tokens = extract_llm_usage(chunk)
             input_tokens = chunk_input_tokens or input_tokens
             output_tokens = chunk_output_tokens or output_tokens
@@ -158,9 +156,7 @@ def stream_scoped_model_patch(
             updated,
             function_replacements,
             allowed_functions=tuple(item["function"] for item in function_descriptions),
-            allowed_targets=tuple(
-                (str(item["function"]), str(item["source_hash"])) for item in function_descriptions
-            ),
+            allowed_targets=tuple((str(item["function"]), str(item["source_hash"])) for item in function_descriptions),
         )
         if patch.errors and not patch.applied:
             errors.extend(patch.errors)
@@ -174,9 +170,7 @@ def stream_scoped_model_patch(
             updated,
             css_replacements,
             allowed_selectors=tuple(item["selector"] for item in css_descriptions),
-            allowed_targets=tuple(
-                (str(item["selector"]), str(item["source_hash"])) for item in css_descriptions
-            ),
+            allowed_targets=tuple((str(item["selector"]), str(item["source_hash"])) for item in css_descriptions),
         )
         if patch.errors and not patch.applied:
             errors.extend(patch.errors)

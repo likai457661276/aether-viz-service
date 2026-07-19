@@ -37,6 +37,7 @@ DEFAULT_REPAIR_PROGRESS_STEPS: list[dict[str, str]] = [
     {"content": "输出修复后的完整 HTML", "status": "pending"},
 ]
 
+
 @dataclass(frozen=True)
 class RepairStreamResult:
     html: str
@@ -228,9 +229,7 @@ def _summarize_repair_stream(items: list[dict[str, Any] | RepairStreamResult]) -
         "output_tokens": result.output_tokens,
         "output_chars": result.output_chars or len(result.html),
         "chars_per_output_token": (
-            round((result.output_chars or len(result.html)) / result.output_tokens, 3)
-            if result.output_tokens
-            else None
+            round((result.output_chars or len(result.html)) / result.output_tokens, 3) if result.output_tokens else None
         ),
         "progress_events": sum(isinstance(item, dict) for item in items),
     }
@@ -238,8 +237,7 @@ def _summarize_repair_stream(items: list[dict[str, Any] | RepairStreamResult]) -
 
 def _report_has_truncation(report: dict[str, Any]) -> bool:
     return any(
-        isinstance(error, dict) and error.get("type") == "truncated_model_output"
-        for error in report.get("errors", [])
+        isinstance(error, dict) and error.get("type") == "truncated_model_output" for error in report.get("errors", [])
     )
 
 

@@ -25,11 +25,7 @@ def try_deterministic_runtime_prepair(
 ) -> RuntimePreRepairResult | None:
     """Repair DOM-as-selector misuse when the runtime error matches the known pattern."""
     error_text = " ".join(str(value) for value in (runtime_error or {}).values()).lower()
-    if not (
-        "queryselector" in error_text
-        and "not a valid selector" in error_text
-        and "[object html" in error_text
-    ):
+    if not ("queryselector" in error_text and "not a valid selector" in error_text and "[object html" in error_text):
         return None
     repaired, applied = repair_dom_element_selector_mismatches(business_html)
     if not applied or repaired == business_html:

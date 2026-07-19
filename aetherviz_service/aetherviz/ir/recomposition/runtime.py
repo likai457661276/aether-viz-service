@@ -27,9 +27,7 @@ def assemble_recomposition_business_html(scene_source: str, plan: dict[str, Any]
         for variable in interactive_spec.get("variables", [])
         if isinstance(variable, dict) and not variable.get("computed")
     ][:3]
-    recomposition_spec = (
-        plan.get("recomposition_spec") if isinstance(plan.get("recomposition_spec"), dict) else {}
-    )
+    recomposition_spec = plan.get("recomposition_spec") if isinstance(plan.get("recomposition_spec"), dict) else {}
     defaults = {
         str(variable.get("name")): _finite_number(variable.get("default"), 0)
         for variable in variables
@@ -55,7 +53,9 @@ def assemble_recomposition_business_html(scene_source: str, plan: dict[str, Any]
         if isinstance(step, dict)
     )
     if not flow_markup:
-        flow_markup = "<li data-step=\"0\">观察源图形</li><li data-step=\"1\">跟随重排过程</li><li data-step=\"2\">解释目标关系</li>"
+        flow_markup = (
+            '<li data-step="0">观察源图形</li><li data-step="1">跟随重排过程</li><li data-step="2">解释目标关系</li>'
+        )
 
     gsap_script = f'<script src="{html.escape(get_gsap_core_cdn_url(), quote=True)}"></script>'
     katex_assets = ""

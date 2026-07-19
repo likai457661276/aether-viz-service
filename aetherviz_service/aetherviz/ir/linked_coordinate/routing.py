@@ -8,9 +8,7 @@ from aetherviz_service.aetherviz.ir.router.contracts import IRRouteAssessment, I
 
 PROFILE = IRRoutingProfile(
     description="共享连续参数驱动两个或更多数学视图，并保持曲线、动态点、投影或数值对应不变量。",
-    capabilities=frozenset(
-        {"multi_view", "shared_parameter", "dynamic_point", "curve", "cross_view_correspondence"}
-    ),
+    capabilities=frozenset({"multi_view", "shared_parameter", "dynamic_point", "curve", "cross_view_correspondence"}),
     required_capabilities=frozenset({"multi_view", "shared_parameter", "cross_view_correspondence"}),
     supported_view_kinds=frozenset({"coordinate_plane", "geometric_scene", "symbolic_panel"}),
     exclusions=("单一静态函数图像", "没有共享状态参数", "没有跨视图动态关系"),

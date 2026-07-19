@@ -142,8 +142,7 @@ def _operation_covers_check(operation: EditOperation, check: Any) -> bool:
         return kind == "widget_default_changed" and property_name == operation.property
     if operation.type == "replace_numeric_literal":
         return kind == "numeric_changed" and (
-            (function_name and function_name == operation.function)
-            or (selector and selector == operation.selector)
+            (function_name and function_name == operation.function) or (selector and selector == operation.selector)
         )
     if operation.type == "remove_element":
         return kind in {"text_absent", "text_changed"} and selector == operation.selector

@@ -23,6 +23,8 @@ _NUMBER_UNIT_RE = re.compile(
     r"^(?P<sign>-?)(?P<number>\d+(?:\.\d+)?)(?P<unit>px|rem|em|%|s|ms|vh|vw|)$",
     re.IGNORECASE,
 )
+
+
 @dataclass(frozen=True)
 class DeterministicPatchResult:
     html: str

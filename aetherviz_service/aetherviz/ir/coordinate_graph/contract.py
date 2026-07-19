@@ -105,11 +105,15 @@ def validate_coordinate_graph_ir(ir: object, plan: dict[str, Any]) -> dict[str, 
     if len(variables) > 1:
         animation = normalized.get("animation") if isinstance(normalized.get("animation"), dict) else {}
         keyframes = animation.get("keyframes")
-        frame_states = [
-            set(item.get("state", {}))
-            for item in keyframes
-            if isinstance(item, dict) and isinstance(item.get("state"), dict)
-        ] if isinstance(keyframes, list) else []
+        frame_states = (
+            [
+                set(item.get("state", {}))
+                for item in keyframes
+                if isinstance(item, dict) and isinstance(item.get("state"), dict)
+            ]
+            if isinstance(keyframes, list)
+            else []
+        )
         covered = set.intersection(*frame_states) if frame_states else set()
         if not isinstance(keyframes, list) or len(keyframes) < 2 or not variables <= covered:
             errors.append(
@@ -159,7 +163,10 @@ def rank_coordinate_graph_ir_candidates(candidates: list[object], plan: dict[str
         "repair_candidate": repair["ir"] if repair else None,
         "repair_report": repair["report"] if repair else None,
         "candidates": [
-            {key: item[key] for key in ("index", "eligible", "error_count", "warning_count", "chars", "fingerprint", "report")}
+            {
+                key: item[key]
+                for key in ("index", "eligible", "error_count", "warning_count", "chars", "fingerprint", "report")
+            }
             for item in reports
         ],
     }

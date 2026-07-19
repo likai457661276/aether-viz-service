@@ -17,11 +17,7 @@ PROFILE = IRRoutingProfile(
 
 def assess(plan: dict[str, Any]) -> IRRouteAssessment:
     spec = plan.get("representation_spec") if isinstance(plan.get("representation_spec"), dict) else {}
-    relations = {
-        str(item.get("type") or "")
-        for item in spec.get("correspondences", [])
-        if isinstance(item, dict)
-    }
+    relations = {str(item.get("type") or "") for item in spec.get("correspondences", []) if isinstance(item, dict)}
     invariants = {str(item) for item in spec.get("required_invariants", [])}
     recomposition = plan.get("recomposition_spec") if isinstance(plan.get("recomposition_spec"), dict) else {}
     stages = ((recomposition.get("proof_constraints") or {}).get("stage_requirements") or []) if recomposition else []
@@ -29,8 +25,12 @@ def assess(plan: dict[str, Any]) -> IRRouteAssessment:
         "piece_decomposition": "decompose_recompose" in relations or bool(recomposition),
         "piece_transform": len(stages) >= 3,
         "geometry_invariant": bool(invariants & {"piece_identity_preserved", "piece_congruence", "area_preserved"}),
-        "target_assembly": bool((recomposition.get("proof_constraints") or {}).get("target_assembly")) if recomposition else False,
-        "profile_prior": ((plan.get("knowledge_profile") or {}).get("representation_type") == "geometric_recomposition") if isinstance(plan.get("knowledge_profile"), dict) else False,
+        "target_assembly": bool((recomposition.get("proof_constraints") or {}).get("target_assembly"))
+        if recomposition
+        else False,
+        "profile_prior": ((plan.get("knowledge_profile") or {}).get("representation_type") == "geometric_recomposition")
+        if isinstance(plan.get("knowledge_profile"), dict)
+        else False,
     }
     weights = {
         "piece_decomposition": 0.30,

@@ -97,7 +97,9 @@ def build_knowledge_profile(topic: str, *, subject: str | None = None) -> dict[s
     text = (topic or "").lower()
     resolved_subject = subject or detect_subject(topic)
     concept_family, family_score = _best_match(text, CONCEPT_FAMILY_CUES.get(resolved_subject, {}), "general")
-    representation, representation_score = _best_match(text, REPRESENTATION_CUES, _default_representation(resolved_subject))
+    representation, representation_score = _best_match(
+        text, REPRESENTATION_CUES, _default_representation(resolved_subject)
+    )
     pedagogy, pedagogy_score = _best_match(text, PEDAGOGY_CUES, "guided_exploration")
     if resolved_subject == "math" and is_geometric_recomposition_topic(text):
         representation = "geometric_recomposition"

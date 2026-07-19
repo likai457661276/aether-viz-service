@@ -9,7 +9,9 @@ from aetherviz_service.aetherviz.tools.javascript_syntax import check_javascript
 
 def check_inline_javascript(html: str, *, soup: BeautifulSoup | None = None) -> dict:
     parsed = soup or BeautifulSoup(html or "", "html.parser")
-    module_scripts = [script for script in parsed.find_all("script") if str(script.get("type") or "").strip().lower() == "module"]
+    module_scripts = [
+        script for script in parsed.find_all("script") if str(script.get("type") or "").strip().lower() == "module"
+    ]
     scripts = [
         script.get_text("\n", strip=False)
         for script in parsed.find_all("script")

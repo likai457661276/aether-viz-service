@@ -105,10 +105,7 @@ def _evaluate_teaching_stage_evidence(
         stage
         for stage in requirements
         if isinstance(stage, dict)
-        and (
-            stage.get("geometry_requirement") == "transform_keyframe"
-            or stage.get("role") == "intermediate"
-        )
+        and (stage.get("geometry_requirement") == "transform_keyframe" or stage.get("role") == "intermediate")
     ]
     for state_label, state in sample_geometry_states(plan):
         pieces = expand_geometry_ir(ir, state)
@@ -148,9 +145,7 @@ def _evaluate_teaching_stage_evidence(
     return {"errors": errors, "warnings": warnings, "checks": checks}
 
 
-def evaluate_intermediate_transform_evidence(
-    piece: dict[str, Any], at: float
-) -> dict[str, Any]:
+def evaluate_intermediate_transform_evidence(piece: dict[str, Any], at: float) -> dict[str, Any]:
     """Return explainable, scale-aware evidence for an independent transform waypoint."""
     keyframe = next(
         (
@@ -176,10 +171,7 @@ def evaluate_intermediate_transform_evidence(
     actual = _transform_vector(keyframe)
     source_vector = _transform_vector(source)
     target_vector = _transform_vector(target)
-    direct = {
-        key: source_vector[key] + (target_vector[key] - source_vector[key]) * at
-        for key in source_vector
-    }
+    direct = {key: source_vector[key] + (target_vector[key] - source_vector[key]) * at for key in source_vector}
     source_metrics = _transform_delta(actual, source_vector)
     target_metrics = _transform_delta(actual, target_vector)
     direct_metrics = _transform_delta(actual, direct)
@@ -215,15 +207,13 @@ def evaluate_intermediate_transform_evidence(
 
 def _transform_vector(transform: dict[str, Any]) -> dict[str, float]:
     return {
-        key: _number(transform.get(key), _transform_default(key))
-        for key in ("x", "y", "rotation", "scale", "opacity")
+        key: _number(transform.get(key), _transform_default(key)) for key in ("x", "y", "rotation", "scale", "opacity")
     }
 
 
 def _transform_delta(left: dict[str, float], right: dict[str, float]) -> dict[str, float]:
     return {
-        "translation_px": ((left["x"] - right["x"]) ** 2 + (left["y"] - right["y"]) ** 2)
-        ** 0.5,
+        "translation_px": ((left["x"] - right["x"]) ** 2 + (left["y"] - right["y"]) ** 2) ** 0.5,
         "rotation_deg": abs(left["rotation"] - right["rotation"]),
         "scale": abs(left["scale"] - right["scale"]),
         "opacity": abs(left["opacity"] - right["opacity"]),
@@ -231,10 +221,7 @@ def _transform_delta(left: dict[str, float], right: dict[str, float]) -> dict[st
 
 
 def _evidence_score(metrics: dict[str, float]) -> float:
-    return max(
-        metrics[name] / threshold
-        for name, threshold in INTERMEDIATE_EVIDENCE_THRESHOLDS.items()
-    )
+    return max(metrics[name] / threshold for name, threshold in INTERMEDIATE_EVIDENCE_THRESHOLDS.items())
 
 
 def _round_metrics(metrics: dict[str, float]) -> dict[str, float]:

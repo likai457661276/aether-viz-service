@@ -101,9 +101,7 @@ def stream_generate_recomposition_html(
     metadata={"component": "aetherviz", "stage": "scene_generation"},
     process_inputs=lambda inputs: {
         "topic": inputs.get("topic"),
-        "representation_type": ((inputs.get("plan") or {}).get("knowledge_profile") or {}).get(
-            "representation_type"
-        ),
+        "representation_type": ((inputs.get("plan") or {}).get("knowledge_profile") or {}).get("representation_type"),
     },
     reduce_fn=lambda items: _summarize_scene_stream(items),
 )
@@ -176,17 +174,13 @@ def _generate_scene_source(topic: str, plan: dict[str, Any]) -> tuple[str, bool]
     return source, timed_out
 
 
-def _generate_ranked_scene_source(
-    topic: str, plan: dict[str, Any]
-) -> tuple[str, bool, dict[str, Any]]:
+def _generate_ranked_scene_source(topic: str, plan: dict[str, Any]) -> tuple[str, bool, dict[str, Any]]:
     prompt = _build_scene_prompt(topic, plan)
     raw_text = ""
     timed_out = False
     deadline = time.monotonic() + max(settings.aetherviz_html_timeout_seconds, 1)
     messages = [SystemMessage(content=SCENE_SYSTEM_PROMPT), HumanMessage(content=prompt)]
-    for chunk in _stream_scene_response(
-        messages, response_schema=geometry_ir_candidates_response_schema()
-    ):
+    for chunk in _stream_scene_response(messages, response_schema=geometry_ir_candidates_response_schema()):
         if time.monotonic() > deadline:
             timed_out = True
             break
@@ -410,9 +404,7 @@ def _trace_ranking_summary(ranking: dict[str, Any]) -> dict[str, Any]:
                 "hard_failures": item.get("hard_failures", []),
                 "components": item.get("components", {}),
                 "assembly_states": item.get("details", {}).get("target_assembly", {}).get("states", []),
-                "source_assembly_states": item.get("details", {}).get("target_assembly", {}).get(
-                    "source_states", []
-                ),
+                "source_assembly_states": item.get("details", {}).get("target_assembly", {}).get("source_states", []),
                 "unavailable_relations": [
                     warning
                     for warning in item.get("details", {}).get("mathematics", {}).get("warnings", [])
@@ -487,7 +479,7 @@ def _build_scene_prompt(topic: str, plan: dict[str, Any]) -> str:
     }
     return (
         "根据以下已确认计划一次生成 3 个相互独立的通用结构化几何 IR 候选。顶层严格输出 "
-        "{\"candidates\":[IR1,IR2,IR3]}，不得少于 2 个，不生成 HTML。每个候选应采用不同但通用的切分或运动布局；"
+        '{"candidates":[IR1,IR2,IR3]}，不得少于 2 个，不生成 HTML。每个候选应采用不同但通用的切分或运动布局；'
         "先确定切分后稳定图元集合，再用 source/target 表达同一组 id 的重排；"
         "不得输出可执行代码，也不得使用任何知识点专用分支。只能用 allowed_state_variables，严禁 progress；"
         "画布为 960×560，默认状态的主体图形建议占 160~420px，避免把 1~8 这类抽象参数直接当像素尺寸。\n"
@@ -557,13 +549,7 @@ def _compact_teaching_diagnostics(report: object) -> dict[str, Any]:
             }
         )
     return {
-        "error_types": sorted(
-            {
-                str(item.get("type"))
-                for item in report.get("errors", [])
-                if isinstance(item, dict)
-            }
-        ),
+        "error_types": sorted({str(item.get("type")) for item in report.get("errors", []) if isinstance(item, dict)}),
         "failed_intermediate_checks": failed_checks,
     }
 
@@ -627,9 +613,9 @@ def _stream_scene_response(
 ) -> Iterator[Any]:
     """Prefer strict schema decoding; retry once with JSON mode for compatible gateways."""
     try:
-        yield from create_chat_model(
-            "scene", response_schema=response_schema or geometry_ir_response_schema()
-        ).stream(messages)
+        yield from create_chat_model("scene", response_schema=response_schema or geometry_ir_response_schema()).stream(
+            messages
+        )
     except GeneratorExit:
         raise
     except Exception as exc:

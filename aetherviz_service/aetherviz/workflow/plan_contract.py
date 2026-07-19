@@ -32,6 +32,7 @@ REQUIRED_RUNTIME_CONTROLS = (
     {"id": "reset-animation", "label": "重置", "type": "button", "action": "reset"},
 )
 
+
 def compact_plan_for_revision(plan: dict[str, Any]) -> dict[str, Any]:
     semantic_fields = (
         "interactive_type",
@@ -88,18 +89,30 @@ def normalize_plan(raw_plan: dict | None, topic: str, primary_color: str = DEFAU
         interactive_type = select_interactive_type(source_topic, subject)
 
     runtime_raw = raw.get("runtime") if isinstance(raw.get("runtime"), dict) else {}
-    render_stack = _safe_str(runtime_raw.get("render_stack") or raw.get("render_stack")) or select_render_stack(interactive_type, subject, source_topic)
+    render_stack = _safe_str(runtime_raw.get("render_stack") or raw.get("render_stack")) or select_render_stack(
+        interactive_type, subject, source_topic
+    )
     if render_stack not in VALID_RENDER_STACKS:
         render_stack = select_render_stack(interactive_type, subject, source_topic)
-    animation_runtime = _safe_str(runtime_raw.get("animation_runtime") or raw.get("animation_runtime")) or select_animation_runtime()
+    animation_runtime = (
+        _safe_str(runtime_raw.get("animation_runtime") or raw.get("animation_runtime")) or select_animation_runtime()
+    )
     if animation_runtime not in VALID_ANIMATION_RUNTIMES:
         animation_runtime = select_animation_runtime()
 
-    interactive_spec = _normalize_interactive_spec(raw.get("interactive_spec"), baseline["interactive_spec"], interactive_type, source_topic)
+    interactive_spec = _normalize_interactive_spec(
+        raw.get("interactive_spec"), baseline["interactive_spec"], interactive_type, source_topic
+    )
     teaching_flow = _normalize_teaching_flow(raw.get("teaching_flow"), baseline["teaching_flow"])
-    widget_outline = _normalize_widget_outline(raw.get("widget_outline"), interactive_spec, interactive_type, source_topic)
-    key_points = _string_list(raw.get("key_points") or raw.get("keyPoints"), baseline["key_points"], max_items=6, max_len=120)
-    scene_outline = _normalize_scene_outline(raw.get("scene_outline"), baseline["scene_outline"], interactive_type, source_topic, key_points, widget_outline)
+    widget_outline = _normalize_widget_outline(
+        raw.get("widget_outline"), interactive_spec, interactive_type, source_topic
+    )
+    key_points = _string_list(
+        raw.get("key_points") or raw.get("keyPoints"), baseline["key_points"], max_items=6, max_len=120
+    )
+    scene_outline = _normalize_scene_outline(
+        raw.get("scene_outline"), baseline["scene_outline"], interactive_type, source_topic, key_points, widget_outline
+    )
     design_brief = _normalize_design_brief(raw.get("design_brief"), baseline["design_brief"])
     formulas = _string_list(raw.get("formulas"), baseline["formulas"], max_items=5, max_len=100)
     variable_names = {
@@ -134,11 +147,7 @@ def normalize_plan(raw_plan: dict | None, topic: str, primary_color: str = DEFAU
         "scene_outline": scene_outline,
         "subject": subject,
         "knowledge_profile": knowledge_profile,
-        **(
-            {"recomposition_spec": recomposition_spec}
-            if recomposition_spec is not None
-            else {}
-        ),
+        **({"recomposition_spec": recomposition_spec} if recomposition_spec is not None else {}),
         "representation_spec": representation_spec,
         "title": title,
         "goal": (_safe_str(raw.get("goal")) or baseline["goal"])[:180],
@@ -148,7 +157,9 @@ def normalize_plan(raw_plan: dict | None, topic: str, primary_color: str = DEFAU
         "design_brief": design_brief,
         "interactive_spec": interactive_spec,
         "widget_outline": widget_outline,
-        "widget_actions": _normalize_widget_actions(raw.get("widget_actions"), baseline["widget_actions"], interactive_spec, interactive_type),
+        "widget_actions": _normalize_widget_actions(
+            raw.get("widget_actions"), baseline["widget_actions"], interactive_spec, interactive_type
+        ),
         "teaching_flow": teaching_flow,
         "controls": _normalize_controls(raw.get("controls"), baseline["controls"], valid_bindings=variable_names),
         "formulas": formulas,
@@ -177,8 +188,7 @@ def _has_recomposition_evidence(
     if isinstance(representation, dict):
         correspondences = representation.get("correspondences")
         if isinstance(correspondences, list) and any(
-            isinstance(item, dict) and item.get("type") == "decompose_recompose"
-            for item in correspondences
+            isinstance(item, dict) and item.get("type") == "decompose_recompose" for item in correspondences
         ):
             return True
     semantic = " ".join(
@@ -220,9 +230,24 @@ def _default_plan(topic: str, primary_color: str) -> dict:
         "widget_outline": widget_outline,
         "widget_actions": _default_widget_actions(interactive_spec, interactive_type),
         "teaching_flow": [
-            {"id": "observe", "label": "观察初始状态", "focus": "核心对象和变量被清晰标注", "caption": "先观察页面中哪些对象会发生变化。"},
-            {"id": "interact", "label": "操作互动控件", "focus": "学生调节参数或逐步揭示内容", "caption": "再通过控件改变状态，比较不同结果。"},
-            {"id": "conclude", "label": "归纳结论", "focus": "图形、数值和结论同步高亮", "caption": "最后把观察结果和核心规律对应起来。"},
+            {
+                "id": "observe",
+                "label": "观察初始状态",
+                "focus": "核心对象和变量被清晰标注",
+                "caption": "先观察页面中哪些对象会发生变化。",
+            },
+            {
+                "id": "interact",
+                "label": "操作互动控件",
+                "focus": "学生调节参数或逐步揭示内容",
+                "caption": "再通过控件改变状态，比较不同结果。",
+            },
+            {
+                "id": "conclude",
+                "label": "归纳结论",
+                "focus": "图形、数值和结论同步高亮",
+                "caption": "最后把观察结果和核心规律对应起来。",
+            },
         ],
         "controls": _default_controls(interactive_type),
         "formulas": _default_formulas(topic, subject),
@@ -294,9 +319,7 @@ def _normalize_recomposition_spec(raw_spec: object, interactive_spec: dict[str, 
         "proof_constraints": {
             "piece_policy": "stable_ids",
             "measure_invariants": measure_invariants,
-            "target_relations": _normalize_target_relations(
-                proof_raw.get("target_relations"), measure_invariants
-            ),
+            "target_relations": _normalize_target_relations(proof_raw.get("target_relations"), measure_invariants),
             "target_assembly": _normalize_target_assembly(proof_raw.get("target_assembly")),
             "stage_requirements": stage_requirements,
         },
@@ -318,11 +341,14 @@ def _normalize_stage_requirements(value: object) -> list[dict[str, Any]]:
     for index, item in enumerate(raw_stages):
         role = "source" if index == 0 else "target" if index == stage_count - 1 else "intermediate"
         default_id = role if role != "intermediate" else f"transform-{index}"
-        stage_id = re.sub(
-            r"[^a-zA-Z0-9_-]+",
-            "-",
-            (_safe_str(item.get("id")) or default_id).lower(),
-        ).strip("-")[:40] or default_id
+        stage_id = (
+            re.sub(
+                r"[^a-zA-Z0-9_-]+",
+                "-",
+                (_safe_str(item.get("id")) or default_id).lower(),
+            ).strip("-")[:40]
+            or default_id
+        )
         if stage_id in used_ids:
             stage_id = f"{default_id}-{index}"[:40]
         used_ids.add(stage_id)
@@ -333,17 +359,11 @@ def _normalize_stage_requirements(value: object) -> list[dict[str, Any]]:
                 "role": role,
                 "at": round(at, 6),
                 "intent": (_safe_str(item.get("intent")) or "展示几何关系")[:120],
-                "geometry_requirement": (
-                    "transform_keyframe" if role == "intermediate" else f"{role}_snapshot"
-                ),
+                "geometry_requirement": ("transform_keyframe" if role == "intermediate" else f"{role}_snapshot"),
                 "min_piece_ratio": (
-                    _clamp(_safe_number(item.get("min_piece_ratio"), 0.5), 0.1, 1.0)
-                    if role == "intermediate"
-                    else 1.0
+                    _clamp(_safe_number(item.get("min_piece_ratio"), 0.5), 0.1, 1.0) if role == "intermediate" else 1.0
                 ),
-                "required_relations": _string_list(
-                    item.get("required_relations"), [], max_items=4, max_len=48
-                ),
+                "required_relations": _string_list(item.get("required_relations"), [], max_items=4, max_len=48),
             }
         )
     return stages
@@ -420,21 +440,13 @@ def _normalize_target_assembly(value: object) -> list[dict[str, Any]]:
             "type": constraint_type,
         }
         if constraint_type in {"connected", "approximate_rectangle"}:
-            constraint["max_components"] = int(
-                _clamp(_safe_number(item.get("max_components"), 1), 1, 4)
-            )
+            constraint["max_components"] = int(_clamp(_safe_number(item.get("max_components"), 1), 1, 4))
         if constraint_type in {"non_overlapping", "approximate_rectangle"}:
-            constraint["max_overlap_ratio"] = _clamp(
-                _safe_number(item.get("max_overlap_ratio"), 0.1), 0, 0.5
-            )
+            constraint["max_overlap_ratio"] = _clamp(_safe_number(item.get("max_overlap_ratio"), 0.1), 0, 0.5)
         if constraint_type == "approximate_rectangle":
-            constraint["min_rectangularity"] = _clamp(
-                _safe_number(item.get("min_rectangularity"), 0.62), 0.4, 0.95
-            )
+            constraint["min_rectangularity"] = _clamp(_safe_number(item.get("min_rectangularity"), 0.62), 0.4, 0.95)
             constraint["monotonic"] = bool(item.get("monotonic", False))
-            constraint["trend_tolerance"] = _clamp(
-                _safe_number(item.get("trend_tolerance"), 0.08), 0, 0.25
-            )
+            constraint["trend_tolerance"] = _clamp(_safe_number(item.get("trend_tolerance"), 0.08), 0, 0.25)
         constraints.append(constraint)
     return constraints
 
@@ -458,8 +470,7 @@ def _normalize_relation_reference(value: object, *, depth: int) -> object | None
     return {
         str(key): normalized
         for key, item in value.items()
-        if key in allowed_keys
-        and (normalized := _normalize_relation_reference(item, depth=depth + 1)) is not None
+        if key in allowed_keys and (normalized := _normalize_relation_reference(item, depth=depth + 1)) is not None
     }
 
 
@@ -496,7 +507,12 @@ def _default_interactive_spec(topic: str, interactive_type: str) -> dict:
         "description": "学生逐步揭示节点和关系，理解整体结构。",
         "nodes": [
             {"id": "core", "label": topic, "details": "核心概念", "explanation": "核心概念"},
-            {"id": "cause", "label": "关键原因", "details": "导致变化或形成结构的主要因素", "explanation": "导致变化或形成结构的主要因素"},
+            {
+                "id": "cause",
+                "label": "关键原因",
+                "details": "导致变化或形成结构的主要因素",
+                "explanation": "导致变化或形成结构的主要因素",
+            },
             {"id": "result", "label": "结果结论", "details": "最终需要掌握的规律", "explanation": "最终需要掌握的规律"},
         ],
         "edges": [{"from": "cause", "to": "core"}, {"from": "core", "to": "result"}],
@@ -693,11 +709,20 @@ def _normalize_widget_outline(raw_outline: object, interactive_spec: dict, inter
     outline.setdefault("intent", "single_page_interactive_widget")
     outline.setdefault("concept", interactive_spec.get("concept") or topic)
     if interactive_type == "simulation":
-        outline.setdefault("core_objects", [item.get("name") for item in interactive_spec.get("variables", []) if isinstance(item, dict)] or ["parameter"])
+        outline.setdefault(
+            "core_objects",
+            [item.get("name") for item in interactive_spec.get("variables", []) if isinstance(item, dict)]
+            or ["parameter"],
+        )
         outline.setdefault("state_model", ["running", "paused", "ended"])
-        outline.setdefault("observable_changes", interactive_spec.get("observations") or ["参数变化驱动画面、读数和结论同步变化"])
+        outline.setdefault(
+            "observable_changes", interactive_spec.get("observations") or ["参数变化驱动画面、读数和结论同步变化"]
+        )
     elif interactive_type == "diagram":
-        outline.setdefault("core_objects", [item.get("id") for item in interactive_spec.get("nodes", []) if isinstance(item, dict)] or ["core"])
+        outline.setdefault(
+            "core_objects",
+            [item.get("id") for item in interactive_spec.get("nodes", []) if isinstance(item, dict)] or ["core"],
+        )
         outline.setdefault("state_model", ["hidden", "revealed", "highlighted"])
         outline.setdefault("observable_changes", ["节点逐步揭示", "关系连线高亮", "说明同步更新"])
     else:
@@ -710,7 +735,12 @@ def _normalize_widget_outline(raw_outline: object, interactive_spec: dict, inter
 
 def _normalize_diagram_node(node: object, index: int) -> dict:
     if not isinstance(node, dict):
-        return {"id": f"node-{index + 1}", "label": f"节点{index + 1}", "details": "观察该节点的含义。", "explanation": "观察该节点的含义。"}
+        return {
+            "id": f"node-{index + 1}",
+            "label": f"节点{index + 1}",
+            "details": "观察该节点的含义。",
+            "explanation": "观察该节点的含义。",
+        }
     node_id = re.sub(r"[^a-zA-Z0-9_-]+", "-", _safe_str(node.get("id")) or f"node-{index + 1}").strip("-")
     label = (_safe_str(node.get("label")) or node_id or f"节点{index + 1}")[:32]
     details = (_safe_str(node.get("details")) or _safe_str(node.get("explanation")) or "观察该节点的含义。")[:160]
@@ -749,7 +779,9 @@ def _normalize_teaching_flow(raw_flow: object, default: list[dict]) -> list[dict
                 "id": step_id,
                 "label": (_safe_str(item.get("label")) or f"第{index + 1}步")[:32],
                 "focus": (_safe_str(item.get("focus") or item.get("instruction")) or "观察核心变化")[:140],
-                "caption": (_safe_str(item.get("caption") or item.get("instruction")) or "观察当前步骤的关键变化。")[:140],
+                "caption": (_safe_str(item.get("caption") or item.get("instruction")) or "观察当前步骤的关键变化。")[
+                    :140
+                ],
             }
         )
     return flow or list(default)
@@ -770,7 +802,9 @@ def _normalize_controls(
         if not isinstance(item, dict):
             continue
         action = _safe_str(item.get("action")).lower()
-        control_id = re.sub(r"[^a-zA-Z0-9_-]+", "-", (_safe_str(item.get("id")) or f"control-{index + 1}").lower()).strip("-")
+        control_id = re.sub(
+            r"[^a-zA-Z0-9_-]+", "-", (_safe_str(item.get("id")) or f"control-{index + 1}").lower()
+        ).strip("-")
         if action in lifecycle_actions or control_id in lifecycle_ids:
             continue
         control_type = _safe_str(item.get("type")).lower()
@@ -886,7 +920,9 @@ def _normalize_scene_outline(
     raw_key_points = outline.get("keyPoints") or outline.get("key_points")
     outline["keyPoints"] = _string_list(raw_key_points, key_points, max_items=6, max_len=120)
     outline["order"] = int(outline.get("order") or 1)
-    outline["widgetOutline"] = dict(outline.get("widgetOutline")) if isinstance(outline.get("widgetOutline"), dict) else widget_outline
+    outline["widgetOutline"] = (
+        dict(outline.get("widgetOutline")) if isinstance(outline.get("widgetOutline"), dict) else widget_outline
+    )
     return outline
 
 
@@ -918,7 +954,9 @@ def _normalize_design_brief(raw_brief: object, default: dict[str, Any]) -> dict[
     }
     brief: dict[str, Any] = {}
     for canonical, candidates in aliases.items():
-        value = next((raw_brief.get(candidate) for candidate in candidates if raw_brief.get(candidate) is not None), None)
+        value = next(
+            (raw_brief.get(candidate) for candidate in candidates if raw_brief.get(candidate) is not None), None
+        )
         if value is None:
             value = default.get(canonical)
         if canonical in {"stage_objects", "visual_rules", "state_updates", "acceptance"}:

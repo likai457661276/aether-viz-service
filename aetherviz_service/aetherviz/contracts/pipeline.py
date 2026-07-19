@@ -312,13 +312,9 @@ def run_html_pipeline(
         "generation_route_plan_fingerprint": metadata.get("generation_route_plan_fingerprint"),
         "generation_route_reasons": metadata.get("generation_route_reasons", []),
         "generation_route_candidates": metadata.get("generation_route_candidates", []),
-        "generation_route_llm_selected_backend": metadata.get(
-            "generation_route_llm_selected_backend"
-        ),
+        "generation_route_llm_selected_backend": metadata.get("generation_route_llm_selected_backend"),
         "generation_route_llm_confidence": metadata.get("generation_route_llm_confidence"),
-        "generation_route_llm_required_capabilities": metadata.get(
-            "generation_route_llm_required_capabilities", []
-        ),
+        "generation_route_llm_required_capabilities": metadata.get("generation_route_llm_required_capabilities", []),
         "layout_contract_version": LAYOUT_CONTRACT_VERSION,
         "truncated": metadata.get("truncated", False),
         "bytes": len(html.encode("utf-8")),
@@ -498,18 +494,20 @@ def _attempt_repair_loop(
         function_repair_stream=stream_repair_functions,
         model_repair_stream=stream_repair_html,
     )
-    return (yield from session.run(
-        run_id=run_id,
-        phase=phase,
-        topic=topic,
-        plan=plan,
-        html=html,
-        report=report,
-        metadata=metadata,
-        started_at=started_at,
-        source_truncated=source_truncated,
-        include_plan_in_repair=include_plan_in_repair,
-    ))
+    return (
+        yield from session.run(
+            run_id=run_id,
+            phase=phase,
+            topic=topic,
+            plan=plan,
+            html=html,
+            report=report,
+            metadata=metadata,
+            started_at=started_at,
+            source_truncated=source_truncated,
+            include_plan_in_repair=include_plan_in_repair,
+        )
+    )
 
 
 def _error_signature(report: dict[str, Any]) -> tuple[str, ...]:

@@ -62,9 +62,7 @@ def stream_repair_functions(
     metadata={"component": "aetherviz", "stage": "function_repair"},
     process_inputs=lambda inputs: {
         "source_chars": len(inputs.get("raw_html") or ""),
-        "target_functions": list(
-            repair_function_targets(inputs.get("raw_html") or "", inputs.get("report") or {})
-        ),
+        "target_functions": list(repair_function_targets(inputs.get("raw_html") or "", inputs.get("report") or {})),
     },
     reduce_fn=lambda items: _summarize(items),
 )
@@ -83,15 +81,11 @@ def _stream_repair_functions_impl(
 ) -> Iterator[dict[str, Any] | FunctionRepairResult]:
     targets = repair_function_targets(raw_html, report)
     descriptions = describe_target_functions(raw_html, targets)
-    descriptions = [
-        item for item in descriptions if len(item["source"]) <= MAX_FUNCTION_REPLACEMENT_CHARS
-    ][:3]
+    descriptions = [item for item in descriptions if len(item["source"]) <= MAX_FUNCTION_REPLACEMENT_CHARS][:3]
     if not descriptions:
         yield FunctionRepairResult(raw_html, (), degraded=True, errors=("no_unique_target_functions",))
         return
-    yield build_html_progress_payload(
-        [{"content": "按校验调用链修复点名函数", "status": "in_progress"}]
-    )
+    yield build_html_progress_payload([{"content": "按校验调用链修复点名函数", "status": "in_progress"}])
     if not has_primary_llm_config():
         yield FunctionRepairResult(raw_html, (), degraded=True, errors=("model_unavailable",))
         return
@@ -112,9 +106,7 @@ def _stream_repair_functions_impl(
     raw_text = ""
     try:
         model = create_chat_model("repair")
-        for chunk in model.stream(
-            [SystemMessage(content=FUNCTION_REPAIR_SYSTEM_PROMPT), HumanMessage(content=prompt)]
-        ):
+        for chunk in model.stream([SystemMessage(content=FUNCTION_REPAIR_SYSTEM_PROMPT), HumanMessage(content=prompt)]):
             raw_text += extract_llm_text(chunk)
             if len(raw_text) > MAX_FUNCTION_REPLACEMENT_CHARS + 2_000:
                 break
@@ -123,13 +115,9 @@ def _stream_repair_functions_impl(
             raw_html,
             replacements,
             allowed_functions=tuple(item["function"] for item in descriptions),
-            allowed_targets=tuple(
-                (str(item["function"]), str(item["source_hash"])) for item in descriptions
-            ),
+            allowed_targets=tuple((str(item["function"]), str(item["source_hash"])) for item in descriptions),
         )
-        yield build_html_progress_payload(
-            [{"content": "按校验调用链修复点名函数", "status": "completed"}]
-        )
+        yield build_html_progress_payload([{"content": "按校验调用链修复点名函数", "status": "completed"}])
         yield FunctionRepairResult(
             html=patch.html,
             applied=patch.applied,

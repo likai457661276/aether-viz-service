@@ -133,9 +133,7 @@ def evaluate_mathematical_invariants(ir: dict[str, Any], plan: dict[str, Any]) -
         "errors": errors,
         "warnings": warnings,
         "checks": checks,
-        "relation_coverage": (
-            len(relation_checks) / requested_relation_checks if requested_relation_checks else 1.0
-        ),
+        "relation_coverage": (len(relation_checks) / requested_relation_checks if requested_relation_checks else 1.0),
     }
 
 
@@ -154,7 +152,9 @@ def _evaluate_invariant(name: str, pieces: list[dict[str, Any]]) -> tuple[bool, 
         keyframe_scales = [float(frame.get("scale", 1)) for frame in piece.get("keyframes", [])]
         scales = [source_scale, *keyframe_scales, target_scale]
         if name == "area_preserved" and any(
-            not math.isclose(abs(scale) ** 2, abs(source_scale) ** 2, rel_tol=DEFAULT_TOLERANCE, abs_tol=DEFAULT_TOLERANCE)
+            not math.isclose(
+                abs(scale) ** 2, abs(source_scale) ** 2, rel_tol=DEFAULT_TOLERANCE, abs_tol=DEFAULT_TOLERANCE
+            )
             for scale in scales[1:]
         ):
             failed.append(piece_id)
@@ -170,9 +170,7 @@ def _evaluate_invariant(name: str, pieces: list[dict[str, Any]]) -> tuple[bool, 
     return not failed, {"failed_pieces": failed}
 
 
-def _evaluate_relation(
-    relation: dict[str, Any], piece_map: dict[str, dict[str, Any]]
-) -> tuple[bool, dict[str, Any]]:
+def _evaluate_relation(relation: dict[str, Any], piece_map: dict[str, dict[str, Any]]) -> tuple[bool, dict[str, Any]]:
     relation_type = str(relation["type"])
     tolerance = _tolerance(relation.get("tolerance"))
     if relation_type == "equal_area":
@@ -193,7 +191,11 @@ def _evaluate_relation(
         denominator = _vector_length(first) * _vector_length(second)
         if denominator <= DEFAULT_TOLERANCE:
             raise GeometryRelationUnavailable("线段长度过小，无法判定方向关系")
-        value = abs(_cross(first, second)) / denominator if relation_type == "parallel" else abs(_dot(first, second)) / denominator
+        value = (
+            abs(_cross(first, second)) / denominator
+            if relation_type == "parallel"
+            else abs(_dot(first, second)) / denominator
+        )
         return value <= tolerance, {"normalized_residual": value, "tolerance": tolerance}
     if relation_type == "coincident":
         left = _point(relation.get("left"), piece_map)
@@ -247,14 +249,9 @@ def _base_area(piece: dict[str, Any]) -> float:
         points = _parse_points(attrs.get("points"))
         if tag == "polyline" and points[0] != points[-1]:
             raise GeometryRelationUnavailable("非闭合 polyline 没有可计算面积")
-        return abs(
-            sum(
-                x1 * y2 - x2 * y1
-                for (x1, y1), (x2, y2) in zip(
-                    points, points[1:] + points[:1], strict=True
-                )
-            )
-        ) / 2
+        return (
+            abs(sum(x1 * y2 - x2 * y1 for (x1, y1), (x2, y2) in zip(points, points[1:] + points[:1], strict=True))) / 2
+        )
     if tag == "rect":
         return _number(attrs.get("width")) * _number(attrs.get("height"))
     if tag == "circle":
@@ -282,7 +279,11 @@ def _segment_vector(reference: object, piece_map: dict[str, dict[str, Any]]) -> 
 
 
 def _angle(reference: object, piece_map: dict[str, dict[str, Any]]) -> float:
-    if not isinstance(reference, dict) or not isinstance(reference.get("points"), list) or len(reference["points"]) != 3:
+    if (
+        not isinstance(reference, dict)
+        or not isinstance(reference.get("points"), list)
+        or len(reference["points"]) != 3
+    ):
         raise GeometryRelationUnavailable("角引用需要三个点")
     first, vertex, last = [_point(item, piece_map) for item in reference["points"]]
     left = (first[0] - vertex[0], first[1] - vertex[1])
@@ -325,7 +326,10 @@ def _local_points(piece: dict[str, Any]) -> list[Point]:
         height = _number(attrs.get("height"))
         return [(x, y), (x + width, y), (x + width, y + height), (x, y + height)]
     if tag == "line":
-        return [(_number(attrs.get("x1")), _number(attrs.get("y1"))), (_number(attrs.get("x2")), _number(attrs.get("y2")))]
+        return [
+            (_number(attrs.get("x1")), _number(attrs.get("y1"))),
+            (_number(attrs.get("x2")), _number(attrs.get("y2"))),
+        ]
     if tag in {"circle", "ellipse"}:
         cx = _number(attrs.get("cx", 0))
         cy = _number(attrs.get("cy", 0))
@@ -353,22 +357,27 @@ def _pieces_congruent(
     right_scale = abs(_scale(right, right_stage))
     tag = str(left.get("tag"))
     if tag == "path":
-        return left.get("attrs", {}).get("d") == right.get("attrs", {}).get("d") and _close(left_scale, right_scale, tolerance)
+        return left.get("attrs", {}).get("d") == right.get("attrs", {}).get("d") and _close(
+            left_scale, right_scale, tolerance
+        )
     try:
         left_signature = _distance_signature(_local_points(left), left_scale)
         right_signature = _distance_signature(_local_points(right), right_scale)
     except GeometryRelationUnavailable:
         return False
     return len(left_signature) == len(right_signature) and all(
-        _close(first, second, tolerance)
-        for first, second in zip(left_signature, right_signature, strict=True)
+        _close(first, second, tolerance) for first, second in zip(left_signature, right_signature, strict=True)
     )
 
 
 def _distance_signature(points: list[Point], scale: float) -> list[float]:
     if not points:
         raise GeometryRelationUnavailable("图元没有几何点")
-    return sorted(math.dist(points[first], points[second]) * scale for first in range(len(points)) for second in range(first + 1, len(points)))
+    return sorted(
+        math.dist(points[first], points[second]) * scale
+        for first in range(len(points))
+        for second in range(first + 1, len(points))
+    )
 
 
 def _piece_ref(reference: object, piece_map: dict[str, dict[str, Any]]) -> tuple[dict[str, Any], str]:

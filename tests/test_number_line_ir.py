@@ -108,12 +108,8 @@ def _ir() -> dict:
                 "endpoint": "closed",
             }
         ],
-        "distances": [
-            {"id": "distance", "track": "main", "label": "|x-a|", "color": "#7C3AED", "start": x, "end": a}
-        ],
-        "movements": [
-            {"id": "movement", "track": "main", "label": "a+x", "color": "#DC2626", "start": a, "delta": x}
-        ],
+        "distances": [{"id": "distance", "track": "main", "label": "|x-a|", "color": "#7C3AED", "start": x, "end": a}],
+        "movements": [{"id": "movement", "track": "main", "label": "a+x", "color": "#DC2626", "start": a, "delta": x}],
         "derived_sets": [],
         "invariants": [
             {"id": "interval-order", "type": "ordered_interval", "refs": ["between"]},
@@ -177,9 +173,7 @@ def test_number_line_ir_rejects_invariant_target_of_wrong_object_type() -> None:
 
 def test_number_line_ir_accepts_ray_boundary_invariant() -> None:
     candidate = _ir()
-    candidate["invariants"] = [
-        {"id": "ray-boundary", "type": "ray_boundary_consistent", "refs": ["solution-ray"]}
-    ]
+    candidate["invariants"] = [{"id": "ray-boundary", "type": "ray_boundary_consistent", "refs": ["solution-ray"]}]
 
     report = validate_number_line_ir(candidate, _plan())
 
@@ -267,9 +261,7 @@ def test_number_line_movement_delta_is_not_treated_as_absolute_coordinate() -> N
             "delta": 16,
         }
     ]
-    candidate["invariants"] = [
-        {"id": "movement-sum", "type": "movement_equals_sum", "refs": ["long-delta"]}
-    ]
+    candidate["invariants"] = [{"id": "movement-sum", "type": "movement_equals_sum", "refs": ["long-delta"]}]
 
     report = validate_number_line_ir(candidate, _plan())
 
@@ -296,9 +288,7 @@ def test_number_line_validation_samples_combined_variable_extremes() -> None:
     candidate["rays"] = []
     candidate["distances"] = []
     candidate["movements"] = []
-    candidate["invariants"] = [
-        {"id": "sum-on-line", "type": "point_on_number_line", "refs": ["sum"]}
-    ]
+    candidate["invariants"] = [{"id": "sum-on-line", "type": "point_on_number_line", "refs": ["sum"]}]
 
     report = validate_number_line_ir(candidate, plan)
 
@@ -320,9 +310,7 @@ def test_number_line_repair_orders_crossing_interval_endpoints() -> None:
 
 def test_number_line_repair_retargets_invariant_to_matching_object_type() -> None:
     candidate = _ir()
-    candidate["invariants"] = [
-        {"id": "wrong-target", "type": "ordered_interval", "refs": ["point-x"]}
-    ]
+    candidate["invariants"] = [{"id": "wrong-target", "type": "ordered_interval", "refs": ["point-x"]}]
 
     repaired = repair_number_line_ir(candidate, _plan())
 
@@ -399,9 +387,7 @@ def test_number_line_runtime_derives_dynamic_set_topology(tmp_path: Path) -> Non
                 "type": "simulation",
                 "concept": "动态集合运算",
                 "description": "移动区间边界并观察并集与交集",
-                "variables": [
-                    {"name": "boundary", "label": "边界", "min": -2, "max": 2, "step": 1, "default": -2}
-                ],
+                "variables": [{"name": "boundary", "label": "边界", "min": -2, "max": 2, "step": 1, "default": -2}],
             },
             "knowledge_profile": {"subject": "math", "representation_type": "number_line"},
         },
@@ -546,9 +532,7 @@ def test_number_line_runtime_advances_in_offline_browser(tmp_path: Path) -> None
                 "type": "simulation",
                 "concept": "不等式射线",
                 "description": "移动边界点",
-                "variables": [
-                    {"name": "boundary", "label": "边界", "min": -8, "max": 8, "step": 1, "default": -8}
-                ],
+                "variables": [{"name": "boundary", "label": "边界", "min": -8, "max": 8, "step": 1, "default": -8}],
             },
             "knowledge_profile": {"subject": "math", "representation_type": "number_line"},
             "representation_spec": {
@@ -588,9 +572,7 @@ def test_number_line_runtime_advances_in_offline_browser(tmp_path: Path) -> None
         "distances": [],
         "movements": [],
         "derived_sets": [],
-        "invariants": [
-            {"id": "point-on-line", "type": "point_on_number_line", "refs": ["boundary-point"]}
-        ],
+        "invariants": [{"id": "point-on-line", "type": "point_on_number_line", "refs": ["boundary-point"]}],
     }
     business_html = assemble_number_line_business_html(ir, plan, "数轴不等式射线")
     html_path = tmp_path / "number-line-runtime.html"
