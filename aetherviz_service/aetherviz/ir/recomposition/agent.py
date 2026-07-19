@@ -20,6 +20,7 @@ from aetherviz_service.aetherviz.ir.recomposition.assembly import (
 from aetherviz_service.aetherviz.ir.recomposition.contract import (
     GEOMETRY_IR_MAX_CHARS,
     GEOMETRY_IR_VERSION,
+    build_deterministic_geometry_ir,
     compile_geometry_ir,
     extract_geometry_ir_from_scene_source,
     geometry_ir_candidates_response_schema,
@@ -145,8 +146,12 @@ def _stream_generate_recomposition_html_impl(
             source = _repair_scene_source(topic, plan, repair_input, repair_report)
         except Exception as exc:
             logger.warning("geometry IR bounded repair failed: %s", exc)
-    if not source and repair_report and _has_target_assembly_constraints(plan):
-        raise GeometryIRGenerationError(repair_input, repair_report)
+    if not source and repair_report:
+        source = _build_verified_deterministic_scene_module(plan)
+        if not source:
+            raise GeometryIRGenerationError(repair_input, repair_report)
+        logger.warning("using contract-verified deterministic geometry IR after bounded repair failure")
+        degraded = True
     report = validate_scene_module(source)
     if not report["ok"]:
         if source:
@@ -487,11 +492,14 @@ def _build_scene_prompt(topic: str, plan: dict[str, Any]) -> str:
     )
 
 
-def _has_target_assembly_constraints(plan: dict[str, Any]) -> bool:
-    spec = plan.get("recomposition_spec") if isinstance(plan.get("recomposition_spec"), dict) else {}
-    proof = spec.get("proof_constraints") if isinstance(spec.get("proof_constraints"), dict) else {}
-    constraints = proof.get("target_assembly")
-    return isinstance(constraints, list) and any(isinstance(item, dict) for item in constraints)
+def _build_verified_deterministic_scene_module(plan: dict[str, Any]) -> str:
+    """Compile the generic fallback only when it satisfies the complete plan contract."""
+    geometry_ir = build_deterministic_geometry_ir(plan)
+    ranking = _trace_rank_geometry_ir_candidates([geometry_ir], plan, origins=["deterministic_fallback"])
+    _log_ranking(ranking)
+    if not ranking["ok"]:
+        return ""
+    return compile_geometry_ir(ranking["selected_ir"], plan)
 
 
 def _parse_error_report(message: str) -> dict[str, Any]:

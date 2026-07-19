@@ -480,7 +480,7 @@ def test_deterministic_fallback_satisfies_explicit_rectangle_assembly() -> None:
     assert report["ok"], report["candidates"][0]["details"]["target_assembly"]
 
 
-def test_explicit_target_assembly_does_not_use_generic_fallback_after_failed_repair(
+def test_explicit_target_assembly_uses_verified_fallback_after_failed_repair(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from aetherviz_service.aetherviz.ir.recomposition import agent as recomposition_agent
@@ -519,6 +519,36 @@ def test_explicit_target_assembly_does_not_use_generic_fallback_after_failed_rep
         "_repair_scene_source",
         lambda *_args: (_ for _ in ()).throw(ValueError("repair failed")),
     )
+
+    items = list(recomposition_agent._stream_generate_recomposition_html_impl("topic", plan))
+    result = items[-1]
+    assert result.degraded is True
+    assert "<!DOCTYPE html>" in result.html
+
+
+def test_failed_repair_still_raises_when_deterministic_fallback_violates_plan(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from aetherviz_service.aetherviz.ir.recomposition import agent as recomposition_agent
+
+    plan = normalize_plan({}, "组合图形切割重排证明")
+    failure_report = {
+        "ok": False,
+        "errors": [{"type": "geometry_ir_candidate_rejected"}],
+        "warnings": [],
+    }
+    monkeypatch.setattr(recomposition_agent, "has_primary_llm_config", lambda: True)
+    monkeypatch.setattr(
+        recomposition_agent,
+        "_generate_scene_source",
+        lambda *_args: (_ for _ in ()).throw(recomposition_agent.GeometryIRGenerationError("{}", failure_report)),
+    )
+    monkeypatch.setattr(
+        recomposition_agent,
+        "_repair_scene_source",
+        lambda *_args: (_ for _ in ()).throw(ValueError("repair failed")),
+    )
+    monkeypatch.setattr(recomposition_agent, "_build_verified_deterministic_scene_module", lambda _plan: "")
 
     with pytest.raises(recomposition_agent.GeometryIRGenerationError):
         list(recomposition_agent._stream_generate_recomposition_html_impl("topic", plan))
