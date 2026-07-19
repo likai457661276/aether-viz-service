@@ -20,6 +20,7 @@ WIDGET_CORE_PROMPT = """互动 widget 核心契约：
 - 必须实现 `window.addEventListener("message", ...)`，至少处理 SET_WIDGET_STATE、HIGHLIGHT_ELEMENT、ANNOTATE_ELEMENT、REVEAL_ELEMENT 四类 iframe-local widget action。
 - 变量控件 ID 使用 `{variable_name}-slider` 或 `data-var="{variable_name}"`；按钮 ID 使用 `{action}-btn` 或计划中的稳定 id；可被高亮/标注的元素必须有 id 或 data-role。
 - `#aetherviz-stage` 必须在静态 HTML 中直接包含主 SVG、Canvas 或 `[data-role="main-visual"]` 挂载节点。若 SVG/Canvas 由 JavaScript 创建，必须：1) 用 `document.querySelector("[data-role='main-visual']")` 或 `document.getElementById("<挂载节点 id>")` 获取该静态挂载节点；两种方式均允许一层精确字符串常量，如 `const MOUNT_SELECTOR = "[data-role='main-visual']"; querySelector(MOUNT_SELECTOR)` 或 `const MOUNT_ID = "..."; getElementById(MOUNT_ID)`；2) `createElementNS`/`createElement` 创建 svg/canvas 后立刻对该节点 `appendChild`/`append`/`replaceChildren`；禁止删除或替换挂载节点，禁止只留下空舞台并依赖运行时向 `#aetherviz-stage` 直接注入。
+- 编辑定位辅助（软性）：播放/暂停/重置继续使用 `#play-animation` / `#pause-animation` / `#reset-animation`；主视觉继续使用 `data-role="main-visual"`；区域槽位继续使用 `data-region`。对缺少稳定 id/`data-region` 的次级业务实体（说明区内部锚点、重复图形/标签实例等），可额外标注 `data-edit-role` 与可选 `data-edit-entity`，仅供后续编辑定位，不替代上述契约标记。
 - 主舞台、控件、说明、公式和教学流程只作为语义槽位输出；最终 Grid、响应式断点、区域顺序和滚动归属由服务端装配。
 - 计算对象位置时必须预留 TOP_MARGIN/BOTTOM_MARGIN 或等价安全区，不能把对象画到控制区、HUD、caption、公式区下面。
 - 舞台内只放短标签和图形标注；公式、读数、caption、推导步骤放独立面板。禁止把公式/读数渲染成主舞台超大文本；SVG text 的屏幕视觉字号必须继承页面正文/辅助文字的排版层级，不得因坐标系缩放显著大于舞台外同级文字。

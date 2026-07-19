@@ -10,6 +10,7 @@ from typing import Any
 import tinycss2
 from bs4 import BeautifulSoup, Tag
 
+from aetherviz_service.aetherviz.edit.targeting import build_role_hints
 from aetherviz_service.aetherviz.tools.function_patch import extract_named_functions
 from aetherviz_service.aetherviz.workflow.plan_contract import normalize_plan
 from aetherviz_service.aetherviz.workflow.plan_detection import VALID_INTERACTIVE_TYPES
@@ -105,6 +106,7 @@ def build_edit_context_summary(
             "functions": _function_inventory(business_html),
             "event_bindings": _event_bindings(business_html),
             "widget_config": _widget_config(soup),
+            "role_hints": build_role_hints(soup, instruction=instruction),
         },
         "request_context": _request_context(context),
         "edit_target": _edit_target(resolved_target),
@@ -352,6 +354,7 @@ def _fit_context_budget(summary: dict[str, Any]) -> dict[str, Any]:
         document.get("dom_targets") if isinstance(document.get("dom_targets"), list) else [],
         document.get("functions") if isinstance(document.get("functions"), list) else [],
         document.get("event_bindings") if isinstance(document.get("event_bindings"), list) else [],
+        document.get("role_hints") if isinstance(document.get("role_hints"), list) else [],
     ]
     current_chars = len(json.dumps(summary, ensure_ascii=False, separators=(",", ":"), default=str))
     truncated = False

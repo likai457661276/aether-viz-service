@@ -70,6 +70,8 @@ def run_html_pipeline(
     initial_metadata: dict[str, Any] | None = None,
     include_plan_in_repair: bool | None = None,
     reasoning_enabled: bool | None = None,
+    baseline_business_html: str | None = None,
+    diff_report_factory: Callable[[str, str], dict[str, Any]] | None = None,
 ) -> Iterator[str]:
     started_at = time.monotonic()
     if include_plan_in_repair is None:
@@ -274,73 +276,89 @@ def run_html_pipeline(
             )
             return
 
+    edit_diff_report = None
+    if phase == "edit_html" and baseline_business_html is not None and diff_report_factory is not None:
+        try:
+            edit_diff_report = diff_report_factory(baseline_business_html, business_html)
+        except Exception:
+            edit_diff_report = {
+                "visual": {"computed": False, "reason": "offline_only"},
+                "runtime": {"computed": False, "reason": "offline_only"},
+                "error": "diff_report_failed",
+            }
+
+    done_metadata = {
+        "topic": topic,
+        "attempts": metadata["attempts"],
+        "generation_attempts": metadata["generation_attempts"],
+        "repair_attempts": metadata["repair_attempts"],
+        "repaired": metadata["repaired"],
+        "degraded": metadata["degraded"],
+        "validation_warnings": metadata["validation_warnings"],
+        "render_mode": plan.get("interactive_type"),
+        "subject": plan.get("subject"),
+        "elapsed_ms": int((time.monotonic() - started_at) * 1000),
+        "reasoning_elapsed_ms": metadata.get("reasoning_elapsed_ms", 0),
+        "first_chunk_elapsed_ms": metadata.get("first_chunk_elapsed_ms", 0),
+        "generation_elapsed_ms": metadata.get("generation_elapsed_ms", 0),
+        "generation_backend": metadata["generation_backend"],
+        "generation_backend_fallback": metadata.get("generation_backend_fallback"),
+        "generation_route_source": metadata.get("generation_route_source"),
+        "generation_route_confidence": metadata.get("generation_route_confidence"),
+        "generation_route_llm_invoked": metadata.get("generation_route_llm_invoked", False),
+        "generation_route_llm_accepted": metadata.get("generation_route_llm_accepted", False),
+        "generation_route_fallback": metadata.get("generation_route_fallback"),
+        "generation_route_elapsed_ms": metadata.get("generation_route_elapsed_ms", 0),
+        "generation_route_plan_fingerprint": metadata.get("generation_route_plan_fingerprint"),
+        "generation_route_reasons": metadata.get("generation_route_reasons", []),
+        "generation_route_candidates": metadata.get("generation_route_candidates", []),
+        "generation_route_llm_selected_backend": metadata.get(
+            "generation_route_llm_selected_backend"
+        ),
+        "generation_route_llm_confidence": metadata.get("generation_route_llm_confidence"),
+        "generation_route_llm_required_capabilities": metadata.get(
+            "generation_route_llm_required_capabilities", []
+        ),
+        "layout_contract_version": LAYOUT_CONTRACT_VERSION,
+        "truncated": metadata.get("truncated", False),
+        "bytes": len(html.encode("utf-8")),
+        "chars": len(html),
+        "model_chars": len(business_html),
+        "assembled_chars": len(html),
+        "assembly_overhead_chars": len(html) - len(business_html),
+        "assembly_count": 1,
+        "edit_strategy": metadata.get("edit_strategy"),
+        "edit_diagnosis_strategy": metadata.get("edit_diagnosis_strategy"),
+        "edit_execution_strategy": metadata.get("edit_execution_strategy"),
+        "edit_diagnosis_confidence": metadata.get("edit_diagnosis_confidence"),
+        "edit_diagnosis_degraded": metadata.get("edit_diagnosis_degraded", False),
+        "intent_passed": metadata.get("intent_passed"),
+        "intent_soft_failed": metadata.get("intent_soft_failed", []),
+        "intent_check_count": metadata.get("intent_check_count", 0),
+        "intent_summary": metadata.get("intent_summary", ""),
+        "model_finish_reason": metadata.get("model_finish_reason"),
+        "source_business_chars": metadata.get("source_business_chars", 0),
+        "patch_functions": metadata.get("patch_functions", []),
+        "patch_blocks": metadata.get("patch_blocks", []),
+        "model_input_tokens": metadata.get("model_input_tokens"),
+        "model_output_tokens": metadata.get("model_output_tokens"),
+        "model_output_chars": metadata.get("model_output_chars", len(business_html)),
+        "chars_per_output_token": (
+            round(metadata.get("model_output_chars", len(business_html)) / metadata["model_output_tokens"], 3)
+            if metadata.get("model_output_tokens")
+            else None
+        ),
+    }
+    if edit_diff_report is not None:
+        done_metadata["edit_diff_report"] = edit_diff_report
+
     yield agent_sse_event(
         "html.done",
         run_id=run_id,
         phase=phase,
         data={
             "html": html,
-            "metadata": {
-                "topic": topic,
-                "attempts": metadata["attempts"],
-                "generation_attempts": metadata["generation_attempts"],
-                "repair_attempts": metadata["repair_attempts"],
-                "repaired": metadata["repaired"],
-                "degraded": metadata["degraded"],
-                "validation_warnings": metadata["validation_warnings"],
-                "render_mode": plan.get("interactive_type"),
-                "subject": plan.get("subject"),
-                "elapsed_ms": int((time.monotonic() - started_at) * 1000),
-                "reasoning_elapsed_ms": metadata.get("reasoning_elapsed_ms", 0),
-                "first_chunk_elapsed_ms": metadata.get("first_chunk_elapsed_ms", 0),
-                "generation_elapsed_ms": metadata.get("generation_elapsed_ms", 0),
-                "generation_backend": metadata["generation_backend"],
-                "generation_backend_fallback": metadata.get("generation_backend_fallback"),
-                "generation_route_source": metadata.get("generation_route_source"),
-                "generation_route_confidence": metadata.get("generation_route_confidence"),
-                "generation_route_llm_invoked": metadata.get("generation_route_llm_invoked", False),
-                "generation_route_llm_accepted": metadata.get("generation_route_llm_accepted", False),
-                "generation_route_fallback": metadata.get("generation_route_fallback"),
-                "generation_route_elapsed_ms": metadata.get("generation_route_elapsed_ms", 0),
-                "generation_route_plan_fingerprint": metadata.get("generation_route_plan_fingerprint"),
-                "generation_route_reasons": metadata.get("generation_route_reasons", []),
-                "generation_route_candidates": metadata.get("generation_route_candidates", []),
-                "generation_route_llm_selected_backend": metadata.get(
-                    "generation_route_llm_selected_backend"
-                ),
-                "generation_route_llm_confidence": metadata.get("generation_route_llm_confidence"),
-                "generation_route_llm_required_capabilities": metadata.get(
-                    "generation_route_llm_required_capabilities", []
-                ),
-                "layout_contract_version": LAYOUT_CONTRACT_VERSION,
-                "truncated": metadata.get("truncated", False),
-                "bytes": len(html.encode("utf-8")),
-                "chars": len(html),
-                "model_chars": len(business_html),
-                "assembled_chars": len(html),
-                "assembly_overhead_chars": len(html) - len(business_html),
-                "assembly_count": 1,
-                "edit_strategy": metadata.get("edit_strategy"),
-                "edit_diagnosis_strategy": metadata.get("edit_diagnosis_strategy"),
-                "edit_diagnosis_confidence": metadata.get("edit_diagnosis_confidence"),
-                "edit_diagnosis_degraded": metadata.get("edit_diagnosis_degraded", False),
-                "intent_passed": metadata.get("intent_passed"),
-                "intent_soft_failed": metadata.get("intent_soft_failed", []),
-                "intent_check_count": metadata.get("intent_check_count", 0),
-                "intent_summary": metadata.get("intent_summary", ""),
-                "model_finish_reason": metadata.get("model_finish_reason"),
-                "source_business_chars": metadata.get("source_business_chars", 0),
-                "patch_functions": metadata.get("patch_functions", []),
-                "patch_blocks": metadata.get("patch_blocks", []),
-                "model_input_tokens": metadata.get("model_input_tokens"),
-                "model_output_tokens": metadata.get("model_output_tokens"),
-                "model_output_chars": metadata.get("model_output_chars", len(business_html)),
-                "chars_per_output_token": (
-                    round(metadata.get("model_output_chars", len(business_html)) / metadata["model_output_tokens"], 3)
-                    if metadata.get("model_output_tokens")
-                    else None
-                ),
-            },
+            "metadata": done_metadata,
         },
         metadata=_metadata(metadata, started_at, stage="done"),
     )

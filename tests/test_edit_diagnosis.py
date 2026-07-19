@@ -24,6 +24,7 @@ def _compiled_fields(instruction: str) -> dict[str, object]:
         "impact_areas": ["dom", "css", "render"],
         "acceptance_criteria": ["修改结果在页面中可观察"],
         "ambiguities": [],
+        "operations": [],
         "change_checks": [
             {
                 "id": "c1",
@@ -69,6 +70,7 @@ def test_edit_context_extracts_bounded_dom_css_function_and_runtime_evidence() -
     assert any(item["selector"] == "#play" for item in summary["document"]["dom_targets"])
     assert any(item["selector"] == "#play" for item in summary["document"]["css_rules"])
     assert any(item["name"] == "play" and item["unique"] for item in summary["document"]["functions"])
+    assert isinstance(summary["document"]["role_hints"], list)
     assert summary["runtime_error"]["message"] == "play failed"
     assert summary["edit_target"]["computed_styles"]["font-size"] == "12px"
     assert summary["validation"]["errors"][0]["type"] == "js_syntax"
@@ -429,6 +431,83 @@ def test_diagnosis_downgrades_unknown_strategy_to_full_regeneration(monkeypatch)
     assert diagnosis.change_checks[0].severity == "soft" or any(
         check.kind == "html_must_differ" for check in diagnosis.change_checks
     )
+
+
+def test_diagnosis_normalizes_operations_and_execution_strategy(monkeypatch) -> None:
+    payload = {
+        "intent": "rename_play_button",
+        "scope": "business_dom",
+        "strategy": "full_html_regeneration",
+        "problem": "按钮文案需更新",
+        "confidence": 0.95,
+        "targets": [
+            {
+                "kind": "dom",
+                "selector": "#play",
+                "function": "",
+                "source_hash": "",
+                "evidence": "#play",
+                "confidence": 0.95,
+            }
+        ],
+        "requires_clarification": False,
+        "clarification_question": "",
+        **_compiled_fields("把播放按钮文案改为开始"),
+        "operations": [
+            {
+                "type": "replace_text",
+                "selector": "#play",
+                "role": "",
+                "property": "",
+                "attribute": "",
+                "function": "",
+                "value_mode": "absolute",
+                "value": "开始",
+                "ratio": 1,
+                "degree": "",
+            }
+        ],
+        "impact_areas": ["dom"],
+        "change_checks": [
+            {
+                "id": "c1",
+                "kind": "text_contains",
+                "selector": "#play",
+                "function": "",
+                "property": "",
+                "expected": "开始",
+                "baseline_binding": "absolute",
+                "severity": "hard",
+                "rationale": "按钮文案应变为开始",
+            }
+        ],
+    }
+
+    class AnalysisModel:
+        def invoke(self, messages):
+            return MagicMock(content=json.dumps(payload, ensure_ascii=False))
+
+    monkeypatch.setattr(
+        "aetherviz_service.aetherviz.edit.diagnosis.create_chat_model",
+        lambda kind, response_schema=None: AnalysisModel(),
+    )
+    monkeypatch.setattr(
+        "aetherviz_service.aetherviz.edit.diagnosis.has_primary_llm_config",
+        lambda: True,
+    )
+
+    diagnosis = _diagnose_edit_impl(
+        instruction="把播放改成开始",
+        business_html=_html(),
+        context_summary={"instruction": "把播放改成开始"},
+    )
+
+    assert diagnosis.strategy == "full_html_regeneration"
+    assert diagnosis.execution_strategy == "deterministic_patch"
+    assert len(diagnosis.operations) == 1
+    assert diagnosis.operations[0].type == "replace_text"
+    assert diagnosis.operations[0].value == "开始"
+    assert "execution_strategy" in diagnosis.public_dict()
 
 
 def test_runtime_dispatch_passes_structured_edit_target_and_error(monkeypatch) -> None:

@@ -20,6 +20,13 @@ from aetherviz_service.aetherviz.edit.intent import (
     PRESERVE_KINDS,
     IntentCheck,
 )
+from aetherviz_service.aetherviz.edit.spec import (
+    EDIT_OPERATION_SCHEMA,
+    EditOperation,
+    normalize_operations,
+)
+from aetherviz_service.aetherviz.edit.strategy import EditExecutionStrategy, route_edit_strategy
+from aetherviz_service.aetherviz.edit.targeting import resolve_role_selector
 from aetherviz_service.aetherviz.tools.function_patch import extract_named_functions
 
 logger = logging.getLogger(__name__)
@@ -74,6 +81,7 @@ EDIT_DIAGNOSIS_SCHEMA: dict[str, Any] = {
         "targets",
         "change_checks",
         "preserve_checks",
+        "operations",
         "requires_clarification",
         "clarification_question",
     ],
@@ -155,24 +163,30 @@ EDIT_DIAGNOSIS_SCHEMA: dict[str, Any] = {
             "maxItems": 8,
             "items": _CHECK_ITEM_SCHEMA,
         },
+        "operations": {
+            "type": "array",
+            "maxItems": 6,
+            "items": EDIT_OPERATION_SCHEMA,
+        },
         "requires_clarification": {"type": "boolean"},
         "clarification_question": {"type": "string", "maxLength": 500},
     },
 }
 
-EDIT_DIAGNOSIS_SYSTEM_PROMPT = """你是 AetherViz HTML 编辑需求编译器，只负责把用户输入整理为可直接驱动完整 HTML 重生成的结构化任务，并输出服务端可机器检查的意图验收 claims。不生成 HTML、CSS 或 JavaScript 源码。
+EDIT_DIAGNOSIS_SYSTEM_PROMPT = """你是 AetherViz HTML 编辑需求编译器，只负责把用户输入整理为可驱动分层编辑执行的结构化任务，并输出服务端可机器检查的意图验收 claims。不生成 HTML、CSS 或 JavaScript 源码。
 根据当前 instruction、当前 HTML 的确定性摘要、可选选中元素、运行时错误和最近对话，消除“再快一点”“刚才那个”等指代，形成完整、自包含且可观察验收的编辑任务。
 规则：
-1. 证据只能引用摘要中真实存在的 selector、函数、样式、错误或服务端所有权信息，不得编造。
+1. 证据只能引用摘要中真实存在的 selector、函数、样式、role_hints、错误或服务端所有权信息，不得编造。
 2. resolved_instruction 必须是无指代、无歧义、可独立执行的完整中文要求；当前 instruction 优先，recent_messages 只用于解释指代，不得恢复已被当前输入否定的旧要求，也不得引用教学方案或历史 plan。
 3. change_requirements 描述必须产生的可观察变化；preserve_requirements 描述不能意外改变的教学内容和交互；acceptance_criteria 描述结果表现，不限定必须修改某个函数或采用某种实现。
 4. impact_areas 必须覆盖实现该要求可能涉及的完整链路。动画变化重点检查 events -> state -> render -> animation -> reset/replay，不得只定位到一个函数。
-5. 执行阶段固定为完整 HTML 重生成，strategy 只能是 full_html_regeneration 或 clarification_required。
+5. strategy 字段保持兼容，只能是 full_html_regeneration 或 clarification_required；真正的执行路由由服务端根据 operations/targets/impact_areas 决定。
 6. 必须输出 change_checks / preserve_checks：这些是服务端验收真源。kind 只能使用 schema 枚举；severity=hard 只用于可观察结果或稳定契约，不满足则拒绝候选；函数体变化只属于实现线索，function_body_changed 必须为 soft，允许删除、重命名或用其他结构实现。无法可靠绑定 selector/function 时同样使用 soft + 叙述 requirements。
-7. 用户通常描述可见现象而不是准确实现位置。即使输入提到“控制面板、外壳、侧栏、布局、挤压”等词，也必须结合当前 HTML、选中目标、运行时错误和对话判断真实意图；不得仅凭这些词拒绝编辑。若真实问题是主视觉尺寸、裁切、标签、业务控件密度或动画内容，应编译为对应业务 HTML 修改任务。
-8. 外壳中的标题、学习目标和目标列表属于可编辑内容，使用 shell_content 影响域；控制区、说明区、公式区和教学流程本来就是业务内容。math-shell-v1、.av-*、#aetherviz-app-shell 的具体宽度、分栏、滚动和响应式仍由服务端重建；用户对这些结构提出的诉求，应转换为业务内容优先级、槽位内部自适应、主视觉 viewBox/Canvas 尺寸、控件组织或内容精简等可执行要求，而不是要求模型仿制外壳。
-9. 用户明确要求“全部修改、整体重做、重新设计”时，允许重做全部可编辑内容，包括外壳文案、教学文案、主视觉、业务控件、状态、渲染、事件和动画运行时；只保留用户明确要求保留的内容及核心 Widget 运行契约。
-10. 只有缺少的信息会导致多个实质不同结果、且无法从当前 HTML、edit_target 或最近对话推断时，才使用 clarification_required；同时列出 ambiguities 并给出一个最小澄清问题。一般性的视觉或动画优化应直接形成合理任务，不要澄清。
+7. 当修改可确定性执行时，额外输出 operations：仅限 replace_text、set_attribute、remove_attribute、set_css_declaration、set_css_variable、remove_element、update_widget_default、replace_numeric_literal。selector/role 必须能绑定摘要中的真实目标；replace_numeric_literal 必须同时提供唯一函数名和函数内被赋值的具体变量/属性名 property，不能只定位到函数后猜测数字。相对量修改（放大一点、变慢一些）使用 value_mode=relative，并用 degree(slight/moderate/strong) 或 ratio（未使用 ratio 时填 null），不要猜测绝对像素/秒数。证据不足时 operations 留空，由服务端降级到局部或完整重生成。
+8. 用户通常描述可见现象而不是准确实现位置。即使输入提到“控制面板、外壳、侧栏、布局、挤压”等词，也必须结合当前 HTML、选中目标、运行时错误和对话判断真实意图；不得仅凭这些词拒绝编辑。若真实问题是主视觉尺寸、裁切、标签、业务控件密度或动画内容，应编译为对应业务 HTML 修改任务。
+9. 外壳中的标题、学习目标和目标列表属于可编辑内容，使用 shell_content 影响域；控制区、说明区、公式区和教学流程本来就是业务内容。math-shell-v1、.av-*、#aetherviz-app-shell 的具体宽度、分栏、滚动和响应式仍由服务端重建；用户对这些结构提出的诉求，应转换为业务内容优先级、槽位内部自适应、主视觉 viewBox/Canvas 尺寸、控件组织或内容精简等可执行要求，而不是要求模型仿制外壳。
+10. 用户明确要求“全部修改、整体重做、重新设计”时，允许重做全部可编辑内容，包括外壳文案、教学文案、主视觉、业务控件、状态、渲染、事件和动画运行时；只保留用户明确要求保留的内容及核心 Widget 运行契约。
+11. 只有缺少的信息会导致多个实质不同结果、且无法从当前 HTML、edit_target 或最近对话推断时，才使用 clarification_required；同时列出 ambiguities 并给出一个最小澄清问题。一般性的视觉或动画优化应直接形成合理任务，不要澄清。
 只输出符合 JSON Schema 的对象。"""
 
 
@@ -192,7 +206,11 @@ class EditDiagnosis:
     targets: tuple[dict[str, Any], ...] = ()
     change_checks: tuple[IntentCheck, ...] = ()
     preserve_checks: tuple[IntentCheck, ...] = ()
+    operations: tuple[EditOperation, ...] = ()
     degraded_checks: tuple[str, ...] = ()
+    dropped_operations: tuple[str, ...] = ()
+    execution_strategy: EditExecutionStrategy = "full_html_regeneration"
+    execution_route: dict[str, Any] | None = None
     requires_clarification: bool = False
     clarification_question: str = ""
     degraded: bool = False
@@ -208,7 +226,10 @@ class EditDiagnosis:
         value["ambiguities"] = list(self.ambiguities)
         value["change_checks"] = [check.public_dict() for check in self.change_checks]
         value["preserve_checks"] = [check.public_dict() for check in self.preserve_checks]
+        value["operations"] = [op.public_dict() for op in self.operations]
         value["degraded_checks"] = list(self.degraded_checks)
+        value["dropped_operations"] = list(self.dropped_operations)
+        value["execution_route"] = dict(self.execution_route or {})
         return value
 
 
@@ -238,9 +259,11 @@ def diagnose_edit(
     },
     process_outputs=lambda output: {
         "strategy": output.strategy,
+        "execution_strategy": output.execution_strategy,
         "scope": output.scope,
         "confidence": output.confidence,
         "target_count": len(output.targets),
+        "operation_count": len(output.operations),
         "requirement_count": len(output.change_requirements),
         "acceptance_criteria_count": len(output.acceptance_criteria),
         "change_check_count": len(output.change_checks),
@@ -270,7 +293,7 @@ def _diagnose_edit_impl(
     context_summary: dict[str, Any],
 ) -> EditDiagnosis:
     if not has_primary_llm_config():
-        return _fallback_diagnosis(instruction, context_summary, "model_unavailable")
+        return _fallback_diagnosis(instruction, context_summary, "model_unavailable", business_html=business_html)
     try:
         messages = [
             SystemMessage(content=EDIT_DIAGNOSIS_SYSTEM_PROMPT),
@@ -286,7 +309,7 @@ def _diagnose_edit_impl(
         return _normalize_diagnosis(payload, instruction=instruction, business_html=business_html)
     except Exception as exc:
         logger.warning("edit diagnosis failed, falling back to full regeneration: %s", exc)
-        return _fallback_diagnosis(instruction, context_summary, type(exc).__name__)
+        return _fallback_diagnosis(instruction, context_summary, type(exc).__name__, business_html=business_html)
 
 
 def _normalize_diagnosis(payload: dict[str, Any], *, instruction: str, business_html: str) -> EditDiagnosis:
@@ -345,6 +368,11 @@ def _normalize_diagnosis(payload: dict[str, Any], *, instruction: str, business_
         allowed_kinds=PRESERVE_KINDS,
     )
     degraded_checks = change_degraded + preserve_degraded
+    operations, dropped_operations = normalize_operations(
+        payload.get("operations"),
+        business_html=business_html,
+        resolve_role_selector=lambda role, _soup=soup: resolve_role_selector(role, _soup),
+    )
 
     can_block_for_clarification = bool(
         requires_clarification and ambiguities and question and confidence >= 0.85 and not targets
@@ -353,6 +381,7 @@ def _normalize_diagnosis(payload: dict[str, Any], *, instruction: str, business_
         strategy = "clarification_required"
         change_checks = ()
         preserve_checks = ()
+        operations = ()
     else:
         requires_clarification = False
         if strategy == "clarification_required":
@@ -370,7 +399,7 @@ def _normalize_diagnosis(payload: dict[str, Any], *, instruction: str, business_
                 *change_checks,
             )
 
-    return EditDiagnosis(
+    diagnosis = EditDiagnosis(
         intent=str(payload.get("intent") or "edit_html")[:120],
         scope=str(payload.get("scope") or "business_html")[:120],
         strategy=strategy,  # type: ignore[arg-type]
@@ -385,19 +414,24 @@ def _normalize_diagnosis(payload: dict[str, Any], *, instruction: str, business_
         targets=targets,
         change_checks=change_checks,
         preserve_checks=preserve_checks,
+        operations=operations,
         degraded_checks=degraded_checks,
+        dropped_operations=dropped_operations,
         requires_clarification=requires_clarification,
         clarification_question=question,
     )
+    return _with_execution_route(diagnosis, business_html)
 
 
 def _fallback_diagnosis(
     instruction: str,
     context_summary: dict[str, Any],
     reason: str,
+    *,
+    business_html: str = "",
 ) -> EditDiagnosis:
     runtime_error = context_summary.get("runtime_error") or {}
-    return EditDiagnosis(
+    diagnosis = EditDiagnosis(
         intent="fix_runtime_error" if runtime_error else "edit_html",
         scope="business_runtime" if runtime_error else "business_html",
         strategy="full_html_regeneration",
@@ -438,6 +472,36 @@ def _fallback_diagnosis(
         ),
         degraded=True,
         fallback_reason=reason,
+    )
+    return _with_execution_route(diagnosis, business_html)
+
+
+def _with_execution_route(diagnosis: EditDiagnosis, business_html: str) -> EditDiagnosis:
+    execution_strategy, route = route_edit_strategy(diagnosis=diagnosis, business_html=business_html)
+    return EditDiagnosis(
+        intent=diagnosis.intent,
+        scope=diagnosis.scope,
+        strategy=diagnosis.strategy,
+        problem=diagnosis.problem,
+        confidence=diagnosis.confidence,
+        resolved_instruction=diagnosis.resolved_instruction,
+        change_requirements=diagnosis.change_requirements,
+        preserve_requirements=diagnosis.preserve_requirements,
+        impact_areas=diagnosis.impact_areas,
+        acceptance_criteria=diagnosis.acceptance_criteria,
+        ambiguities=diagnosis.ambiguities,
+        targets=diagnosis.targets,
+        change_checks=diagnosis.change_checks,
+        preserve_checks=diagnosis.preserve_checks,
+        operations=diagnosis.operations,
+        degraded_checks=diagnosis.degraded_checks,
+        dropped_operations=diagnosis.dropped_operations,
+        execution_strategy=execution_strategy,
+        execution_route=route,
+        requires_clarification=diagnosis.requires_clarification,
+        clarification_question=diagnosis.clarification_question,
+        degraded=diagnosis.degraded,
+        fallback_reason=diagnosis.fallback_reason,
     )
 
 

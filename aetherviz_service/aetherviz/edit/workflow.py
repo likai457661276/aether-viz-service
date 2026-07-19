@@ -33,15 +33,22 @@ from aetherviz_service.aetherviz.contracts.pipeline import run_html_pipeline
 from aetherviz_service.aetherviz.contracts.validation.report import build_validation_report
 from aetherviz_service.aetherviz.edit.context import build_edit_assembly_plan, build_edit_context_summary
 from aetherviz_service.aetherviz.edit.diagnosis import EditDiagnosis, diagnose_edit
+from aetherviz_service.aetherviz.edit.diff_report import build_edit_diff_report
 from aetherviz_service.aetherviz.edit.intent import (
     IntentCheck,
     build_intent_guard,
     evaluate_edit_intent,
 )
+from aetherviz_service.aetherviz.edit.patch.deterministic import apply_deterministic_operations
+from aetherviz_service.aetherviz.edit.patch.scoped_model import stream_scoped_model_patch
 from aetherviz_service.aetherviz.edit.prompts import EDIT_HTML_SYSTEM_PROMPT, build_edit_html_prompt
 from aetherviz_service.aetherviz.edit.runtime_prepair import (
     combine_candidate_guards,
     try_deterministic_runtime_prepair,
+)
+from aetherviz_service.aetherviz.edit.strategy import (
+    EditExecutionStrategy,
+    strategy_ladder_from,
 )
 from aetherviz_service.aetherviz.limits import (
     FULL_HTML_OUTPUT_RESERVE_CHARS,
@@ -216,11 +223,15 @@ def _run_edit_html_workflow_impl(
         candidate_guard=candidate_guard,
         include_plan_in_repair=False,
         reasoning_enabled=settings.aetherviz_edit_enable_thinking,
+        baseline_business_html=business_html,
+        diff_report_factory=build_edit_diff_report,
         initial_metadata={
             "edit_diagnosis_strategy": diagnosis.strategy,
+            "edit_execution_strategy": diagnosis.execution_strategy,
             "edit_diagnosis_confidence": diagnosis.confidence,
             "edit_diagnosis_degraded": diagnosis.degraded,
             "intent_check_count": len(diagnosis.change_checks) + len(diagnosis.preserve_checks),
+            "edit_operation_count": len(diagnosis.operations),
         },
     )
 
@@ -233,12 +244,141 @@ def _stream_diagnosed_edit(
     diagnosis: EditDiagnosis,
     context_summary: dict[str, Any],
 ) -> Iterator[dict[str, Any] | HtmlStreamResult]:
+    ladder = strategy_ladder_from(diagnosis.execution_strategy)
+    failure_evidence = ""
+    last_error: HtmlGenerationError | None = None
+    for index, strategy in enumerate(ladder):
+        if index > 0:
+            yield build_html_progress_payload(
+                [
+                    {"content": _strategy_progress_label(ladder[index - 1], completed=True), "status": "completed"},
+                    {
+                        "content": f"{_strategy_upgrade_reason(ladder[index - 1])}，升级为{_strategy_label(strategy)}",
+                        "status": "in_progress",
+                    },
+                ]
+            )
+        try:
+            if strategy == "deterministic_patch":
+                yield from _stream_deterministic_edit(
+                    current_html=current_html,
+                    diagnosis=diagnosis,
+                )
+                return
+            if strategy == "scoped_model_patch":
+                scoped_message = message
+                if failure_evidence:
+                    scoped_message = f"{message}\n\n{failure_evidence}"
+                yield from stream_scoped_model_patch(
+                    topic=topic,
+                    message=scoped_message,
+                    current_html=current_html,
+                    diagnosis=diagnosis,
+                )
+                return
+            regeneration_message = _diagnosed_regeneration_message(message, diagnosis, context_summary)
+            if failure_evidence:
+                regeneration_message = f"{regeneration_message}\n\n{failure_evidence}"
+            yield from _stream_full_html_edit(
+                topic=topic,
+                message=regeneration_message,
+                current_html=current_html,
+                diagnosis=diagnosis,
+            )
+            return
+        except HtmlGenerationError as exc:
+            last_error = exc
+            if strategy == "full_html_regeneration" or index + 1 >= len(ladder):
+                raise
+            if exc.code not in _RETRYABLE_EDIT_CODES and exc.code != "edit_failed":
+                raise
+            failure_evidence = (
+                f"上一轮策略 {strategy} 未被接受：{exc.code} / {exc.detail or exc.message}\n"
+                "请在下一级策略中只修复失败项；已通过的 preserve hard checks 必须继续保持。"
+            )
+            logger.info("edit strategy %s failed (%s), upgrading", strategy, exc.code)
+    if last_error is not None:
+        raise last_error
     yield from _stream_full_html_edit(
         topic=topic,
         message=_diagnosed_regeneration_message(message, diagnosis, context_summary),
         current_html=current_html,
         diagnosis=diagnosis,
     )
+
+
+def _stream_deterministic_edit(
+    *,
+    current_html: str,
+    diagnosis: EditDiagnosis,
+) -> Iterator[dict[str, Any] | HtmlStreamResult]:
+    yield build_html_progress_payload(
+        [
+            {"content": "应用确定性局部修改", "status": "in_progress"},
+        ]
+    )
+    if not diagnosis.operations:
+        raise HtmlGenerationError(
+            "HTML 修改失败，确定性补丁缺少可执行操作，原页面已保留",
+            code="edit_failed",
+            detail="deterministic_empty_operations",
+        )
+    result = apply_deterministic_operations(current_html, diagnosis.operations)
+    if not result.applied:
+        raise HtmlGenerationError(
+            "HTML 修改失败，确定性补丁未能应用，原页面已保留",
+            code="edit_failed",
+            detail="; ".join(result.unresolved[:8]) or "deterministic_not_applied",
+        )
+    intent = evaluate_edit_intent(
+        baseline_html=current_html,
+        candidate_html=result.html,
+        change_checks=diagnosis.change_checks,
+        preserve_checks=diagnosis.preserve_checks,
+    )
+    if not intent.ok:
+        raise HtmlGenerationError(
+            "HTML 修改结果未满足本次编辑验收条件，原页面已保留",
+            code="edit_intent_not_satisfied",
+            detail=intent.retry_evidence(),
+        )
+    yield build_html_progress_payload(
+        [{"content": "应用确定性局部修改", "status": "completed"}],
+        html_content=result.html,
+    )
+    yield HtmlStreamResult(
+        html=result.html,
+        degraded=False,
+        truncated=False,
+        strategy="deterministic_patch",
+        source_chars=len(current_html),
+        patch_blocks=result.applied,
+        intent_passed=True,
+        intent_soft_failed=tuple(f"{item.check.id}:{item.message}" for item in intent.soft_failed),
+        intent_check_count=len(intent.passed) + len(intent.failed) + len(intent.soft_failed),
+        intent_summary=intent.summary,
+    )
+
+
+def _strategy_label(strategy: EditExecutionStrategy) -> str:
+    return {
+        "deterministic_patch": "确定性局部修改",
+        "scoped_model_patch": "局部模型补丁",
+        "full_html_regeneration": "完整 HTML 重生成",
+    }.get(strategy, strategy)
+
+
+def _strategy_progress_label(strategy: EditExecutionStrategy, *, completed: bool) -> str:
+    label = _strategy_label(strategy)
+    return f"{'完成' if completed else '尝试'}{label}"
+
+
+def _strategy_upgrade_reason(strategy: EditExecutionStrategy) -> str:
+    return {
+        "deterministic_patch": "确定性修改不足",
+        "scoped_model_patch": "局部模型补丁不足",
+        "full_html_regeneration": "完整重生成不足",
+    }.get(strategy, "当前策略不足")
 
 
 def _diagnosed_regeneration_message(

@@ -1806,6 +1806,85 @@ def test_edit_html_rejects_truncated_full_output_without_partial_repair(monkeypa
     assert "原页面已保留" in exc_info.value.message
 
 
+def test_edit_html_strategy_ladder_upgrades_from_deterministic_to_scoped(monkeypatch) -> None:
+    from aetherviz_service.aetherviz.contracts.html_stream import HtmlGenerationError, HtmlStreamResult
+    from aetherviz_service.aetherviz.edit import workflow as edit_html_workflow
+    from aetherviz_service.aetherviz.edit.diagnosis import EditDiagnosis
+    from aetherviz_service.aetherviz.edit.intent import IntentCheck
+    from aetherviz_service.aetherviz.edit.spec import EditOperation
+
+    source = """<!DOCTYPE html><html><head><style>#play{font-size:12px}</style></head>
+<body><button id="play">播放</button>
+<script id="widget-config" type="application/json">{"type":"simulation"}</script>
+<script>function play(){return 1}</script></body></html>"""
+    calls: list[str] = []
+
+    def fake_deterministic(**kwargs):
+        calls.append("deterministic")
+        raise HtmlGenerationError(
+            "确定性不足",
+            code="edit_intent_not_satisfied",
+            detail="css_unchanged",
+        )
+        yield  # pragma: no cover
+
+    def fake_scoped(**kwargs):
+        calls.append("scoped")
+        edited = source.replace("font-size:12px", "font-size:18px")
+        yield HtmlStreamResult(
+            html=edited,
+            degraded=False,
+            strategy="scoped_model_patch",
+            patch_blocks=("#play",),
+            intent_passed=True,
+            intent_check_count=1,
+            intent_summary="intent_ok",
+        )
+
+    def fake_full(**kwargs):
+        calls.append("full")
+        raise AssertionError("should not reach full regeneration")
+        yield  # pragma: no cover
+
+    diagnosis = EditDiagnosis(
+        intent="edit",
+        scope="business_html",
+        strategy="full_html_regeneration",
+        problem="enlarge",
+        confidence=0.9,
+        resolved_instruction="字号调大",
+        operations=(EditOperation(type="set_css_declaration", selector="#play", property="font-size", value="18px"),),
+        change_checks=(
+            IntentCheck(
+                id="c1",
+                kind="html_must_differ",
+                severity="hard",
+                baseline_binding="must_differ",
+                group="change",
+            ),
+        ),
+        execution_strategy="deterministic_patch",
+    )
+
+    monkeypatch.setattr(edit_html_workflow, "_stream_deterministic_edit", fake_deterministic)
+    monkeypatch.setattr(edit_html_workflow, "stream_scoped_model_patch", fake_scoped)
+    monkeypatch.setattr(edit_html_workflow, "_stream_full_html_edit", fake_full)
+
+    items = list(
+        edit_html_workflow._stream_diagnosed_edit(
+            topic="动画",
+            message="字号调大",
+            current_html=source,
+            diagnosis=diagnosis,
+            context_summary={},
+        )
+    )
+    result = next(item for item in items if isinstance(item, HtmlStreamResult))
+    assert calls == ["deterministic", "scoped"]
+    assert result.strategy == "scoped_model_patch"
+    assert any("升级为局部模型补丁" in str(item) for item in items if isinstance(item, dict))
+
+
 def test_edit_html_reports_full_html_regeneration_strategy(monkeypatch) -> None:
     from unittest.mock import MagicMock
 
