@@ -86,7 +86,7 @@ def discrete_structure_ir_response_schema() -> dict[str, Any]:
                     "properties": {
                         "id": {"type": "string", "minLength": 1, "maxLength": 48},
                         "label": {"type": "string", "minLength": 1, "maxLength": 32},
-                        "members": {"type": "array", "maxItems": 64, "uniqueItems": True, "items": {"type": "string"}},
+                        "members": {"type": "array", "maxItems": 64, "items": {"type": "string"}},
                     },
                 },
             },

@@ -12,6 +12,7 @@ evals/
 │   ├── ir_candidates/        # 尚无专用后端的 IR 设计缺口样本
 │   ├── ir_routing/           # IR 路由回归
 │   ├── number_line_ir/       # 数轴 IR repair 与动态集合 Runtime 回归
+│   ├── constraint_geometry_ir/  # 约束几何 IR 确定性 repair / 排名回归
 │   └── recomposition/        # 几何重排回归
 ├── evaluators/               # 单指标确定性和视觉 evaluator
 ├── targets/                  # 被测生成链路与浏览器执行封装
@@ -20,6 +21,8 @@ evals/
 ├── run_generate_baseline_eval.py
 ├── run_edit_html_eval.py
 ├── run_ir_routing_eval.py
+├── run_number_line_ir_eval.py
+├── run_constraint_geometry_ir_eval.py
 └── run_eval.py               # 统一的重组链路评测入口
 ```
 
@@ -106,12 +109,23 @@ uv run python evals/run_number_line_ir_eval.py
 当前覆盖动态端点交叉、intersection 非空到空集、union 单段到双段，以及开闭端点相遇。
 集合拓扑通过本地浏览器执行 `derived_sets` Runtime 验证；默认不调用模型或远程 LangSmith。
 
-`datasets/ir_candidates/` 为尚未实现的 `geometric_constraint_scene` 和
-`distribution_chart_scene` 各保留 5 条 LangSmith 兼容的单步失败样本。它们记录目标能力、
-候选后端和当前应降级为 direct 的可观察缺口，不属于已注册 IR 的通过率门禁。首批样本来源
-标记为 `design_gap_seed`；只有经过脱敏并获准写入仓库的真实 Trace 才能标记为
-`trace_failure`。实现某个候选 IR 时，应把对应样本迁移为该后端的正向路由与运行时回归，
-而不是继续断言 direct 降级。
+运行约束几何 IR 确定性 repair / 排名回归：
+
+```bash
+uv run python evals/run_constraint_geometry_ir_eval.py
+```
+
+`datasets/constraint_geometry_ir/regression.jsonl` 保存脱敏后的真实模型失败族与设计样本。
+当前覆盖无效 drag / 错误 refs、`A.x`/`C.x` 点字段别名与非法 angle、非常数端点 midpoint
+表达式重写，以及 repair 后的候选排名选中。默认不调用模型或远程 LangSmith。
+
+`datasets/ir_candidates/` 保留尚未被现有 IR 覆盖的设计缺口样本。几何约束族与直方图分箱、
+经验分布对比等样本已晋升到 `datasets/ir_routing/`（分别由 `constraint_geometry_scene`、
+`data_distribution_scene`、`probability_experiment_scene` 承接）。当前剩余缺口面向
+`distribution_chart_scene` 尚未实现的连续密度 / 参数分布 / 重复抽样能力，记录目标能力与
+应降级为 direct 的可观察行为，不属于已注册 IR 的通过率门禁。首批样本来源标记为
+`design_gap_seed`；只有经过脱敏并获准写入仓库的真实 Trace 才能标记为 `trace_failure`。
+实现某个候选能力时，应把对应样本迁移为正向路由与运行时回归，而不是继续断言 direct 降级。
 
 `datasets/edit_html/diagnosis.jsonl` 验证诊断策略、影响域、hard change claim 覆盖和
 claim 可绑定性；`datasets/edit_html/end_to_end.jsonl` 验证用户意图、preserve 约束、

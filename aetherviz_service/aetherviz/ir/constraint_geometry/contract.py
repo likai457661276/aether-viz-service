@@ -48,6 +48,20 @@ CONSTRAINT_TYPES = frozenset(
     }
 )
 DRAG_MODES = frozenset({"x", "y", "angle_on_circle", "segment_parameter"})
+CONSTRAINT_REF_KINDS: dict[str, tuple[str, ...]] = {
+    "coincident": ("point", "point"),
+    "horizontal": ("point", "point"),
+    "vertical": ("point", "point"),
+    "parallel": ("line", "line"),
+    "perpendicular": ("line", "line"),
+    "equal_length": ("line", "line"),
+    "point_on_circle": ("point", "circle"),
+    "midpoint": ("point", "point", "point"),
+    "collinear": ("point", "point", "point"),
+    "tangent": ("line", "circle", "point"),
+    "equal_angle": ("angle", "angle"),
+    "supplementary": ("angle", "angle"),
+}
 
 
 class ConstraintGeometryIRValidationError(ValueError):
@@ -263,6 +277,162 @@ def normalize_constraint_geometry_ir(ir: object, plan: dict[str, Any]) -> object
     return candidate
 
 
+def repair_constraint_geometry_ir(ir: object, plan: dict[str, Any]) -> object:
+    """Apply bounded structural fixes before semantic validation or model repair."""
+    candidate = normalize_constraint_geometry_ir(ir, plan)
+    if not isinstance(candidate, dict):
+        return candidate
+    variables = {item["name"] for item in _plan_variables(plan)}
+    points = _dict_items(candidate.get("points"))
+    lines = _dict_items(candidate.get("lines"))
+    circles = _dict_items(candidate.get("circles"))
+    angles = _dict_items(candidate.get("angles"))
+    loci = _dict_items(candidate.get("loci"))
+    constraints = _dict_items(candidate.get("constraints"))
+    point_ids = {str(item.get("id") or "") for item in points if item.get("id")}
+    line_ids = {str(item.get("id") or "") for item in lines if item.get("id")}
+    circle_ids = {str(item.get("id") or "") for item in circles if item.get("id")}
+    points_by_id = {str(item.get("id") or ""): item for item in points if item.get("id")}
+    for point in points:
+        drag = point.get("drag") if isinstance(point.get("drag"), dict) else None
+        if drag is None:
+            continue
+        mode, state_name = drag.get("mode"), drag.get("state")
+        if mode not in DRAG_MODES or state_name not in variables:
+            point.pop("drag", None)
+            continue
+        required = (
+            [point.get("x")] if mode == "x" else [point.get("y")] if mode == "y" else [point.get("x"), point.get("y")]
+        )
+        if state_name not in set().union(*(_expression_states(expr) for expr in required)):
+            point.pop("drag", None)
+    # Models often emit B.x / C.y aliases; rewrite them to the referenced point fields.
+    for point in points:
+        point_id = str(point.get("id") or "")
+        for key in ("x", "y"):
+            point[key] = _rewrite_point_field_aliases(point.get(key), points_by_id, variables, {point_id})
+    for circle in circles:
+        circle["radius"] = _rewrite_point_field_aliases(circle.get("radius"), points_by_id, variables, set())
+    # Rewrite midpoint coordinates from endpoints (constants or shared expressions).
+    for item in constraints:
+        if item.get("type") != "midpoint":
+            continue
+        refs = [str(ref) for ref in item.get("refs", [])] if isinstance(item.get("refs"), list) else []
+        if len(refs) != 3:
+            continue
+        midpoint, left, right = (points_by_id.get(ref) for ref in refs)
+        if midpoint is None or left is None or right is None:
+            continue
+        midpoint["x"] = _midpoint_coordinate(left.get("x"), right.get("x"))
+        midpoint["y"] = _midpoint_coordinate(left.get("y"), right.get("y"))
+    # Re-check drag activity after coordinate rewrites.
+    for point in points:
+        drag = point.get("drag") if isinstance(point.get("drag"), dict) else None
+        if drag is None:
+            continue
+        mode, state_name = drag.get("mode"), drag.get("state")
+        required = (
+            [point.get("x")] if mode == "x" else [point.get("y")] if mode == "y" else [point.get("x"), point.get("y")]
+        )
+        if state_name not in set().union(*(_expression_states(expr) for expr in required)):
+            point.pop("drag", None)
+    kept_angles: list[dict[str, Any]] = []
+    for angle in angles:
+        angle_points = [angle.get(key) for key in ("from", "vertex", "to")]
+        if (
+            len(set(angle_points)) == 3
+            and all(ref in point_ids for ref in angle_points)
+            and isinstance(angle.get("precision"), int)
+            and 0 <= angle["precision"] <= 3
+        ):
+            kept_angles.append(angle)
+    angle_ids = {str(item.get("id") or "") for item in kept_angles if item.get("id")}
+    kind_sets = {
+        "point": point_ids,
+        "line": line_ids,
+        "circle": circle_ids,
+        "angle": angle_ids,
+    }
+    kept_constraints: list[dict[str, Any]] = []
+    for item in constraints:
+        kind = str(item.get("type") or "")
+        expected = CONSTRAINT_REF_KINDS.get(kind)
+        refs = [str(ref) for ref in item.get("refs", [])] if isinstance(item.get("refs"), list) else []
+        if expected is None or len(refs) != len(expected):
+            continue
+        if any(ref not in kind_sets[kind_name] for ref, kind_name in zip(refs, expected, strict=True)):
+            continue
+        kept_constraints.append(item)
+    # Do not turn a wholly invalid constraint set into a valid unconstrained scene.
+    if constraints and not kept_constraints:
+        kept_constraints = constraints
+    candidate["points"] = points
+    candidate["lines"] = lines
+    candidate["circles"] = circles
+    candidate["angles"] = kept_angles
+    candidate["loci"] = loci
+    candidate["constraints"] = kept_constraints
+    return candidate
+
+
+def _dict_items(value: object) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, dict)]
+
+
+def _constant_number(expression: object) -> float | None:
+    if isinstance(expression, bool):
+        return None
+    if isinstance(expression, (int, float)):
+        value = float(expression)
+        return value if math.isfinite(value) else None
+    if isinstance(expression, dict) and expression.get("op") == "neg":
+        args = expression.get("args")
+        if isinstance(args, list) and len(args) == 1:
+            inner = _constant_number(args[0])
+            return None if inner is None else -inner
+    return None
+
+
+def _midpoint_coordinate(left: object, right: object) -> object:
+    left_value, right_value = _constant_number(left), _constant_number(right)
+    if left_value is not None and right_value is not None:
+        return (left_value + right_value) / 2
+    return {"op": "div", "args": [{"op": "add", "args": [deepcopy(left), deepcopy(right)]}, 2]}
+
+
+def _rewrite_point_field_aliases(
+    expression: object,
+    points_by_id: dict[str, dict[str, Any]],
+    variables: set[str],
+    blocked: set[str],
+    depth: int = 0,
+) -> object:
+    """Replace illegal ``{\"state\":\"A.x\"}`` aliases with the referenced point field."""
+    if depth > 12:
+        return expression
+    if isinstance(expression, dict) and set(expression) == {"state"}:
+        name = str(expression["state"])
+        if name in variables:
+            return expression
+        if "." not in name:
+            return expression
+        point_id, field = name.rsplit(".", 1)
+        if field not in {"x", "y"} or point_id not in points_by_id or point_id in blocked:
+            return expression
+        source = points_by_id[point_id].get(field)
+        return _rewrite_point_field_aliases(source, points_by_id, variables, blocked | {point_id}, depth + 1)
+    if isinstance(expression, dict) and isinstance(expression.get("args"), list):
+        rewritten = dict(expression)
+        rewritten["args"] = [
+            _rewrite_point_field_aliases(item, points_by_id, variables, blocked, depth + 1)
+            for item in expression["args"]
+        ]
+        return rewritten
+    return expression
+
+
 def validate_constraint_geometry_ir(ir: object, plan: dict[str, Any]) -> dict[str, Any]:
     normalized = normalize_constraint_geometry_ir(ir, plan)
     errors: list[dict[str, Any]] = []
@@ -288,6 +458,23 @@ def validate_constraint_geometry_ir(ir: object, plan: dict[str, Any]) -> dict[st
     circles = normalized.get("circles") if isinstance(normalized.get("circles"), list) else []
     angles = normalized.get("angles") if isinstance(normalized.get("angles"), list) else []
     loci = normalized.get("loci") if isinstance(normalized.get("loci"), list) else []
+    constraints = normalized.get("constraints") if isinstance(normalized.get("constraints"), list) else []
+    collection_sizes = {
+        "points": (len(points), 2, 24),
+        "lines": (len(lines), 0, 32),
+        "circles": (len(circles), 0, 12),
+        "angles": (len(angles), 0, 16),
+        "loci": (len(loci), 0, 4),
+        "constraints": (len(constraints), 1, 24),
+    }
+    for name, (size, minimum, maximum) in collection_sizes.items():
+        if not minimum <= size <= maximum:
+            errors.append(
+                {
+                    "type": "invalid_geometry_collection_size",
+                    "message": f"{name} 数量必须在 {minimum} 到 {maximum} 之间",
+                }
+            )
     point_ids = _unique_ids(points, "point", errors)
     line_ids = _unique_ids(lines, "line", errors)
     circle_ids = _unique_ids(circles, "circle", errors)
@@ -347,7 +534,6 @@ def validate_constraint_geometry_ir(ir: object, plan: dict[str, Any]) -> dict[st
                 raise ValueError
         except (TypeError, ValueError):
             errors.append({"type": "invalid_geometry_locus_bounds", "message": "轨迹容量或最小采样距离超出限制"})
-    constraints = normalized.get("constraints") if isinstance(normalized.get("constraints"), list) else []
     refs = point_ids | line_ids | circle_ids | angle_ids
     for item in constraints:
         if not isinstance(item, dict) or item.get("type") not in CONSTRAINT_TYPES:
@@ -375,7 +561,7 @@ def validate_constraint_geometry_ir(ir: object, plan: dict[str, Any]) -> dict[st
 def rank_constraint_geometry_ir_candidates(candidates: list[object], plan: dict[str, Any]) -> dict[str, Any]:
     ranked = []
     for index, candidate in enumerate(candidates):
-        normalized = normalize_constraint_geometry_ir(candidate, plan)
+        normalized = repair_constraint_geometry_ir(candidate, plan)
         report = validate_constraint_geometry_ir(normalized, plan)
         serialized = json.dumps(normalized, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
         ranked.append(
@@ -423,7 +609,7 @@ def parse_constraint_geometry_ir_candidates(raw: str) -> list[object]:
 
 
 def compile_constraint_geometry_ir(ir: dict[str, Any], plan: dict[str, Any]) -> str:
-    normalized = normalize_constraint_geometry_ir(ir, plan)
+    normalized = repair_constraint_geometry_ir(ir, plan)
     report = validate_constraint_geometry_ir(normalized, plan)
     if not report["ok"] or not isinstance(normalized, dict):
         raise ConstraintGeometryIRValidationError(report)

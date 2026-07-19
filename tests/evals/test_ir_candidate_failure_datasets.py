@@ -12,13 +12,14 @@ from evals.run_ir_routing_eval import run_route
 
 DATASET_DIR = Path(__file__).parents[2] / "evals" / "datasets" / "ir_candidates"
 EXPECTED_FAMILIES = {
-    "geometric_constraint_scene",
     "distribution_chart_scene",
 }
-RESOLVED_CASES = {
-    "geometry-perpendicular-bisector": "constraint_geometry_scene",
-    "geometry-centroid-concurrency": "constraint_geometry_scene",
-    "distribution-histogram-binning": "data_distribution_scene",
+# Remaining gaps require continuous density / sampling capabilities beyond
+# the deterministic data_distribution IR family.
+OPEN_GAP_CASES = {
+    "distribution-binomial-parameters",
+    "distribution-normal-density",
+    "distribution-sampling-mean",
 }
 
 
@@ -34,8 +35,8 @@ def test_candidate_failure_datasets_are_complete_and_langsmith_compatible() -> N
     case_ids = [row["metadata"]["case_id"] for row in rows]
     families = {row["metadata"]["candidate_family"] for row in rows}
 
-    assert len(rows) == 10
-    assert len(case_ids) == len(set(case_ids))
+    assert len(rows) == 3
+    assert set(case_ids) == OPEN_GAP_CASES
     assert families == EXPECTED_FAMILIES
     assert all(row["metadata"]["source"] == "design_gap_seed" for row in rows)
     assert all(row.get("inputs") and row.get("outputs") for row in rows)
@@ -44,16 +45,12 @@ def test_candidate_failure_datasets_are_complete_and_langsmith_compatible() -> N
 
 
 @pytest.mark.parametrize("row", _rows(), ids=lambda row: row["metadata"]["case_id"])
-def test_candidate_seed_is_either_resolved_or_an_observable_routing_gap(row: dict) -> None:
+def test_candidate_seed_remains_an_observable_routing_gap(row: dict) -> None:
     registered = {backend.key for backend in DEFAULT_IR_REGISTRY.backends()}
     target = row["outputs"]["target_backend"]
     actual = run_route(row["inputs"])["selected_backend"]
-    resolved_backend = RESOLVED_CASES.get(row["metadata"]["case_id"])
 
     assert target not in registered
     assert row["outputs"]["current_expected_backend"] is None
-    if resolved_backend:
-        assert resolved_backend in registered
-        assert actual == resolved_backend
-    else:
-        assert actual is row["outputs"]["current_expected_backend"]
+    assert actual is None
+    assert row["metadata"]["case_id"] in OPEN_GAP_CASES

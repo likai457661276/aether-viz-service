@@ -77,7 +77,6 @@ def symbolic_derivation_ir_response_schema() -> dict[str, Any]:
                 "type": "array",
                 "minItems": 1,
                 "maxItems": 6,
-                "uniqueItems": True,
                 "items": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_]{0,15}$"},
             },
             "steps": {

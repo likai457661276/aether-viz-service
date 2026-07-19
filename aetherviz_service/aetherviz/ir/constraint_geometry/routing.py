@@ -37,6 +37,13 @@ def assess(plan: dict[str, Any]) -> IRRouteAssessment:
     geometry = "geometric_scene" in kinds
     supported_views = bool(kinds) and kinds <= PROFILE.supported_view_kinds
     continuous = any(item.get("semantic_type") != "discrete" for item in states)
+    prior = isinstance(plan.get("knowledge_profile"), dict) and plan["knowledge_profile"].get(
+        "representation_type"
+    ) in {"geometric_construction", "constraint_geometry"}
+    # Plan invariants use representation_spec vocabulary. Include Euclidean
+    # constraint names directly. Generic point_on_curve/coincident relations
+    # require a geometry-construction prior because arbitrary curves are not
+    # representable by this IR.
     constraint_signal = bool(
         invariants
         & {
@@ -51,10 +58,7 @@ def assess(plan: dict[str, Any]) -> IRRouteAssessment:
             "equal_angle",
             "supplementary",
         }
-    )
-    prior = isinstance(plan.get("knowledge_profile"), dict) and plan["knowledge_profile"].get(
-        "representation_type"
-    ) in {"geometric_construction", "constraint_geometry"}
+    ) or bool(prior and geometry and ("point_on_curve" in invariants or relations & {"coincident", "point_on_curve"}))
     recomposition = "decompose_recompose" in relations or bool(
         invariants & {"piece_identity_preserved", "piece_count_constant", "piece_congruence", "area_preserved"}
     )

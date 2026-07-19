@@ -75,7 +75,6 @@ def probability_experiment_ir_response_schema() -> dict[str, Any]:
                             "type": "array",
                             "minItems": 1,
                             "maxItems": 48,
-                            "uniqueItems": True,
                             "items": {"type": "string"},
                         },
                     },

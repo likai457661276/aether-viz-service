@@ -7,6 +7,7 @@ from aetherviz_service.aetherviz.ir.constraint_geometry.contract import (
     CONSTRAINT_GEOMETRY_IR_VERSION,
     compile_constraint_geometry_ir,
     rank_constraint_geometry_ir_candidates,
+    repair_constraint_geometry_ir,
     validate_constraint_geometry_ir,
 )
 from aetherviz_service.aetherviz.ir.constraint_geometry.runtime import (
@@ -179,6 +180,149 @@ def test_constraint_geometry_plan_routes_without_stealing_discrete_parametric_ge
     backend = DEFAULT_IR_REGISTRY.get("constraint_geometry_scene")
     assert backend is not None
     assert backend.assess is not None and backend.assess(_plan()).eligible
+
+
+def test_constraint_geometry_routes_plan_level_point_on_curve_alias() -> None:
+    plan = normalize_plan(
+        {
+            "interactive_type": "simulation",
+            "interactive_spec": {
+                "type": "simulation",
+                "concept": "圆的切线",
+                "description": "移动外点后切点、半径和切线约束保持成立",
+                "variables": [
+                    {"name": "external_x", "label": "圆外点位置", "min": 3, "max": 8, "step": 0.1, "default": 5}
+                ],
+            },
+            "knowledge_profile": {
+                "subject": "math",
+                "concept_family": "geometry",
+                "representation_type": "geometric_construction",
+                "pedagogy_pattern": "construct_and_measure",
+            },
+            "representation_spec": {
+                "views": [{"id": "geometry", "kind": "geometric_scene", "role": "圆、切点、半径和切线"}],
+                "state_variables": [{"id": "external_x", "semantic_type": "scalar"}],
+                "correspondences": [
+                    {
+                        "type": "point_on_curve",
+                        "source_view": "geometry",
+                        "target_view": "geometry",
+                        "parameter": "external_x",
+                    }
+                ],
+                "required_invariants": ["point_on_curve", "angle_preserved"],
+                "interaction_requirements": ["drag", "reset"],
+            },
+        },
+        "移动圆外点，构造切线并验证半径垂直于切线",
+    )
+
+    assert resolve_generation_route(plan).selected_backend == "constraint_geometry_scene"
+
+
+def test_constraint_geometry_does_not_route_generic_point_on_curve_without_geometry_prior() -> None:
+    plan = normalize_plan(
+        {
+            "interactive_type": "simulation",
+            "interactive_spec": {
+                "type": "simulation",
+                "concept": "任意曲线运动",
+                "description": "动点沿贝塞尔曲线运动",
+                "variables": [{"name": "t", "label": "曲线参数", "min": 0, "max": 1, "step": 0.01, "default": 0.5}],
+            },
+            "knowledge_profile": {"representation_type": "object_scene"},
+            "representation_spec": {
+                "views": [{"id": "geometry", "kind": "geometric_scene", "role": "贝塞尔曲线与动点"}],
+                "state_variables": [{"id": "t", "semantic_type": "scalar"}],
+                "correspondences": [
+                    {"type": "point_on_curve", "source_view": "geometry", "target_view": "geometry", "parameter": "t"}
+                ],
+                "required_invariants": ["point_on_curve"],
+                "interaction_requirements": ["scrub"],
+            },
+        },
+        "动点沿任意贝塞尔曲线运动",
+    )
+
+    backend = DEFAULT_IR_REGISTRY.get("constraint_geometry_scene")
+    assert backend is not None and backend.assess is not None
+    assert not backend.assess(plan).eligible
+    assert resolve_generation_route(plan).selected_backend != "constraint_geometry_scene"
+
+
+def test_constraint_geometry_deterministic_repair_strips_inactive_drag_and_bad_refs() -> None:
+    noisy = deepcopy(_ir())
+    noisy["points"][0]["drag"] = {"state": "height", "mode": "x"}  # A.x is constant
+    noisy["points"][2]["drag"] = {"state": "height", "mode": "y"}  # C.y uses height
+    noisy["points"][3]["x"] = 1
+    noisy["points"][3]["y"] = 1  # wrong midpoint; repair should rewrite from A/B
+    noisy["angles"] = [{"id": "bad", "from": "M", "vertex": "M", "to": "C", "label": "坏角", "precision": 1}]
+    noisy["constraints"].append({"type": "equal_length", "refs": ["BM", "MC"], "tolerance": 0.000001})
+    noisy["constraints"].append({"type": "coincident", "refs": ["M", "AB"], "tolerance": 0.000001})
+
+    repaired = repair_constraint_geometry_ir(noisy, _plan())
+    ranking = rank_constraint_geometry_ir_candidates([noisy], _plan())
+
+    assert isinstance(repaired, dict)
+    assert "drag" not in repaired["points"][0]
+    assert repaired["points"][2].get("drag", {}).get("mode") == "y"
+    assert repaired["points"][3]["x"] == 0
+    assert repaired["points"][3]["y"] == 0
+    assert repaired["angles"] == []
+    assert all(item["type"] != "equal_length" or item["refs"] != ["BM", "MC"] for item in repaired["constraints"])
+    assert all(not (item["type"] == "coincident" and item["refs"] == ["M", "AB"]) for item in repaired["constraints"])
+    assert ranking["ok"]
+
+
+def test_constraint_geometry_repair_does_not_accept_empty_constraint_result() -> None:
+    invalid = deepcopy(_ir())
+    invalid["constraints"] = [{"type": "coincident", "refs": ["M", "AB"], "tolerance": 0.000001}]
+
+    repaired = repair_constraint_geometry_ir(invalid, _plan())
+    ranking = rank_constraint_geometry_ir_candidates([invalid], _plan())
+
+    assert isinstance(repaired, dict)
+    assert repaired["constraints"] == invalid["constraints"]
+    assert not ranking["ok"]
+    assert any(item["type"] == "geometry_invariant_failed" for item in ranking["repair_report"]["errors"])
+
+
+def test_constraint_geometry_repair_handles_malformed_collection_fields() -> None:
+    for field in ("points", "lines", "circles", "angles", "loci", "constraints"):
+        malformed = deepcopy(_ir())
+        malformed[field] = None
+
+        ranking = rank_constraint_geometry_ir_candidates([malformed], _plan())
+
+        assert isinstance(ranking, dict)
+        if field in {"points", "constraints"}:
+            assert not ranking["ok"]
+
+
+def test_constraint_geometry_deterministic_repair_rewrites_aliases_and_expression_midpoint() -> None:
+    alias = deepcopy(_ir())
+    alias["points"][3]["x"] = {"op": "div", "args": [{"op": "add", "args": [{"state": "A.x"}, {"state": "B.x"}]}, 2]}
+    alias["points"][3]["y"] = {"state": "A.y"}
+    expression = deepcopy(_ir())
+    expression["viewport"] = {"x_min": -5, "x_max": 5, "y_min": -1, "y_max": 5}
+    expression["points"][0]["x"] = {"op": "neg", "args": [{"state": "height"}]}
+    expression["points"][1]["x"] = {"state": "height"}
+    expression["points"][3]["x"] = 1
+    expression["points"][3]["y"] = 1
+
+    repaired_alias = repair_constraint_geometry_ir(alias, _plan())
+    repaired_expression = repair_constraint_geometry_ir(expression, _plan())
+
+    assert isinstance(repaired_alias, dict)
+    assert repaired_alias["points"][3]["x"] == 0.0
+    assert repaired_alias["points"][3]["y"] == 0.0
+    assert validate_constraint_geometry_ir(repaired_alias, _plan())["ok"]
+    assert isinstance(repaired_expression, dict)
+    assert isinstance(repaired_expression["points"][3]["x"], dict)
+    assert repaired_expression["points"][3]["x"]["op"] == "div"
+    assert repaired_expression["points"][3]["y"] == 0.0
+    assert validate_constraint_geometry_ir(repaired_expression, _plan())["ok"]
 
 
 def test_constraint_geometry_v11_supports_tangent_angle_drag_and_bounded_locus() -> None:
