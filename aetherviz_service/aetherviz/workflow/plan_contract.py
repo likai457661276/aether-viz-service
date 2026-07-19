@@ -124,9 +124,24 @@ def normalize_plan(raw_plan: dict | None, topic: str, primary_color: str = DEFAU
     if not isinstance(raw.get("scene_outline"), dict):
         scene_outline["title"] = title
 
+    has_recomposition = _has_recomposition_evidence(
+        raw,
+        source_topic,
+        interactive_spec,
+        knowledge_profile,
+    )
+    if has_recomposition and knowledge_profile.get("representation_type") != "geometric_recomposition":
+        # representation_spec is the authoritative capability contract.  A
+        # stale coarse profile must not force an exact piece-rearrangement
+        # proof through unconstrained HTML generation.
+        knowledge_profile = {
+            **knowledge_profile,
+            "representation_type": "geometric_recomposition",
+            "pedagogy_pattern": "decompose_recompose_proof",
+        }
     recomposition_spec = (
         _normalize_recomposition_spec(raw.get("recomposition_spec"), interactive_spec)
-        if _has_recomposition_evidence(raw, source_topic, interactive_spec, knowledge_profile)
+        if has_recomposition
         else None
     )
     discipline_spec = _normalize_discipline_spec(raw.get("discipline_spec"), baseline["discipline_spec"])
@@ -191,6 +206,17 @@ def _has_recomposition_evidence(
             isinstance(item, dict) and item.get("type") == "decompose_recompose" for item in correspondences
         ):
             return True
+        views = {
+            str(item.get("kind") or "")
+            for item in representation.get("views", [])
+            if isinstance(item, dict)
+        }
+        invariants = {str(item) for item in representation.get("required_invariants", [])}
+        states = [item for item in representation.get("state_variables", []) if isinstance(item, dict)]
+        stable_topology = not any(item.get("semantic_type") == "discrete" for item in states)
+        preserved_measure = invariants & {"area_preserved", "length_preserved", "angle_preserved"}
+        if stable_topology and "geometric_scene" in views and "piece_congruence" in invariants and preserved_measure:
+            return True
     semantic = " ".join(
         (
             topic,
@@ -199,7 +225,19 @@ def _has_recomposition_evidence(
             " ".join(str(item) for item in interactive_spec.get("observations", [])),
         )
     ).lower()
-    cues = ("切分", "重排", "拼接", "割补", "等积", "recompose", "rearrange", "dissect")
+    cues = (
+        "切分",
+        "切割",
+        "重排",
+        "拼接",
+        "拼合",
+        "拼图",
+        "割补",
+        "等积",
+        "recompose",
+        "rearrange",
+        "dissect",
+    )
     return isinstance(raw.get("recomposition_spec"), dict) and any(cue in semantic for cue in cues)
 
 

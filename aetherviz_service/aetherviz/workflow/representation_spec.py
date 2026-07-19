@@ -106,6 +106,13 @@ def normalize_representation_spec(
         representation=representation,
         semantic_text=semantic_text,
     )
+    correspondences, invariants = _augment_recomposition_contract(
+        views=views,
+        states=states,
+        correspondences=correspondences,
+        invariants=invariants,
+        has_recomposition=bool(recomposition_spec),
+    )
     invariants = _normalize_invariant_compatibility(
         invariants,
         representation=representation,
@@ -123,6 +130,45 @@ def normalize_representation_spec(
         "required_invariants": invariants,
         "interaction_requirements": interactions,
     }
+
+
+def _augment_recomposition_contract(
+    *,
+    views: list[dict[str, str]],
+    states: list[dict[str, Any]],
+    correspondences: list[dict[str, str]],
+    invariants: list[str],
+    has_recomposition: bool,
+) -> tuple[list[dict[str, str]], list[str]]:
+    """Make structured piece-proof capabilities internally coherent.
+
+    Planning models occasionally emit the hard piece invariants while omitting
+    the matching correspondence.  Preserve their views/state, but restore the
+    generic decomposition edge required by deterministic IR routing.
+    """
+
+    if not has_recomposition or any(item["type"] == "decompose_recompose" for item in correspondences):
+        return correspondences, invariants
+    geometry_view = next((item for item in views if item["kind"] == "geometric_scene"), None)
+    if geometry_view is None:
+        return correspondences, invariants
+    parameter = str(states[0]["id"]) if states else ""
+    augmented = [
+        *correspondences,
+        {
+            "type": "decompose_recompose",
+            "source_view": geometry_view["id"],
+            "target_view": geometry_view["id"],
+            "parameter": parameter,
+            "source": "source-pieces",
+            "target": "target-assembly",
+        },
+    ]
+    required = list(invariants)
+    for invariant in ("piece_identity_preserved", "piece_count_constant", "piece_congruence"):
+        if invariant not in required:
+            required.append(invariant)
+    return augmented[:12], required[:12]
 
 
 def _normalize_invariant_compatibility(

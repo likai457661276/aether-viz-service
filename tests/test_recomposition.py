@@ -45,6 +45,7 @@ from aetherviz_service.aetherviz.ir.recomposition.semantics import (
 from aetherviz_service.aetherviz.ir.recomposition.waypoints import (
     complete_intermediate_waypoints,
 )
+from aetherviz_service.aetherviz.ir.router.service import resolve_generation_route
 from aetherviz_service.aetherviz.tools.function_patch import (
     apply_function_replacements,
     describe_target_functions,
@@ -120,6 +121,66 @@ def test_normalized_recomposition_plan_always_preserves_piece_shape() -> None:
         "length_preserved",
         "piece_congruence",
     ]
+
+
+def test_structured_piece_invariants_recover_omitted_recomposition_contract() -> None:
+    """Regression for a plan trace that described an exact puzzle proof but omitted its IR contract."""
+
+    plan = normalize_plan(
+        {
+            "knowledge_profile": {
+                "subject": "math",
+                "concept_family": "geometry",
+                "representation_type": "dynamic_model",
+                "pedagogy_pattern": "proof_animation",
+                "confidence": 0.61,
+            },
+            "interactive_spec": {
+                "type": "simulation",
+                "concept": "几何面积关系",
+                "variables": [
+                    {"name": "a", "label": "长度 a", "min": 2, "max": 8, "step": 0.5, "default": 3},
+                    {"name": "b", "label": "长度 b", "min": 2, "max": 12, "step": 0.5, "default": 4},
+                ],
+            },
+            "discipline_spec": {
+                "invariants": ["拼片形状不变", "面积守恒"],
+            },
+            "representation_spec": {
+                "version": "1.0",
+                "views": [
+                    {"id": "main-geometry", "kind": "geometric_scene", "role": "几何主舞台"},
+                    {"id": "formula-panel", "kind": "symbolic_panel", "role": "度量关系"},
+                ],
+                "state_variables": [
+                    {"id": "a", "semantic_type": "length"},
+                    {"id": "b", "semantic_type": "length"},
+                ],
+                "correspondences": [
+                    {
+                        "type": "shared_parameter",
+                        "source_view": "main-geometry",
+                        "target_view": "formula-panel",
+                        "parameter": "a",
+                    }
+                ],
+                "required_invariants": ["equal_value", "piece_congruence", "area_preserved"],
+                "interaction_requirements": ["drag", "reveal"],
+            },
+        },
+        "通用几何面积验证",
+    )
+
+    assert plan["knowledge_profile"]["representation_type"] == "geometric_recomposition"
+    assert len(plan["recomposition_spec"]["proof_constraints"]["stage_requirements"]) == 3
+    assert any(
+        item["type"] == "decompose_recompose"
+        for item in plan["representation_spec"]["correspondences"]
+    )
+    route = resolve_generation_route(plan)
+    assert route.selected_backend == "recomposition_scene"
+    assert route.source == "deterministic"
+    assert route.llm_invoked is False
 
 
 def test_scene_module_contract_rejects_dom_and_animation_ownership() -> None:
