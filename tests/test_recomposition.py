@@ -250,7 +250,7 @@ def test_structured_piece_invariants_recover_omitted_recomposition_contract() ->
         for item in plan["representation_spec"]["correspondences"]
     )
     route = resolve_generation_route(plan)
-    assert route.selected_backend == "recomposition_scene"
+    assert route.selected_backend is None
     assert route.source == "deterministic"
     assert route.llm_invoked is False
 

@@ -19,6 +19,7 @@ def assess(plan: dict[str, Any]) -> IRRouteAssessment:
     spec = plan.get("representation_spec") if isinstance(plan.get("representation_spec"), dict) else {}
     relations = {str(item.get("type") or "") for item in spec.get("correspondences", []) if isinstance(item, dict)}
     invariants = {str(item) for item in spec.get("required_invariants", [])}
+    interactions = {str(item) for item in spec.get("interaction_requirements", []) if str(item)}
     recomposition = plan.get("recomposition_spec") if isinstance(plan.get("recomposition_spec"), dict) else {}
     stages = ((recomposition.get("proof_constraints") or {}).get("stage_requirements") or []) if recomposition else []
     checks = {
@@ -31,6 +32,7 @@ def assess(plan: dict[str, Any]) -> IRRouteAssessment:
         "profile_prior": ((plan.get("knowledge_profile") or {}).get("representation_type") == "geometric_recomposition")
         if isinstance(plan.get("knowledge_profile"), dict)
         else False,
+        "supported_interactions": not bool(interactions & {"drag", "preset", "trace"}),
     }
     weights = {
         "piece_decomposition": 0.30,
@@ -38,11 +40,22 @@ def assess(plan: dict[str, Any]) -> IRRouteAssessment:
         "geometry_invariant": 0.20,
         "target_assembly": 0.15,
         "profile_prior": 0.05,
+        "supported_interactions": 0.0,
     }
     score = round(sum(weights[key] for key, matched in checks.items() if matched), 3)
     required = {"piece_decomposition", "piece_transform", "geometry_invariant"}
     missing = tuple(sorted(key for key in required if not checks[key]))
-    exclusions = ("计划没有可验证的切分重排阶段",) if not checks["piece_decomposition"] else ()
+    exclusions = tuple(
+        reason
+        for condition, reason in (
+            (not checks["piece_decomposition"], "计划没有可验证的切分重排阶段"),
+            (
+                not checks["supported_interactions"],
+                "计划要求逐片拖拽、预设或轨迹交互，超出重排播放运行时能力",
+            ),
+        )
+        if condition
+    )
     return IRRouteAssessment(
         backend_key="recomposition_scene",
         eligible=not missing and not exclusions,

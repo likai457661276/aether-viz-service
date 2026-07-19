@@ -62,3 +62,11 @@ def test_system_prompt_uses_generic_base_for_unknown_interactive_type() -> None:
     prompt = system_prompt_for_interactive_type(_plan(interactive_type="unknown_widget"))
     assert "simulation 补充要求" not in prompt
     assert "自包含 interactive widget" in prompt
+
+
+def test_system_prompt_requires_plan_entity_and_interaction_traceability() -> None:
+    prompt = system_prompt_for_interactive_type(_plan(representation_type="geometric_recomposition"))
+
+    assert "计划语义→可见实体→动画阶段→交互动作" in prompt
+    assert "不能用无语义的通用碎片替换" in prompt
+    assert "禁止用自动播放按钮冒充拖动" in prompt

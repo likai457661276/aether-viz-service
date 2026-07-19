@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from aetherviz_service.aetherviz.ir.recomposition.routing import assess as assess_recomposition
 from aetherviz_service.aetherviz.ir.router import service
 from aetherviz_service.aetherviz.workflow.plan_contract import normalize_plan
 from aetherviz_service.config import settings
@@ -12,6 +13,41 @@ def test_plan_aware_routing_fixes_known_false_negative_and_false_positive(monkey
 
     assert linked.selected_backend == "linked_coordinate_scene"
     assert direct.selected_backend == "coordinate_graph_scene"
+
+
+def test_recomposition_with_manual_piece_interactions_routes_to_direct_html(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "aetherviz_ir_router_enabled", False)
+    plan = {
+        "knowledge_profile": {"representation_type": "geometric_recomposition"},
+        "representation_spec": {
+            "views": [
+                {"id": "geometry", "kind": "geometric_scene"},
+                {"id": "values", "kind": "symbolic_panel"},
+            ],
+            "correspondences": [{"type": "decompose_recompose"}],
+            "required_invariants": ["piece_congruence", "area_preserved"],
+            "interaction_requirements": ["drag", "preset", "reveal"],
+        },
+        "recomposition_spec": {
+            "proof_constraints": {
+                "stage_requirements": [
+                    {"id": "source"},
+                    {"id": "split"},
+                    {"id": "target"},
+                ],
+                "target_assembly": [{"id": "assembly", "type": "connected"}],
+            }
+        },
+    }
+
+    assessment = assess_recomposition(plan)
+    route = service.resolve_generation_route(plan)
+
+    assert assessment.eligible is False
+    assert "supported_interactions" not in assessment.matched_capabilities
+    assert any("超出重排播放运行时能力" in reason for reason in assessment.exclusion_reasons)
+    assert route.selected_backend is None
+    assert "使用直接 HTML" in route.reasons[0]
 
 
 def test_router_uses_llm_only_for_prior_conflict_and_accepts_registered_candidate(monkeypatch) -> None:

@@ -15,6 +15,9 @@ KATEX_CSS_CDN, KATEX_JS_CDN = get_katex_cdn_urls()
 WIDGET_CORE_PROMPT = """互动 widget 核心契约：
 - 生成物必须是一个自包含 interactive widget，不是 PPT 截图、静态海报或普通选择题页面。
 - 生成逻辑必须以 scene_outline、widget_outline、interactive_spec 和 design_brief 为唯一蓝图；不得退化成通用模板动画。
+- 生成前建立“计划语义→可见实体→动画阶段→交互动作”的逐项映射：design_brief.stage_objects 与 discipline_spec.entities 中承担教学关系的核心对象必须拥有稳定 SVG/DOM id，并在 teaching_flow 对应阶段真实出现、变化或高亮。证明用拼片只能补充核心学科对象，不能用无语义的通用碎片替换计划明确要求的三角形、正方形、曲线、坐标轴或标签。
+- teaching_flow 每一步都必须映射到可观察画面状态和同步 caption；渐进演示优先按“核心对象建立→关系对象展开→数值/公式对应→结论强调”组织。同一学科实体跨阶段保持身份和位置关系连续，不得每幕换成无关联图形。
+- representation_spec.interaction_requirements 中的交互必须真实实现：声明 drag 时提供对应对象的 pointer 拖动与可验证反馈，声明 preset 时输出可操作预设控件并复用统一状态更新路径，声明 reveal/trace 时提供对应的渐进揭示或轨迹。禁止用自动播放按钮冒充拖动、预设或轨迹能力。
 - 必须嵌入 `<script type="application/json" id="widget-config">...</script>`；JSON.type 必须等于 simulation、diagram 或 game，并与 plan.interactive_type 一致。widget-config 内容必须是严格的纯 JSON 格式，禁止包含任何 JS 注释（如 // 或 /* */）和尾随逗号。
 - widget-config 必须承载本页核心互动配置：simulation 写 concept/description/variables/presets；diagram 写 nodes/edges/revealOrder；game 写 gameType/description/gameConfig/successCondition/feedbackRules。
 - 必须实现 `window.addEventListener("message", ...)`，至少处理 SET_WIDGET_STATE、HIGHLIGHT_ELEMENT、ANNOTATE_ELEMENT、REVEAL_ELEMENT 四类 iframe-local widget action。
