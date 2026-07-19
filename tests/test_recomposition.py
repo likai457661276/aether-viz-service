@@ -110,6 +110,78 @@ def test_normalized_plan_overrides_stale_profile_and_classifies_state_variables(
     ]
 
 
+def test_fractional_length_controls_cannot_be_requested_as_topology_variables() -> None:
+    plan = normalize_plan(
+        {
+            "knowledge_profile": {"representation_type": "geometric_recomposition"},
+            "interactive_spec": {
+                "variables": [
+                    {"name": "a", "label": "长度 a", "min": 2, "max": 8, "default": 3, "step": 0.5},
+                    {"name": "b", "label": "长度 b", "min": 2, "max": 15, "default": 4, "step": 0.5},
+                ]
+            },
+            "recomposition_spec": {
+                "topology_variables": ["a", "b"],
+                "geometry_variables": [],
+            },
+        },
+        "通用几何面积拼图验证",
+    )
+
+    assert plan["recomposition_spec"]["topology_variables"] == []
+    assert plan["recomposition_spec"]["geometry_variables"] == ["a", "b"]
+
+
+def test_deterministic_fallback_uses_a_readable_visual_footprint() -> None:
+    plan = normalize_plan(
+        {
+            "knowledge_profile": {"representation_type": "geometric_recomposition"},
+            "interactive_spec": {
+                "variables": [
+                    {"name": "a", "label": "长度 a", "min": 2, "max": 8, "default": 3, "step": 0.5},
+                    {"name": "b", "label": "长度 b", "min": 2, "max": 15, "default": 4, "step": 0.5},
+                ]
+            },
+            "recomposition_spec": {
+                "topology_variables": ["a", "b"],
+                "proof_constraints": {
+                    "target_assembly": [
+                        {
+                            "id": "target-rectangle",
+                            "type": "approximate_rectangle",
+                            "max_components": 1,
+                            "max_overlap_ratio": 0.1,
+                            "min_rectangularity": 0.62,
+                        }
+                    ]
+                },
+            },
+        },
+        "通用几何面积拼图验证",
+    )
+
+    report = rank_geometry_ir_candidates([build_deterministic_geometry_ir(plan)], plan)
+
+    assert report["ok"]
+    safety = report["candidates"][0]["details"]["motion_safety"]
+    assert safety["footprint_score"] >= 0.55
+    assert "safety:undersized_visual_footprint" not in report["candidates"][0]["hard_failures"]
+
+
+def test_candidate_ranking_rejects_an_undersized_visible_union() -> None:
+    plan = normalize_plan({}, "组合图形面积切割重排证明")
+    candidate = build_deterministic_geometry_ir(plan)
+    candidate["pieces"][0]["attrs"]["points"] = "0,0 12,0 0,12"
+    candidate["pieces"][0]["target"]["x"] = 420
+    candidate["pieces"][0]["target"]["y"] = 260
+    candidate["pieces"][0]["keyframes"][-1] = {"at": 1, **candidate["pieces"][0]["target"]}
+
+    report = rank_geometry_ir_candidates([candidate], plan)
+
+    assert not report["ok"]
+    assert "safety:undersized_visual_footprint" in report["candidates"][0]["hard_failures"]
+
+
 def test_normalized_recomposition_plan_always_preserves_piece_shape() -> None:
     plan = normalize_plan(
         {"recomposition_spec": {"proof_constraints": {"measure_invariants": ["area_preserved", "length_preserved"]}}},
@@ -1306,7 +1378,7 @@ def _interlocking_sector_assembly_ir() -> dict[str, object]:
 def _rectangular_assembly_ir(plan: dict[str, object]) -> dict[str, object]:
     geometry_ir = build_deterministic_geometry_ir(plan)
     source = {
-        "x": {"op": "add", "args": [180, {"op": "mul", "args": [{"local": "i"}, 55]}]},
+        "x": {"op": "add", "args": [180, {"op": "mul", "args": [{"local": "i"}, 110]}]},
         "y": 120,
         "rotation": 0,
         "scale": 1,
@@ -1315,13 +1387,13 @@ def _rectangular_assembly_ir(plan: dict[str, object]) -> dict[str, object]:
     target = {
         "x": {
             "op": "add",
-            "args": [420, {"op": "mul", "args": [{"op": "mod", "args": [{"local": "i"}, 2]}, 40]}],
+            "args": [420, {"op": "mul", "args": [{"op": "mod", "args": [{"local": "i"}, 2]}, 80]}],
         },
         "y": {
             "op": "add",
             "args": [
                 260,
-                {"op": "mul", "args": [{"op": "floor", "args": [{"op": "div", "args": [{"local": "i"}, 2]}]}, 30]},
+                {"op": "mul", "args": [{"op": "floor", "args": [{"op": "div", "args": [{"local": "i"}, 2]}]}, 60]},
             ],
         },
         "rotation": 0,
@@ -1334,7 +1406,7 @@ def _rectangular_assembly_ir(plan: dict[str, object]) -> dict[str, object]:
             "repeat": {"count": 4, "index": "i"},
             "id": {"op": "concat", "args": ["tile-", {"local": "i"}]},
             "tag": "rect",
-            "attrs": {"x": 0, "y": 0, "width": 40, "height": 30, "fill": "#34d399"},
+            "attrs": {"x": 0, "y": 0, "width": 80, "height": 60, "fill": "#34d399"},
             "source": source,
             "target": target,
             "keyframes": [

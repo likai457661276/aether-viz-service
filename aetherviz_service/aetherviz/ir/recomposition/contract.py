@@ -480,12 +480,30 @@ def build_deterministic_geometry_ir(plan: dict[str, Any]) -> dict[str, Any]:
         else 1
     )
     source = {
-        "x": {"op": "add", "args": [245, {"op": "mul", "args": [{"op": "mod", "args": [{"local": "i"}, 5]}, 72]}]},
+        "x": {
+            "op": "add",
+            "args": [
+                180,
+                {
+                    "op": "mul",
+                    "args": [
+                        {"op": "mod", "args": [{"local": "i"}, 5]},
+                        {"op": "mul", "args": [{"var": "tileSize"}, 1.18]},
+                    ],
+                },
+            ],
+        },
         "y": {
             "op": "add",
             "args": [
-                145,
-                {"op": "mul", "args": [{"op": "floor", "args": [{"op": "div", "args": [{"local": "i"}, 5]}]}, 76]},
+                90,
+                {
+                    "op": "mul",
+                    "args": [
+                        {"op": "floor", "args": [{"op": "div", "args": [{"local": "i"}, 5]}]},
+                        {"op": "mul", "args": [{"var": "tileSize"}, 1.18]},
+                    ],
+                },
             ],
         },
         "rotation": 0,
@@ -496,7 +514,7 @@ def build_deterministic_geometry_ir(plan: dict[str, Any]) -> dict[str, Any]:
         "x": {
             "op": "add",
             "args": [
-                180,
+                {"var": "targetOriginX"},
                 {
                     "op": "mul",
                     "args": [
@@ -515,7 +533,7 @@ def build_deterministic_geometry_ir(plan: dict[str, Any]) -> dict[str, Any]:
         "y": {
             "op": "add",
             "args": [
-                390,
+                330,
                 {
                     "op": "mul",
                     "args": [
@@ -565,7 +583,35 @@ def build_deterministic_geometry_ir(plan: dict[str, Any]) -> dict[str, Any]:
         "definitions": {
             "count": count_expr,
             "shapeScale": scale_expr,
-            "tileSize": {"op": "mul", "args": [54, {"var": "shapeScale"}]},
+            "tileBase": {
+                "op": "clamp",
+                "args": [
+                    {
+                        "op": "div",
+                        "args": [
+                            520,
+                            {
+                                "op": "add",
+                                "args": [{"op": "floor", "args": [{"op": "div", "args": [{"var": "count"}, 2]}]}, 1],
+                            },
+                        ],
+                    },
+                    44,
+                    96,
+                ],
+            },
+            "tileSize": {"op": "mul", "args": [{"var": "tileBase"}, {"var": "shapeScale"}]},
+            "targetWidth": {
+                "op": "mul",
+                "args": [
+                    {
+                        "op": "add",
+                        "args": [{"op": "floor", "args": [{"op": "div", "args": [{"var": "count"}, 2]}]}, 1],
+                    },
+                    {"var": "tileSize"},
+                ],
+            },
+            "targetOriginX": {"op": "sub", "args": [480, {"op": "div", "args": [{"var": "targetWidth"}, 2]}]},
         },
         "pieces": [
             {
@@ -573,7 +619,10 @@ def build_deterministic_geometry_ir(plan: dict[str, Any]) -> dict[str, Any]:
                 "id": {"op": "concat", "args": ["piece-", {"local": "i"}]},
                 "tag": "polygon",
                 "attrs": {
-                    "points": "0,0 54,0 0,54",
+                    "points": {
+                        "op": "points",
+                        "args": [[0, 0], [{"var": "tileBase"}, 0], [0, {"var": "tileBase"}]],
+                    },
                     "fill": {
                         "op": "if",
                         "args": [

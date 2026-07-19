@@ -154,6 +154,22 @@ def evaluate_target_assembly(ir: dict[str, Any], plan: dict[str, Any]) -> dict[s
     }
 
 
+def measure_scene_footprints(ir: dict[str, Any], plan: dict[str, Any]) -> dict[str, Any]:
+    """Measure source/target visible unions without requiring an assembly constraint."""
+    endpoints: dict[str, list[dict[str, Any]]] = {"source": [], "target": []}
+    warnings: list[dict[str, Any]] = []
+    for state_label, state in sample_geometry_states(plan):
+        pieces = expand_geometry_ir(ir, state)
+        for endpoint in endpoints:
+            try:
+                metrics = _assembly_metrics(pieces, stage=endpoint)
+            except (AssemblyGeometryUnavailable, KeyError, TypeError, ValueError) as exc:
+                warnings.append(_issue("scene_footprint_unavailable", str(exc), state=state_label, endpoint=endpoint))
+                continue
+            endpoints[endpoint].append({"state": state_label, **metrics})
+    return {"endpoints": endpoints, "warnings": warnings}
+
+
 def translate_target_assembly_into_canvas(
     ir: object,
     assembly_report: dict[str, Any],

@@ -318,8 +318,17 @@ def _normalize_recomposition_spec(raw_spec: object, interactive_spec: dict[str, 
         for name in variable_names
         if any(cue in name.lower() for cue in ("count", "piece", "segment", "sector", "slice", "part", "number"))
     ]
+    variables_by_name = {_safe_str(variable.get("name")): variable for variable in variables}
     requested_topology = _string_list(raw.get("topology_variables"), [], max_items=3, max_len=40)
-    topology = [name for name in requested_topology if name in variable_names] or inferred_topology
+    topology = [
+        name
+        for name in requested_topology
+        if name in variable_names and _is_discrete_topology_variable(variables_by_name[name])
+    ] or [
+        name
+        for name in inferred_topology
+        if _is_discrete_topology_variable(variables_by_name[name])
+    ]
     requested_geometry = _string_list(raw.get("geometry_variables"), [], max_items=3, max_len=40)
     geometry = [name for name in requested_geometry if name in variable_names and name not in topology]
     if not geometry:
@@ -362,6 +371,22 @@ def _normalize_recomposition_spec(raw_spec: object, interactive_spec: dict[str, 
             "stage_requirements": stage_requirements,
         },
     }
+
+
+def _is_discrete_topology_variable(variable: dict[str, Any]) -> bool:
+    """Only integer-stepped bounded controls may change expanded piece identity/count."""
+    values = [variable.get(key) for key in ("min", "max", "default", "step")]
+    try:
+        minimum, maximum, default, step = (float(value) for value in values)
+    except (TypeError, ValueError):
+        return False
+    return (
+        step >= 1
+        and step.is_integer()
+        and minimum.is_integer()
+        and maximum.is_integer()
+        and default.is_integer()
+    )
 
 
 def _normalize_stage_requirements(value: object) -> list[dict[str, Any]]:

@@ -62,6 +62,7 @@ frames 必须与 stage_requirements 一一对应，使用 3~5 个静态对象 {{
 必须逐项落实 recomposition_spec.proof_constraints：保持 measure_invariants，frames 按 stage_id 和 at 精确覆盖 stage_requirements，中间几何阶段满足 min_piece_ratio，最后一帧用教学文本解释 target_relations；target_relations 由服务端对 minimum/default/maximum 状态执行数值验证，其中引用的 piece_id 必须与展开后图元 id 一致。面积守恒时所有阶段禁止通过 scale 改变图元面积。
 progress 不是 state 变量，IR 中严禁引用 progress；source/target 是两个完整端点，服务端负责二者之间的插值。计划变量必须写成 state 引用，只有 definitions 名称才能写成 var 引用。
 所有参数在计划给出的 default/min/max 都必须产生正尺寸、有限属性、唯一 id 和可见变换。第一版只做 transform 驱动二维 SVG，不做 path morph。
+source/target 在 minimum/default/maximum 状态的可见图元并集都必须具备课堂可读尺度：长边至少 128px；短边小于 64px 时包围盒面积至少占画布 1.5%。默认主体优先占 160~420px，且在画布中部均衡布局，禁止仅保证变换锚点入界却让实际图形缩在角落。
 优先控制在 8 个 definitions、8 个图元模板和 1 个 repeat 内；只保留证明所需的实际几何块，不生成标签背景、占位 g、虚线辅助图或装饰图元。复杂重复结构必须用 repeat 表达，不展开大段近似对象。输出前检查 JSON 引号、逗号和括号完整闭合。
 通用语法示例：{{"version":"{GEOMETRY_IR_VERSION}","definitions":[{{"name":"size","value":{{"op":"mul","args":[{{"state":"scale"}},30]}}}}],"pieces":[{{"repeat":null,"id":"piece-0","tag":"polygon","attrs":[{{"name":"points","value":{{"op":"points","args":[[0,0],[{{"var":"size"}},0],[0,{{"var":"size"}}]]}}}},{{"name":"fill","value":"#34d399"}}],"source":{{"x":120,"y":160,"rotation":0,"scale":1,"opacity":1}},"target":{{"x":420,"y":260,"rotation":90,"scale":1,"opacity":1}},"keyframes":[{{"at":0,"x":120,"y":160,"rotation":0,"scale":1,"opacity":1}},{{"at":0.5,"x":250,"y":90,"rotation":35,"scale":1,"opacity":1}},{{"at":1,"x":420,"y":260,"rotation":90,"scale":1,"opacity":1}}]}}],"frames":[{{"stage_id":"source","at":0,"caption":"观察源状态","formula":"关系保持","step":0}},{{"stage_id":"transform-1","at":0.5,"caption":"观察分离后的中间状态","formula":"图元集合不变","step":1}},{{"stage_id":"target","at":1,"caption":"解释目标状态","formula":"度量关系成立","step":2}}]}}。实际 stage_id/at 必须复制计划值；只可引用用户消息列出的 allowed_state_variables；若其中没有 scale，不得照抄示例。
 每个 IR 不超过 {GEOMETRY_IR_MAX_CHARS} 字符。不得针对圆、梯形或其他单个知识点调用专用模板；只能组合上述通用图元与表达式。"""
@@ -410,6 +411,7 @@ def _trace_ranking_summary(ranking: dict[str, Any]) -> dict[str, Any]:
                 "components": item.get("components", {}),
                 "assembly_states": item.get("details", {}).get("target_assembly", {}).get("states", []),
                 "source_assembly_states": item.get("details", {}).get("target_assembly", {}).get("source_states", []),
+                "visual_footprints": item.get("details", {}).get("visual_footprints", {}).get("endpoints", {}),
                 "unavailable_relations": [
                     warning
                     for warning in item.get("details", {}).get("mathematics", {}).get("warnings", [])
@@ -442,6 +444,7 @@ def _repair_scene_source(
         "frames 必须复制计划 stage_requirements 的 id/at；每个中间阶段为足够比例图元补充同 at 的非线性几何 keyframe。"
         "同一 repeat 的全等拼片使用统一局部几何，只通过 source/target.rotation 表达各阶段朝向；"
         "若报告含目标拼合失败，调整目标世界坐标使拼片连通、少重叠并达到声明的整体形状阈值。"
+        "若报告含 undersized_visual_footprint，按实际图元世界坐标整体放大并重新居中；source/target 在所有参数采样状态都必须保持可读，不能只移动锚点。"
         "若使用 sector_path 逼近矩形，必须采用系统说明中的固定局部扇形与交错咬合坐标，不得继续沿用按索引旋转过的局部 path、arcLen 间距或分离的上下行。"
         "将结果精简到最多 8 个 definitions、8 个图元模板和 1 个 repeat，并检查 JSON 完整闭合。\n"
         + json.dumps(

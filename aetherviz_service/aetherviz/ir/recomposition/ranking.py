@@ -7,7 +7,7 @@ import json
 import math
 from typing import Any
 
-from aetherviz_service.aetherviz.ir.recomposition.assembly import evaluate_target_assembly
+from aetherviz_service.aetherviz.ir.recomposition.assembly import evaluate_target_assembly, measure_scene_footprints
 from aetherviz_service.aetherviz.ir.recomposition.constants import CANVAS_HEIGHT, CANVAS_WIDTH
 from aetherviz_service.aetherviz.ir.recomposition.contract import (
     expand_geometry_ir,
@@ -109,7 +109,18 @@ def _evaluate_candidate(candidate: object, plan: dict[str, Any], index: int, ori
     math_report = evaluate_mathematical_invariants(ir, plan)
     assembly_report = evaluate_target_assembly(ir, plan)
     semantic_report = evaluate_recomposition_semantics(ir, plan)
-    safety_report = _evaluate_motion_safety(ir, plan)
+    footprint_report = (
+        {
+            "endpoints": {
+                "source": assembly_report.get("source_states", []),
+                "target": assembly_report.get("states", []),
+            },
+            "warnings": assembly_report.get("warnings", []),
+        }
+        if assembly_report.get("source_states") or assembly_report.get("states")
+        else measure_scene_footprints(ir, plan)
+    )
+    safety_report = _evaluate_motion_safety(ir, plan, footprint_report)
     stage_errors = [
         error
         for error in semantic_report.get("errors", [])
@@ -149,6 +160,7 @@ def _evaluate_candidate(candidate: object, plan: dict[str, Any], index: int, ori
             "transform_text": text_details,
             "piece_count": piece_details,
             "motion_safety": safety_report,
+            "visual_footprints": footprint_report,
         },
     )
 
@@ -174,11 +186,43 @@ def _assembly_score(report: dict[str, Any]) -> float:
     return sum(scores) / len(scores)
 
 
-def _evaluate_motion_safety(ir: dict[str, Any], plan: dict[str, Any]) -> dict[str, Any]:
+def _evaluate_motion_safety(
+    ir: dict[str, Any],
+    plan: dict[str, Any],
+    footprint_report: dict[str, Any],
+) -> dict[str, Any]:
     errors: list[dict[str, Any]] = []
     samples = 0
     safe_bounds = 0
     reasonable_motion = 0
+    footprint_scores: list[float] = []
+    for endpoint, states in footprint_report.get("endpoints", {}).items():
+        for metrics in states:
+            bbox = metrics.get("bbox", [])
+            if not isinstance(bbox, list) or len(bbox) != 4:
+                continue
+            width = max(0.0, _finite(bbox[2], 0) - _finite(bbox[0], 0))
+            height = max(0.0, _finite(bbox[3], 0) - _finite(bbox[1], 0))
+            long_extent = max(width, height)
+            short_extent = min(width, height)
+            area_ratio = width * height / (CANVAS_WIDTH * CANVAS_HEIGHT)
+            footprint_scores.append(
+                1.0
+                if 160 <= long_extent <= 760 and short_extent >= 80 and 0.025 <= area_ratio <= 0.65
+                else 0.55
+                if long_extent >= 128 and (short_extent >= 64 or area_ratio >= 0.015)
+                else 0.0
+            )
+            if long_extent < 128 or (short_extent < 64 and area_ratio < 0.015):
+                errors.append(
+                    {
+                        "type": "undersized_visual_footprint",
+                        "state": metrics.get("state"),
+                        "endpoint": endpoint,
+                        "bbox": bbox,
+                        "area_ratio": round(area_ratio, 6),
+                    }
+                )
     for state_label, state in sample_geometry_states(plan):
         pieces = expand_geometry_ir(ir, state)
         for piece in pieces:
@@ -217,8 +261,12 @@ def _evaluate_motion_safety(ir: dict[str, Any], plan: dict[str, Any]) -> dict[st
         "ok": not unique_errors,
         "errors": unique_errors,
         "sample_count": samples,
-        "bounds_score": safe_bounds / samples if samples else 0.0,
+        "bounds_score": (
+            (safe_bounds / samples if samples else 0.0) * 0.5
+            + (sum(footprint_scores) / len(footprint_scores) if footprint_scores else 0.5) * 0.5
+        ),
         "motion_score": reasonable_motion / piece_samples if piece_samples else 0.0,
+        "footprint_score": sum(footprint_scores) / len(footprint_scores) if footprint_scores else None,
     }
 
 
