@@ -7,7 +7,7 @@ services:
       UV_PROJECT_ENVIRONMENT: /opt/venv
       UV_LINK_MODE: copy
     ports:
-      - "10095:10095"
+      - "10099:10099"
     env_file:
       - .env
     restart: unless-stopped
