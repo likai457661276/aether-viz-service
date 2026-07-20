@@ -157,7 +157,7 @@ LANGSMITH_PROJECT="aetherviz-ir-html"
 本地直接启动：
 
 ```bash
-uv run uvicorn aetherviz_service.main:app --port 10099
+uv run uvicorn aetherviz_service.main:app --port 10091
 ```
 
 Docker 开发环境：
@@ -201,7 +201,7 @@ pnpm dev:local:proxy
 pnpm build
 ```
 
-其中 `pnpm dev:local` 通过 `VITE_API_BASE_URL=http://localhost:10099` 直连本后端，`pnpm dev:local:proxy` 通过 Vite proxy 指向本后端。
+其中 `pnpm dev:local` 通过 `VITE_API_BASE_URL=http://localhost:10091` 直连本后端，`pnpm dev:local:proxy` 通过 Vite proxy 指向本后端。
 
 ## API
 
@@ -502,7 +502,7 @@ uv run ruff check .
 curl 示例：
 
 ```bash
-curl -N -X POST http://localhost:10099/bingo-ai/generate-aetherviz-spec \
+curl -N -X POST http://localhost:10091/bingo-ai/generate-aetherviz-spec \
   -H "Content-Type: application/json" \
   -d '{"topic":"牛顿第二定律"}'
 ```

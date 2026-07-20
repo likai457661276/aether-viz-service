@@ -18,6 +18,6 @@ COPY aetherviz_service ./aetherviz_service
 
 RUN uv sync --frozen --no-dev
 
-EXPOSE 10099
+EXPOSE 10091
 
-CMD ["/opt/venv/bin/uvicorn", "aetherviz_service.main:app", "--host", "0.0.0.0", "--port", "10099"]
+CMD ["/opt/venv/bin/uvicorn", "aetherviz_service.main:app", "--host", "0.0.0.0", "--port", "10091"]
