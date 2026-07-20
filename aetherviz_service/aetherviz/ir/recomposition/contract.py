@@ -126,6 +126,81 @@ def geometry_ir_response_schema() -> dict[str, Any]:
         "required": ["at", *sorted(_TRANSFORM_KEYS)],
         "additionalProperties": False,
     }
+    edge_reference_properties = {
+        "piece_id": {"type": "string"},
+        "edge": {"type": "integer", "minimum": 0, "maximum": 63},
+        "to_piece_id": {"type": "string"},
+        "to_edge": {"type": "integer", "minimum": 0, "maximum": 63},
+    }
+    construction_constraint = {
+        "anyOf": [
+            {
+                "type": "object",
+                "properties": {
+                    "type": {"type": "string", "enum": ["attach_edge"]},
+                    **edge_reference_properties,
+                    "reverse": {"type": "boolean"},
+                },
+                "required": ["type", *edge_reference_properties, "reverse"],
+                "additionalProperties": False,
+            },
+            {
+                "type": "object",
+                "properties": {
+                    "type": {"type": "string", "enum": ["coincident_vertex"]},
+                    "piece_id": {"type": "string"},
+                    "vertex": {"type": "integer", "minimum": 0, "maximum": 63},
+                    "to_piece_id": {"type": "string"},
+                    "to_vertex": {"type": "integer", "minimum": 0, "maximum": 63},
+                },
+                "required": ["type", "piece_id", "vertex", "to_piece_id", "to_vertex"],
+                "additionalProperties": False,
+            },
+            {
+                "type": "object",
+                "properties": {
+                    "type": {"type": "string", "enum": ["parallel_edge", "perpendicular_edge"]},
+                    **edge_reference_properties,
+                },
+                "required": ["type", *edge_reference_properties],
+                "additionalProperties": False,
+            },
+            {
+                "type": "object",
+                "properties": {
+                    "type": {"type": "string", "enum": ["rigid_transform"]},
+                    "piece_id": {"type": "string"},
+                    "transform": {"$ref": "#/$defs/transform"},
+                },
+                "required": ["type", "piece_id", "transform"],
+                "additionalProperties": False,
+            },
+            {
+                "type": "object",
+                "properties": {
+                    "type": {"type": "string", "enum": ["inside_target"]},
+                    "piece_id": {"type": "string"},
+                },
+                "required": ["type", "piece_id"],
+                "additionalProperties": False,
+            },
+            {
+                "type": "object",
+                "properties": {
+                    "type": {"type": "string", "enum": ["cover_target"]},
+                    "piece_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "minItems": 1,
+                        "maxItems": 16,
+                    },
+                    "min_coverage_ratio": {"type": "number", "minimum": 0.5, "maximum": 1},
+                },
+                "required": ["type", "piece_ids", "min_coverage_ratio"],
+                "additionalProperties": False,
+            },
+        ]
+    }
     return {
         "type": "object",
         "properties": {
@@ -204,10 +279,47 @@ def geometry_ir_response_schema() -> dict[str, Any]:
                 "minItems": 3,
                 "maxItems": 5,
             },
+            "construction": {
+                "anyOf": [
+                    {"type": "null"},
+                    {
+                        "type": "object",
+                        "properties": {
+                            "target_boundary": {
+                                "anyOf": [
+                                    {"type": "null"},
+                                    {
+                                        "type": "object",
+                                        "properties": {
+                                            name: {"$ref": "#/$defs/expression"}
+                                            for name in ("x", "y", "width", "height")
+                                        },
+                                        "required": ["x", "y", "width", "height"],
+                                        "additionalProperties": False,
+                                    },
+                                ]
+                            },
+                            "constraints": {
+                                "type": "array",
+                                "items": {"$ref": "#/$defs/construction_constraint"},
+                                "minItems": 1,
+                                "maxItems": 24,
+                            }
+                        },
+                        "required": ["target_boundary", "constraints"],
+                        "additionalProperties": False,
+                    },
+                ]
+            },
         },
-        "required": ["version", "definitions", "pieces", "frames"],
+        "required": ["version", "definitions", "pieces", "frames", "construction"],
         "additionalProperties": False,
-        "$defs": {"expression": expression, "transform": transform, "keyframe": keyframe},
+        "$defs": {
+            "expression": expression,
+            "transform": transform,
+            "keyframe": keyframe,
+            "construction_constraint": construction_constraint,
+        },
     }
 
 
@@ -364,6 +476,13 @@ def validate_geometry_ir(ir: object, plan: dict[str, Any]) -> dict[str, Any]:
         errors.append(_issue("geometry_ir_too_long", "几何 IR 超过长度上限", chars=len(serialized)))
     if ir.get("version") != GEOMETRY_IR_VERSION:
         errors.append(_issue("unsupported_geometry_ir_version", "几何 IR 版本不受支持"))
+    if "construction" in ir:
+        errors.append(
+            _issue(
+                "unmaterialized_target_construction",
+                "construction 约束必须先由服务端求解为 target transform",
+            )
+        )
 
     definitions = ir.get("definitions", {})
     if not isinstance(definitions, dict) or len(definitions) > 32:

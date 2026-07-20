@@ -17,19 +17,28 @@ from aetherviz_service.aetherviz.generate.workflow import run_generate_workflow
 from aetherviz_service.aetherviz.ir.recomposition.assembly import (
     analyze_footprint_scale,
     evaluate_target_assembly,
+    piece_local_polygon,
     scale_scene_footprints_into_canvas,
     translate_target_assembly_into_canvas,
+)
+from aetherviz_service.aetherviz.ir.recomposition.construction import (
+    materialize_target_construction,
 )
 from aetherviz_service.aetherviz.ir.recomposition.contract import (
     GEOMETRY_IR_VERSION,
     build_deterministic_geometry_ir,
     compile_geometry_ir,
+    expand_geometry_ir,
     geometry_ir_candidates_response_schema,
     geometry_ir_response_schema,
     normalize_geometry_ir,
     parse_geometry_ir,
     parse_geometry_ir_candidates,
+    sample_geometry_states,
     validate_geometry_ir,
+)
+from aetherviz_service.aetherviz.ir.recomposition.feasibility import (
+    evaluate_recomposition_plan_feasibility,
 )
 from aetherviz_service.aetherviz.ir.recomposition.math import (
     evaluate_mathematical_invariants,
@@ -890,6 +899,10 @@ def test_geometry_ir_normalizes_strict_transport_and_expression_shorthand() -> N
     schema = geometry_ir_response_schema()
     assert schema["additionalProperties"] is False
     assert schema["properties"]["definitions"]["type"] == "array"
+    construction_object = schema["properties"]["construction"]["anyOf"][1]
+    assert construction_object["properties"]["constraints"]["maxItems"] == 24
+    assert "construction" in schema["required"]
+    assert len(schema["$defs"]["construction_constraint"]["anyOf"]) == 6
     operator_variants = [
         item
         for item in schema["$defs"]["expression"]["anyOf"]
@@ -1081,6 +1094,263 @@ def test_scene_generation_uses_waypoint_completion_before_model_repair(
     assert ranking["ok"]
     assert all(item["attempted"] for item in ranking["waypoint_completion"])
     assert ranking["initial_ranking"]["ok"] is False
+
+
+def test_composite_completion_repairs_waypoint_with_unrelated_assembly_failure() -> None:
+    from aetherviz_service.aetherviz.ir.recomposition import agent as recomposition_agent
+
+    plan = normalize_plan(
+        {
+            "recomposition_spec": {
+                "proof_constraints": {
+                    "target_assembly": [
+                        {
+                            "id": "target-rectangle",
+                            "type": "approximate_rectangle",
+                            "max_components": 1,
+                            "max_overlap_ratio": 0.1,
+                            "min_rectangularity": 0.8,
+                        }
+                    ]
+                }
+            }
+        },
+        "组合图形切割重排证明",
+    )
+    candidate = _rectangular_assembly_ir(plan)
+    piece = candidate["pieces"][0]
+    piece["target"]["x"] = {
+        "op": "add",
+        "args": [420, {"op": "mul", "args": [{"local": "i"}, 100]}],
+    }
+    piece["keyframes"][-1]["x"] = deepcopy(piece["target"]["x"])
+    middle = piece["keyframes"][1]
+    middle.update(
+        {
+            name: _test_lerp(piece["source"][name], piece["target"][name], middle["at"])
+            for name in ("x", "y", "rotation", "scale", "opacity")
+        }
+    )
+    initial = rank_geometry_ir_candidates([candidate], plan)
+    assert set(initial["candidates"][0]["hard_failures"]) == {
+        "assembly:target_assembly_failed",
+        "teaching:missing_intermediate_geometry_stage",
+    }
+
+    completed, completed_candidates = recomposition_agent._complete_candidates_deterministically(
+        [candidate], plan, initial
+    )
+
+    assert not completed["ok"]
+    assert completed["candidates"][0]["hard_failures"] == ["assembly:target_assembly_failed"]
+    assert completed["strategy"] == "deterministic_waypoint_completion"
+    waypoint_report = completed["waypoint_completion"][0]
+    assert waypoint_report["accepted"] is True
+    assert waypoint_report["introduced_hard_failures"] == []
+    assert waypoint_report["removed_hard_failures"] == ["teaching:missing_intermediate_geometry_stage"]
+    assert completed_candidates[0]["pieces"][0]["source"] == candidate["pieces"][0]["source"]
+    assert completed_candidates[0]["pieces"][0]["target"] == candidate["pieces"][0]["target"]
+
+    repeated, repeated_candidates = recomposition_agent._complete_candidates_deterministically(
+        completed_candidates, plan, completed
+    )
+    assert repeated_candidates == completed_candidates
+    assert repeated["candidates"][0]["fingerprint"] == completed["candidates"][0]["fingerprint"]
+    assert not any(item["accepted"] for item in repeated["completion_history"])
+
+
+def test_target_construction_materializes_exact_edge_attachment() -> None:
+    plan = normalize_plan(
+        {
+            "interactive_spec": {
+                "variables": [
+                    {"name": "size", "label": "边长", "min": 80, "max": 140, "default": 100, "step": 10}
+                ]
+            },
+            "recomposition_spec": {
+                "geometry_variables": ["size"],
+                "proof_constraints": {
+                    "target_assembly": [
+                        {
+                            "id": "target-rectangle",
+                            "type": "approximate_rectangle",
+                            "max_components": 1,
+                            "max_overlap_ratio": 0.1,
+                            "min_rectangularity": 0.9,
+                        }
+                    ]
+                }
+            }
+        },
+        "组合图形切割重排证明",
+    )
+    stages = plan["recomposition_spec"]["proof_constraints"]["stage_requirements"]
+
+    def piece(piece_id: str, source_x: float, target_x: float, rotation: float) -> dict[str, object]:
+        source = {"x": source_x, "y": 150, "rotation": 0, "scale": 1, "opacity": 1}
+        target = {"x": target_x, "y": 200, "rotation": 0, "scale": 1, "opacity": 1}
+        return {
+            "id": piece_id,
+            "tag": "rect",
+            "attrs": {
+                "x": 0,
+                "y": 0,
+                "width": {"state": "size"},
+                "height": 100,
+                "fill": "#34d399",
+            },
+            "source": source,
+            "target": target,
+            "keyframes": [
+                {"at": 0, **source},
+                {
+                    "at": 0.5,
+                    "x": (source_x + 400) / 2,
+                    "y": 90,
+                    "rotation": rotation,
+                    "scale": 1,
+                    "opacity": 1,
+                },
+                {"at": 1, **target},
+            ],
+        }
+
+    geometry_ir = {
+        "version": GEOMETRY_IR_VERSION,
+        "definitions": {},
+        "pieces": [piece("left", 200, 400, 20), piece("right", 400, 50, -20)],
+        "frames": [
+            {
+                "stage_id": stage["id"],
+                "at": stage["at"],
+                "caption": stage["intent"],
+                "formula": "面积保持不变",
+                "step": index,
+            }
+            for index, stage in enumerate(stages)
+        ],
+        "construction": {
+            "target_boundary": {"x": 400, "y": 200, "width": {"state": "size"}, "height": 200},
+            "constraints": [
+                {
+                    "type": "attach_edge",
+                    "piece_id": "right",
+                    "edge": 0,
+                    "to_piece_id": "left",
+                    "to_edge": 2,
+                    "reverse": True,
+                },
+                {"type": "inside_target", "piece_id": "left"},
+                {"type": "inside_target", "piece_id": "right"},
+                {
+                    "type": "cover_target",
+                    "piece_ids": ["left", "right"],
+                    "min_coverage_ratio": 0.98,
+                },
+            ]
+        },
+    }
+    assert "unmaterialized_target_construction" in {
+        item["type"] for item in validate_geometry_ir(geometry_ir, plan)["errors"]
+    }
+
+    materialized = materialize_target_construction(geometry_ir, plan)
+
+    assert materialized["ok"], materialized["errors"]
+    assert materialized["changed"]
+    assert "construction" not in materialized["ir"]
+    right = materialized["ir"]["pieces"][1]
+    assert right["target"]["x"] == pytest.approx(400)
+    assert right["target"]["y"] == pytest.approx(300)
+    for _, state in sample_geometry_states(plan):
+        expanded = {item["id"]: item for item in expand_geometry_ir(materialized["ir"], state)}
+        size = state["size"]
+        assert float(expanded["right"]["target"]["rotation"]) % 360 == pytest.approx(0)
+        left_points = piece_local_polygon(expanded["left"])
+        right_points = piece_local_polygon(expanded["right"])
+        assert left_points[2][0] == pytest.approx(size)
+        assert right_points[1][0] == pytest.approx(size)
+    ranking = rank_geometry_ir_candidates([materialized["ir"]], plan)
+    assert ranking["ok"], ranking["candidates"][0]["hard_failures"]
+    assert ranking["candidates"][0]["details"]["target_assembly"]["ok"]
+
+
+def test_recomposition_preflight_rejects_unbounded_piece_budget_before_model_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from aetherviz_service.aetherviz.ir.recomposition import agent as recomposition_agent
+    from aetherviz_service.aetherviz.ir.recomposition.routing import assess
+
+    plan = normalize_plan(
+        {
+            "interactive_spec": {
+                "variables": [
+                    {
+                        "name": "pieceCount",
+                        "label": "拼片数",
+                        "min": 1,
+                        "max": 120,
+                        "default": 8,
+                        "step": 1,
+                    }
+                ]
+            },
+            "recomposition_spec": {"topology_variables": ["pieceCount"]},
+        },
+        "组合图形切割重排证明",
+    )
+    feasibility = evaluate_recomposition_plan_feasibility(plan)
+    assert not feasibility["ok"]
+    assert feasibility["errors"][0]["type"] == "expanded_piece_budget_exceeded"
+    assessment = assess(plan)
+    assert not assessment.eligible
+    assert any("超过 IR 上限" in reason for reason in assessment.exclusion_reasons)
+
+    invoked = False
+
+    def fail_if_invoked(*_args: object, **_kwargs: object):
+        nonlocal invoked
+        invoked = True
+        yield {"content": ""}
+
+    monkeypatch.setattr(recomposition_agent, "_stream_scene_response", fail_if_invoked)
+    monkeypatch.setattr(recomposition_agent, "has_primary_llm_config", lambda: True)
+    with pytest.raises(HtmlGenerationError) as exc_info:
+        list(recomposition_agent._stream_generate_recomposition_html_impl("topic", plan))
+    assert exc_info.value.code == "unsupported_ir_capability"
+    assert "120" in str(exc_info.value.detail)
+    assert invoked is False
+
+
+def test_model_repair_output_reuses_deterministic_completion_pipeline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from aetherviz_service.aetherviz.ir.recomposition import agent as recomposition_agent
+
+    plan = normalize_plan({}, "组合图形切割重排证明")
+    candidate = build_deterministic_geometry_ir(plan)
+    piece = candidate["pieces"][0]
+    middle = piece["keyframes"][1]
+    middle.update(
+        {
+            name: _test_lerp(piece["source"][name], piece["target"][name], middle["at"])
+            for name in ("x", "y", "rotation", "scale", "opacity")
+        }
+    )
+    assert not rank_geometry_ir_candidates([candidate], plan)["ok"]
+
+    def fake_stream(_messages: object, *, response_schema: dict[str, object] | None = None):
+        yield {"content": json.dumps(candidate, ensure_ascii=False)}
+
+    monkeypatch.setattr(recomposition_agent, "_stream_scene_response", fake_stream)
+    source = recomposition_agent._repair_scene_source(
+        "topic",
+        plan,
+        json.dumps(candidate, ensure_ascii=False),
+        {"errors": [{"type": "missing_intermediate_geometry_stage"}]},
+    )
+
+    assert validate_scene_module(source)["ok"]
 
 
 def test_geometry_ir_normalizer_completes_keyframe_endpoints_from_source_target() -> None:

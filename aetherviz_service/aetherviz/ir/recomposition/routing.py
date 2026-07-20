@@ -4,6 +4,10 @@ from __future__ import annotations
 
 from typing import Any
 
+from aetherviz_service.aetherviz.ir.recomposition.feasibility import (
+    evaluate_recomposition_plan_feasibility,
+    format_recomposition_feasibility_errors,
+)
 from aetherviz_service.aetherviz.ir.router.contracts import IRRouteAssessment, IRRoutingProfile
 
 PROFILE = IRRoutingProfile(
@@ -34,6 +38,7 @@ def assess(plan: dict[str, Any]) -> IRRouteAssessment:
     supported_interactions = {"drag", "preset", "reveal", "trace", "scrub", "play", "pause", "reset"}
     recomposition = plan.get("recomposition_spec") if isinstance(plan.get("recomposition_spec"), dict) else {}
     stages = ((recomposition.get("proof_constraints") or {}).get("stage_requirements") or []) if recomposition else []
+    feasibility = evaluate_recomposition_plan_feasibility(plan)
     checks = {
         "piece_decomposition": "decompose_recompose" in relations or bool(recomposition),
         "piece_transform": len(stages) >= 3,
@@ -64,6 +69,10 @@ def assess(plan: dict[str, Any]) -> IRRouteAssessment:
             (
                 not checks["supported_interactions"],
                 "计划包含几何重排运行时不支持的交互类型",
+            ),
+            (
+                not feasibility["ok"],
+                format_recomposition_feasibility_errors(feasibility),
             ),
         )
         if condition

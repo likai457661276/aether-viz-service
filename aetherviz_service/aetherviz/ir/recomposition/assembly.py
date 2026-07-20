@@ -299,18 +299,18 @@ def translate_target_assembly_into_canvas(
     ir: object,
     assembly_report: dict[str, Any],
 ) -> dict[str, Any]:
-    """Translate a valid target assembly when its sampled union only misses canvas bounds."""
+    """Translate an out-of-bounds target union without changing its assembly geometry."""
     if not isinstance(ir, dict):
         return {"ok": False, "changed": False, "reason": "invalid_geometry_ir", "ir": ir}
     errors = assembly_report.get("errors")
     if not isinstance(errors, list) or not errors:
         return {"ok": False, "changed": False, "reason": "no_assembly_error", "ir": ir}
     error_types = {str(item.get("type") or "") for item in errors if isinstance(item, dict)}
-    if error_types != {"target_assembly_out_of_bounds"}:
+    if "target_assembly_out_of_bounds" not in error_types:
         return {
             "ok": False,
             "changed": False,
-            "reason": "assembly_has_non_bounds_failures",
+            "reason": "target_bounds_failure_absent",
             "ir": ir,
         }
     states = assembly_report.get("states")

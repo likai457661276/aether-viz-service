@@ -27,21 +27,9 @@ def complete_intermediate_waypoints(ir: object, plan: dict[str, Any]) -> dict[st
         for error in before.get("errors", [])
         if error.get("type") == "missing_intermediate_geometry_stage"
     }
-    other_errors = [
-        error for error in before.get("errors", []) if error.get("type") != "missing_intermediate_geometry_stage"
-    ]
-    if other_errors:
-        return {
-            "ok": False,
-            "changed": False,
-            "ir": normalized,
-            "reason": "non_waypoint_semantic_errors",
-            "error_types": sorted({str(error.get("type")) for error in other_errors}),
-            "before": before,
-        }
     if not failed_stage_ids:
         return {
-            "ok": before["ok"],
+            "ok": True,
             "changed": False,
             "ir": normalized,
             "reason": "waypoints_already_sufficient",
@@ -71,11 +59,18 @@ def complete_intermediate_waypoints(ir: object, plan: dict[str, Any]) -> dict[st
         completed_stages.append(stage_id)
 
     after = evaluate_recomposition_semantics(completed, plan)
+    remaining_stage_ids = {
+        str(error.get("name") or "")
+        for error in after.get("errors", [])
+        if error.get("type") == "missing_intermediate_geometry_stage"
+    }
     return {
-        "ok": after["ok"],
+        # This repair owns only intermediate transform evidence. Assembly or
+        # mathematical errors are intentionally left to their own validators.
+        "ok": not remaining_stage_ids,
         "changed": bool(completed_stages),
         "ir": completed,
-        "reason": "waypoints_completed" if after["ok"] else "waypoint_completion_insufficient",
+        "reason": "waypoints_completed" if not remaining_stage_ids else "waypoint_completion_insufficient",
         "completed_stage_ids": completed_stages,
         "before": before,
         "after": after,
