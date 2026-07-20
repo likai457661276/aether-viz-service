@@ -166,11 +166,50 @@ Docker 开发环境：
 docker compose -f docker-compose.dev.yml up app
 ```
 
-生产编排：
+生产编排（首次启动）：
 
 ```bash
 docker compose -f docker-compose.prod.yml up -d app
 ```
+
+### 正式环境更新代码（Docker）
+
+业务代码打进镜像，改代码后必须 **build + recreate**，不能只 `restart` / `up -d`。在项目目录执行：
+
+```bash
+# 常规代码更新
+docker compose -f docker-compose.prod.yml build app
+docker compose -f docker-compose.prod.yml up -d --force-recreate app
+
+# 核对是否起来
+docker logs "$(docker compose -f docker-compose.prod.yml ps -q app)"
+```
+
+按变更类型选择：
+
+| 变更类型 | 命令 |
+|----------|------|
+| 普通业务代码 | `build app` + `up -d --force-recreate app`（见上） |
+| Dockerfile / 依赖 / 端口等镜像内变更 | 将 `build` 换成 `build --no-cache app`，再 `up -d --force-recreate app` |
+| 仅 `.env` | 无需 rebuild，执行 `up -d --force-recreate app` |
+
+### 端口与重建说明
+
+服务端口统一为 `10091`（本地 uvicorn、`Dockerfile` 的 `EXPOSE`/`CMD`、`docker-compose*.yml` 的端口映射）。容器内监听端口写死在镜像的 `CMD`（`--port 10091`）中，**只改 compose 或源码而不重新 build，旧容器仍会监听旧端口**（历史上曾为 `10095`、`10099`），此时访问 `10091` 会出现 `Connection refused`。
+
+变更端口后建议用 `--no-cache` 重建并核对：
+
+```bash
+grep -n '10091\|10099\|10095' Dockerfile docker-compose.prod.yml
+docker compose -f docker-compose.prod.yml build --no-cache app
+docker compose -f docker-compose.prod.yml up -d --force-recreate app
+docker compose -f docker-compose.prod.yml ps
+docker logs "$(docker compose -f docker-compose.prod.yml ps -q app)"
+# 期望：0.0.0.0:10091->10091/tcp，日志为 Uvicorn running on http://0.0.0.0:10091
+curl -v http://127.0.0.1:10091/docs
+```
+
+部署时还需保证：端口映射为 `10091:10091`（宿主机:容器内 uvicorn 端口一致）；启动命令未用 `--port` 覆盖 Dockerfile；跨机访问时安全组/防火墙已放行 `10091`。
 
 ## 前端联调项目
 

@@ -170,6 +170,131 @@ def measure_scene_footprints(ir: dict[str, Any], plan: dict[str, Any]) -> dict[s
     return {"endpoints": endpoints, "warnings": warnings}
 
 
+def analyze_footprint_scale(footprint_report: dict[str, Any]) -> dict[str, Any]:
+    """Return the common scale interval that is both readable and canvas-safe."""
+    required_scale = 1.0
+    maximum_scale = math.inf
+    endpoint_unions: dict[str, list[float]] = {}
+    sample_count = 0
+    for endpoint, states in footprint_report.get("endpoints", {}).items():
+        bboxes = [
+            item.get("bbox")
+            for item in states
+            if isinstance(item, dict) and _valid_bbox(item.get("bbox"))
+        ]
+        if not bboxes:
+            continue
+        sample_count += len(bboxes)
+        endpoint_unions[str(endpoint)] = [
+            min(float(bbox[0]) for bbox in bboxes),
+            min(float(bbox[1]) for bbox in bboxes),
+            max(float(bbox[2]) for bbox in bboxes),
+            max(float(bbox[3]) for bbox in bboxes),
+        ]
+        union = endpoint_unions[str(endpoint)]
+        union_width = union[2] - union[0]
+        union_height = union[3] - union[1]
+        if union_width > 1e-9:
+            maximum_scale = min(maximum_scale, CANVAS_WIDTH / union_width)
+        if union_height > 1e-9:
+            maximum_scale = min(maximum_scale, CANVAS_HEIGHT / union_height)
+        for bbox in bboxes:
+            width = float(bbox[2]) - float(bbox[0])
+            height = float(bbox[3]) - float(bbox[1])
+            long_extent = max(width, height)
+            short_extent = min(width, height)
+            if long_extent <= 1e-9:
+                required_scale = math.inf
+                continue
+            long_edge_scale = 128 / long_extent
+            short_edge_scale = 64 / short_extent if short_extent > 1e-9 else math.inf
+            area = width * height
+            area_scale = (
+                math.sqrt(0.015 * CANVAS_WIDTH * CANVAS_HEIGHT / area)
+                if area > 1e-9
+                else math.inf
+            )
+            required_scale = max(required_scale, long_edge_scale, min(short_edge_scale, area_scale))
+    if not endpoint_unions:
+        return {
+            "ok": False,
+            "feasible": False,
+            "reason": "missing_footprint_bounds",
+            "sample_count": sample_count,
+        }
+    feasible = math.isfinite(required_scale) and required_scale <= maximum_scale + 1e-9
+    return {
+        "ok": True,
+        "feasible": feasible,
+        "reason": "scale_interval_available" if feasible else "visual_scale_range_conflict",
+        "required_scale": required_scale if math.isfinite(required_scale) else None,
+        "maximum_scale": maximum_scale if math.isfinite(maximum_scale) else None,
+        "endpoint_unions": endpoint_unions,
+        "canvas": [0, 0, CANVAS_WIDTH, CANVAS_HEIGHT],
+        "sample_count": sample_count,
+    }
+
+
+def scale_scene_footprints_into_canvas(
+    ir: object,
+    footprint_report: dict[str, Any],
+) -> dict[str, Any]:
+    """Uniformly scale and center all endpoint states when a common scale exists."""
+    analysis = analyze_footprint_scale(footprint_report)
+    if not isinstance(ir, dict):
+        return {"ok": False, "changed": False, "reason": "invalid_geometry_ir", "ir": ir, "analysis": analysis}
+    if not analysis.get("ok") or not analysis.get("feasible"):
+        return {
+            "ok": False,
+            "changed": False,
+            "reason": analysis.get("reason", "scale_analysis_failed"),
+            "ir": ir,
+            "analysis": analysis,
+        }
+    scale = float(analysis.get("required_scale") or 1)
+    if scale <= 1 + 1e-9:
+        return {"ok": True, "changed": False, "reason": "already_readable", "ir": ir, "analysis": analysis}
+    translations: dict[str, dict[str, float]] = {}
+    for endpoint, bbox in analysis["endpoint_unions"].items():
+        translations[endpoint] = {
+            "x": (CANVAS_WIDTH - scale * (float(bbox[0]) + float(bbox[2]))) / 2,
+            "y": (CANVAS_HEIGHT - scale * (float(bbox[1]) + float(bbox[3]))) / 2,
+        }
+    if "source" not in translations or "target" not in translations:
+        return {"ok": False, "changed": False, "reason": "missing_endpoint_bounds", "ir": ir, "analysis": analysis}
+
+    repaired = deepcopy(ir)
+    pieces = repaired.get("pieces")
+    if not isinstance(pieces, list):
+        return {"ok": False, "changed": False, "reason": "missing_pieces", "ir": ir, "analysis": analysis}
+    source_translation = translations["source"]
+    target_translation = translations["target"]
+    for piece in pieces:
+        if not isinstance(piece, dict):
+            continue
+        _scale_transform(piece.get("source"), scale, source_translation["x"], source_translation["y"])
+        _scale_transform(piece.get("target"), scale, target_translation["x"], target_translation["y"])
+        for keyframe in piece.get("keyframes", []):
+            if not isinstance(keyframe, dict):
+                continue
+            at = min(1.0, max(0.0, _number(keyframe.get("at", 0))))
+            dx = source_translation["x"] + (target_translation["x"] - source_translation["x"]) * at
+            dy = source_translation["y"] + (target_translation["y"] - source_translation["y"]) * at
+            _scale_transform(keyframe, scale, dx, dy)
+    return {
+        "ok": True,
+        "changed": True,
+        "reason": "scene_footprints_scaled_into_canvas",
+        "scale": round(scale, 6),
+        "translations": {
+            endpoint: {axis: round(value, 6) for axis, value in translation.items()}
+            for endpoint, translation in translations.items()
+        },
+        "analysis": analysis,
+        "ir": repaired,
+    }
+
+
 def translate_target_assembly_into_canvas(
     ir: object,
     assembly_report: dict[str, Any],
@@ -260,6 +385,21 @@ def _translate_transform(value: object, dx: float, dy: float) -> None:
         value["x"] = _translated_expression(value.get("x", 0), dx)
     if abs(dy) > 1e-9:
         value["y"] = _translated_expression(value.get("y", 0), dy)
+
+
+def _scale_transform(value: object, scale: float, dx: float, dy: float) -> None:
+    if not isinstance(value, dict):
+        return
+    value["x"] = _scaled_expression(value.get("x", 0), scale, dx)
+    value["y"] = _scaled_expression(value.get("y", 0), scale, dy)
+    value["scale"] = _scaled_expression(value.get("scale", 1), scale, 0)
+
+
+def _scaled_expression(value: object, scale: float, delta: float) -> object:
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return round(float(value) * scale + delta, 9)
+    scaled: object = {"op": "mul", "args": [value, round(scale, 9)]}
+    return _translated_expression(scaled, delta) if abs(delta) > 1e-9 else scaled
 
 
 def _translated_expression(value: object, delta: float) -> object:

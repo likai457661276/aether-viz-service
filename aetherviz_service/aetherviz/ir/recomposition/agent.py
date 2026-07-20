@@ -19,6 +19,7 @@ from aetherviz_service.aetherviz.contracts.html_stream import (
     build_html_progress_payload,
 )
 from aetherviz_service.aetherviz.ir.recomposition.assembly import (
+    scale_scene_footprints_into_canvas,
     translate_target_assembly_into_canvas,
 )
 from aetherviz_service.aetherviz.ir.recomposition.contract import (
@@ -65,6 +66,7 @@ frames 必须与 stage_requirements 一一对应，使用 3~5 个静态对象 {{
 progress 不是 state 变量，IR 中严禁引用 progress；source/target 是两个完整端点，服务端负责二者之间的插值。计划变量必须写成 state 引用，只有 definitions 名称才能写成 var 引用。
 所有参数在计划给出的 default/min/max 都必须产生正尺寸、有限属性、唯一 id 和可见变换。第一版只做 transform 驱动二维 SVG，不做 path morph。
 source/target 在 minimum/default/maximum 状态的可见图元并集都必须具备课堂可读尺度：长边至少 128px；短边小于 64px 时包围盒面积至少占画布 1.5%。默认主体优先占 160~420px，且在画布中部均衡布局，禁止仅保证变换锚点入界却让实际图形缩在角落。
+输出前必须检查统一像素尺度是否存在可行区间：minimum 状态达到上述可读阈值所需的缩放下限，不得大于 maximum 状态完整放入 960×560 画布允许的缩放上限。若区间为空，不得继续使用单一“参数×常数”比例；应使用 clamp/min/max 归一化视觉尺寸，或重构局部坐标，使抽象参数变化仍保留教学关系但视觉跨度受控。
 优先控制在 8 个 definitions、8 个图元模板和 1 个 repeat 内；只保留证明所需的实际几何块，不生成标签背景、占位 g、虚线辅助图或装饰图元。复杂重复结构必须用 repeat 表达，不展开大段近似对象。输出前检查 JSON 引号、逗号和括号完整闭合。
 通用语法示例：{{"version":"{GEOMETRY_IR_VERSION}","definitions":[{{"name":"size","value":{{"op":"mul","args":[{{"state":"scale"}},30]}}}}],"pieces":[{{"repeat":null,"id":"piece-0","tag":"polygon","attrs":[{{"name":"points","value":{{"op":"points","args":[[0,0],[{{"var":"size"}},0],[0,{{"var":"size"}}]]}}}},{{"name":"fill","value":"#34d399"}}],"source":{{"x":120,"y":160,"rotation":0,"scale":1,"opacity":1}},"target":{{"x":420,"y":260,"rotation":90,"scale":1,"opacity":1}},"keyframes":[{{"at":0,"x":120,"y":160,"rotation":0,"scale":1,"opacity":1}},{{"at":0.5,"x":250,"y":90,"rotation":35,"scale":1,"opacity":1}},{{"at":1,"x":420,"y":260,"rotation":90,"scale":1,"opacity":1}}]}}],"frames":[{{"stage_id":"source","at":0,"caption":"观察源状态","formula":"关系保持","step":0}},{{"stage_id":"transform-1","at":0.5,"caption":"观察分离后的中间状态","formula":"图元集合不变","step":1}},{{"stage_id":"target","at":1,"caption":"解释目标状态","formula":"度量关系成立","step":2}}]}}。实际 stage_id/at 必须复制计划值；只可引用用户消息列出的 allowed_state_variables；若其中没有 scale，不得照抄示例。
 每个 IR 不超过 {GEOMETRY_IR_MAX_CHARS} 字符。不得针对圆、梯形或其他单个知识点调用专用模板；只能组合上述通用图元与表达式。"""
@@ -136,10 +138,16 @@ def _stream_generate_recomposition_html_impl(
             source = _repair_scene_source(topic, plan, exc.raw_text, exc.report)
         except Exception as repair_exc:
             logger.warning("geometry IR bounded repair failed: %s", repair_exc)
+            repair_detail = str(repair_exc).strip()
+            initial_detail = str(exc).strip()
             raise HtmlGenerationError(
                 "几何重排 IR 未通过确定性校验，已停止生成",
                 code="ir_generation_failed",
-                detail=str(exc),
+                detail=(
+                    f"initial={initial_detail};repair={repair_detail}"
+                    if repair_detail and repair_detail != initial_detail
+                    else initial_detail
+                ),
             ) from repair_exc
         degraded = True
     except GeneratorExit:
@@ -199,6 +207,9 @@ def _generate_ranked_scene_source(topic: str, plan: dict[str, Any]) -> tuple[str
     _log_ranking(ranking)
     if not ranking["ok"]:
         ranking, candidates = _attempt_target_bounds_completion(candidates, plan, ranking)
+        _log_ranking(ranking)
+    if not ranking["ok"]:
+        ranking, candidates = _attempt_footprint_scale_completion(candidates, plan, ranking)
         _log_ranking(ranking)
     if not ranking["ok"]:
         ranking = _attempt_waypoint_completion(candidates, plan, ranking)
@@ -277,6 +288,72 @@ def _attempt_target_bounds_completion(
     return repaired_ranking, repaired_candidates
 
 
+def _attempt_footprint_scale_completion(
+    candidates: list[object],
+    plan: dict[str, Any],
+    initial_ranking: dict[str, Any],
+) -> tuple[dict[str, Any], list[object]]:
+    repaired_candidates: list[object] = []
+    repair_reports: list[dict[str, Any]] = []
+    allowed_failures = {
+        "assembly:source_assembly_out_of_bounds",
+        "assembly:target_assembly_out_of_bounds",
+        "safety:undersized_visual_footprint",
+        "safety:visual_scale_range_conflict",
+        "teaching:missing_intermediate_geometry_stage",
+    }
+    for index, candidate in enumerate(candidates):
+        candidate_report = initial_ranking["candidates"][index]
+        hard_failures = set(candidate_report.get("hard_failures", []))
+        eligible = (
+            "safety:undersized_visual_footprint" in hard_failures
+            and hard_failures <= allowed_failures
+        )
+        if eligible:
+            repair = scale_scene_footprints_into_canvas(
+                candidate,
+                candidate_report.get("details", {}).get("visual_footprints", {}),
+            )
+            repaired_candidates.append(repair.get("ir") or candidate)
+            repair_reports.append(
+                {
+                    "index": index,
+                    "attempted": True,
+                    "ok": repair["ok"],
+                    "changed": repair["changed"],
+                    "reason": repair["reason"],
+                    "scale": repair.get("scale"),
+                    "translations": repair.get("translations"),
+                    "analysis": repair.get("analysis"),
+                }
+            )
+        else:
+            repaired_candidates.append(candidate)
+            repair_reports.append(
+                {
+                    "index": index,
+                    "attempted": False,
+                    "ok": False,
+                    "changed": False,
+                    "reason": "candidate_has_non_scale_hard_failures",
+                    "hard_failures": sorted(hard_failures),
+                }
+            )
+    repaired_ranking = _trace_rank_geometry_ir_candidates(
+        repaired_candidates,
+        plan,
+        origins=["scale" if report["changed"] else "model" for report in repair_reports],
+    )
+    repaired_ranking.update(
+        {
+            "strategy": "deterministic_footprint_scale_completion",
+            "initial_ranking": public_geometry_ir_ranking(initial_ranking),
+            "footprint_scale_completion": repair_reports,
+        }
+    )
+    return repaired_ranking, repaired_candidates
+
+
 def _attempt_waypoint_completion(
     candidates: list[object], plan: dict[str, Any], initial_ranking: dict[str, Any]
 ) -> dict[str, Any]:
@@ -337,6 +414,7 @@ def _log_ranking(ranking: dict[str, Any]) -> None:
                 "selected_index": ranking["selected_index"],
                 "ranking": ranking["ranking"],
                 "target_bounds_completion": ranking.get("target_bounds_completion", []),
+                "footprint_scale_completion": ranking.get("footprint_scale_completion", []),
                 "waypoint_completion": ranking.get("waypoint_completion", []),
                 "candidates": [
                     {
@@ -406,6 +484,9 @@ def _trace_ranking_summary(ranking: dict[str, Any]) -> dict[str, Any]:
                 "assembly_states": item.get("details", {}).get("target_assembly", {}).get("states", []),
                 "source_assembly_states": item.get("details", {}).get("target_assembly", {}).get("source_states", []),
                 "visual_footprints": item.get("details", {}).get("visual_footprints", {}).get("endpoints", {}),
+                "footprint_scale_analysis": item.get("details", {})
+                .get("motion_safety", {})
+                .get("scale_analysis", {}),
                 "unavailable_relations": [
                     warning
                     for warning in item.get("details", {}).get("mathematics", {}).get("warnings", [])
@@ -438,7 +519,8 @@ def _repair_scene_source(
         "frames 必须复制计划 stage_requirements 的 id/at；每个中间阶段为足够比例图元补充同 at 的非线性几何 keyframe。"
         "同一 repeat 的全等拼片使用统一局部几何，只通过 source/target.rotation 表达各阶段朝向；"
         "若报告含目标拼合失败，调整目标世界坐标使拼片连通、少重叠并达到声明的整体形状阈值。"
-        "若报告含 undersized_visual_footprint，按实际图元世界坐标整体放大并重新居中；source/target 在所有参数采样状态都必须保持可读，不能只移动锚点。"
+        "若报告含 undersized_visual_footprint，先读取 footprint_diagnostics 的缩放区间；只有 required_scale 不大于 maximum_scale 时才整体缩放并重新居中。"
+        "若报告含 visual_scale_range_conflict，禁止仅用统一系数放大；必须收窄通用几何变量对应的像素跨度、使用 clamp/min/max，或重构局部坐标，使 minimum 可读且 maximum 入界。"
         "若使用 sector_path 逼近矩形，必须采用系统说明中的固定局部扇形与交错咬合坐标，不得继续沿用按索引旋转过的局部 path、arcLen 间距或分离的上下行。"
         "将结果精简到最多 8 个 definitions、8 个图元模板和 1 个 repeat，并检查 JSON 完整闭合。\n"
         + json.dumps(
@@ -484,7 +566,8 @@ def _build_scene_prompt(topic: str, plan: dict[str, Any]) -> str:
         '{"candidates":[IR1,IR2,IR3]}，不得少于 2 个，不生成 HTML。每个候选应采用不同但通用的切分或运动布局；'
         "先确定切分后稳定图元集合，再用 source/target 表达同一组 id 的重排；"
         "不得输出可执行代码，也不得使用任何知识点专用分支。只能用 allowed_state_variables，严禁 progress；"
-        "画布为 960×560，默认状态的主体图形建议占 160~420px，避免把 1~8 这类抽象参数直接当像素尺寸。\n"
+        "画布为 960×560，默认状态的主体图形建议占 160~420px，避免把 1~8 这类抽象参数直接当像素尺寸；"
+        "先验证 minimum 可读所需缩放下限不大于 maximum 入界允许上限，冲突时用 clamp/min/max 约束视觉尺寸跨度。\n"
         + json.dumps(compact, ensure_ascii=False, separators=(",", ":"))
     )
 
@@ -516,12 +599,31 @@ def _ranking_error_report(ranking: dict[str, Any]) -> dict[str, Any]:
                 "teaching_diagnostics": _compact_teaching_diagnostics(
                     item.get("details", {}).get("teaching_semantics", {})
                 ),
+                "footprint_diagnostics": _compact_footprint_diagnostics(
+                    item.get("details", {}).get("motion_safety", {})
+                ),
             }
             for item in ranking.get("candidates", [])
         ],
         "warnings": [],
         "ranking": public_geometry_ir_ranking(ranking),
     }
+
+
+def _compact_footprint_diagnostics(report: object) -> dict[str, Any]:
+    if not isinstance(report, dict):
+        return {}
+    errors = [
+        {
+            key: item.get(key)
+            for key in ("type", "state", "endpoint", "bbox", "area_ratio", "required_scale", "maximum_scale")
+            if key in item
+        }
+        for item in report.get("errors", [])
+        if isinstance(item, dict)
+        and item.get("type") in {"undersized_visual_footprint", "visual_scale_range_conflict"}
+    ]
+    return {"errors": errors, "scale_analysis": report.get("scale_analysis", {})}
 
 
 def _compact_teaching_diagnostics(report: object) -> dict[str, Any]:

@@ -15,7 +15,9 @@ from aetherviz_service.aetherviz.contracts.validation.animation_lifecycle_checke
 from aetherviz_service.aetherviz.contracts.validation.report import build_validation_report
 from aetherviz_service.aetherviz.generate.workflow import run_generate_workflow
 from aetherviz_service.aetherviz.ir.recomposition.assembly import (
+    analyze_footprint_scale,
     evaluate_target_assembly,
+    scale_scene_footprints_into_canvas,
     translate_target_assembly_into_canvas,
 )
 from aetherviz_service.aetherviz.ir.recomposition.contract import (
@@ -181,6 +183,56 @@ def test_candidate_ranking_rejects_an_undersized_visible_union() -> None:
 
     assert not report["ok"]
     assert "safety:undersized_visual_footprint" in report["candidates"][0]["hard_failures"]
+    assert "safety:visual_scale_range_conflict" in report["candidates"][0]["hard_failures"]
+
+
+def test_footprint_scale_analysis_reports_infeasible_parameter_range() -> None:
+    report = {
+        "endpoints": {
+            "source": [
+                {"state": "minimum", "bbox": [440, 240, 520, 320]},
+                {"state": "maximum", "bbox": [280, 80, 680, 480]},
+            ],
+            "target": [
+                {"state": "minimum", "bbox": [400, 250, 541.42, 301.716]},
+                {"state": "maximum", "bbox": [80, 40, 880, 520]},
+            ],
+        }
+    }
+
+    analysis = analyze_footprint_scale(report)
+
+    assert analysis["ok"]
+    assert not analysis["feasible"]
+    assert analysis["reason"] == "visual_scale_range_conflict"
+    assert analysis["required_scale"] == pytest.approx(1.6)
+    assert analysis["maximum_scale"] == pytest.approx(1.166667, abs=1e-6)
+
+
+def test_deterministic_footprint_scale_completion_repairs_feasible_candidate() -> None:
+    from aetherviz_service.aetherviz.ir.recomposition import agent as recomposition_agent
+
+    plan = normalize_plan({}, "组合图形面积切割重排证明")
+    candidate = build_deterministic_geometry_ir(plan)
+    candidate["pieces"][0]["attrs"]["points"] = "0,0 80,0 0,80"
+    candidate["pieces"][0]["target"]["x"] = 420
+    candidate["pieces"][0]["target"]["y"] = 260
+    candidate["pieces"][0]["keyframes"][-1] = {"at": 1, **candidate["pieces"][0]["target"]}
+    initial = rank_geometry_ir_candidates([candidate], plan)
+
+    repaired_ranking, repaired_candidates = recomposition_agent._attempt_footprint_scale_completion(
+        [candidate], plan, initial
+    )
+
+    assert repaired_ranking["ok"], repaired_ranking["candidates"][0]["hard_failures"]
+    assert repaired_ranking["strategy"] == "deterministic_footprint_scale_completion"
+    assert repaired_ranking["footprint_scale_completion"][0]["scale"] > 1
+    repaired = scale_scene_footprints_into_canvas(
+        candidate,
+        initial["candidates"][0]["details"]["visual_footprints"],
+    )
+    assert repaired["ok"] and repaired["changed"]
+    assert repaired_candidates[0] == repaired["ir"]
 
 
 def test_normalized_recomposition_plan_always_preserves_piece_shape() -> None:
@@ -596,6 +648,7 @@ def test_explicit_target_assembly_stops_after_failed_repair(
     with pytest.raises(HtmlGenerationError) as exc_info:
         list(recomposition_agent._stream_generate_recomposition_html_impl("topic", plan))
     assert exc_info.value.code == "ir_generation_failed"
+    assert exc_info.value.detail == "initial=geometry_ir_candidate_rejected;repair=repair failed"
 
 
 def test_failed_repair_never_uses_deterministic_fallback(

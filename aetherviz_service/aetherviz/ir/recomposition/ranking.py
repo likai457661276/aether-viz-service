@@ -7,7 +7,11 @@ import json
 import math
 from typing import Any
 
-from aetherviz_service.aetherviz.ir.recomposition.assembly import evaluate_target_assembly, measure_scene_footprints
+from aetherviz_service.aetherviz.ir.recomposition.assembly import (
+    analyze_footprint_scale,
+    evaluate_target_assembly,
+    measure_scene_footprints,
+)
 from aetherviz_service.aetherviz.ir.recomposition.constants import CANVAS_HEIGHT, CANVAS_WIDTH
 from aetherviz_service.aetherviz.ir.recomposition.contract import (
     expand_geometry_ir,
@@ -196,6 +200,8 @@ def _evaluate_motion_safety(
     safe_bounds = 0
     reasonable_motion = 0
     footprint_scores: list[float] = []
+    has_undersized_footprint = False
+    scale_analysis = analyze_footprint_scale(footprint_report)
     for endpoint, states in footprint_report.get("endpoints", {}).items():
         for metrics in states:
             bbox = metrics.get("bbox", [])
@@ -214,6 +220,7 @@ def _evaluate_motion_safety(
                 else 0.0
             )
             if long_extent < 128 or (short_extent < 64 and area_ratio < 0.015):
+                has_undersized_footprint = True
                 errors.append(
                     {
                         "type": "undersized_visual_footprint",
@@ -223,6 +230,16 @@ def _evaluate_motion_safety(
                         "area_ratio": round(area_ratio, 6),
                     }
                 )
+    if has_undersized_footprint and scale_analysis.get("ok") and not scale_analysis.get("feasible"):
+        errors.append(
+            {
+                "type": "visual_scale_range_conflict",
+                "required_scale": scale_analysis.get("required_scale"),
+                "maximum_scale": scale_analysis.get("maximum_scale"),
+                "endpoint_unions": scale_analysis.get("endpoint_unions"),
+                "canvas": scale_analysis.get("canvas"),
+            }
+        )
     for state_label, state in sample_geometry_states(plan):
         pieces = expand_geometry_ir(ir, state)
         for piece in pieces:
@@ -267,6 +284,7 @@ def _evaluate_motion_safety(
         ),
         "motion_score": reasonable_motion / piece_samples if piece_samples else 0.0,
         "footprint_score": sum(footprint_scores) / len(footprint_scores) if footprint_scores else None,
+        "scale_analysis": scale_analysis,
     }
 
 
@@ -327,7 +345,9 @@ def _transform_at(piece: dict[str, Any], at: float) -> dict[str, float]:
 
 
 def _origin_score(origin: str) -> float:
-    return {"model": 1.0, "bounds": 0.9, "repair": 0.6, "fallback": 0.0}.get(origin, 0.5)
+    return {"model": 1.0, "bounds": 0.9, "scale": 0.85, "waypoint": 0.8, "repair": 0.6, "fallback": 0.0}.get(
+        origin, 0.5
+    )
 
 
 def _candidate_result(
