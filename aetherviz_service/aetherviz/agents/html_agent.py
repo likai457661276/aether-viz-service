@@ -1,4 +1,4 @@
-"""Shim: use aetherviz.generate.html_agent / contracts.html_stream."""
+"""Compatibility exports for shared HTML stream contracts."""
 
 from aetherviz_service.aetherviz.contracts.html_stream import (
     HTML_REASONING_EVENT_INTERVAL_MS,
@@ -9,7 +9,6 @@ from aetherviz_service.aetherviz.contracts.html_stream import (
     build_html_reasoning_payload,
     build_html_size_payload,
 )
-from aetherviz_service.aetherviz.generate.html_agent import stream_generate_html
 
 __all__ = [
     "HTML_REASONING_EVENT_INTERVAL_MS",
@@ -19,5 +18,4 @@ __all__ = [
     "build_html_progress_payload",
     "build_html_reasoning_payload",
     "build_html_size_payload",
-    "stream_generate_html",
 ]

@@ -8,7 +8,6 @@ from typing import Any
 from langsmith import traceable
 
 from aetherviz_service.aetherviz.contracts.pipeline import _summarize_sse_trace, run_html_pipeline
-from aetherviz_service.aetherviz.generate.html_agent import stream_generate_html
 from aetherviz_service.aetherviz.ir.registry import DEFAULT_IR_REGISTRY
 from aetherviz_service.aetherviz.ir.router.service import resolve_generation_route
 from aetherviz_service.config import settings
@@ -69,7 +68,6 @@ def _run_generate_workflow_impl(
         route,
         topic=topic,
         plan=approved_plan,
-        direct_stream=stream_generate_html,
     )
     yield from run_html_pipeline(
         run_id=run_id,

@@ -28,6 +28,25 @@ def assemble_recomposition_business_html(scene_source: str, plan: dict[str, Any]
         if isinstance(variable, dict) and not variable.get("computed")
     ][:3]
     recomposition_spec = plan.get("recomposition_spec") if isinstance(plan.get("recomposition_spec"), dict) else {}
+    representation_spec = (
+        plan.get("representation_spec") if isinstance(plan.get("representation_spec"), dict) else {}
+    )
+    interactions = [
+        str(item)
+        for item in representation_spec.get("interaction_requirements", [])
+        if str(item) in {"drag", "preset", "reveal", "trace"}
+    ]
+    presets = [
+        preset
+        for preset in interactive_spec.get("presets", [])
+        if isinstance(preset, dict) and isinstance(preset.get("values"), dict)
+    ][:6]
+    interaction_config = {
+        "requirements": interactions,
+        "drag_enabled": "drag" in interactions,
+        "snap_distance": 40,
+        "presets": presets,
+    }
     defaults = {
         str(variable.get("name")): _finite_number(variable.get("default"), 0)
         for variable in variables
@@ -47,6 +66,7 @@ def assemble_recomposition_business_html(scene_source: str, plan: dict[str, Any]
     )
     initial_formula = str(formulas[0]) if formulas else "保持图形块身份与度量关系不变"
     controls = "".join(_variable_control(variable) for variable in variables)
+    preset_controls = "".join(_preset_control(preset) for preset in presets)
     flow_markup = "".join(
         f'<li data-step="{index}">{html.escape(str(step.get("label") or f"第{index + 1}步"))}</li>'
         for index, step in enumerate(teaching_flow[:5])
@@ -69,6 +89,7 @@ def assemble_recomposition_business_html(scene_source: str, plan: dict[str, Any]
     runtime_script = _RUNTIME_SCRIPT.replace("__SCENE_MODULE__", scene_source.strip())
     runtime_script = runtime_script.replace("__DEFAULT_STATE__", _json_for_script(defaults))
     runtime_script = runtime_script.replace("__RECOMPOSITION_SPEC__", _json_for_script(recomposition_spec))
+    runtime_script = runtime_script.replace("__INTERACTION_CONFIG__", _json_for_script(interaction_config))
     runtime_script = runtime_script.replace("__INITIAL_CAPTION__", _json_for_script(initial_caption))
     runtime_script = runtime_script.replace("__INITIAL_FORMULA__", _json_for_script(initial_formula))
 
@@ -83,11 +104,17 @@ def assemble_recomposition_business_html(scene_source: str, plan: dict[str, Any]
 :root{{--recomp-primary:{primary};--recomp-ink:#17362d;--recomp-soft:#ecfdf5}}
 .recomp-svg{{width:100%;height:100%;min-height:280px;background:linear-gradient(145deg,#fff,#f4fbf7)}}
 .recomp-piece{{vector-effect:non-scaling-stroke;stroke:#174c3c;stroke-width:2;stroke-linejoin:round}}
+.recomp-piece[data-draggable="true"]{{cursor:grab;touch-action:none}}
+.recomp-piece[data-dragging="true"]{{cursor:grabbing;filter:drop-shadow(0 5px 7px rgba(23,76,60,.28))}}
+.recomp-piece[data-placed="true"]{{stroke:#059669;stroke-width:3}}
+.recomp-target{{pointer-events:none;fill:transparent!important;stroke:#6ee7b7!important;stroke-width:2;stroke-dasharray:7 6;opacity:.58;vector-effect:non-scaling-stroke}}
 .recomp-control-panel{{display:flex;flex-wrap:wrap;gap:10px}}
 .recomp-control{{display:grid;grid-template-rows:auto 44px;gap:4px;min-width:150px;flex:1}}
 .recomp-actions{{display:flex;gap:8px;flex-wrap:wrap;width:100%}}
 .recomp-actions button{{border:1px solid #b7d5c9;border-radius:8px;background:#fff;color:var(--recomp-ink);padding:8px 12px}}
 .recomp-actions button:first-child{{background:var(--recomp-primary);border-color:var(--recomp-primary);color:#fff}}
+.recomp-presets{{display:flex;gap:8px;flex-wrap:wrap;width:100%}}
+.recomp-presets button{{border:1px solid #b7d5c9;border-radius:8px;background:#f7fcf9;color:var(--recomp-ink);padding:8px 12px}}
 .recomp-caption{{margin:0;color:var(--recomp-ink)}}
 .recomp-formula{{margin:0;font-weight:650;color:#24634f}}
 .recomp-flow{{margin:0;padding-left:20px;line-height:1.7}}
@@ -99,6 +126,7 @@ def assemble_recomposition_business_html(scene_source: str, plan: dict[str, Any]
 <header data-region="learning-goal"><h1>{title}</h1><p>{goal}</p></header>
 <section id="aetherviz-stage" aria-label="{topic_text}互动舞台">
   <svg class="recomp-svg" data-role="main-visual" viewBox="0 0 960 560" role="img" aria-label="{topic_text}">
+    <g id="recomposition-targets" aria-label="拼合目标位置"></g>
     <g id="recomposition-pieces" aria-label="可重排图形块"></g>
   </svg>
 </section>
@@ -110,6 +138,7 @@ def assemble_recomposition_business_html(scene_source: str, plan: dict[str, Any]
     <button id="reset-animation" type="button">重置</button>
     <label>速度 <select id="animation-speed"><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option></select></label>
   </div>
+  {f'<div class="recomp-presets" aria-label="参数预设">{preset_controls}</div>' if preset_controls else ''}
 </section>
 <section data-region="caption"><p id="animation-caption" class="recomp-caption">{html.escape(initial_caption)}</p></section>
 <section data-region="formula"><p id="animation-formula" class="recomp-formula">{html.escape(initial_formula)}</p></section>
@@ -140,6 +169,12 @@ def _variable_control(variable: dict[str, Any]) -> str:
     )
 
 
+def _preset_control(preset: dict[str, Any]) -> str:
+    preset_id = html.escape(str(preset.get("id") or "preset"), quote=True)
+    label = html.escape(str(preset.get("label") or preset.get("id") or "预设"))
+    return f'<button type="button" data-preset-id="{preset_id}">{label}</button>'
+
+
 def _finite_number(value: object, fallback: float) -> float:
     try:
         number = float(value)
@@ -158,6 +193,7 @@ _RUNTIME_SCRIPT = r"""(function(){
 'use strict';
 const DEFAULT_STATE=Object.freeze(__DEFAULT_STATE__);
 const RECOMPOSITION_SPEC=Object.freeze(__RECOMPOSITION_SPEC__);
+const INTERACTION_CONFIG=Object.freeze(__INTERACTION_CONFIG__);
 const sceneMath=Object.freeze({
   clamp(value,min,max){return Math.max(Number(min),Math.min(Number(max),Number(value)||0));},
   lerp(start,end,t){const p=Math.max(0,Math.min(1,Number(t)||0));return Number(start)+(Number(end)-Number(start))*p;},
@@ -174,29 +210,41 @@ const ALLOWED_TAGS=new Set(['path','polygon','polyline','rect','circle','ellipse
 const BASE_ATTRS=new Set(['d','points','x','y','x1','y1','x2','y2','cx','cy','r','rx','ry','width','height','fill','stroke','stroke-width','stroke-dasharray','opacity','transform','class']);
 const FRAME_ATTRS=new Set(['x','y','cx','cy','r','rx','ry','width','height','fill','stroke','opacity','transform','class']);
 const registry=new Map();
+const targetRegistry=new Map();
 const layer=document.getElementById('recomposition-pieces');
+const targetLayer=document.getElementById('recomposition-targets');
 const caption=document.getElementById('animation-caption');
 const formula=document.getElementById('animation-formula');
 const steps=Array.from(document.querySelectorAll('[data-region="teaching-flow"] [data-step]'));
-let geometry={pieces:[]},controller=null,currentProgress=0,playing=false,lastFormula='';
+let geometry={pieces:[]},controller=null,currentProgress=0,playing=false,lastFormula='',dragState=null;
+const placedIds=new Set();
+const dragEnabled=Boolean(INTERACTION_CONFIG.drag_enabled);
 const animationBackend=window.gsap?'gsap':'native';
 function finite(value){const number=Number(value);return Number.isFinite(number)?number:null;}
 function cloneState(){return Object.assign({},state);}
 function safeAttrs(attrs,allowed){const result={};if(!attrs||typeof attrs!=='object')return result;for(const key of Object.keys(attrs)){if(!allowed.has(key))continue;const value=attrs[key],serialized=String(value);if((typeof value==='number'&&!Number.isFinite(value))||/NaN|Infinity/.test(serialized))throw new Error('non_finite_attr:'+key);result[key]=serialized;}return result;}
 function normalizeGeometry(raw){if(!raw||!Array.isArray(raw.pieces)||raw.pieces.length<1||raw.pieces.length>80)throw new Error('invalid_piece_count');const ids=new Set();const pieces=raw.pieces.map((piece,index)=>{if(!piece||typeof piece!=='object')throw new Error('invalid_piece:'+index);const id=String(piece.id||'');if(!id||ids.has(id))throw new Error('duplicate_piece_id:'+id);ids.add(id);const tag=String(piece.tag||'path').toLowerCase();if(!ALLOWED_TAGS.has(tag))throw new Error('invalid_piece_tag:'+tag);if(!piece.sourceTransform||!piece.targetTransform)throw new Error('missing_transform_state:'+id);return Object.assign({},piece,{id,tag,attrs:safeAttrs(piece.attrs,BASE_ATTRS)});});return {pieces};}
 function setAttrs(node,attrs){for(const key of Object.keys(attrs))node.setAttribute(key,attrs[key]);}
-function createPiece(piece){const node=document.createElementNS(SVG_NS,piece.tag);node.setAttribute('data-piece-id',piece.id);node.setAttribute('class','recomp-piece');setAttrs(node,piece.attrs);layer.appendChild(node);registry.set(piece.id,node);}
-function buildScene(){playing=false;if(controller)controller.pause();registry.clear();layer.replaceChildren();geometry=normalizeGeometry(sceneModule.buildGeometry(cloneState()));for(const piece of geometry.pieces)createPiece(piece);if(registry.size!==geometry.pieces.length)throw new Error('registry_size_mismatch');currentProgress=0;applyProgress(0);}
-function refreshGeometry(){const next=normalizeGeometry(sceneModule.buildGeometry(cloneState()));if(next.pieces.length!==geometry.pieces.length)throw new Error('geometry_changed_topology');for(const piece of next.pieces){const node=registry.get(piece.id);if(!node)throw new Error('missing_registered_piece:'+piece.id);setAttrs(node,piece.attrs);}geometry=next;applyProgress(currentProgress);}
+function poseTransform(pose){return 'translate('+Number(pose.x||0).toFixed(3)+' '+Number(pose.y||0).toFixed(3)+') rotate('+Number(pose.rotation||0).toFixed(3)+') scale('+Number(pose.scale||1).toFixed(4)+')';}
+function parsePose(value){const text=String(value||'');const translate=/translate\(\s*(-?[\d.]+)[ ,]+(-?[\d.]+)/.exec(text),rotate=/rotate\(\s*(-?[\d.]+)/.exec(text),scale=/scale\(\s*(-?[\d.]+)/.exec(text);return {x:translate?Number(translate[1]):0,y:translate?Number(translate[2]):0,rotation:rotate?Number(rotate[1]):0,scale:scale?Number(scale[1]):1};}
+function createTarget(piece){if(!dragEnabled)return;const node=document.createElementNS(SVG_NS,piece.tag);node.setAttribute('data-target-id',piece.id);setAttrs(node,piece.attrs);node.setAttribute('class','recomp-target');node.setAttribute('transform',poseTransform(piece.targetTransform));targetLayer.appendChild(node);targetRegistry.set(piece.id,node);}
+function createPiece(piece){const node=document.createElementNS(SVG_NS,piece.tag);node.setAttribute('data-piece-id',piece.id);setAttrs(node,piece.attrs);node.setAttribute('class','recomp-piece');if(dragEnabled)node.setAttribute('data-draggable','true');if(dragEnabled)node.addEventListener('pointerdown',beginDrag);layer.appendChild(node);registry.set(piece.id,node);}
+function buildScene(){playing=false;if(controller)controller.pause();registry.clear();targetRegistry.clear();placedIds.clear();dragState=null;layer.replaceChildren();targetLayer.replaceChildren();geometry=normalizeGeometry(sceneModule.buildGeometry(cloneState()));for(const piece of geometry.pieces){createTarget(piece);createPiece(piece);}if(registry.size!==geometry.pieces.length)throw new Error('registry_size_mismatch');currentProgress=0;applyProgress(0);}
+function refreshGeometry(){const next=normalizeGeometry(sceneModule.buildGeometry(cloneState()));if(next.pieces.length!==geometry.pieces.length)throw new Error('geometry_changed_topology');placedIds.clear();for(const piece of next.pieces){const node=registry.get(piece.id);if(!node)throw new Error('missing_registered_piece:'+piece.id);setAttrs(node,piece.attrs);node.setAttribute('class','recomp-piece');node.removeAttribute('data-placed');const target=targetRegistry.get(piece.id);if(target){setAttrs(target,piece.attrs);target.setAttribute('class','recomp-target');target.setAttribute('transform',poseTransform(piece.targetTransform));}}geometry=next;applyProgress(currentProgress);}
 function applyDisplay(progress){const display=sceneModule.deriveDisplay(cloneState(),progress)||{};caption.textContent=String(display.caption||__INITIAL_CAPTION__);const nextFormula=String(display.formula||__INITIAL_FORMULA__);if(nextFormula!==lastFormula){lastFormula=nextFormula;if(window.katex&&typeof window.katex.render==='function'){try{window.katex.render(nextFormula,formula,{throwOnError:false});}catch(_){formula.textContent=nextFormula;}}else formula.textContent=nextFormula;}const requestedStep=Number(display.step);const fallbackStep=Math.min(steps.length-1,Math.floor(progress*Math.max(steps.length,1)));const active=Math.max(0,Math.min(steps.length-1,Number.isFinite(requestedStep)?Math.round(requestedStep):fallbackStep));steps.forEach((step,index)=>index===active?step.setAttribute('aria-current','step'):step.removeAttribute('aria-current'));}
 function applyProgress(progress){currentProgress=Math.max(0,Math.min(1,Number(progress)||0));const frame=sceneModule.deriveFrame(geometry,cloneState(),currentProgress)||{};const pieces=Array.isArray(frame.pieces)?frame.pieces:[];for(const piece of pieces){const node=registry.get(String(piece.id||''));if(!node)throw new Error('frame_unknown_piece:'+String(piece.id||''));setAttrs(node,safeAttrs(piece.attrs,FRAME_ATTRS));}if(currentProgress>=1)playing=false;applyDisplay(currentProgress);}
-function update(patch){const next=patch&&typeof patch==='object'?patch:{};const before=String(sceneModule.structureKey(cloneState()));for(const key of Object.keys(DEFAULT_STATE)){if(Object.prototype.hasOwnProperty.call(next,key)){const value=finite(next[key]);if(value!==null)state[key]=value;}}const after=String(sceneModule.structureKey(cloneState()));if(before!==after)buildScene();else refreshGeometry();if(Object.prototype.hasOwnProperty.call(next,'progress'))controller.setProgress(next.progress);return getState();}
-function play(){playing=true;controller.play();}
+function svgPoint(event){const point=layer.ownerSVGElement.createSVGPoint();point.x=event.clientX;point.y=event.clientY;const matrix=layer.ownerSVGElement.getScreenCTM();if(!matrix)throw new Error('missing_screen_ctm');return point.matrixTransform(matrix.inverse());}
+function beginDrag(event){if(!dragEnabled)return;event.preventDefault();pause();const node=event.currentTarget,id=String(node.getAttribute('data-piece-id')||''),point=svgPoint(event),pose=parsePose(node.getAttribute('transform'));placedIds.delete(id);node.removeAttribute('data-placed');node.setAttribute('data-dragging','true');node.setPointerCapture(event.pointerId);dragState={id,node,pointerId,start:point,pose};node.addEventListener('pointermove',moveDrag);node.addEventListener('pointerup',endDrag);node.addEventListener('pointercancel',endDrag);}
+function moveDrag(event){if(!dragState||event.pointerId!==dragState.pointerId)return;const point=svgPoint(event),pose=Object.assign({},dragState.pose,{x:dragState.pose.x+point.x-dragState.start.x,y:dragState.pose.y+point.y-dragState.start.y});dragState.node.setAttribute('transform',poseTransform(pose));}
+function endDrag(event){if(!dragState||event.pointerId!==dragState.pointerId)return;const active=dragState,node=active.node,piece=geometry.pieces.find((item)=>item.id===active.id),pose=parsePose(node.getAttribute('transform'));node.removeAttribute('data-dragging');node.removeEventListener('pointermove',moveDrag);node.removeEventListener('pointerup',endDrag);node.removeEventListener('pointercancel',endDrag);if(node.hasPointerCapture(event.pointerId))node.releasePointerCapture(event.pointerId);dragState=null;if(!piece)return;const target=piece.targetTransform||{},distance=Math.hypot(pose.x-Number(target.x||0),pose.y-Number(target.y||0));if(distance<=Number(INTERACTION_CONFIG.snap_distance||40)){node.setAttribute('transform',poseTransform(target));node.setAttribute('data-placed','true');placedIds.add(piece.id);}if(placedIds.size===geometry.pieces.length){applyProgress(1);caption.textContent='拼合完成：所有图形块均已吸附到经过验证的目标位置。';}}
+function syncInputs(){for(const input of document.querySelectorAll('[data-var]')){const key=input.getAttribute('data-var');if(key&&Object.prototype.hasOwnProperty.call(state,key))input.value=String(state[key]);}}
+function update(patch){const next=patch&&typeof patch==='object'?patch:{};const before=String(sceneModule.structureKey(cloneState()));for(const key of Object.keys(DEFAULT_STATE)){if(Object.prototype.hasOwnProperty.call(next,key)){const value=finite(next[key]);if(value!==null)state[key]=value;}}const after=String(sceneModule.structureKey(cloneState()));if(before!==after)buildScene();else refreshGeometry();syncInputs();if(Object.prototype.hasOwnProperty.call(next,'progress'))controller.setProgress(next.progress);return getState();}
+function play(){placedIds.clear();for(const node of registry.values())node.removeAttribute('data-placed');playing=true;controller.play();}
 function pause(){playing=false;controller.pause();}
-function reset(){playing=false;Object.assign(state,DEFAULT_STATE);for(const input of document.querySelectorAll('[data-var]')){const key=input.getAttribute('data-var');if(Object.prototype.hasOwnProperty.call(DEFAULT_STATE,key))input.value=String(DEFAULT_STATE[key]);}buildScene();controller.reset();}
+function reset(){playing=false;Object.assign(state,DEFAULT_STATE);syncInputs();buildScene();controller.reset();}
 function setSpeed(value){controller.setSpeed(value);}
-function getState(){return Object.assign({},cloneState(),{progress:currentProgress,isPlaying:playing,pieceCount:registry.size,animationBackend});}
-function bindControls(){document.getElementById('play-animation').addEventListener('click',play);document.getElementById('pause-animation').addEventListener('click',pause);document.getElementById('reset-animation').addEventListener('click',reset);document.getElementById('animation-speed').addEventListener('change',(event)=>setSpeed(event.target.value));for(const input of document.querySelectorAll('[data-var]'))input.addEventListener('input',(event)=>{const key=event.target.getAttribute('data-var');const value=finite(event.target.value);if(key&&value!==null)update({[key]:value});});}
+function getState(){return Object.assign({},cloneState(),{progress:currentProgress,isPlaying:playing,pieceCount:registry.size,placedPieceCount:placedIds.size,animationBackend});}
+function bindControls(){document.getElementById('play-animation').addEventListener('click',play);document.getElementById('pause-animation').addEventListener('click',pause);document.getElementById('reset-animation').addEventListener('click',reset);document.getElementById('animation-speed').addEventListener('change',(event)=>setSpeed(event.target.value));for(const input of document.querySelectorAll('[data-var]'))input.addEventListener('input',(event)=>{const key=event.target.getAttribute('data-var');const value=finite(event.target.value);if(key&&value!==null)update({[key]:value});});for(const button of document.querySelectorAll('[data-preset-id]'))button.addEventListener('click',()=>{const preset=(INTERACTION_CONFIG.presets||[]).find((item)=>String(item.id)===button.getAttribute('data-preset-id'));if(preset&&preset.values){update(preset.values);controller.reset();}});}
 function handleWidgetAction(event){const message=event.data||{};if(message.type==='SET_WIDGET_STATE'&&message.state)update(message.state);if(message.type==='HIGHLIGHT_ELEMENT'&&message.target){const node=document.querySelector(message.target);if(node)node.setAttribute('data-highlighted','true');}if(message.type==='ANNOTATE_ELEMENT'&&message.content)caption.textContent=String(message.content);if(message.type==='REVEAL_ELEMENT'&&message.target){const node=document.querySelector(message.target);if(node)node.hidden=false;}}
 try{if(!window.AetherVizAnimationController)throw new Error('missing_animation_controller');buildScene();controller=window.AetherVizAnimationController.create({duration:4,update:applyProgress,ease:'power1.inOut'});bindControls();window.addEventListener('message',handleWidgetAction);window.AetherVizRuntime={play,pause,reset,setSpeed,update,getState};window.__AETHERVIZ_RUNTIME_READY__=true;}catch(error){window.__AETHERVIZ_RUNTIME_ERROR__=String(error&&error.message||error);caption.textContent='课件初始化失败：'+window.__AETHERVIZ_RUNTIME_ERROR__;}
 })();"""

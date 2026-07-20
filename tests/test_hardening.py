@@ -59,29 +59,6 @@ def test_invalid_planning_json_is_not_silently_normalized() -> None:
         parse_planning_result("{invalid", "勾股定理")
 
 
-@pytest.mark.parametrize(
-    ("representation", "marker"),
-    (
-        ("number_line", "数轴表征"),
-        ("tree_diagram", "树状图表征"),
-        ("dynamic_model", "动态模型表征"),
-        ("concept_map", "概念图表征"),
-    ),
-)
-def test_all_knowledge_profile_representations_have_prompt_modules(representation: str, marker: str) -> None:
-    from aetherviz_service.aetherviz.agents.instructions import system_prompt_for_interactive_type
-
-    prompt = system_prompt_for_interactive_type(
-        {
-            "interactive_type": "diagram",
-            "subject": "general",
-            "knowledge_profile": {"representation_type": representation},
-        }
-    )
-
-    assert marker in prompt
-
-
 def test_plan_loads_katex_only_when_formulas_are_present(monkeypatch) -> None:
     monkeypatch.setattr(settings, "aetherviz_katex_enabled", True)
     with_formula = sample_plan("勾股定理")

@@ -7,11 +7,22 @@ from typing import Any
 from aetherviz_service.aetherviz.ir.router.contracts import IRRouteAssessment, IRRoutingProfile
 
 PROFILE = IRRoutingProfile(
-    description="几何对象切分为稳定图元，经独立变换和中间状态重排后形成目标拼合并证明度量关系。",
-    capabilities=frozenset({"piece_decomposition", "piece_transform", "target_assembly", "geometry_invariant"}),
+    description="几何对象切分为稳定图元，经独立变换、拖拽吸附和中间状态重排后形成目标拼合并证明度量关系。",
+    capabilities=frozenset(
+        {
+            "piece_decomposition",
+            "piece_transform",
+            "target_assembly",
+            "geometry_invariant",
+            "piece_drag",
+            "snap_target",
+            "preset",
+            "progressive_reveal",
+        }
+    ),
     required_capabilities=frozenset({"piece_decomposition", "piece_transform"}),
     supported_view_kinds=frozenset({"geometric_scene"}),
-    exclusions=("仅作图或拖动点", "没有切分重排", "没有稳定拼片集合"),
+    exclusions=("仅作图或拖动控制点", "没有切分重排", "没有稳定拼片集合"),
 )
 
 
@@ -20,6 +31,7 @@ def assess(plan: dict[str, Any]) -> IRRouteAssessment:
     relations = {str(item.get("type") or "") for item in spec.get("correspondences", []) if isinstance(item, dict)}
     invariants = {str(item) for item in spec.get("required_invariants", [])}
     interactions = {str(item) for item in spec.get("interaction_requirements", []) if str(item)}
+    supported_interactions = {"drag", "preset", "reveal", "trace", "scrub", "play", "pause", "reset"}
     recomposition = plan.get("recomposition_spec") if isinstance(plan.get("recomposition_spec"), dict) else {}
     stages = ((recomposition.get("proof_constraints") or {}).get("stage_requirements") or []) if recomposition else []
     checks = {
@@ -32,7 +44,7 @@ def assess(plan: dict[str, Any]) -> IRRouteAssessment:
         "profile_prior": ((plan.get("knowledge_profile") or {}).get("representation_type") == "geometric_recomposition")
         if isinstance(plan.get("knowledge_profile"), dict)
         else False,
-        "supported_interactions": not bool(interactions & {"drag", "preset", "trace"}),
+        "supported_interactions": interactions <= supported_interactions,
     }
     weights = {
         "piece_decomposition": 0.30,
@@ -51,7 +63,7 @@ def assess(plan: dict[str, Any]) -> IRRouteAssessment:
             (not checks["piece_decomposition"], "计划没有可验证的切分重排阶段"),
             (
                 not checks["supported_interactions"],
-                "计划要求逐片拖拽、预设或轨迹交互，超出重排播放运行时能力",
+                "计划包含几何重排运行时不支持的交互类型",
             ),
         )
         if condition

@@ -5,6 +5,7 @@ from copy import deepcopy
 
 import pytest
 
+from aetherviz_service.aetherviz.contracts.html_stream import HtmlGenerationError
 from aetherviz_service.aetherviz.contracts.layout import assemble_layout_contract
 from aetherviz_service.aetherviz.contracts.pipeline import (
     _accept_hard_repair_candidate,
@@ -250,7 +251,7 @@ def test_structured_piece_invariants_recover_omitted_recomposition_contract() ->
         for item in plan["representation_spec"]["correspondences"]
     )
     route = resolve_generation_route(plan)
-    assert route.selected_backend is None
+    assert route.selected_backend == "recomposition_scene"
     assert route.source == "deterministic"
     assert route.llm_invoked is False
 
@@ -552,7 +553,7 @@ def test_deterministic_fallback_satisfies_explicit_rectangle_assembly() -> None:
     assert report["ok"], report["candidates"][0]["details"]["target_assembly"]
 
 
-def test_explicit_target_assembly_uses_verified_fallback_after_failed_repair(
+def test_explicit_target_assembly_stops_after_failed_repair(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from aetherviz_service.aetherviz.ir.recomposition import agent as recomposition_agent
@@ -592,13 +593,12 @@ def test_explicit_target_assembly_uses_verified_fallback_after_failed_repair(
         lambda *_args: (_ for _ in ()).throw(ValueError("repair failed")),
     )
 
-    items = list(recomposition_agent._stream_generate_recomposition_html_impl("topic", plan))
-    result = items[-1]
-    assert result.degraded is True
-    assert "<!DOCTYPE html>" in result.html
+    with pytest.raises(HtmlGenerationError) as exc_info:
+        list(recomposition_agent._stream_generate_recomposition_html_impl("topic", plan))
+    assert exc_info.value.code == "ir_generation_failed"
 
 
-def test_failed_repair_still_raises_when_deterministic_fallback_violates_plan(
+def test_failed_repair_never_uses_deterministic_fallback(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from aetherviz_service.aetherviz.ir.recomposition import agent as recomposition_agent
@@ -620,10 +620,9 @@ def test_failed_repair_still_raises_when_deterministic_fallback_violates_plan(
         "_repair_scene_source",
         lambda *_args: (_ for _ in ()).throw(ValueError("repair failed")),
     )
-    monkeypatch.setattr(recomposition_agent, "_build_verified_deterministic_scene_module", lambda _plan: "")
-
-    with pytest.raises(recomposition_agent.GeometryIRGenerationError):
+    with pytest.raises(HtmlGenerationError) as exc_info:
         list(recomposition_agent._stream_generate_recomposition_html_impl("topic", plan))
+    assert exc_info.value.code == "ir_generation_failed"
 
 
 def test_geometry_ir_failure_reports_unique_actionable_reasons() -> None:
@@ -1541,8 +1540,39 @@ def test_server_scaffold_assembles_valid_bounded_html() -> None:
     report = build_validation_report(assembled, plan=plan, model_html=business)
     assert report["ok"]
     assert len(source) <= 12_000
-    assert len(business) <= 24_000
+    assert len(business) <= 30_000
     assert not any(error["type"] == "structural_render_inside_animation_frame" for error in report["errors"])
+
+
+def test_recomposition_runtime_owns_drag_snap_and_presets() -> None:
+    plan = normalize_plan(
+        {
+            "interactive_spec": {
+                "type": "simulation",
+                "concept": "面积重排",
+                "variables": [
+                    {"name": "scale", "label": "尺度", "min": 1, "max": 3, "default": 2, "step": 1}
+                ],
+                "presets": [{"id": "large", "label": "大尺寸", "values": {"scale": 3}}],
+            },
+            "representation_spec": {
+                "views": [{"id": "main", "kind": "geometric_scene"}],
+                "state_variables": [{"id": "scale", "semantic_type": "length"}],
+                "correspondences": [{"type": "decompose_recompose"}],
+                "required_invariants": ["piece_congruence", "area_preserved"],
+                "interaction_requirements": ["drag", "preset", "reveal"],
+            },
+        },
+        "面积重排",
+    )
+    source = build_deterministic_scene_module(plan)
+    business = assemble_recomposition_business_html(source, plan, "面积重排")
+
+    assert 'id="recomposition-targets"' in business
+    assert 'data-preset-id="large"' in business
+    assert "node.addEventListener('pointerdown',beginDrag)" in business
+    assert "INTERACTION_CONFIG.snap_distance" in business
+    assert "placedPieceCount:placedIds.size" in business
 
 
 def test_recomposition_regression_uses_project_html_hard_limit() -> None:
@@ -1698,11 +1728,8 @@ def test_generate_workflow_routes_recomposition_to_scene_backend(monkeypatch: py
     monkeypatch.setattr(settings, "langsmith_tracing", False)
     monkeypatch.setattr(settings, "aetherviz_max_repair_attempts", 0)
     events = list(run_generate_workflow(run_id="scene-test", topic="圆的面积推导", approved_plan=plan))
-    done = next(event for event in events if event.startswith("event: html.done"))
-    payload = json.loads(next(line[6:] for line in done.splitlines() if line.startswith("data: ")))
-    assert payload["data"]["metadata"]["generation_backend"] == "recomposition_scene"
-    assert payload["data"]["metadata"]["generation_route_source"] == "deterministic"
-    assert payload["data"]["metadata"]["generation_route_llm_invoked"] is False
-    assert payload["data"]["metadata"]["generation_route_llm_selected_backend"] is None
-    assert payload["data"]["metadata"]["generation_route_llm_required_capabilities"] == []
-    assert payload["data"]["metadata"]["truncated"] is False
+    error = next(event for event in events if event.startswith("event: error"))
+    payload = json.loads(next(line[6:] for line in error.splitlines() if line.startswith("data: ")))
+    assert payload["data"]["code"] == "model_unavailable"
+    assert payload["metadata"]["generation_backend"] == "recomposition_scene"
+    assert payload["metadata"]["generation_route_source"] == "deterministic"

@@ -30,7 +30,7 @@ def resolve_generation_route(
             1.0,
             fingerprint,
             candidates,
-            ("没有 IR 后端满足计划所需能力，使用直接 HTML",),
+            ("没有 IR 后端满足计划所需能力，停止生成",),
             started,
         )
 
@@ -119,7 +119,7 @@ def _prior_backend(plan: dict[str, Any], registry: IRBackendRegistry) -> str | N
         return None
     backend = registry.resolve(plan)
     if backend is None:
-        return "direct"
+        return None
     assessment = backend.assess(plan) if backend.assess is not None else None
     if assessment is not None and not assessment.eligible and representation == "geometric_construction":
         # This legacy prior covers both continuous Euclidean construction and

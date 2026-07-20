@@ -7,13 +7,14 @@ from dataclasses import dataclass, field
 from functools import partial
 from typing import Any
 
+from aetherviz_service.aetherviz.contracts.html_stream import HtmlGenerationError
 from aetherviz_service.aetherviz.ir.router.contracts import (
     IRRouteAssessment,
     IRRouteDecision,
     IRRoutingProfile,
 )
 
-DIRECT_GENERATION_BACKEND = "direct"
+UNSUPPORTED_GENERATION_BACKEND = "unsupported"
 
 IRStream = Iterator[Any]
 IRStreamFactory = Callable[[str, dict[str, Any]], IRStream]
@@ -51,7 +52,7 @@ class IRBackendRegistry:
     def register(self, backend: IRBackend) -> None:
         if not backend.key or backend.key in self._by_key:
             raise ValueError(f"duplicate_ir_backend:{backend.key}")
-        if backend.key == DIRECT_GENERATION_BACKEND:
+        if backend.key == UNSUPPORTED_GENERATION_BACKEND:
             raise ValueError(f"reserved_ir_backend:{backend.key}")
         if not backend.representation_types:
             raise ValueError(f"ir_backend_without_representation:{backend.key}")
@@ -83,15 +84,14 @@ class IRBackendRegistry:
         *,
         topic: str,
         plan: dict[str, Any],
-        direct_stream: IRStreamFactory,
     ) -> GenerationStreamSelection:
-        """Map a route decision to one stream factory; unknown/missing keys fall back to direct."""
+        """Map a route decision to one verified IR stream or an explicit failure stream."""
 
         backend = self.get(route.selected_backend) if route.selected_backend else None
         if backend is None:
             return GenerationStreamSelection(
-                generation_backend=DIRECT_GENERATION_BACKEND,
-                stream_factory=partial(direct_stream, topic, plan),
+                generation_backend=UNSUPPORTED_GENERATION_BACKEND,
+                stream_factory=partial(_unsupported_ir_stream, topic, plan, route),
                 ir_backend=None,
             )
         return GenerationStreamSelection(
@@ -99,6 +99,22 @@ class IRBackendRegistry:
             stream_factory=partial(backend.stream, topic, plan),
             ir_backend=backend,
         )
+
+
+def _unsupported_ir_stream(
+    topic: str,
+    plan: dict[str, Any],
+    route: IRRouteDecision,
+) -> IRStream:
+    del topic, plan
+    reasons = [reason for candidate in route.candidates for reason in candidate.exclusion_reasons]
+    detail = "；".join(dict.fromkeys(reasons)) or "当前计划没有满足全部必需能力的已注册 IR 后端"
+    raise HtmlGenerationError(
+        "当前教学动画超出已验证 IR 的能力范围，已停止生成",
+        code="unsupported_ir_capability",
+        detail=detail,
+    )
+    yield  # pragma: no cover - keep this function an iterator factory
 
 
 def _build_default_registry() -> IRBackendRegistry:

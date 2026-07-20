@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import Iterator
-from dataclasses import replace
 from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -16,7 +15,6 @@ from aetherviz_service.aetherviz.contracts.html_stream import (
     HtmlStreamResult,
     build_html_progress_payload,
 )
-from aetherviz_service.aetherviz.generate.html_agent import stream_generate_html
 from aetherviz_service.aetherviz.ir.number_line.contract import (
     NUMBER_LINE_IR_MAX_CHARS,
     NUMBER_LINE_IR_VERSION,
@@ -84,14 +82,11 @@ def stream_generate_number_line_html(topic: str, plan: dict[str, Any]) -> Iterat
         except (TypeError, ValueError, json.JSONDecodeError):
             ranking = {"ok": False}
     if not ranking["ok"]:
-        logger.warning("number-line IR invalid; falling back to direct HTML")
-        for item in stream_generate_html(topic, plan):
-            yield (
-                replace(item, degraded=True, generation_fallback="number_line_ir_invalid")
-                if isinstance(item, HtmlStreamResult)
-                else item
-            )
-        return
+        raise HtmlGenerationError(
+            "数轴 IR 未通过确定性校验，已停止生成",
+            code="ir_generation_failed",
+            detail="number_line_ir_invalid",
+        )
     yield build_html_progress_payload(
         [
             {"content": "生成数轴 IR", "status": "completed"},

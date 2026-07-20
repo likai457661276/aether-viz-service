@@ -15,7 +15,7 @@ def test_plan_aware_routing_fixes_known_false_negative_and_false_positive(monkey
     assert direct.selected_backend == "coordinate_graph_scene"
 
 
-def test_recomposition_with_manual_piece_interactions_routes_to_direct_html(monkeypatch) -> None:
+def test_recomposition_with_manual_piece_interactions_routes_to_verified_runtime(monkeypatch) -> None:
     monkeypatch.setattr(settings, "aetherviz_ir_router_enabled", False)
     plan = {
         "knowledge_profile": {"representation_type": "geometric_recomposition"},
@@ -43,11 +43,10 @@ def test_recomposition_with_manual_piece_interactions_routes_to_direct_html(monk
     assessment = assess_recomposition(plan)
     route = service.resolve_generation_route(plan)
 
-    assert assessment.eligible is False
-    assert "supported_interactions" not in assessment.matched_capabilities
-    assert any("超出重排播放运行时能力" in reason for reason in assessment.exclusion_reasons)
-    assert route.selected_backend is None
-    assert "使用直接 HTML" in route.reasons[0]
+    assert assessment.eligible is True
+    assert "supported_interactions" in assessment.matched_capabilities
+    assert assessment.exclusion_reasons == ()
+    assert route.selected_backend == "recomposition_scene"
 
 
 def test_router_uses_llm_only_for_prior_conflict_and_accepts_registered_candidate(monkeypatch) -> None:

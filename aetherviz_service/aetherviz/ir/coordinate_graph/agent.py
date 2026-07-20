@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import Iterator
-from dataclasses import replace
 from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -22,7 +21,6 @@ from aetherviz_service.aetherviz.contracts.html_stream import (
     HtmlStreamResult,
     build_html_progress_payload,
 )
-from aetherviz_service.aetherviz.generate.html_agent import stream_generate_html
 from aetherviz_service.aetherviz.ir.coordinate_graph.contract import (
     COORDINATE_GRAPH_IR_MAX_CHARS,
     COORDINATE_GRAPH_IR_VERSION,
@@ -130,26 +128,14 @@ def _stream_generate_coordinate_graph_html_impl(
         if not repaired_ranking["ok"]:
             report = repaired_ranking.get("repair_report") or {}
             logger.warning(
-                "coordinate graph IR failed deterministic validation; falling back to direct HTML: %s",
+                "coordinate graph IR failed deterministic validation: %s",
                 json.dumps(report.get("errors", [])[:8], ensure_ascii=False),
             )
-            yield build_html_progress_payload(
-                [
-                    {"content": "生成单视图坐标 IR", "status": "completed"},
-                    {"content": "验证函数与动态点不变量", "status": "completed"},
-                    {"content": "切换直接 HTML 安全降级", "status": "in_progress"},
-                ]
+            raise HtmlGenerationError(
+                "坐标图 IR 未通过确定性校验，已停止生成",
+                code="ir_generation_failed",
+                detail="coordinate_graph_ir_invalid",
             )
-            for item in stream_generate_html(topic, plan):
-                if isinstance(item, HtmlStreamResult):
-                    yield replace(
-                        item,
-                        degraded=True,
-                        generation_fallback="coordinate_graph_ir_invalid",
-                    )
-                else:
-                    yield item
-            return
         ir = repaired_ranking["selected_ir"]
     yield build_html_progress_payload(
         [

@@ -13,14 +13,17 @@ from langsmith import traceable
 from langsmith.run_helpers import get_current_run_tree
 
 from aetherviz_service.aetherviz.agents.model_factory import create_chat_model, extract_llm_text, has_primary_llm_config
-from aetherviz_service.aetherviz.contracts.html_stream import HtmlStreamResult, build_html_progress_payload
+from aetherviz_service.aetherviz.contracts.html_stream import (
+    HtmlGenerationError,
+    HtmlStreamResult,
+    build_html_progress_payload,
+)
 from aetherviz_service.aetherviz.ir.recomposition.assembly import (
     translate_target_assembly_into_canvas,
 )
 from aetherviz_service.aetherviz.ir.recomposition.contract import (
     GEOMETRY_IR_MAX_CHARS,
     GEOMETRY_IR_VERSION,
-    build_deterministic_geometry_ir,
     compile_geometry_ir,
     extract_geometry_ir_from_scene_source,
     geometry_ir_candidates_response_schema,
@@ -35,7 +38,6 @@ from aetherviz_service.aetherviz.ir.recomposition.ranking import (
 )
 from aetherviz_service.aetherviz.ir.recomposition.runtime import (
     assemble_recomposition_business_html,
-    build_deterministic_scene_module,
 )
 from aetherviz_service.aetherviz.ir.recomposition.scene_contract import validate_scene_module
 from aetherviz_service.aetherviz.ir.recomposition.waypoints import (
@@ -124,47 +126,39 @@ def _stream_generate_recomposition_html_impl(
             {"content": "装配服务端动画生命周期", "status": "pending"},
         ]
     )
+    if not has_primary_llm_config():
+        raise HtmlGenerationError("几何重排 IR 生成失败，未配置可用模型", code="model_unavailable")
     degraded = False
-    source = ""
-    repair_input = ""
-    repair_report: dict[str, Any] | None = None
-    if has_primary_llm_config():
+    try:
+        source, degraded = _generate_scene_source(topic, plan)
+    except GeometryIRGenerationError as exc:
         try:
-            source, degraded = _generate_scene_source(topic, plan)
-        except GeometryIRGenerationError as exc:
-            repair_input = exc.raw_text
-            repair_report = exc.report
-            degraded = True
-        except GeneratorExit:
-            raise
-        except Exception as exc:
-            logger.warning("geometry IR generation failed; using generic contract fallback: %s", exc)
-            degraded = True
-    else:
+            source = _repair_scene_source(topic, plan, exc.raw_text, exc.report)
+        except Exception as repair_exc:
+            logger.warning("geometry IR bounded repair failed: %s", repair_exc)
+            raise HtmlGenerationError(
+                "几何重排 IR 未通过确定性校验，已停止生成",
+                code="ir_generation_failed",
+                detail=str(exc),
+            ) from repair_exc
         degraded = True
-    if repair_input and repair_report and has_primary_llm_config():
-        try:
-            source = _repair_scene_source(topic, plan, repair_input, repair_report)
-        except Exception as exc:
-            logger.warning("geometry IR bounded repair failed: %s", exc)
-    if not source and repair_report:
-        source = _build_verified_deterministic_scene_module(plan)
-        if not source:
-            raise GeometryIRGenerationError(repair_input, repair_report)
-        logger.warning("using contract-verified deterministic geometry IR after bounded repair failure")
-        degraded = True
+    except GeneratorExit:
+        raise
+    except Exception as exc:
+        logger.warning("geometry IR generation failed: %s", exc)
+        raise HtmlGenerationError(
+            "几何重排 IR 生成失败，已停止生成",
+            code="ir_generation_failed",
+            detail=type(exc).__name__,
+        ) from exc
     report = validate_scene_module(source)
     if not report["ok"]:
-        if source:
-            logger.warning(
-                "scene module rejected; using generic contract fallback: %s",
-                [error.get("type") for error in report.get("errors", [])],
-            )
-        source = build_deterministic_scene_module(plan)
-        fallback_report = validate_scene_module(source)
-        if not fallback_report["ok"]:
-            raise ValueError(f"deterministic scene module violated contract: {fallback_report['errors']}")
-        degraded = True
+        errors = [str(error.get("type")) for error in report.get("errors", []) if isinstance(error, dict)]
+        raise HtmlGenerationError(
+            "几何重排 Scene Module 未通过运行时契约校验，已停止生成",
+            code="ir_generation_failed",
+            detail=",".join(errors[:8]) or "recomposition_scene_module_invalid",
+        )
     business_html = assemble_recomposition_business_html(source, plan, topic)
     yield build_html_progress_payload(
         [
@@ -493,16 +487,6 @@ def _build_scene_prompt(topic: str, plan: dict[str, Any]) -> str:
         "画布为 960×560，默认状态的主体图形建议占 160~420px，避免把 1~8 这类抽象参数直接当像素尺寸。\n"
         + json.dumps(compact, ensure_ascii=False, separators=(",", ":"))
     )
-
-
-def _build_verified_deterministic_scene_module(plan: dict[str, Any]) -> str:
-    """Compile the generic fallback only when it satisfies the complete plan contract."""
-    geometry_ir = build_deterministic_geometry_ir(plan)
-    ranking = _trace_rank_geometry_ir_candidates([geometry_ir], plan, origins=["deterministic_fallback"])
-    _log_ranking(ranking)
-    if not ranking["ok"]:
-        return ""
-    return compile_geometry_ir(ranking["selected_ir"], plan)
 
 
 def _parse_error_report(message: str) -> dict[str, Any]:

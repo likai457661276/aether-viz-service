@@ -5,7 +5,7 @@ its model contract, deterministic validation, compiler and server runtime.
 """
 
 from aetherviz_service.aetherviz.ir.registry import (
-    DIRECT_GENERATION_BACKEND,
+    UNSUPPORTED_GENERATION_BACKEND,
     GenerationStreamSelection,
     IRBackend,
     IRBackendRegistry,
@@ -13,9 +13,9 @@ from aetherviz_service.aetherviz.ir.registry import (
 )
 
 __all__ = [
-    "DIRECT_GENERATION_BACKEND",
     "GenerationStreamSelection",
     "IRBackend",
     "IRBackendRegistry",
+    "UNSUPPORTED_GENERATION_BACKEND",
     "resolve_ir_backend",
 ]

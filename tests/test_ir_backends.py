@@ -5,9 +5,9 @@ from copy import deepcopy
 
 import pytest
 
+from aetherviz_service.aetherviz.contracts.html_stream import HtmlGenerationError
 from aetherviz_service.aetherviz.contracts.layout import assemble_layout_contract
 from aetherviz_service.aetherviz.contracts.validation.report import build_validation_report
-from aetherviz_service.aetherviz.generate.html_agent import HtmlStreamResult
 from aetherviz_service.aetherviz.ir.coordinate_graph import agent as coordinate_graph_agent
 from aetherviz_service.aetherviz.ir.coordinate_graph.contract import (
     COORDINATE_GRAPH_IR_VERSION,
@@ -336,15 +336,11 @@ def test_parametric_geometry_ir_rejects_convergence_without_error_measure() -> N
     assert any(item["type"] == "missing_convergence_measure" for item in report["errors"])
 
 
-def test_registry_select_for_route_prefers_ir_then_direct_fallback() -> None:
-    from aetherviz_service.aetherviz.ir.registry import DIRECT_GENERATION_BACKEND
+def test_registry_select_for_route_prefers_ir_then_explicit_unsupported_failure() -> None:
+    from aetherviz_service.aetherviz.ir.registry import UNSUPPORTED_GENERATION_BACKEND
     from aetherviz_service.aetherviz.ir.router.contracts import IRRouteDecision
 
     calls: list[str] = []
-
-    def direct_stream(topic: str, plan: dict):
-        calls.append(f"direct:{topic}")
-        yield {"delta": "x"}
 
     def ir_stream(topic: str, plan: dict):
         calls.append(f"ir:{topic}")
@@ -358,24 +354,26 @@ def test_registry_select_for_route_prefers_ir_then_direct_fallback() -> None:
         plan_fingerprint="fp",
         candidates=(),
     )
-    selection = registry.select_for_route(ir_route, topic="主题", plan={}, direct_stream=direct_stream)
+    selection = registry.select_for_route(ir_route, topic="主题", plan={})
     assert selection.generation_backend == "demo_scene"
     assert selection.ir_backend is not None
     list(selection.stream_factory())
     assert calls == ["ir:主题"]
 
-    direct_route = IRRouteDecision(
+    unsupported_route = IRRouteDecision(
         selected_backend=None,
         source="fallback",
         confidence=0.0,
         plan_fingerprint="fp",
         candidates=(),
     )
-    direct = registry.select_for_route(direct_route, topic="主题", plan={}, direct_stream=direct_stream)
-    assert direct.generation_backend == DIRECT_GENERATION_BACKEND
-    assert direct.ir_backend is None
-    list(direct.stream_factory())
-    assert calls == ["ir:主题", "direct:主题"]
+    unsupported = registry.select_for_route(unsupported_route, topic="主题", plan={})
+    assert unsupported.generation_backend == UNSUPPORTED_GENERATION_BACKEND
+    assert unsupported.ir_backend is None
+    with pytest.raises(HtmlGenerationError) as exc_info:
+        list(unsupported.stream_factory())
+    assert exc_info.value.code == "unsupported_ir_capability"
+    assert calls == ["ir:主题"]
 
     unknown = registry.select_for_route(
         IRRouteDecision(
@@ -387,9 +385,8 @@ def test_registry_select_for_route_prefers_ir_then_direct_fallback() -> None:
         ),
         topic="主题",
         plan={},
-        direct_stream=direct_stream,
     )
-    assert unknown.generation_backend == DIRECT_GENERATION_BACKEND
+    assert unknown.generation_backend == UNSUPPORTED_GENERATION_BACKEND
 
 
 def test_ir_registry_rejects_backend_and_representation_collisions() -> None:
@@ -460,21 +457,15 @@ def test_coordinate_graph_runtime_owns_svg_units_and_family_metadata() -> None:
     assert report["ok"], report
 
 
-def test_coordinate_graph_ir_failure_falls_back_to_direct_html_with_metadata(monkeypatch) -> None:
+def test_coordinate_graph_ir_failure_stops_without_direct_html(monkeypatch) -> None:
     responses = iter(['{"candidates":[{},{}]}', "{}"])
     monkeypatch.setattr(coordinate_graph_agent, "has_primary_llm_config", lambda: True)
     monkeypatch.setattr(coordinate_graph_agent, "_stream_ir", lambda *_args: next(responses))
-    monkeypatch.setattr(
-        coordinate_graph_agent,
-        "stream_generate_html",
-        lambda *_args: iter([HtmlStreamResult(html="<!DOCTYPE html><html></html>", degraded=False)]),
-    )
+    with pytest.raises(HtmlGenerationError) as exc_info:
+        list(coordinate_graph_agent.stream_generate_coordinate_graph_html("一次函数图像", _coordinate_plan()))
 
-    items = list(coordinate_graph_agent.stream_generate_coordinate_graph_html("一次函数图像", _coordinate_plan()))
-    result = next(item for item in items if isinstance(item, HtmlStreamResult))
-
-    assert result.degraded is True
-    assert result.generation_fallback == "coordinate_graph_ir_invalid"
+    assert exc_info.value.code == "ir_generation_failed"
+    assert exc_info.value.detail == "coordinate_graph_ir_invalid"
 
 
 def test_linked_coordinate_profile_uses_generic_multi_representation_evidence() -> None:

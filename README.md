@@ -2,15 +2,36 @@
 
 `AI教学动画` 是一个基于 Python 3.12 和 FastAPI 的后端服务，用于根据教学主题生成完整、可直接打开的互动教学 HTML。
 
-当前生成链路使用 LangChain `ChatOpenAI` 生成动态单页互动课件：先生成可确认的 `interactive` 教案计划，用户可多轮修订计划，确认后再生成 HTML。服务端根据主题生成通用 `knowledge_profile`（学科、概念族、表征类型、教学模式），规划模型同时输出描述视图、状态变量、跨视图关系和不变量的 `representation_spec`；各 IR 后端根据完整计划独立评分，高置信度结果确定性路由，候选冲突或画像先验与计划语义冲突时可由短 JSON 的 `deepseek-v4-flash` 仲裁，模型选择仍须通过注册表和硬排除校验。普通主题沿用直接 HTML 链路，结构化场景由 IR 注册表路由到独立后端。`geometric_recomposition` 负责几何切分重排，`linked_coordinate_scene` 负责多坐标系、函数曲线、轨迹、动态点和投影的参数联动，`coordinate_graph_scene` 负责单一坐标平面的函数、曲线和动态点，`number_line_scene` 负责一维数轴上的点、端点、区间、动态派生集合、射线、距离和有向位移，`data_distribution_scene` 负责共享数据源的统计表格、图表和派生统计量；这些后端都只允许模型生成纯 JSON IR，不允许模型持有 DOM、动画循环或响应式布局。坐标类后端复用同一表达式校验和像素对齐 SVG Runtime，data-to-screen 映射、屏幕 y 轴翻转、字号与描边由服务端唯一控制；数轴与数据分布后端也分别由服务端统一控制尺度映射、集合拓扑、分箱和统计计算。最终页面统一按 `math-shell-v1` 布局契约装配，不为单独知识点维护硬编码模板。HTML 只在请求内存中完成装配、检查和修复，通过 SSE 返回前端渲染与会话缓存；后端不落盘缓存 HTML、修复稿或检查报告。
+当前生成链路只交付经过确定性契约验证的 IR 场景：先生成可确认的 `interactive` 教案计划，再根据 `representation_spec` 的视图、状态、对应关系、不变量和交互能力路由到一个已注册 IR 后端。模型只生成受限 JSON IR，SVG/DOM、坐标映射、交互和动画生命周期由服务端 Runtime 编译。没有 IR 满足计划能力时返回 `unsupported_ir_capability`；IR 候选及一次受限修复仍不合格时返回 `ir_generation_failed`。初始生成不再调用通用 direct HTML，也不会把结构合法但教学或视觉不可验证的页面作为成功结果。
+
+最终页面统一按 `math-shell-v1` 布局契约装配。HTML 只在请求内存中完成装配、检查和必要修复，通过 SSE 返回前端渲染与会话缓存；后端不落盘缓存 HTML、修复稿或检查报告。
+
+## IR 覆盖范围
+
+IR 覆盖按“可验证表征能力”计算，不按教材目录中的知识点标题计数。同一个 IR 可覆盖不同年级、教材和命名下的大量知识点；只有示例标题相同但所需交互或不变量超出契约时，也不会被视为已覆盖。当前共有 **10 个生产 IR 家族**：
+
+| IR 后端 | 已验证能力 | 代表性知识点/场景 | 明确边界 |
+| --- | --- | --- | --- |
+| `recomposition_scene` | 稳定拼片、面积/长度/角度守恒、多阶段重排、逐片拖拽、目标吸附、参数预设、渐进揭示 | 勾股定理割补证明、圆面积推导、三角形/平行四边形/梯形面积割补、等积变换 | 不做连续 path morph、自由绘图或未经目标拼合校验的近似动画 |
+| `linked_coordinate_scene` | 多坐标视图共享参数、动态点、轨迹、投影和跨视图对应 | 单位圆与正弦曲线、旋转向量投影、参数曲线的多视图联动 | 不做无共享参数的独立图表或任意三维场景 |
+| `coordinate_graph_scene` | 单坐标系完整曲线、动态点、辅助投影、稳定定义域揭示 | 一次/二次函数、三角函数、指数/对数函数、参数曲线、点在曲线上运动 | 不做多坐标系联动、隐式通用求解或自由绘图 |
+| `parametric_geometry_scene` | 离散边数驱动的圆内接/外切正多边形、周长和误差收敛 | 正多边形逼近圆、圆周率近似、内外接周长收敛 | 仅离散正多边形，不做连续欧氏构造或割补重排 |
+| `number_line_scene` | 点、开闭区间、射线、并交集、绝对距离、有向位移 | 不等式解集、区间运算、绝对值、数轴位移 | 仅一维有序尺度，不做二维函数或统计图 |
+| `constraint_geometry_scene` | 点线圆角、受约束拖拽、轨迹及欧氏不变量验证 | 平行/垂直、等长、中点、共线、点在圆上、切线、等角、互补 | 不是通用非线性约束求解器，不做拼片重排 |
+| `data_distribution_scene` | 固定样本身份、表格与六类图表、确定性统计量 | 柱状/折线/散点/直方/箱线图，均值、中位数、方差、标准差、四分位数、线性回归 | 不做连续密度面积、重复抽样或随机累计试验 |
+| `symbolic_derivation_scene` | 受限多项式 AST、逐步等价性和方程常数倍校验 | 展开、因式分解、交换结合、分配律、线性方程等价变形 | 不支持不等式、超越方程、根式有理化和数值近似证明 |
+| `probability_experiment_scene` | 有限样本空间、事件、固定种子、累计频率和概率树 | 骰子/硬币试验、事件概率、频率趋近、有限概率树 | 不支持连续分布、无限样本空间、马尔可夫链和贝叶斯网络 |
+| `discrete_structure_scene` | 稳定节点/边/成员身份、图树集合序列和阶段揭示 | 图与树、集合关系、有限序列、排列过程 | 不执行最短路/最大流等算法，不提供自由图编辑 |
+
+这张表是生产能力白名单，不是“模型可能生成”的范围。新增知识点前应先判断它是否能完整映射到表中的状态、实体、关系、不变量和交互；不能完整映射时应新增或扩展 IR，并补充契约与回归数据，而不是放宽为自由 HTML。
 
 新增 `parametric_geometry_scene` 后端覆盖离散参数驱动的圆/正多边形构造、边界测量和误差收敛。它按最大边数一次预分配 SVG 节点，播放期只更新属性和可见性，固定 viewBox 按最坏外切包络预留，并统一复用服务端动画控制器；不用于割补重排或连续自由拖拽构造。
 
 `number_line_scene` 后端覆盖一维有序尺度上的动态点、开闭端点、区间、集合并交、不等式射线、绝对距离和有向位移。`number-line-ir.v1.1` 使用受限状态表达式，并用 `derived_sets` 引用两个输入区间；Runtime 逐帧确定性求出空集、单点、单区间或双区间，模型不生成静态集合结果。服务端同时验证对象位于固定 domain、输入区间始终有序，多变量动画必须用关键帧覆盖全部状态；该后端不用于二维函数曲线、连续几何约束或统计分布图。
 
-`constraint_geometry_scene` 后端覆盖连续参数驱动的欧氏几何构造。`constraint-geometry-ir.v1.1` 允许模型描述点、线段、圆、角、受限数学表达式和约束关系；服务端在参数上下界及内部采样状态验证共线、平行、垂直、等长、中点、重合、点在圆上、切线、等角和互补等不变量，再使用等比例数学坐标映射编译固定 SVG Runtime。点可将一个计划状态绑定为横向、纵向、圆周角或线段投影参数拖拽；轨迹使用单一 SVG path 和最多 800 个采样点的固定容量缓冲区，不在播放期创建图元。该能力不等同于通用非线性约束求解器。只有计划明确声明 `geometric_scene`、可调状态和可验证几何约束时才会路由到该后端；旧版缺少结构化表征的几何计划继续使用直接 HTML。
+`constraint_geometry_scene` 后端覆盖连续参数驱动的欧氏几何构造。`constraint-geometry-ir.v1.1` 允许模型描述点、线段、圆、角、受限数学表达式和约束关系；服务端在参数上下界及内部采样状态验证共线、平行、垂直、等长、中点、重合、点在圆上、切线、等角和互补等不变量，再使用等比例数学坐标映射编译固定 SVG Runtime。点可将一个计划状态绑定为横向、纵向、圆周角或线段投影参数拖拽；轨迹使用单一 SVG path 和最多 800 个采样点的固定容量缓冲区，不在播放期创建图元。该能力不等同于通用非线性约束求解器。只有计划明确声明 `geometric_scene`、可调状态和可验证几何约束时才会路由到该后端；缺少结构化表征或必要约束时明确返回不支持。
 
-`data_distribution_scene` 后端覆盖固定样本身份下的表格、柱状图、折线图、散点图、直方图和箱线图。`data-distribution-ir.v1` 只允许模型声明原始字段、数据行、图表映射和统计量类型；服务端在计划变量边界验证数值表达式，并统一计算分箱、均值、中位数、总体/样本方差、标准差、四分位数、IQR 和一元线性回归。所有表征共享同一数据源，直方图限制为最多 80 箱。首版不覆盖随机试验累计、重复抽样、参数化离散分布或连续密度面积，这些计划继续使用直接 HTML。
+`data_distribution_scene` 后端覆盖固定样本身份下的表格、柱状图、折线图、散点图、直方图和箱线图。`data-distribution-ir.v1` 只允许模型声明原始字段、数据行、图表映射和统计量类型；服务端在计划变量边界验证数值表达式，并统一计算分箱、均值、中位数、总体/样本方差、标准差、四分位数、IQR 和一元线性回归。所有表征共享同一数据源，直方图限制为最多 80 箱。首版不覆盖随机试验累计、重复抽样、参数化离散分布或连续密度面积；这些计划明确返回不支持。
 
 `symbolic_derivation_scene` 使用 `symbolic-derivation-ir.v1` 的受限多项式 AST 表示表达式和方程。服务端将每一步规范化为精确有理系数多项式：表达式变换必须恒等，方程变换的左右差式允许相差非零常数倍；步骤必须连续，乘除规则必须声明非零常数。首版覆盖展开、因式分解、交换结合、分配律和常数倍方程变换，不覆盖不等式、超越方程、根式有理化和数值近似证明。
 
@@ -30,7 +51,7 @@ aether-viz-service/
 │   └── aetherviz/
 │       ├── api/              # HTTP schema、route、SSE 事件
 │       ├── agents/           # planner、runtime 分发、model factory（兼容 shim 保留）
-│       ├── generate/         # 初始生成线：plan→HTML 编排、html_agent、生成向 prompts
+│       ├── generate/         # 初始生成线：plan→IR 路由→确定性 Runtime 装配
 │       ├── edit/             # 后期编辑线：诊断、策略路由、确定性/局部补丁、intent 验收、workflow（不以 plan 为基线）
 │       ├── contracts/        # 平台契约：layout 装配、validation、repair、delivery pipeline
 │       ├── ir/               # IR 注册表；每个 IR 家族独立拥有契约、Agent、编译器和 Runtime
@@ -57,7 +78,7 @@ aether-viz-service/
 
 Python 包名为 `aetherviz_service`，服务标题为 `AI教学动画`。
 
-生成线与编辑线物理隔离：`generate` 与 `edit` 互不 import；双方只依赖 `contracts` 做装配、校验与修复。视觉/数值/布局/舞台等生成向交付 prompt 仅属于 `generate/prompts.py`；编辑以当前业务 HTML 为唯一事实基线，不向模型再注入这些生成说明书。
+生成线与编辑线物理隔离：`generate` 与 `edit` 互不 import；双方只依赖 `contracts` 做装配、校验与修复。初始生成的结构化提示由各 IR 子包独立维护；编辑以当前业务 HTML 为唯一事实基线，不注入 IR 生成说明。
 
 IR 扩展遵循固定边界：`ir/registry.py` 负责后端唯一注册和能力评估入口，`ir/router/` 负责确定性排序、低置信度模型仲裁和回退；每个 IR 子包自行拥有 `routing.py`、模型提示、JSON Schema、解析与确定性语义校验、编译器和服务端 Runtime。新增 IR 时注册一个带 `routing_profile` 和 `assess(plan)` 的 `IRBackend` 即可，不在生成工作流继续添加类型条件。几何重排实现和唯一导入边界完整归属 `ir/recomposition/`，不再通过 `agents/` 或 `tools/` 暴露旧入口。
 
@@ -116,7 +137,7 @@ KaTeX 可见公式使用 `data-katex` 显式目标并直接调用 `katex.render`
 
 `AETHERVIZ_EDIT_TEMPERATURE` 只控制完整 HTML 编辑模型，默认 `0.15`；需求编译、IR 路由、Scene IR 和修复模型仍保持 `0`，避免结构化判断与确定性修复产生随机漂移。`0.15` 用于适度提高动画重设计和跨链路改造能力；是否继续提高到 `0.2` 应以真实模型编辑成功率、无关区域变化率和校验失败率的离线 A/B 结果决定。
 
-`OPENAI_ROUTER_MODEL` 只用于模糊 IR 路由的短 JSON 仲裁；`AETHERVIZ_IR_ROUTER_SHADOW_MODE=true` 时记录仲裁结论但仍执行确定性首选，完成离线回归后可关闭 Shadow。路由模型超时、格式错误、未知后端、低置信度或命中硬排除条件时均回退确定性结果，不阻断 Direct HTML 降级。
+`OPENAI_ROUTER_MODEL` 只用于模糊 IR 路由的短 JSON 仲裁；`AETHERVIZ_IR_ROUTER_SHADOW_MODE=true` 时记录仲裁结论但仍执行确定性首选，完成离线回归后可关闭 Shadow。路由模型超时、格式错误、未知后端、低置信度或命中硬排除条件时均回退到最高分的合格确定性 IR；没有合格 IR 时返回 `unsupported_ir_capability`。
 
 ### LangSmith 可观测性
 
@@ -126,7 +147,7 @@ KaTeX 可见公式使用 `data-katex` 显式目标并直接调用 `katex.render`
 LANGSMITH_TRACING="true"
 LANGSMITH_ENDPOINT="https://api.smith.langchain.com"
 LANGSMITH_API_KEY="你的 LangSmith API Key"
-LANGSMITH_PROJECT="aetherviz-direct-html"
+LANGSMITH_PROJECT="aetherviz-ir-html"
 ```
 
 `LANGSMITH_TRACING=false` 或未配置 `LANGSMITH_API_KEY` 时不会上报 trace。组织级 API Key 如需指定工作区，可额外设置 `LANGSMITH_WORKSPACE_ID`。每个 API phase 以 `aetherviz.request` 作为根 trace；计划生成会记录 `aetherviz.plan_generation` 子 run 及规范化计划，HTML 生成、整页编辑重生成、确定性校验、确定性修复、模型修复和最终校验也分别作为子 run。metadata 记录业务 `run_id`、phase、编辑策略、互动类型、错误/警告类型、修复是否接受、耗时、最终大小以及独立的 `generation_attempts` / `repair_attempts` 计数，兼容字段 `attempts` 仍表示两者之和。启用追踪时，每个 SSE 事件会额外返回真实的 `langsmith_trace_id`，供前端复制并定位完整调用树。工作流 trace 只保存摘要，不重复保存完整 SSE HTML；模型子 run 仍由 LangChain 自动采集。
@@ -339,8 +360,8 @@ HTML 文件编辑阶段请求示例：
 
 ```text
 normalize_plan
-    → resolve_generation_route   # ir/router：assess → 阈值 / 可选 shadow 仲裁 → direct 降级
-    → generate                   # 单一后端一次产出：IR JSON→assemble 或 direct HTML stream
+    → resolve_generation_route   # ir/router：assess → 阈值 / 可选 shadow 仲裁 → IR 或明确不支持
+    → generate                   # 单一 IR 后端：受限 JSON → 确定性验证 → Runtime assemble
     → assemble                   # contracts/layout：math-shell-v1 外壳装配
     → validate                   # contracts/validation：硬错误阻断，质量启发式仅 warning
     → repair                     # contracts/repair：确定性 → 函数级 → 整页模型（次数有界）
@@ -349,20 +370,20 @@ normalize_plan
 
 | 阶段 | 权威入口 | 边界 |
 |------|----------|------|
-| route | `ir/router/service.py` + `ir/registry.py` | 只选已注册后端或 `direct`；不把后端注册成 LLM tools |
-| generate | `generate/workflow.py` → IR `stream` 或 `generate/html_agent.py` | 一次后端；残缺 `</html>` 至多重试一次，禁止占位降级交付 |
+| route | `ir/router/service.py` + `ir/registry.py` | 只选满足完整能力的已注册 IR；无合格后端时明确失败 |
+| generate | `generate/workflow.py` → IR `stream` | 一次 IR 后端；候选和一次受限修复均失败后终止，不生成替代 HTML |
 | assemble / validate / repair | `contracts/pipeline.py` + `contracts/repair/` | 硬门禁在服务端；repair 为有界 `RepairSession`，非开放 Agent loop |
 
-主链路不引入通用 Agent harness。若需「看反馈再改」，只允许在 repair 子阶段扩展有界策略，不把 IR/direct 生成交给 LLM 自选工具。
+主链路不引入通用 Agent harness。若需「看反馈再改」，只允许在 repair 子阶段扩展有界策略，不把 IR 生成交给 LLM 自选工具。
 
 `/bingo-ai/generate-aetherviz-spec` 使用阶段化生成策略：
 
 1. `phase=plan` 由统一配置的模型执行单次规划，生成完整 `draft` 教案计划。
 2. `phase=revise_plan` 由规划模型接收 `current_plan + message`，重新生成完整 `revised` 计划，不返回局部 patch。
 3. `phase=approve_plan` 将计划状态置为 `approved`。
-4. `phase=generate` 根据 IR 路由结果选择后端：`geometric_recomposition` 由 `ir/recomposition/agent.py` 一次生成 3 个结构化几何 IR 候选，不生成多个 HTML；服务端淘汰确定性硬校验失败候选，对其余候选按固定权重和稳定指纹排序，只编译最高分 IR 并装配生命周期脚手架。目标拼合已满足连通、重叠和形状约束但仅整体越界时，服务端先对所有目标端点执行保持几何关系的统一平移归位；全部候选仅因中间 transform 证据不足而失败时，再用通用 waypoint 补全器生成有界、偏离首尾直线插值的独立中间状态并重新执行全部硬校验。仍失败才对最接近合格的 IR 做一次受限模型修复。计划声明显式 `target_assembly` 时，候选和修复均失败会明确终止生成，不再用无法证明原主题几何语义的通用 fallback 冒充正确结果。独立证据报告包含阶段、参数状态、piece id、失败原因、端点分离分数、直线路径偏离分数和各维度阈值；未命中 IR 的主题由 `html_agent` 直接生成业务 HTML。
-   IR 注册表在直接 HTML 之前解析已注册表征。规划模型通过 `representation_spec` 配置视图、共享状态、跨视图对应、必须证明的不变量和 `reveal` 等通用能力，不直接指定后端名称，服务端再确定性选择 IR。若计划已同时声明几何视图、拼片全等与度量守恒，即使规划模型遗漏 `recomposition_spec` 或留下过时知识画像，归一化层也会补齐通用切分重排契约并路由到 `recomposition_scene`，避免把精确几何证明降级为自由 HTML 近似动画。一个 `coordinate_plane` 且存在可调状态时路由到 `coordinate_graph_scene`；两个或更多视图、共享参数和跨视图关系完整时路由到 `linked_coordinate_scene`；存在 `number_line` 视图、可调状态且没有二维或几何视图时路由到 `number_line_scene`；视图仅由 `data_chart` 和可选 `symbolic_panel` 组成、具有可调状态且不要求随机累计或概率密度面积时路由到 `data_distribution_scene`。坐标、数轴与数据分布后端都一次生成两个结构化候选，模型只描述数学或数据语义，不负责画布中的像素位置。单视图坐标后端额外硬限制只能包含一个坐标系，并要求关键动态点通过 `point_on_curve` 证明与曲线同源；多变量计划必须用覆盖全部变量的 0~1 关键帧驱动播放。每条曲线显式声明自身 `parameter_unit`（`radian`、`degree` 或 `scalar`），角度检查不再错误继承全局动画变量单位；旧候选缺失该字段时由表达式保守推断。面向学生的坐标系说明优先使用简体中文；纯英文说明只产生质量 warning 并降低候选排序，不触发模型修复或阻断 HTML 交付，数学公式、变量、点名和国际单位保持原符号。服务端还会将 `[变量下界, 状态变量]` 形式的退化动态曲线定义域归一化为“稳定完整定义域 + reveal”，并将过宽 tolerance 收紧到契约上限，再在计划变量边界、默认值和内部四分位状态展开坐标域、完整曲线、动态点和不变量，并要求覆盖计划声明的全部可计算不变量，最后按硬错误、警告、长度和稳定指纹确定性选优；曲线渐进显示由 Runtime 使用 SVG 路径揭示实现，不再改变数学定义域。全部首稿失败时只把最接近合格候选自身的错误交给一次受限 JSON 修复，不混入其他候选对象；IR 修复后仍不合格时转入完整直接 HTML 生成，并通过 `generation_backend_fallback` 明确记录原因，所得 HTML 仍执行相同装配和硬校验。服务端统一编译 data-to-screen 映射、SVG 节点注册、参数控件、动画控制器和响应式 Runtime，因此模型不再生成任意 JavaScript。此处“其他类型”仅指未命中 IR 注册表的表征。
-5. 模型业务 HTML 先执行 38000/42000 字符目标/硬限制，再经过 `math-shell-v1` 服务端装配器；模型外层布局不会进入最终 HTML。装配器会过滤业务 CSS 中的页面级、布局槽位根节点和 range 外观规则，标准 range 由 `range-v1` 独占尺寸与渲染，播放、暂停、重置按钮及 select 由服务端提供统一的按压、状态、焦点反馈，`controller-v1` 在业务脚本执行前提供 GSAP/RAF 共用动画控制接口并广播播放状态。最终装配只执行 64000 字符异常膨胀检查。
+4. `phase=generate` 根据 IR 路由结果选择后端：`geometric_recomposition` 由 `ir/recomposition/agent.py` 一次生成 3 个结构化几何 IR 候选，不生成多个 HTML；服务端淘汰确定性硬校验失败候选，对其余候选按固定权重和稳定指纹排序，只编译最高分 IR 并装配生命周期脚手架。目标拼合已满足连通、重叠和形状约束但仅整体越界时，服务端先对所有目标端点执行保持几何关系的统一平移归位；全部候选仅因中间 transform 证据不足而失败时，再用通用 waypoint 补全器生成有界、偏离首尾直线插值的独立中间状态并重新执行全部硬校验。仍失败才对最接近合格的 IR 做一次受限模型修复；修复不合格时返回 `ir_generation_failed`。重排 Runtime 直接使用已验证 `targetTransform` 提供逐片拖拽、目标轮廓、距离吸附、完成状态、参数预设和渐进揭示，不允许模型另写吸附或拼合算法。
+   IR 注册表根据完整计划解析已注册表征。规划模型通过 `representation_spec` 配置视图、共享状态、跨视图对应、必须证明的不变量和交互能力，不直接指定后端名称，服务端再确定性选择 IR。若计划已同时声明几何视图、拼片全等与度量守恒，即使规划模型遗漏 `recomposition_spec` 或留下过时知识画像，归一化层也会补齐通用切分重排契约并路由到 `recomposition_scene`。一个 `coordinate_plane` 且存在可调状态时路由到 `coordinate_graph_scene`；两个或更多视图、共享参数和跨视图关系完整时路由到 `linked_coordinate_scene`；存在 `number_line` 视图、可调状态且没有二维或几何视图时路由到 `number_line_scene`；视图仅由 `data_chart` 和可选 `symbolic_panel` 组成、具有可调状态且不要求随机累计或概率密度面积时路由到 `data_distribution_scene`。各后端的首稿候选失败后只把最接近合格候选自身的错误交给一次受限 JSON 修复；修复后仍不合格即终止。服务端统一编译 data-to-screen 映射、SVG 节点注册、参数控件、动画控制器和响应式 Runtime，模型不生成任意 JavaScript。
+5. IR Runtime 编译出的业务 HTML 先执行 38000/42000 字符目标/硬限制，再经过 `math-shell-v1` 服务端装配器；IR 子 Runtime 的外层布局不会进入最终 HTML。装配器会过滤业务 CSS 中的页面级、布局槽位根节点和 range 外观规则，标准 range 由 `range-v1` 独占尺寸与渲染，播放、暂停、重置按钮及 select 由服务端提供统一的按压、状态、焦点反馈，`controller-v1` 在业务脚本执行前提供 GSAP/RAF 共用动画控制接口并广播播放状态。最终装配只执行 64000 字符异常膨胀检查。
 6. `validation_report` 聚合布局、HTML、JavaScript、安全、分阶段长度、Widget、动画生命周期和学科一致性检查。Widget 检查会识别主视觉挂载节点的直接查询及一层精确字符串常量查询，避免把可证明的 SVG/Canvas 动态挂载误判为空节点；仅在业务脚本直接调用 GSAP 时要求 fallback guard。业务脚本声明、遮蔽或覆盖服务端 `window.AetherVizAnimationController`，以及 GSAP `onUpdate` 经 `bind(this)` 改绑后仍调用 Tween 专属 `this.targets()`，均作为硬错误阻断。动画控制器 options 使用注释、字符串、正则和嵌套层级感知的顶层字段扫描，只有带源码范围、证据和高置信度的 `onUpdate` 误传、毫秒 duration 等明确契约错误才阻断；检查器显式标记为低置信度或非阻断的问题统一降级为 `validator_uncertain` warning 并继续交付。动画检查还会阻断 timeline/RAF 逐帧回调调用结构性 DOM/SVG 重建函数、可为空的 first/lastChild 清空后直接重挂载，并提示未清理或未经存在性校验的动态节点注册表、量化状态反复吞掉逐帧增量、对象方法或箭头属性形式的空 `setSpeed`、绕过统一动画控制器、局部几何与世界 transform 重复编码，以及 GSAP 直接污染 getState 可序列化业务对象的风险；学科启发式检查仍只产生 warning。
    Widget 校验还会识别由场景 builder 创建、却在 builder/init 调用前绑定事件或调用 DOM 方法的动态节点，并阻止仅通过空值 early-return 掩盖初始化失败的候选；KaTeX 页面中残留的可见数学定界符也会进入修复流程。
 7. 检查失败时先确定性修复业务 HTML。控制器顶层 `onUpdate` 误传会只改写为 `update`，不会重写完整文档；其他生命周期错误优先使用“报告点名函数/方法/箭头函数 + SHA-256 源哈希”的函数级替换，限制函数数量和总字符数，失败回滚后仍允许其他硬错误修复继续执行；其他硬错误才进入整页修复。截断源输出不进入修复循环；截断候选、无实际变化候选、引入 `js_syntax`/`missing_runtime_ready` 的候选、以及未严格减少硬错误的候选一律拒绝。候选检查只发送 `validation.candidate`，接受后才发送新的 `validation.report`。硬错误修复 prompt 不携带质量 warning；质量 warning 只允许确定性收尾，生产同步链路不再为其调用完整 HTML 模型修复。修复事件的 `attempt` / `repair_attempt` 从第一轮修复开始计为 1。
@@ -411,7 +432,7 @@ uv run python evals/datasets/build_visual.py /tmp/trace.json --output /tmp/aethe
 
 `evals/evaluators/visual.py` 提供视觉总通过、舞台可见性、SVG 尺度、动画变化、暂停、重置、参数同步、节点稳定和 GSAP fallback 等单指标确定性 evaluator，仅用于本地或离线回归；Dataset 与 Evaluator 可按需提交，运行生成的评测报告保留在本地忽略目录 `evals/reports/`，禁止通过 LangSmith CLI/SDK/API/UI 创建或上传远端 Dataset/Evaluator。
 
-`evals/datasets/recomposition/legacy-topics.jsonl` 保留早期的 4 个开发主题、3 个保留主题和 4 个挑战主题。当前统一入口 `evals/run_eval.py` 分别统计分类、首次候选集中是否存在合格 IR、首次 Scene 契约、一次受限 JSON 修复后的最终契约、教学语义约束、目标拼合约束、完整 HTML 硬校验、通用 fallback 和浏览器 Runtime，并保存每个候选的硬失败、分项得分、稳定指纹、目标拼合指标及排序。LangSmith 子 Run `aetherviz.geometry_ir_ranking` 仅记录脱敏后的候选数量、分数、硬失败、拼合指标、不可计算关系和选择原因，不记录候选 IR 正文。首稿 IR 门槛为 95%，无通用 fallback 门槛为 97%；可用 `--max-runs` 精确限制调用次数。
+`evals/datasets/recomposition/legacy-topics.jsonl` 保留早期的 4 个开发主题、3 个保留主题和 4 个挑战主题。当前统一入口 `evals/run_eval.py` 分别统计分类、首次候选集中是否存在合格 IR、首次 Scene 契约、一次受限 JSON 修复后的最终契约、教学语义约束、目标拼合约束、完整 HTML 硬校验和浏览器 Runtime，并保存每个候选的硬失败、分项得分、稳定指纹、目标拼合指标及排序。LangSmith 子 Run `aetherviz.geometry_ir_ranking` 仅记录脱敏后的候选数量、分数、硬失败、拼合指标、不可计算关系和选择原因，不记录候选 IR 正文。首稿 IR 门槛为 95%，最终 IR 合格门槛为 97%；可用 `--max-runs` 精确限制调用次数。
 
 本地跨维度评估集位于 `evals/datasets/recomposition/`，包含 24 个主题、5 个通用无效 mutation、1 个受控 completion 样本、覆盖矩阵和阈值。受控样本构造仅有目标拼合整体越界的合法候选，硬性要求 `deterministic_target_bounds_completion` 至少尝试一次且成功率为 100%，不依赖真实模型随机触发。主题同时覆盖 piece 数量、平移/旋转/翻转/组合变换、面积/长度/角度/全等、多边形/线段/角/网格、3~5 个阶段、推导难度和参数边界。默认执行 3 次形成 72 次主题回归，并额外执行一次受控 completion：
 
@@ -451,8 +472,8 @@ uv run python evals/reporting/regression.py \
 - 计划对象继续以 `page_type: "interactive"` 为主，保留 `interactive_type` 兼容前端；可补充 `widget_type` / `widget_outline`，但不得破坏现有前端字段。
 - 后端按 `simulation`、`diagram`、`game` 拆分独立 prompt、分型 widget-config 和开发期分型校验。
 - 计划对象必须包含 `scene_outline`、`widget_outline`、`design_brief`、`widget_actions`、`knowledge_profile` 和 `discipline_spec`，作为后续 HTML 生成的唯一蓝图。知识画像只路由到通用概念族、表征和教学模式，不包含具体知识点专用模板。
-- 学科与互动类型选择在 `workflow/plan_detection.py`，计划规范化在 `workflow/plan_contract.py`；生成 prompt 在 `generate/prompts.py`，编辑 prompt 在 `edit/prompts.py`；HTML 装配/校验/修复在 `contracts/`。生成与编辑业务包互不 import。
-- `html.done.metadata.generation_backend` 为 `direct`、`recomposition_scene`、`linked_coordinate_scene`、`coordinate_graph_scene`、`parametric_geometry_scene`、`number_line_scene`、`constraint_geometry_scene`、`data_distribution_scene`、`symbolic_derivation_scene`、`probability_experiment_scene` 或 `discrete_structure_scene`；API/SSE 主结构不变，前端未声明 `representation_type` 固定枚举，无需同步类型迁移。
+- 学科与互动类型选择在 `workflow/plan_detection.py`，计划规范化在 `workflow/plan_contract.py`；各 IR 的结构化生成 prompt 位于对应 `ir/<family>/` 子包，编辑 prompt 位于 `edit/prompts.py`；HTML 装配/校验/修复在 `contracts/`。生成与编辑业务包互不 import。
+- 成功事件 `html.done.metadata.generation_backend` 为 10 个已注册 IR 后端之一；无合格路由的错误事件使用 `generation_backend=unsupported` 和 `code=unsupported_ir_capability`，IR 校验失败使用 `code=ir_generation_failed`。API/SSE 主结构不变。
 - 前端可展示 `generation_attempts`、`repair_attempts`、兼容字段 `attempts`、`repaired`、`degraded`、`validation_warnings`、`context_status`、`bytes` 和 `chars`。
 - 计划中的 action 使用 `widget_setState`、`widget_highlight`、`widget_annotation`、`widget_reveal`；生成物 iframe 内部应兼容 `SET_WIDGET_STATE`、`HIGHLIGHT_ELEMENT`、`ANNOTATE_ELEMENT`、`REVEAL_ELEMENT` 消息。
 

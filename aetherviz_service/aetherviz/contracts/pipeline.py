@@ -64,7 +64,7 @@ def run_html_pipeline(
     topic: str,
     plan: dict[str, Any],
     html_stream_factory: Callable[[], Iterator[dict[str, Any] | HtmlStreamResult]],
-    generation_backend: str = "direct",
+    generation_backend: str = "edit_html",
     emit_start_event: bool = True,
     candidate_guard: Callable[[str], list[str]] | None = None,
     initial_metadata: dict[str, Any] | None = None,
@@ -101,7 +101,7 @@ def run_html_pipeline(
             run_id=run_id,
             phase=phase,
             data={
-                "message": "html_agent 开始生成 HTML",
+                "message": "IR 后端开始生成教学动画",
                 "reasoning_enabled": metadata["reasoning_enabled"],
             },
             metadata=_metadata(metadata, started_at, stage="generate"),

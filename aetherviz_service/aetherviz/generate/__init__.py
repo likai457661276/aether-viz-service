@@ -1,9 +1,4 @@
-"""Initial HTML generation line (plan -> HTML).
-
-Keep this package initializer free of eager workflow imports.  IR backends import
-``generate.html_agent`` while the generation workflow imports the IR registry, so
-loading the workflow here makes otherwise valid imports depend on import order.
-"""
+"""Initial IR-backed HTML generation workflow (plan -> verified IR -> HTML)."""
 
 from typing import TYPE_CHECKING, Any
 
