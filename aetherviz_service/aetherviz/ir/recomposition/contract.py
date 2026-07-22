@@ -401,10 +401,20 @@ def normalize_geometry_ir(ir: dict[str, Any], plan: dict[str, Any]) -> dict[str,
         }
     requirements = _stage_requirements(plan)
     frames = normalized.get("frames")
-    if isinstance(frames, list) and len(frames) == len(requirements):
+    if isinstance(frames, list) and requirements and len(frames) == len(requirements):
         for index, frame in enumerate(frames):
-            if isinstance(frame, dict) and not str(frame.get("stage_id") or "").strip():
-                frame["stage_id"] = requirements[index]["id"]
+            if not isinstance(frame, dict):
+                continue
+            # Candidate ingest: align display frames to plan stage_requirements by index
+            # so timeline/id mismatches do not become teaching hard failures.
+            requirement = requirements[index]
+            frame["stage_id"] = requirement["id"]
+            frame["at"] = requirement["at"]
+    required_ats = [
+        float(stage["at"])
+        for stage in requirements
+        if isinstance(stage, dict) and _finite_float(stage.get("at")) is not None
+    ]
     for piece in normalized.get("pieces", []) if isinstance(normalized.get("pieces"), list) else []:
         if not isinstance(piece, dict):
             continue
@@ -432,6 +442,12 @@ def normalize_geometry_ir(ir: dict[str, Any], plan: dict[str, Any]) -> dict[str,
                     keyframes.append({"at": 1, **target})
                 else:
                     keyframes[-1] = {**target, **keyframes[-1], "at": 1}
+                # When the model already emitted one keyframe per planned stage, snap
+                # ats onto the plan timeline so intermediate evidence is checked at the
+                # intended teaching moments instead of near-miss neighboring times.
+                if required_ats and len(keyframes) == len(required_ats):
+                    for frame, at in zip(keyframes, required_ats, strict=True):
+                        frame["at"] = at
                 piece["keyframes"] = keyframes
     definitions = normalized.get("definitions") if isinstance(normalized.get("definitions"), dict) else {}
     state_names = _plan_state_names(plan)

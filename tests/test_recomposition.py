@@ -990,6 +990,91 @@ def test_geometry_ir_normalizes_only_unambiguous_dsl_aliases() -> None:
     assert validate_geometry_ir(normalized, plan)["ok"]
 
 
+def test_geometry_ir_normalizes_stage_requirements_alignment_on_candidate_ingest() -> None:
+    plan = normalize_plan(
+        {
+            "recomposition_spec": {
+                "proof_constraints": {
+                    "stage_requirements": [
+                        {"id": "source", "intent": "观察源状态"},
+                        {"id": "separate", "intent": "分离"},
+                        {"id": "target", "intent": "归纳目标"},
+                    ]
+                }
+            }
+        },
+        "单块多边形平移重排面积守恒推导",
+    )
+    stages = plan["recomposition_spec"]["proof_constraints"]["stage_requirements"]
+    geometry_ir = build_deterministic_geometry_ir(plan)
+    geometry_ir["frames"] = [
+        {"stage_id": "wrong-source", "at": 0.05, "caption": "源", "formula": "A", "step": 0},
+        {"stage_id": "wrong-mid", "at": 0.4, "caption": "中间", "formula": "A", "step": 1},
+        {"stage_id": "wrong-target", "at": 0.95, "caption": "目标", "formula": "A=B", "step": 2},
+    ]
+    geometry_ir["pieces"][0]["keyframes"] = [
+        {"at": 0.0, **geometry_ir["pieces"][0]["source"]},
+        {
+            "at": 0.4,
+            "x": 250,
+            "y": 90,
+            "rotation": 35,
+            "scale": geometry_ir["pieces"][0]["source"]["scale"],
+            "opacity": 1,
+        },
+        {"at": 1.0, **geometry_ir["pieces"][0]["target"]},
+    ]
+
+    normalized = normalize_geometry_ir(geometry_ir, plan)
+
+    assert [frame["stage_id"] for frame in normalized["frames"]] == [stage["id"] for stage in stages]
+    assert [frame["at"] for frame in normalized["frames"]] == [stage["at"] for stage in stages]
+    assert [frame["at"] for frame in normalized["pieces"][0]["keyframes"]] == [stage["at"] for stage in stages]
+    assert normalized["frames"][1]["caption"] == "中间"
+    assert evaluate_recomposition_semantics(normalized, plan)["ok"]
+
+
+def test_scene_prompt_requires_stage_alignment_before_deterministic_waypoint_completion() -> None:
+    from aetherviz_service.aetherviz.ir.recomposition.agent import (
+        SCENE_SYSTEM_PROMPT,
+        _build_scene_prompt,
+        _stage_alignment_checklist,
+    )
+
+    plan = normalize_plan(
+        {
+            "recomposition_spec": {
+                "proof_constraints": {
+                    "stage_requirements": [
+                        {"id": "source", "intent": "观察源状态"},
+                        {"id": "separate", "intent": "分离拼片"},
+                        {"id": "rotate", "intent": "旋转对齐"},
+                        {"id": "target", "intent": "归纳目标"},
+                    ]
+                }
+            }
+        },
+        "多块多边形旋转重排面积守恒推导",
+    )
+    checklist = _stage_alignment_checklist(plan)
+    prompt = _build_scene_prompt("多块多边形旋转重排面积守恒推导", plan)
+
+    assert [item["id"] for item in checklist["frames_must_copy"]] == [
+        "source",
+        "separate",
+        "rotate",
+        "target",
+    ]
+    assert [item["id"] for item in checklist["intermediate_stages"]] == ["separate", "rotate"]
+    assert checklist["evidence_thresholds"] == INTERMEDIATE_EVIDENCE_THRESHOLDS
+    assert "stage_alignment" in prompt
+    assert "不得把中间阶段只写成教学文字" in prompt
+    assert "不得指望服务端确定性补帧" in prompt
+    assert "evidence_thresholds" in prompt
+    assert "不得依赖服务端事后补帧" in SCENE_SYSTEM_PROMPT
+    assert "平移≥12px" in SCENE_SYSTEM_PROMPT
+
+
 def test_geometry_ir_normalizes_strict_transport_and_expression_shorthand() -> None:
     plan = normalize_plan({}, "组合图形面积切割重排证明")
     geometry_ir = build_deterministic_geometry_ir(plan)
@@ -1472,6 +1557,7 @@ def test_model_repair_output_reuses_deterministic_completion_pipeline(
 
 def test_geometry_ir_normalizer_completes_keyframe_endpoints_from_source_target() -> None:
     plan = normalize_plan({}, "组合图形面积切割重排证明")
+    stages = plan["recomposition_spec"]["proof_constraints"]["stage_requirements"]
     geometry_ir = build_deterministic_geometry_ir(plan)
     piece = geometry_ir["pieces"][0]
     piece["keyframes"] = [
@@ -1486,9 +1572,10 @@ def test_geometry_ir_normalizer_completes_keyframe_endpoints_from_source_target(
     ]
     normalized = normalize_geometry_ir(geometry_ir, plan)
     keyframes = normalized["pieces"][0]["keyframes"]
-    assert [frame["at"] for frame in keyframes] == [0, 0.6, 1]
+    assert [frame["at"] for frame in keyframes] == [stage["at"] for stage in stages]
     assert keyframes[0]["x"] == normalized["pieces"][0]["source"]["x"]
     assert keyframes[-1]["x"] == normalized["pieces"][0]["target"]["x"]
+    assert keyframes[1]["x"] == 310
     assert validate_geometry_ir(normalized, plan)["ok"]
 
 
