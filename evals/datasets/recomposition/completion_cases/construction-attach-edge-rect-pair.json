@@ -1,0 +1,219 @@
+{
+  "id": "construction-attach-edge-rect-pair",
+  "inputs": {
+    "topic": "组合图形切割重排证明",
+    "plan_seed": {
+      "interactive_spec": {
+        "variables": [
+          {
+            "name": "size",
+            "label": "边长",
+            "min": 80,
+            "max": 140,
+            "default": 100,
+            "step": 10
+          }
+        ]
+      },
+      "recomposition_spec": {
+        "geometry_variables": [
+          "size"
+        ],
+        "proof_constraints": {
+          "target_assembly": [
+            {
+              "id": "target-rectangle",
+              "type": "approximate_rectangle",
+              "max_components": 1,
+              "max_overlap_ratio": 0.1,
+              "min_rectangularity": 0.9
+            }
+          ]
+        }
+      }
+    },
+    "geometry_ir": {
+      "version": "aetherviz.geometry-ir.v1",
+      "definitions": {},
+      "pieces": [
+        {
+          "id": "left",
+          "tag": "rect",
+          "attrs": {
+            "x": 0,
+            "y": 0,
+            "width": {
+              "state": "size"
+            },
+            "height": 100,
+            "fill": "#34d399"
+          },
+          "source": {
+            "x": 200,
+            "y": 150,
+            "rotation": 0,
+            "scale": 1,
+            "opacity": 1
+          },
+          "target": {
+            "x": 400,
+            "y": 200,
+            "rotation": 0,
+            "scale": 1,
+            "opacity": 1
+          },
+          "keyframes": [
+            {
+              "at": 0,
+              "x": 200,
+              "y": 150,
+              "rotation": 0,
+              "scale": 1,
+              "opacity": 1
+            },
+            {
+              "at": 0.5,
+              "x": 300.0,
+              "y": 90,
+              "rotation": 20,
+              "scale": 1,
+              "opacity": 1
+            },
+            {
+              "at": 1,
+              "x": 400,
+              "y": 200,
+              "rotation": 0,
+              "scale": 1,
+              "opacity": 1
+            }
+          ]
+        },
+        {
+          "id": "right",
+          "tag": "rect",
+          "attrs": {
+            "x": 0,
+            "y": 0,
+            "width": {
+              "state": "size"
+            },
+            "height": 100,
+            "fill": "#34d399"
+          },
+          "source": {
+            "x": 400,
+            "y": 150,
+            "rotation": 0,
+            "scale": 1,
+            "opacity": 1
+          },
+          "target": {
+            "x": 50,
+            "y": 200,
+            "rotation": 0,
+            "scale": 1,
+            "opacity": 1
+          },
+          "keyframes": [
+            {
+              "at": 0,
+              "x": 400,
+              "y": 150,
+              "rotation": 0,
+              "scale": 1,
+              "opacity": 1
+            },
+            {
+              "at": 0.5,
+              "x": 400.0,
+              "y": 90,
+              "rotation": -20,
+              "scale": 1,
+              "opacity": 1
+            },
+            {
+              "at": 1,
+              "x": 50,
+              "y": 200,
+              "rotation": 0,
+              "scale": 1,
+              "opacity": 1
+            }
+          ]
+        }
+      ],
+      "frames": [
+        {
+          "stage_id": "source",
+          "at": 0.0,
+          "caption": "展示切分前或切分后的源图元集合",
+          "formula": "面积保持不变",
+          "step": 0
+        },
+        {
+          "stage_id": "transform",
+          "at": 0.5,
+          "caption": "展示同一组图元形成可观察的中间几何状态",
+          "formula": "面积保持不变",
+          "step": 1
+        },
+        {
+          "stage_id": "target",
+          "at": 1.0,
+          "caption": "展示目标排列并建立度量等式",
+          "formula": "面积保持不变",
+          "step": 2
+        }
+      ],
+      "construction": {
+        "target_boundary": {
+          "x": 400,
+          "y": 200,
+          "width": {
+            "state": "size"
+          },
+          "height": 200
+        },
+        "constraints": [
+          {
+            "type": "attach_edge",
+            "piece_id": "right",
+            "edge": 0,
+            "to_piece_id": "left",
+            "to_edge": 2,
+            "reverse": true
+          },
+          {
+            "type": "inside_target",
+            "piece_id": "left"
+          },
+          {
+            "type": "inside_target",
+            "piece_id": "right"
+          },
+          {
+            "type": "cover_target",
+            "piece_ids": [
+              "left",
+              "right"
+            ],
+            "min_coverage_ratio": 0.98
+          }
+        ]
+      }
+    },
+    "pipeline": "construction"
+  },
+  "outputs": {
+    "expected_construction_ok": true,
+    "expected_construction_changed": true,
+    "expected_final_ranking_ok": true,
+    "expected_final_assembly_ok": true,
+    "expected_unmaterialized_rejected": true
+  },
+  "metadata": {
+    "dataset_type": "single_step",
+    "failure_class": "F2_construction_solved"
+  }
+}

@@ -12,11 +12,14 @@ from aetherviz_service.aetherviz.contracts.layout import assemble_layout_contrac
 from aetherviz_service.aetherviz.contracts.validation.report import build_validation_report
 from aetherviz_service.aetherviz.ir.recomposition.agent import (
     GeometryIRGenerationError,
-    _attempt_target_bounds_completion,
+    _complete_candidates_deterministically,
     _generate_ranked_scene_source,
     _repair_scene_source,
 )
 from aetherviz_service.aetherviz.ir.recomposition.assembly import evaluate_target_assembly
+from aetherviz_service.aetherviz.ir.recomposition.construction import (
+    materialize_target_construction,
+)
 from aetherviz_service.aetherviz.ir.recomposition.contract import (
     compile_geometry_ir,
     expand_geometry_ir,
@@ -24,6 +27,10 @@ from aetherviz_service.aetherviz.ir.recomposition.contract import (
     sample_geometry_states,
     validate_geometry_ir,
 )
+from aetherviz_service.aetherviz.ir.recomposition.feasibility import (
+    evaluate_recomposition_plan_feasibility,
+)
+from aetherviz_service.aetherviz.ir.recomposition.routing import assess as assess_recomposition_route
 from aetherviz_service.aetherviz.ir.recomposition.ranking import (
     public_geometry_ir_ranking,
     rank_geometry_ir_candidates,
@@ -55,16 +62,29 @@ def load_completion_cases(path: Path) -> list[dict[str, Any]]:
     return cases
 
 
+def load_feasibility_cases(path: Path) -> list[dict[str, Any]]:
+    cases = [json.loads(case_path.read_text(encoding="utf-8")) for case_path in sorted(path.glob("*.json"))]
+    for case in cases:
+        if not isinstance(case.get("inputs"), dict) or not isinstance(case.get("outputs"), dict):
+            raise ValueError("每个 feasibility 样本必须包含 inputs 和 outputs 对象")
+    return cases
+
+
 def run_completion_case(example: dict[str, Any]) -> dict[str, Any]:
-    """Run one controlled candidate through the target-bounds completion branch."""
+    """Run one controlled candidate through construction or composite completion."""
     inputs = example["inputs"]
+    pipeline = str(inputs.get("pipeline") or "composite")
+    if pipeline == "construction":
+        return _run_construction_case(example)
+    if pipeline not in {"composite", "target_bounds"}:
+        raise ValueError(f"unsupported_completion_pipeline:{pipeline}")
     topic = str(inputs["topic"])
     plan = normalize_plan(deepcopy(inputs["plan_seed"]), topic)
     candidate = deepcopy(inputs["geometry_ir"])
     _apply_completion_mutation(candidate, inputs.get("mutation", {}))
     initial_ranking = rank_geometry_ir_candidates([candidate], plan)
     assembly_before = evaluate_target_assembly(candidate, plan)
-    repaired_ranking, repaired_candidates = _attempt_target_bounds_completion(
+    repaired_ranking, repaired_candidates = _complete_candidates_deterministically(
         [candidate], plan, initial_ranking
     )
     selected_ir = repaired_ranking.get("selected_ir")
@@ -87,10 +107,26 @@ def run_completion_case(example: dict[str, Any]) -> dict[str, Any]:
         if candidate_reports and isinstance(candidate_reports[0], dict)
         else []
     )
+    final_hard_failures = (
+        repaired_ranking.get("candidates", [{}])[0].get("hard_failures", [])
+        if repaired_ranking.get("candidates")
+        else []
+    )
+    completion_reports = [
+        *repaired_ranking.get("waypoint_completion", []),
+        *repaired_ranking.get("target_bounds_completion", []),
+        *repaired_ranking.get("footprint_scale_completion", []),
+    ]
     return {
+        "pipeline": pipeline,
         "initial_hard_failures": initial_hard_failures,
+        "final_hard_failures": final_hard_failures,
         "strategy": repaired_ranking.get("strategy"),
-        "completion_reports": repaired_ranking.get("target_bounds_completion", []),
+        "completion_reports": completion_reports,
+        "completion_history": repaired_ranking.get("completion_history", []),
+        "waypoint_completion": repaired_ranking.get("waypoint_completion", []),
+        "target_bounds_completion": repaired_ranking.get("target_bounds_completion", []),
+        "footprint_scale_completion": repaired_ranking.get("footprint_scale_completion", []),
         "final_ranking_ok": repaired_ranking.get("ok"),
         "assembly_before": assembly_before,
         "assembly_after": assembly_after,
@@ -99,8 +135,73 @@ def run_completion_case(example: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _run_construction_case(example: dict[str, Any]) -> dict[str, Any]:
+    inputs = example["inputs"]
+    topic = str(inputs["topic"])
+    plan = normalize_plan(deepcopy(inputs["plan_seed"]), topic)
+    candidate = deepcopy(inputs["geometry_ir"])
+    before_report = validate_geometry_ir(candidate, plan)
+    materialized = materialize_target_construction(candidate, plan)
+    selected_ir = materialized.get("ir") if isinstance(materialized.get("ir"), dict) else None
+    ranking: dict[str, Any] = {"ok": False, "candidates": []}
+    assembly_after: dict[str, Any] = {"ok": False}
+    scene_report: dict[str, Any] = {"ok": False, "errors": [{"type": "missing_selected_ir"}]}
+    if isinstance(selected_ir, dict) and materialized.get("ok"):
+        ranking = rank_geometry_ir_candidates([selected_ir], plan)
+        assembly_after = evaluate_target_assembly(selected_ir, plan)
+        geometry_report = validate_geometry_ir(selected_ir, plan)
+        scene_report = (
+            validate_scene_module(compile_geometry_ir(selected_ir, plan))
+            if geometry_report["ok"]
+            else geometry_report
+        )
+    return {
+        "pipeline": "construction",
+        "initial_hard_failures": [],
+        "strategy": "construction_materialization",
+        "completion_reports": [],
+        "construction_ok": bool(materialized.get("ok")),
+        "construction_changed": bool(materialized.get("changed")),
+        "construction_errors": materialized.get("errors", []),
+        "unmaterialized_rejected": any(
+            isinstance(item, dict) and item.get("type") == "unmaterialized_target_construction"
+            for item in before_report.get("errors", [])
+        ),
+        "final_ranking_ok": ranking.get("ok"),
+        "final_hard_failures": (
+            ranking.get("candidates", [{}])[0].get("hard_failures", []) if ranking.get("candidates") else []
+        ),
+        "assembly_before": {"ok": False, "states": []},
+        "assembly_after": assembly_after,
+        "final_assembly_ok": assembly_after.get("ok"),
+        "scene_report": scene_report,
+    }
+
+
+def run_feasibility_case(example: dict[str, Any]) -> dict[str, Any]:
+    inputs = example["inputs"]
+    topic = str(inputs["topic"])
+    plan = normalize_plan(deepcopy(inputs["plan_seed"]), topic)
+    report = evaluate_recomposition_plan_feasibility(plan)
+    route = assess_recomposition_route(plan)
+    return {
+        "pipeline": "feasibility",
+        "ok": bool(report.get("ok")),
+        "error_types": [
+            str(item.get("type"))
+            for item in report.get("errors", [])
+            if isinstance(item, dict) and item.get("type")
+        ],
+        "route_eligible": bool(route.eligible),
+        "exclusion_reasons": list(route.exclusion_reasons),
+        "maximum_expanded_pieces": report.get("maximum_expanded_pieces"),
+    }
+
+
 def _apply_completion_mutation(ir: dict[str, Any], mutation: object) -> None:
-    if not isinstance(mutation, dict) or mutation.get("type") != "translate_target":
+    if not isinstance(mutation, dict) or not mutation:
+        return
+    if mutation.get("type") != "translate_target":
         raise ValueError("unsupported_completion_mutation")
     dx = float(mutation.get("x", 0))
     dy = float(mutation.get("y", 0))

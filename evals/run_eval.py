@@ -12,7 +12,7 @@ from typing import Any
 
 from aetherviz_service.aetherviz.ir.recomposition.contract import build_deterministic_geometry_ir
 from aetherviz_service.aetherviz.workflow.plan_contract import normalize_plan
-from evals.evaluators.completion import evaluate_completion_case
+from evals.evaluators.completion import evaluate_completion_case, evaluate_feasibility_case
 from evals.evaluators.deterministic import (
     diagnostic_alignment,
     evaluate_run,
@@ -23,14 +23,17 @@ from evals.targets.recomposition import (
     build_evaluation_plan_seed,
     load_completion_cases,
     load_examples,
+    load_feasibility_cases,
     run_case,
     run_completion_case,
+    run_feasibility_case,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_FIXTURES = ROOT / "evals/datasets/recomposition"
 DEFAULT_DATASET = DEFAULT_FIXTURES / "dataset.jsonl"
 DEFAULT_COMPLETION_CASES = DEFAULT_FIXTURES / "completion_cases"
+DEFAULT_FEASIBILITY_CASES = DEFAULT_FIXTURES / "feasibility_cases"
 DEFAULT_INVALID_CASES = DEFAULT_FIXTURES / "invalid_cases"
 DEFAULT_THRESHOLDS = DEFAULT_FIXTURES / "expected/thresholds.json"
 DEFAULT_OUTPUT = ROOT / "evals/reports/latest"
@@ -47,6 +50,7 @@ def run_evaluation(
     invalid_cases_path: Path,
     thresholds_path: Path,
     workers: int = 1,
+    feasibility_cases_path: Path | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     matrix = validate_dataset_matrix(examples)
     if not matrix["ok"]:
@@ -100,6 +104,11 @@ def run_evaluation(
     completion_summary = _completion_summary(completion_results, thresholds)
     completion_failures = [item for item in completion_results if not item["ok"]]
     failures.extend({"kind": "completion_case", **item} for item in completion_failures)
+    feasibility_path = feasibility_cases_path or DEFAULT_FEASIBILITY_CASES
+    feasibility_results = _run_feasibility_cases(feasibility_path)
+    feasibility_summary = _feasibility_summary(feasibility_results, thresholds)
+    feasibility_failures = [item for item in feasibility_results if not item["ok"]]
+    failures.extend({"kind": "feasibility_case", **item} for item in feasibility_failures)
     metric_names = sorted({name for run in runs for name in run["scores"]})
     totals = {
         name: {
@@ -116,6 +125,7 @@ def run_evaluation(
         and run_range_ok
         and not invalid_failures
         and completion_summary["ok"]
+        and feasibility_summary["ok"]
         and all(item["rate"] >= item["threshold"] for item in totals.values())
     )
     summary = {
@@ -136,6 +146,7 @@ def run_evaluation(
             "results": invalid_results,
         },
         "completion_cases": completion_summary,
+        "feasibility_cases": feasibility_summary,
         "diagnostic_alignment": _alignment_summary(runs),
         "generation_strategies": _generation_strategy_summary(runs),
         "failure_count": len(failures),
@@ -160,18 +171,39 @@ def _run_completion_cases(path: Path) -> list[dict[str, Any]]:
     ]
 
 
+def _run_feasibility_cases(path: Path) -> list[dict[str, Any]]:
+    if not path.exists():
+        return []
+    return [
+        evaluate_feasibility_case(run_feasibility_case(example), example)
+        for example in load_feasibility_cases(path)
+    ]
+
+
 def _completion_summary(results: list[dict[str, Any]], thresholds: dict[str, Any]) -> dict[str, Any]:
-    attempts = sum(int(item.get("attempts", 0)) for item in results)
-    successes = sum(int(item.get("successes", 0)) for item in results)
+    bounds_results = [
+        item for item in results if item.get("strategy") == "deterministic_target_bounds_completion"
+    ]
+    attempts = sum(int(item.get("attempts", 0)) for item in bounds_results)
+    successes = sum(int(item.get("successes", 0)) for item in bounds_results)
     success_rate = successes / attempts if attempts else 0.0
     minimum_attempts = int(thresholds["target_bounds_completion_min_attempts"])
     required_success_rate = float(thresholds["target_bounds_completion_success_rate"])
+    construction_passed = sum(
+        1 for item in results if item.get("pipeline") == "construction" and item.get("ok")
+    )
+    construction_total = sum(1 for item in results if item.get("pipeline") == "construction")
+    composite_results = [item for item in results if item.get("pipeline") != "construction"]
+    composite_passed = sum(1 for item in composite_results if item.get("ok"))
+    composite_total = len(composite_results)
     return {
         "ok": (
             bool(results)
             and all(item.get("ok") for item in results)
             and attempts >= minimum_attempts
             and success_rate >= required_success_rate
+            and construction_passed >= int(thresholds.get("construction_min_passed", 0))
+            and composite_passed >= int(thresholds.get("composite_min_passed", 0))
         ),
         "passed": sum(bool(item.get("ok")) for item in results),
         "total": len(results),
@@ -180,6 +212,25 @@ def _completion_summary(results: list[dict[str, Any]], thresholds: dict[str, Any
         "target_bounds_completion_success_rate": round(success_rate, 6),
         "required_min_attempts": minimum_attempts,
         "required_success_rate": required_success_rate,
+        "construction_passed": construction_passed,
+        "construction_total": construction_total,
+        "composite_passed": composite_passed,
+        "composite_total": composite_total,
+        "results": results,
+    }
+
+
+def _feasibility_summary(results: list[dict[str, Any]], thresholds: dict[str, Any]) -> dict[str, Any]:
+    minimum_passed = int(thresholds.get("feasibility_min_passed", 1 if results else 0))
+    passed = sum(bool(item.get("ok")) for item in results)
+    return {
+        "ok": (
+            (not results and minimum_passed == 0)
+            or (bool(results) and passed >= minimum_passed and all(item.get("ok") for item in results))
+        ),
+        "passed": passed,
+        "total": len(results),
+        "required_min_passed": minimum_passed,
         "results": results,
     }
 
@@ -206,6 +257,10 @@ def _generation_strategy_summary(runs: list[dict[str, Any]]) -> dict[str, Any]:
     bounds_successes = 0
     completion_attempts = 0
     completion_successes = 0
+    scale_attempts = 0
+    scale_successes = 0
+    construction_ok = 0
+    construction_changed = 0
     completed_stage_counts: dict[str, int] = {}
     for report in reports:
         strategy = str(report.get("strategy"))
@@ -223,6 +278,16 @@ def _generation_strategy_summary(runs: list[dict[str, Any]]) -> dict[str, Any]:
             for stage_id in completion.get("completed_stage_ids", []):
                 name = str(stage_id)
                 completed_stage_counts[name] = completed_stage_counts.get(name, 0) + 1
+        for completion in report.get("footprint_scale_completion", []):
+            if not isinstance(completion, dict) or not completion.get("attempted"):
+                continue
+            scale_attempts += 1
+            scale_successes += int(bool(completion.get("ok")))
+        for item in report.get("construction_materialization", []):
+            if not isinstance(item, dict):
+                continue
+            construction_ok += int(bool(item.get("ok")))
+            construction_changed += int(bool(item.get("changed")))
     return {
         "observed_runs": len(reports),
         "counts": dict(sorted(strategies.items())),
@@ -230,6 +295,10 @@ def _generation_strategy_summary(runs: list[dict[str, Any]]) -> dict[str, Any]:
         "target_bounds_candidate_successes": bounds_successes,
         "waypoint_candidate_attempts": completion_attempts,
         "waypoint_candidate_successes": completion_successes,
+        "footprint_scale_candidate_attempts": scale_attempts,
+        "footprint_scale_candidate_successes": scale_successes,
+        "construction_materialization_ok": construction_ok,
+        "construction_materialization_changed": construction_changed,
         "completed_stage_counts": dict(sorted(completed_stage_counts.items())),
     }
 
@@ -242,6 +311,7 @@ def main() -> int:
     parser.add_argument("--live-model", action="store_true")
     parser.add_argument("--browser", action="store_true")
     parser.add_argument("--completion-cases", type=Path, default=DEFAULT_COMPLETION_CASES)
+    parser.add_argument("--feasibility-cases", type=Path, default=DEFAULT_FEASIBILITY_CASES)
     parser.add_argument("--invalid-cases", type=Path, default=DEFAULT_INVALID_CASES)
     parser.add_argument("--thresholds", type=Path, default=DEFAULT_THRESHOLDS)
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT)
@@ -269,6 +339,7 @@ def main() -> int:
         invalid_cases_path=args.invalid_cases,
         thresholds_path=args.thresholds,
         workers=args.workers,
+        feasibility_cases_path=args.feasibility_cases,
     )
     args.output_dir.mkdir(parents=True, exist_ok=True)
     summary_path = args.output_dir / "latest-summary.json"

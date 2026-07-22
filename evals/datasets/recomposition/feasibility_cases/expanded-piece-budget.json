@@ -1,0 +1,36 @@
+{
+  "id": "feasibility-expanded-piece-budget",
+  "inputs": {
+    "topic": "组合图形切割重排证明",
+    "plan_seed": {
+      "interactive_spec": {
+        "variables": [
+          {
+            "name": "pieceCount",
+            "label": "拼片数",
+            "min": 1,
+            "max": 120,
+            "default": 8,
+            "step": 1
+          }
+        ]
+      },
+      "recomposition_spec": {
+        "topology_variables": [
+          "pieceCount"
+        ]
+      }
+    }
+  },
+  "outputs": {
+    "expected_ok": false,
+    "expected_error_types": [
+      "expanded_piece_budget_exceeded"
+    ],
+    "expected_route_eligible": false
+  },
+  "metadata": {
+    "dataset_type": "single_step",
+    "failure_class": "F1_plan_infeasible"
+  }
+}

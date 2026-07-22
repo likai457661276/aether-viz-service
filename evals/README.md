@@ -28,9 +28,16 @@ evals/
 
 `targets` 只负责返回真实运行输出；`evaluators` 只读取运行输出和 Dataset 期望值；`run_eval.py` 负责编排、并发、阈值判断及结果落盘。
 
-`datasets/recomposition/completion_cases/` 包含受控的确定性修复样本。当前
-`target-assembly-out-of-bounds.json` 保证候选的唯一硬失败为目标拼合整体越界，并要求
-`deterministic_target_bounds_completion` 至少尝试一次、成功率为 100%，避免依赖真实模型随机产生越界结果。
+`datasets/recomposition/completion_cases/` 包含受控的确定性修复样本：
+
+- `target-assembly-out-of-bounds.json`：唯一硬失败为目标拼合越界，要求
+  `deterministic_target_bounds_completion` 至少尝试一次且成功率 100%
+- `composite-waypoint-with-assembly-failure.json`：waypoint 与装配失败正交，只移除
+  `teaching:missing_intermediate_geometry_stage`
+- `construction-attach-edge-rect-pair.json`：construction 求解后可通过排名与拼合
+
+`datasets/recomposition/feasibility_cases/` 覆盖计划级可行性预检（例如展开图元预算超限时
+`routing.assess` 排除）。
 
 ## 常用命令
 

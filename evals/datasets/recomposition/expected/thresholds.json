@@ -11,5 +11,8 @@
   "candidate_ranking": 0.95,
   "no_generic_fallback": 0.97,
   "target_bounds_completion_min_attempts": 1,
-  "target_bounds_completion_success_rate": 1.0
+  "target_bounds_completion_success_rate": 1.0,
+  "construction_min_passed": 1,
+  "composite_min_passed": 2,
+  "feasibility_min_passed": 1
 }
