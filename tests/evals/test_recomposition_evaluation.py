@@ -8,6 +8,7 @@ from aetherviz_service.aetherviz.workflow.plan_contract import normalize_plan
 from evals.evaluators.completion import evaluate_completion_case, evaluate_feasibility_case
 from evals.evaluators.deterministic import REQUIRED_DIMENSIONS, validate_dataset_matrix
 from evals.evaluators.teaching_semantics import evaluate_invalid_case
+from evals.reporting.failure_clusters import build_failure_classification_report
 from evals.run_eval import (
     DEFAULT_COMPLETION_CASES,
     DEFAULT_DATASET,
@@ -83,7 +84,7 @@ def test_completion_and_feasibility_fixtures_cover_new_stages() -> None:
 
 def test_local_evaluation_smoke_is_network_independent(tmp_path: Path) -> None:
     examples = load_examples(DEFAULT_DATASET)
-    summary, failures = run_evaluation(
+    summary, failures, runs = run_evaluation(
         examples,
         repetitions=1,
         live_model=False,
@@ -113,8 +114,55 @@ def test_local_evaluation_smoke_is_network_independent(tmp_path: Path) -> None:
         "waypoint_candidate_successes": 0,
         "footprint_scale_candidate_attempts": 0,
         "footprint_scale_candidate_successes": 0,
+        "construction_materialization_total": 0,
         "construction_materialization_ok": 0,
         "construction_materialization_changed": 0,
+        "completion_history_attempted_rounds": 0,
+        "completion_history_accepted_rounds": 0,
+        "deterministic_composite_converged": 0,
         "completed_stage_counts": {},
     }
+    assert summary["stage_observations"]["run_count"] == 2
+    assert summary["stage_observations"]["matrix_feasibility_reject_count"] == 0
+    assert summary["stage_observations"]["model_calls_total"] == 0
     assert failures == []
+    assert len(runs) == 2
+    assert all(run["plan_feasibility"]["ok"] for run in runs)
+
+    cluster = build_failure_classification_report(failures, runs=runs)
+    assert cluster["failure_records"] == 0
+    assert cluster["largest_remaining_cluster"] is None
+
+
+def test_failure_cluster_taxonomy_maps_stage_signals() -> None:
+    report = build_failure_classification_report(
+        [
+            {
+                "kind": "run",
+                "id": "a",
+                "topic": "t",
+                "failed_metrics": ["candidate_ranking"],
+                "candidate_ranking_report": {
+                    "candidates": [
+                        {"hard_failures": ["teaching:missing_intermediate_geometry_stage"]}
+                    ]
+                },
+            },
+            {
+                "kind": "run",
+                "id": "b",
+                "topic": "t2",
+                "failed_metrics": ["target_assembly"],
+                "fallback": True,
+                "candidate_ranking_report": {
+                    "candidates": [{"hard_failures": ["assembly:target_assembly_failed"]}]
+                },
+            },
+        ]
+    )
+    assert report["cluster_counts"]["F4_teaching_waypoint"] == 1
+    assert report["cluster_counts"]["F7_assembly_or_math_hard"] == 1
+    assert report["largest_remaining_cluster"]["class"] in {
+        "F4_teaching_waypoint",
+        "F7_assembly_or_math_hard",
+    }

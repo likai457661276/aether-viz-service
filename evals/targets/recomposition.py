@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import time
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
@@ -232,14 +233,18 @@ def _translate_transform_expression(transform: object, dx: float, dy: float) -> 
 
 
 def run_case(example: dict[str, Any], *, live_model: bool, browser: bool) -> dict[str, Any]:
+    started = time.monotonic()
     topic = str(example["inputs"]["topic"])
     plan = normalize_plan(build_evaluation_plan_seed(example), topic)
+    feasibility = evaluate_recomposition_plan_feasibility(plan)
     degraded = False
     repaired = False
+    repair_attempted = False
     fallback = False
     generation_error = ""
     repair_error = ""
     repair_input = ""
+    model_calls = 0
     initial_ir_report: dict[str, Any] = {
         "ok": False,
         "errors": [{"type": "geometry_ir_not_generated"}],
@@ -247,6 +252,7 @@ def run_case(example: dict[str, Any], *, live_model: bool, browser: bool) -> dic
     ranking_report: dict[str, Any] = {"ok": False, "candidates": [], "ranking": []}
     if live_model:
         try:
+            model_calls += 1
             scene_source, degraded, private_ranking = _generate_ranked_scene_source(topic, plan)
             ranking_report = public_geometry_ir_ranking(private_ranking)
             initial_ir_report = validate_geometry_ir(
@@ -273,6 +279,8 @@ def run_case(example: dict[str, Any], *, live_model: bool, browser: bool) -> dic
     initial_scene_report = validate_scene_module(scene_source)
     scene_report = initial_scene_report
     if live_model and not scene_report["ok"] and (scene_source or repair_input):
+        repair_attempted = True
+        model_calls += 1
         try:
             repaired_source = _repair_scene_source(
                 topic,
@@ -309,6 +317,7 @@ def run_case(example: dict[str, Any], *, live_model: bool, browser: bool) -> dic
             browser_report = _evaluate_browser(assembled_html)
     else:
         geometry_ir_facts = {"piece_counts": [], "stage_count": 0, "tags": [], "transforms": []}
+    duration_ms = int((time.monotonic() - started) * 1000)
     return {
         "topic": topic,
         "split": example.get("metadata", {}).get("split"),
@@ -327,9 +336,21 @@ def run_case(example: dict[str, Any], *, live_model: bool, browser: bool) -> dic
         "assembled_chars": len(assembled_html),
         "degraded": degraded,
         "repaired": repaired,
+        "repair_attempted": repair_attempted,
         "fallback": fallback,
         "generation_error": generation_error,
         "repair_error": repair_error,
+        "model_calls": model_calls,
+        "duration_ms": duration_ms,
+        "plan_feasibility": {
+            "ok": bool(feasibility.get("ok")),
+            "error_types": [
+                str(item.get("type"))
+                for item in feasibility.get("errors", [])
+                if isinstance(item, dict) and item.get("type")
+            ],
+            "maximum_expanded_pieces": feasibility.get("maximum_expanded_pieces"),
+        },
     }
 
 

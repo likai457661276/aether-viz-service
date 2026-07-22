@@ -19,6 +19,7 @@ from evals.evaluators.deterministic import (
     validate_dataset_matrix,
 )
 from evals.evaluators.teaching_semantics import evaluate_invalid_case
+from evals.reporting.failure_clusters import build_failure_classification_report
 from evals.targets.recomposition import (
     build_evaluation_plan_seed,
     load_completion_cases,
@@ -51,7 +52,7 @@ def run_evaluation(
     thresholds_path: Path,
     workers: int = 1,
     feasibility_cases_path: Path | None = None,
-) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+) -> tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]]]:
     matrix = validate_dataset_matrix(examples)
     if not matrix["ok"]:
         raise ValueError(f"dataset_matrix_invalid:{matrix['errors']}")
@@ -83,8 +84,15 @@ def run_evaluation(
                 "diagnostic_alignment": alignment,
                 "fallback": result["fallback"],
                 "repaired": result["repaired"],
+                "repair_attempted": result.get("repair_attempted", False),
+                "degraded": result.get("degraded", False),
+                "model_calls": int(result.get("model_calls") or 0),
+                "duration_ms": int(result.get("duration_ms") or 0),
+                "plan_feasibility": result.get("plan_feasibility", {"ok": True, "error_types": []}),
                 "candidate_ranking_report": result["candidate_ranking_report"],
                 "geometry_ir_facts": result["geometry_ir_facts"],
+                "generation_error": result.get("generation_error", ""),
+                "repair_error": result.get("repair_error", ""),
             }
             runs.append(record)
             failed_metrics = sorted(name for name, passed in scores.items() if not passed)
@@ -149,10 +157,11 @@ def run_evaluation(
         "feasibility_cases": feasibility_summary,
         "diagnostic_alignment": _alignment_summary(runs),
         "generation_strategies": _generation_strategy_summary(runs),
+        "stage_observations": _stage_observation_summary(runs),
         "failure_count": len(failures),
         "passed": passed,
     }
-    return summary, failures
+    return summary, failures, runs
 
 
 def _run_invalid_cases(example: dict[str, Any], path: Path) -> list[dict[str, Any]]:
@@ -261,6 +270,10 @@ def _generation_strategy_summary(runs: list[dict[str, Any]]) -> dict[str, Any]:
     scale_successes = 0
     construction_ok = 0
     construction_changed = 0
+    construction_total = 0
+    history_accepted_rounds = 0
+    history_attempted_rounds = 0
+    composite_converged = 0
     completed_stage_counts: dict[str, int] = {}
     for report in reports:
         strategy = str(report.get("strategy"))
@@ -286,8 +299,23 @@ def _generation_strategy_summary(runs: list[dict[str, Any]]) -> dict[str, Any]:
         for item in report.get("construction_materialization", []):
             if not isinstance(item, dict):
                 continue
+            construction_total += 1
             construction_ok += int(bool(item.get("ok")))
             construction_changed += int(bool(item.get("changed")))
+        history = report.get("completion_history") or []
+        accepted_any = False
+        for item in history:
+            if not isinstance(item, dict):
+                continue
+            attempted = int(item.get("attempted") or 0)
+            accepted = int(item.get("accepted") or 0)
+            if attempted:
+                history_attempted_rounds += 1
+            if accepted:
+                history_accepted_rounds += 1
+                accepted_any = True
+        if accepted_any and report.get("ok"):
+            composite_converged += 1
     return {
         "observed_runs": len(reports),
         "counts": dict(sorted(strategies.items())),
@@ -297,9 +325,40 @@ def _generation_strategy_summary(runs: list[dict[str, Any]]) -> dict[str, Any]:
         "waypoint_candidate_successes": completion_successes,
         "footprint_scale_candidate_attempts": scale_attempts,
         "footprint_scale_candidate_successes": scale_successes,
+        "construction_materialization_total": construction_total,
         "construction_materialization_ok": construction_ok,
         "construction_materialization_changed": construction_changed,
+        "completion_history_attempted_rounds": history_attempted_rounds,
+        "completion_history_accepted_rounds": history_accepted_rounds,
+        "deterministic_composite_converged": composite_converged,
         "completed_stage_counts": dict(sorted(completed_stage_counts.items())),
+    }
+
+
+def _stage_observation_summary(runs: list[dict[str, Any]]) -> dict[str, Any]:
+    total = len(runs)
+    durations = [int(run.get("duration_ms") or 0) for run in runs]
+    model_calls = [int(run.get("model_calls") or 0) for run in runs]
+    feasibility_rejects = [
+        run
+        for run in runs
+        if isinstance(run.get("plan_feasibility"), dict) and not run["plan_feasibility"].get("ok", True)
+    ]
+    return {
+        "run_count": total,
+        "repaired_runs": sum(1 for run in runs if run.get("repaired")),
+        "repair_attempted_runs": sum(1 for run in runs if run.get("repair_attempted")),
+        "fallback_runs": sum(1 for run in runs if run.get("fallback")),
+        "degraded_runs": sum(1 for run in runs if run.get("degraded")),
+        "model_calls_total": sum(model_calls),
+        "model_calls_avg": round(sum(model_calls) / total, 6) if total else 0.0,
+        "duration_ms_total": sum(durations),
+        "duration_ms_avg": round(sum(durations) / total, 2) if total else 0.0,
+        "duration_ms_max": max(durations) if durations else 0,
+        "matrix_feasibility_reject_count": len(feasibility_rejects),
+        "matrix_feasibility_false_kill_ids": [
+            str(run.get("id")) for run in feasibility_rejects
+        ],
     }
 
 
@@ -329,7 +388,7 @@ def main() -> int:
     if not 1 <= args.workers <= 4:
         parser.error("--workers 必须在 1 到 4 之间")
     examples = load_examples(args.dataset)
-    summary, failures = run_evaluation(
+    summary, failures, runs = run_evaluation(
         examples,
         repetitions=args.repetitions,
         live_model=args.live_model,
@@ -344,13 +403,53 @@ def main() -> int:
     args.output_dir.mkdir(parents=True, exist_ok=True)
     summary_path = args.output_dir / "latest-summary.json"
     failures_path = args.output_dir / "failures.jsonl"
+    runs_path = args.output_dir / "runs.jsonl"
+    cluster_path = args.output_dir / "failure-classification.json"
     summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     failures_path.write_text(
         "".join(json.dumps(item, ensure_ascii=False) + "\n" for item in failures), encoding="utf-8"
     )
+    runs_path.write_text(
+        "".join(
+            json.dumps(
+                {
+                    "id": item["id"],
+                    "topic": item["topic"],
+                    "repetition": item["repetition"],
+                    "scores": item["scores"],
+                    "fallback": item["fallback"],
+                    "repaired": item["repaired"],
+                    "repair_attempted": item.get("repair_attempted", False),
+                    "degraded": item.get("degraded", False),
+                    "model_calls": item.get("model_calls", 0),
+                    "duration_ms": item.get("duration_ms", 0),
+                    "plan_feasibility": item.get("plan_feasibility"),
+                    "candidate_ranking_report": item.get("candidate_ranking_report"),
+                    "generation_error": item.get("generation_error", ""),
+                    "repair_error": item.get("repair_error", ""),
+                },
+                ensure_ascii=False,
+            )
+            + "\n"
+            for item in runs
+        ),
+        encoding="utf-8",
+    )
+    cluster_report = build_failure_classification_report(failures, runs=runs)
+    cluster_path.write_text(
+        json.dumps(cluster_report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
     print(
         json.dumps(
-            {"passed": summary["passed"], "summary": str(summary_path), "failures": str(failures_path)},
+            {
+                "passed": summary["passed"],
+                "summary": str(summary_path),
+                "failures": str(failures_path),
+                "runs": str(runs_path),
+                "failure_classification": str(cluster_path),
+                "largest_remaining_cluster": cluster_report.get("largest_remaining_cluster"),
+                "largest_near_miss_cluster": cluster_report.get("largest_near_miss_cluster"),
+            },
             ensure_ascii=False,
         )
     )

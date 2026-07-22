@@ -65,6 +65,20 @@ uv run python evals/reporting/regression.py \
   --output evals/reports/stage6/regression-report.json
 ```
 
+对失败样本做阶段归因聚类（F1–F8）：
+
+```bash
+uv run python evals/reporting/failure_clusters.py \
+  --failures evals/reports/latest/failures.jsonl \
+  --runs evals/reports/latest/runs.jsonl \
+  --output evals/reports/latest/failure-classification.json
+```
+
+`run_eval.py` 结束时也会写入 `runs.jsonl` 与 `failure-classification.json`。
+summary 中的 `stage_observations` 记录 model_calls / duration / repair / fallback /
+矩阵计划 feasibility 误杀；`generation_strategies` 额外汇总 construction 与
+completion_history 收敛轮次。
+
 对单个 HTML 执行离线浏览器评测：
 
 ```bash

@@ -555,6 +555,12 @@ def _trace_ranking_summary(ranking: dict[str, Any]) -> dict[str, Any]:
         "selected_index": ranking.get("selected_index"),
         "selected_score": ranking.get("selected_score"),
         "decision": ranking.get("decision"),
+        "strategy": ranking.get("strategy"),
+        "construction_materialization": ranking.get("construction_materialization", []),
+        "completion_history": ranking.get("completion_history", []),
+        "waypoint_completion": ranking.get("waypoint_completion", []),
+        "target_bounds_completion": ranking.get("target_bounds_completion", []),
+        "footprint_scale_completion": ranking.get("footprint_scale_completion", []),
         "candidates": [
             {
                 "index": item.get("index"),
