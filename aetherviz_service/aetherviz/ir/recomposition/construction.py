@@ -166,6 +166,29 @@ def _apply_constraint(constraint: object, pieces: dict[str, dict[str, Any]]) -> 
             )
             piece["target"]["rotation"] = _sub(desired_angle, _edge_angle(moving_edge))
             if constraint_type == "attach_edge":
+                moving_length = _expression_edge_length(moving_edge)
+                fixed_length = _expression_edge_length(fixed_edge)
+                moving_scale = _expression_number(piece["target"].get("scale", 1))
+                fixed_scale = _expression_number(reference["target"].get("scale", 1))
+                if (
+                    moving_length is not None
+                    and fixed_length is not None
+                    and moving_scale is not None
+                    and fixed_scale is not None
+                ):
+                    left_world = moving_length * abs(moving_scale)
+                    right_world = fixed_length * abs(fixed_scale)
+                    length_delta = abs(left_world - right_world)
+                    if length_delta > 0.75:
+                        return _failed(
+                            "attach_edge_length_mismatch",
+                            piece_id=piece_id,
+                            to_piece_id=reference_id,
+                            left_length=round(left_world, 6),
+                            right_length=round(right_world, 6),
+                            length_delta=round(length_delta, 6),
+                            hint="equalize_local_edge_lengths_before_attach_edge",
+                        )
                 fixed_anchor = fixed_edge[1] if reverse else fixed_edge[0]
                 fixed_world = _world_point(fixed_anchor, reference["target"])
                 moving_offset = _rotated_scaled_point(moving_edge[0], piece["target"])
@@ -344,8 +367,25 @@ def _verify_constraint(
     reverse = bool(constraint.get("reverse", False))
     expected_start = right_edge[1] if reverse else right_edge[0]
     expected_end = right_edge[0] if reverse else right_edge[1]
-    if _distance(left_edge[0], expected_start) > 0.75 or _distance(left_edge[1], expected_end) > 0.75:
-        return _issue("attach_edge_unsatisfied")
+    length_delta = abs(left_length - right_length)
+    if length_delta > 0.75:
+        return _issue(
+            "attach_edge_length_mismatch",
+            left_length=round(left_length, 6),
+            right_length=round(right_length, 6),
+            length_delta=round(length_delta, 6),
+            hint="equalize_local_edge_lengths_before_attach_edge",
+        )
+    start_distance = _distance(left_edge[0], expected_start)
+    end_distance = _distance(left_edge[1], expected_end)
+    if start_distance > 0.75 or end_distance > 0.75:
+        return _issue(
+            "attach_edge_endpoint_mismatch",
+            start_distance=round(start_distance, 6),
+            end_distance=round(end_distance, 6),
+            reverse=reverse,
+            hint="fix_piece_ids_edge_indices_or_reverse",
+        )
     return None
 
 
@@ -452,6 +492,24 @@ def _numeric_edge(
 
 def _distance(left: tuple[float, float], right: tuple[float, float]) -> float:
     return math.hypot(left[0] - right[0], left[1] - right[1])
+
+
+def _expression_number(value: object) -> float | None:
+    if _is_number(value):
+        number = float(value)
+        return number if number == number and number not in {float("inf"), float("-inf")} else None
+    return None
+
+
+def _expression_edge_length(edge: tuple[tuple[object, object], tuple[object, object]]) -> float | None:
+    start, end = edge
+    x1 = _expression_number(start[0])
+    y1 = _expression_number(start[1])
+    x2 = _expression_number(end[0])
+    y2 = _expression_number(end[1])
+    if None in {x1, y1, x2, y2}:
+        return None
+    return math.hypot(x2 - x1, y2 - y1)
 
 
 def _add(*values: object) -> object:

@@ -144,6 +144,11 @@ def normalize_plan(raw_plan: dict | None, topic: str, primary_color: str = DEFAU
         if has_recomposition
         else None
     )
+    if recomposition_spec is not None:
+        _narrow_recomposition_geometry_spans(
+            interactive_spec,
+            recomposition_spec.get("geometry_variables", []),
+        )
     discipline_spec = _normalize_discipline_spec(raw.get("discipline_spec"), baseline["discipline_spec"])
     representation_spec = normalize_representation_spec(
         raw.get("representation_spec"),
@@ -302,6 +307,10 @@ def _default_plan(topic: str, primary_color: str) -> dict:
     }
     if knowledge_profile.get("representation_type") == "geometric_recomposition":
         plan["recomposition_spec"] = _normalize_recomposition_spec(None, interactive_spec)
+        _narrow_recomposition_geometry_spans(
+            interactive_spec,
+            plan["recomposition_spec"].get("geometry_variables", []),
+        )
     return plan
 
 
@@ -387,6 +396,81 @@ def _is_discrete_topology_variable(variable: dict[str, Any]) -> bool:
         and maximum.is_integer()
         and default.is_integer()
     )
+
+
+# Continuous geometry spans wider than this ratio commonly empty the visual scale
+# interval (minimum readable vs maximum fit). Prefer shrinking plan bounds over
+# asking IR repair to absorb impossible linear pixel spans.
+_GEOMETRY_VARIABLE_MAX_RATIO = 6.0
+_GEOMETRY_VARIABLE_MAX_ABS_SPAN = 8.0
+
+
+def _narrow_recomposition_geometry_spans(
+    interactive_spec: dict[str, Any],
+    geometry_variables: object,
+) -> None:
+    """Shrink extreme continuous geometry min/max at the planning layer."""
+    names = {
+        str(name)
+        for name in geometry_variables
+        if isinstance(geometry_variables, list) and str(name or "").strip()
+    }
+    if not names:
+        return
+    variables = interactive_spec.get("variables")
+    if not isinstance(variables, list):
+        return
+    for variable in variables:
+        if not isinstance(variable, dict) or variable.get("computed"):
+            continue
+        name = _safe_str(variable.get("name"))
+        if name not in names:
+            continue
+        minimum = float(_safe_number(variable.get("min"), 0))
+        maximum = float(_safe_number(variable.get("max"), max(minimum + 1, 10)))
+        if maximum < minimum:
+            minimum, maximum = maximum, minimum
+        default = float(_safe_number(variable.get("default"), minimum))
+        step = float(_safe_number(variable.get("step"), 1))
+        if step <= 0:
+            step = 1.0
+        if minimum > 0:
+            ratio = maximum / minimum
+            if ratio > _GEOMETRY_VARIABLE_MAX_RATIO + 1e-9:
+                # Keep the default teaching value; shrink the farther endpoint.
+                if default * default <= minimum * maximum:
+                    maximum = minimum * _GEOMETRY_VARIABLE_MAX_RATIO
+                else:
+                    minimum = maximum / _GEOMETRY_VARIABLE_MAX_RATIO
+        elif maximum - minimum > _GEOMETRY_VARIABLE_MAX_ABS_SPAN + 1e-9:
+            half = _GEOMETRY_VARIABLE_MAX_ABS_SPAN / 2.0
+            minimum = default - half
+            maximum = default + half
+        if maximum < minimum:
+            minimum, maximum = maximum, minimum
+        default = _clamp(default, minimum, maximum)
+        variable["min"] = _safe_number(minimum, minimum)
+        variable["max"] = _safe_number(maximum, maximum)
+        variable["default"] = default
+        variable["step"] = _safe_number(step, step)
+    presets = interactive_spec.get("presets")
+    if not isinstance(presets, list):
+        return
+    bounds = {
+        _safe_str(variable.get("name")): (
+            float(variable.get("min", 0)),
+            float(variable.get("max", 0)),
+        )
+        for variable in variables
+        if isinstance(variable, dict) and not variable.get("computed") and _safe_str(variable.get("name"))
+    }
+    for preset in presets:
+        if not isinstance(preset, dict) or not isinstance(preset.get("values"), dict):
+            continue
+        values = preset["values"]
+        for name, (low, high) in bounds.items():
+            if name in values:
+                values[name] = _clamp(_safe_number(values.get(name), low), low, high)
 
 
 def _normalize_stage_requirements(value: object) -> list[dict[str, Any]]:

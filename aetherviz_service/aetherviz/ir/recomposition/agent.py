@@ -58,7 +58,7 @@ from aetherviz_service.config import settings
 
 logger = logging.getLogger(__name__)
 
-_DETERMINISTIC_COMPLETION_MAX_ROUNDS = 3
+_DETERMINISTIC_COMPLETION_MAX_ROUNDS = 3  # Do not raise: stabilize F4/construction via prompts first.
 
 SCENE_SYSTEM_PROMPT = f"""你是二维 SVG 几何切分重排的结构化几何 IR 生成器。
 只输出用户要求的 JSON 对象，不输出 Markdown、JavaScript、HTML、注释或解释。单个 IR 的 version 必须是 {GEOMETRY_IR_VERSION}。
@@ -479,13 +479,32 @@ def _materialize_candidate_constructions(
 
 
 def _public_construction_report(index: int, report: dict[str, Any]) -> dict[str, Any]:
+    error_keys = (
+        "type",
+        "index",
+        "piece_id",
+        "to_piece_id",
+        "state",
+        "left_length",
+        "right_length",
+        "length_delta",
+        "start_distance",
+        "end_distance",
+        "reverse",
+        "coverage_ratio",
+        "required_ratio",
+        "hint",
+        "detail",
+        "constraint_type",
+    )
     return {
         "index": index,
         "ok": bool(report.get("ok")),
         "changed": bool(report.get("changed")),
+        "fallback": report.get("fallback"),
         "constraints": report.get("constraints", []),
         "errors": [
-            {key: item.get(key) for key in ("type", "index", "piece_id", "to_piece_id", "state") if key in item}
+            {key: item.get(key) for key in error_keys if key in item}
             for item in report.get("errors", [])
             if isinstance(item, dict)
         ],
@@ -618,6 +637,10 @@ def _repair_scene_source(
         "若报告含 undersized_visual_footprint，先读取 footprint_diagnostics 的缩放区间；只有 required_scale 不大于 maximum_scale 时才整体缩放并重新居中。"
         "若报告含 visual_scale_range_conflict，禁止仅用统一系数放大；必须收窄通用几何变量对应的像素跨度、使用 clamp/min/max，或重构局部坐标，使 minimum 可读且 maximum 入界。"
         "若使用 sector_path 逼近矩形，必须采用系统说明中的固定局部扇形与交错咬合坐标，不得继续沿用按索引旋转过的局部 path、arcLen 间距或分离的上下行。"
+        "若报告含 construction_diagnostics 且 fallback 为 stripped_unsolved_construction，必须根据 errors 重写 construction："
+        "只用无 repeat 的固定字符串 piece id；attach_edge 两边局部长度必须在 min/default/max 一致；"
+        "长度不一致时先改局部几何或边索引，端点不重合时校正 piece_id/edge/reverse；"
+        "禁止继续依赖已被剥离的手写 target 近似坐标。"
         "静态多边形需要精确拼边时可改用通用 construction constraints，让服务端求解 target；约束必须使用固定 piece id 和有效边/顶点索引，自定义目标区域用 target_boundary 配合 inside_target/cover_target。"
         "将结果精简到最多 8 个 definitions、8 个图元模板和 1 个 repeat，并检查 JSON 完整闭合。\n"
         + json.dumps(
@@ -627,6 +650,7 @@ def _repair_scene_source(
                 "stage_alignment": _stage_alignment_checklist(plan),
                 "recomposition_spec": plan.get("recomposition_spec"),
                 "errors": report.get("errors", []),
+                "construction_diagnostics": report.get("construction_materialization", []),
                 "candidate": candidate,
             },
             ensure_ascii=False,
@@ -733,6 +757,11 @@ def _parse_error_report(message: str) -> dict[str, Any]:
 
 
 def _ranking_error_report(ranking: dict[str, Any]) -> dict[str, Any]:
+    construction_reports = [
+        item
+        for item in ranking.get("construction_materialization", [])
+        if isinstance(item, dict) and (item.get("ok") is False or item.get("errors"))
+    ]
     return {
         "ok": False,
         "severity": "error",
@@ -752,10 +781,19 @@ def _ranking_error_report(ranking: dict[str, Any]) -> dict[str, Any]:
                 "footprint_diagnostics": _compact_footprint_diagnostics(
                     item.get("details", {}).get("motion_safety", {})
                 ),
+                "construction_diagnostics": next(
+                    (
+                        report
+                        for report in construction_reports
+                        if report.get("index") == item["index"]
+                    ),
+                    None,
+                ),
             }
             for item in ranking.get("candidates", [])
         ],
         "warnings": [],
+        "construction_materialization": construction_reports,
         "ranking": public_geometry_ir_ranking(ranking),
     }
 

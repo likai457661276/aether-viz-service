@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import json
 from copy import deepcopy
 
@@ -349,6 +350,122 @@ def test_failed_construction_strips_block_so_ranking_can_continue() -> None:
     assert "unmaterialized_target_construction" not in {
         item["type"] for item in validate_geometry_ir(materialized["ir"], plan)["errors"]
     }
+
+
+def test_attach_edge_reports_length_mismatch_instead_of_opaque_unsatisfied() -> None:
+    plan = normalize_plan({}, "组合图形切割重排证明")
+    left = {
+        "id": "left",
+        "tag": "rect",
+        "attrs": {"x": 0, "y": 0, "width": 100, "height": 40, "fill": "#34d399"},
+        "source": {"x": 120, "y": 160, "rotation": 0, "scale": 1, "opacity": 1},
+        "target": {"x": 300, "y": 200, "rotation": 0, "scale": 1, "opacity": 1},
+        "keyframes": [],
+    }
+    right = {
+        "id": "right",
+        "tag": "rect",
+        "attrs": {"x": 0, "y": 0, "width": 60, "height": 40, "fill": "#60a5fa"},
+        "source": {"x": 420, "y": 160, "rotation": 0, "scale": 1, "opacity": 1},
+        "target": {"x": 500, "y": 200, "rotation": 0, "scale": 1, "opacity": 1},
+        "keyframes": [],
+    }
+    candidate = {
+        "version": GEOMETRY_IR_VERSION,
+        "definitions": {},
+        "pieces": [left, right],
+        "frames": [
+            {"stage_id": "source", "at": 0, "caption": "源", "formula": "A", "step": 0},
+            {"stage_id": "transform-1", "at": 0.5, "caption": "中", "formula": "A", "step": 1},
+            {"stage_id": "target", "at": 1, "caption": "目标", "formula": "A", "step": 2},
+        ],
+        "construction": {
+            "target_boundary": None,
+            "constraints": [
+                {
+                    "type": "attach_edge",
+                    "piece_id": "right",
+                    "edge": 0,
+                    "to_piece_id": "left",
+                    "to_edge": 1,
+                    "reverse": False,
+                }
+            ],
+        },
+    }
+
+    materialized = materialize_target_construction(candidate, plan)
+
+    assert not materialized["ok"]
+    assert materialized.get("fallback") == "stripped_unsolved_construction"
+    assert any(item.get("type") == "attach_edge_length_mismatch" for item in materialized["errors"])
+    mismatch = next(item for item in materialized["errors"] if item["type"] == "attach_edge_length_mismatch")
+    assert mismatch["left_length"] == 60
+    assert mismatch["right_length"] == 40
+    assert mismatch["hint"] == "equalize_local_edge_lengths_before_attach_edge"
+
+
+def test_ranking_error_report_includes_construction_diagnostics_for_repair_feedback() -> None:
+    from aetherviz_service.aetherviz.ir.recomposition import agent as recomposition_agent
+
+    ranking = {
+        "ok": False,
+        "candidates": [
+            {
+                "index": 0,
+                "hard_failures": ["assembly:target_assembly_failed"],
+                "score": 0.1,
+                "details": {},
+            }
+        ],
+        "construction_materialization": [
+            {
+                "index": 0,
+                "ok": False,
+                "fallback": "stripped_unsolved_construction",
+                "errors": [
+                    {
+                        "type": "attach_edge_length_mismatch",
+                        "left_length": 80,
+                        "right_length": 60,
+                        "hint": "equalize_local_edge_lengths_before_attach_edge",
+                    }
+                ],
+            }
+        ],
+    }
+    report = recomposition_agent._ranking_error_report(ranking)
+    assert report["construction_materialization"][0]["fallback"] == "stripped_unsolved_construction"
+    assert report["errors"][0]["construction_diagnostics"]["errors"][0]["type"] == "attach_edge_length_mismatch"
+
+
+def test_normalize_plan_narrows_extreme_geometry_variable_spans() -> None:
+    plan = normalize_plan(
+        {
+            "interactive_spec": {
+                "variables": [
+                    {"name": "scale", "label": "尺度", "min": 0.25, "max": 12, "default": 4, "step": 0.25}
+                ],
+                "presets": [{"id": "wide", "label": "宽", "values": {"scale": 12}}],
+            },
+            "recomposition_spec": {"geometry_variables": ["scale"]},
+        },
+        "单块多边形平移重排面积守恒推导",
+    )
+    scale = next(
+        item for item in plan["interactive_spec"]["variables"] if item["name"] == "scale"
+    )
+    assert scale["max"] / scale["min"] <= 6 + 1e-9
+    assert scale["min"] <= scale["default"] <= scale["max"]
+    assert plan["interactive_spec"]["presets"][0]["values"]["scale"] == scale["max"]
+
+
+def test_model_repair_rounds_remain_single_pass_with_bounded_deterministic_completion() -> None:
+    from aetherviz_service.aetherviz.ir.recomposition import agent as recomposition_agent
+
+    assert recomposition_agent._DETERMINISTIC_COMPLETION_MAX_ROUNDS == 3
+    source = inspect.getsource(recomposition_agent._stream_generate_recomposition_html_impl)
+    assert source.count("_repair_scene_source(") == 1
 
 
 def test_null_construction_is_not_treated_as_unmaterialized() -> None:

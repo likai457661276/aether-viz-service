@@ -390,7 +390,9 @@ def build_evaluation_plan_seed(example: dict[str, Any]) -> dict[str, Any]:
     parameter_ranges = {
         "fixed": (4, 4, 4, 1),
         "variable": (1, 8, 4, 0.5),
-        "boundary": (0.25, 12, 4, 0.25),
+        # Boundary still stresses extremes, but stays within the planning-layer
+        # readable span (max/min <= 6) instead of an empty visual scale interval.
+        "boundary": (1, 6, 3, 0.5),
     }
     scale_min, scale_max, scale_default, scale_step = parameter_ranges.get(
         parameter_form, parameter_ranges["variable"]
