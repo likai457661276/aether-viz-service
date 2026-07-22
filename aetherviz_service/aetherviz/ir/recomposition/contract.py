@@ -476,7 +476,7 @@ def validate_geometry_ir(ir: object, plan: dict[str, Any]) -> dict[str, Any]:
         errors.append(_issue("geometry_ir_too_long", "几何 IR 超过长度上限", chars=len(serialized)))
     if ir.get("version") != GEOMETRY_IR_VERSION:
         errors.append(_issue("unsupported_geometry_ir_version", "几何 IR 版本不受支持"))
-    if "construction" in ir:
+    if ir.get("construction") is not None:
         errors.append(
             _issue(
                 "unmaterialized_target_construction",

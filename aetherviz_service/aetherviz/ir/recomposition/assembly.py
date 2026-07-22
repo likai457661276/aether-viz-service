@@ -238,12 +238,19 @@ def analyze_footprint_scale(footprint_report: dict[str, Any]) -> dict[str, Any]:
 def scale_scene_footprints_into_canvas(
     ir: object,
     footprint_report: dict[str, Any],
+    plan: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Uniformly scale and center all endpoint states when a common scale exists."""
+    """Fit scene footprints into the canvas while maximizing readability.
+
+    Feasible intervals use the required uniform scale. Conflicts still attempt a
+    best-effort repair:
+    1. partial uniform enlarge when maximum_scale > 1
+    2. otherwise boost piece transform.scale (keep x/y), remeasure, then fit
+    """
     analysis = analyze_footprint_scale(footprint_report)
     if not isinstance(ir, dict):
         return {"ok": False, "changed": False, "reason": "invalid_geometry_ir", "ir": ir, "analysis": analysis}
-    if not analysis.get("ok") or not analysis.get("feasible"):
+    if not analysis.get("ok"):
         return {
             "ok": False,
             "changed": False,
@@ -251,48 +258,195 @@ def scale_scene_footprints_into_canvas(
             "ir": ir,
             "analysis": analysis,
         }
-    scale = float(analysis.get("required_scale") or 1)
-    if scale <= 1 + 1e-9:
-        return {"ok": True, "changed": False, "reason": "already_readable", "ir": ir, "analysis": analysis}
-    translations: dict[str, dict[str, float]] = {}
-    for endpoint, bbox in analysis["endpoint_unions"].items():
-        translations[endpoint] = {
-            "x": (CANVAS_WIDTH - scale * (float(bbox[0]) + float(bbox[2]))) / 2,
-            "y": (CANVAS_HEIGHT - scale * (float(bbox[1]) + float(bbox[3]))) / 2,
+
+    required = analysis.get("required_scale")
+    maximum = analysis.get("maximum_scale")
+    required_scale = float(required) if isinstance(required, (int, float)) and math.isfinite(required) else None
+    maximum_scale = float(maximum) if isinstance(maximum, (int, float)) and math.isfinite(maximum) else None
+
+    if analysis.get("feasible"):
+        if required_scale is None or required_scale <= 1 + 1e-9:
+            return {"ok": True, "changed": False, "reason": "already_readable", "ir": ir, "analysis": analysis}
+        return _apply_uniform_footprint_scale(
+            ir,
+            analysis,
+            scale=required_scale,
+            reason="scene_footprints_scaled_into_canvas",
+        )
+
+    if required_scale is None or required_scale <= 1 + 1e-9:
+        return {
+            "ok": False,
+            "changed": False,
+            "reason": analysis.get("reason", "visual_scale_range_conflict"),
+            "ir": ir,
+            "analysis": analysis,
         }
-    if "source" not in translations or "target" not in translations:
+
+    # Conflicts: enlarge local visuals toward the default-state requirement first,
+    # then fit the whole scene. Extreme parameter states are soft after ranking.
+    default_footprint = {
+        "endpoints": {
+            endpoint: [item for item in states if isinstance(item, dict) and item.get("state") == "default"]
+            for endpoint, states in footprint_report.get("endpoints", {}).items()
+        }
+    }
+    default_analysis = analyze_footprint_scale(default_footprint)
+    boost_target = required_scale
+    if default_analysis.get("ok") and isinstance(default_analysis.get("required_scale"), (int, float)):
+        boost_target = float(default_analysis["required_scale"])
+    boost = min(max(boost_target, 1.0), 6.0)
+    boosted = _boost_piece_visual_scales(ir, boost)
+    if not boosted["ok"]:
+        return {**boosted, "analysis": analysis, "default_analysis": default_analysis}
+
+    working_ir = boosted["ir"]
+    working_analysis = analysis
+    if isinstance(plan, dict):
+        fresh_report = measure_scene_footprints(working_ir, plan)
+        working_analysis = analyze_footprint_scale(fresh_report)
+        fresh_default = analyze_footprint_scale(
+            {
+                "endpoints": {
+                    endpoint: [
+                        item
+                        for item in states
+                        if isinstance(item, dict) and item.get("state") == "default"
+                    ]
+                    for endpoint, states in fresh_report.get("endpoints", {}).items()
+                }
+            }
+        )
+        if fresh_default.get("ok") and fresh_default.get("feasible"):
+            fresh_required = float(fresh_default.get("required_scale") or 1)
+            scaled = _apply_uniform_footprint_scale(
+                working_ir,
+                fresh_default,
+                scale=fresh_required if fresh_required > 1 + 1e-9 else 1.0,
+                reason=(
+                    "scene_footprints_boosted_then_scaled"
+                    if fresh_required > 1 + 1e-9
+                    else "scene_footprints_boosted_and_centered"
+                ),
+            )
+            if scaled.get("ok"):
+                scaled["changed"] = True
+                scaled["boost"] = round(boost, 6)
+                scaled["default_analysis"] = fresh_default
+                return scaled
+
+    fit_scale = 1.0
+    if working_analysis.get("ok"):
+        fresh_maximum = working_analysis.get("maximum_scale")
+        if isinstance(fresh_maximum, (int, float)) and math.isfinite(fresh_maximum) and float(fresh_maximum) > 1e-9:
+            fit_scale = min(1.0, float(fresh_maximum)) if float(fresh_maximum) < 1 else 1.0
+    scaled = _apply_uniform_footprint_scale(
+        working_ir,
+        working_analysis if working_analysis.get("endpoint_unions") else analysis,
+        scale=fit_scale,
+        reason="scene_footprints_boosted_and_fitted",
+    )
+    if scaled.get("ok"):
+        scaled["changed"] = True
+        scaled["boost"] = round(boost, 6)
+        scaled["default_analysis"] = default_analysis
+        return scaled
+
+    if maximum_scale is not None and maximum_scale > 1e-9:
+        return _apply_uniform_footprint_scale(
+            ir,
+            analysis,
+            scale=maximum_scale if maximum_scale >= 1 else maximum_scale,
+            reason="scene_footprints_partial_scaled_to_canvas_limit",
+        )
+    return {
+        "ok": False,
+        "changed": False,
+        "reason": "visual_scale_range_conflict",
+        "ir": ir,
+        "analysis": analysis,
+        "default_analysis": default_analysis,
+        "boost": boosted,
+    }
+
+
+def _apply_uniform_footprint_scale(
+    ir: dict[str, Any],
+    analysis: dict[str, Any],
+    *,
+    scale: float,
+    reason: str,
+) -> dict[str, Any]:
+    endpoint_unions = analysis.get("endpoint_unions") or {}
+    if "source" not in endpoint_unions or "target" not in endpoint_unions:
         return {"ok": False, "changed": False, "reason": "missing_endpoint_bounds", "ir": ir, "analysis": analysis}
+
+    bboxes = [endpoint_unions[name] for name in ("source", "target") if name in endpoint_unions]
+    global_bbox = [
+        min(float(bbox[0]) for bbox in bboxes),
+        min(float(bbox[1]) for bbox in bboxes),
+        max(float(bbox[2]) for bbox in bboxes),
+        max(float(bbox[3]) for bbox in bboxes),
+    ]
+    width = global_bbox[2] - global_bbox[0]
+    height = global_bbox[3] - global_bbox[1]
+    if width > 1e-9:
+        scale = min(scale, CANVAS_WIDTH / width)
+    if height > 1e-9:
+        scale = min(scale, CANVAS_HEIGHT / height)
+    translation = {
+        "x": (CANVAS_WIDTH - scale * (global_bbox[0] + global_bbox[2])) / 2,
+        "y": (CANVAS_HEIGHT - scale * (global_bbox[1] + global_bbox[3])) / 2,
+    }
 
     repaired = deepcopy(ir)
     pieces = repaired.get("pieces")
     if not isinstance(pieces, list):
         return {"ok": False, "changed": False, "reason": "missing_pieces", "ir": ir, "analysis": analysis}
-    source_translation = translations["source"]
-    target_translation = translations["target"]
     for piece in pieces:
         if not isinstance(piece, dict):
             continue
-        _scale_transform(piece.get("source"), scale, source_translation["x"], source_translation["y"])
-        _scale_transform(piece.get("target"), scale, target_translation["x"], target_translation["y"])
+        _scale_transform(piece.get("source"), scale, translation["x"], translation["y"])
+        _scale_transform(piece.get("target"), scale, translation["x"], translation["y"])
         for keyframe in piece.get("keyframes", []):
             if not isinstance(keyframe, dict):
                 continue
-            at = min(1.0, max(0.0, _number(keyframe.get("at", 0))))
-            dx = source_translation["x"] + (target_translation["x"] - source_translation["x"]) * at
-            dy = source_translation["y"] + (target_translation["y"] - source_translation["y"]) * at
-            _scale_transform(keyframe, scale, dx, dy)
+            _scale_transform(keyframe, scale, translation["x"], translation["y"])
+    moved = abs(scale - 1.0) > 1e-9 or any(abs(value) > 1e-9 for value in translation.values())
     return {
         "ok": True,
-        "changed": True,
-        "reason": "scene_footprints_scaled_into_canvas",
+        "changed": moved,
+        "reason": reason,
         "scale": round(scale, 6),
         "translations": {
-            endpoint: {axis: round(value, 6) for axis, value in translation.items()}
-            for endpoint, translation in translations.items()
+            "scene": {axis: round(value, 6) for axis, value in translation.items()},
+            "global_bbox": [round(value, 6) for value in global_bbox],
         },
         "analysis": analysis,
         "ir": repaired,
     }
+
+
+def _boost_piece_visual_scales(ir: dict[str, Any], boost: float) -> dict[str, Any]:
+    """Enlarge local visual size without scaling world x/y layout gaps."""
+    if boost <= 1 + 1e-9:
+        return {"ok": True, "changed": False, "ir": ir, "reason": "boost_not_needed"}
+    repaired = deepcopy(ir)
+    pieces = repaired.get("pieces")
+    if not isinstance(pieces, list):
+        return {"ok": False, "changed": False, "ir": ir, "reason": "missing_pieces"}
+    for piece in pieces:
+        if not isinstance(piece, dict):
+            continue
+        transforms = [piece.get("source"), piece.get("target")]
+        keyframes = piece.get("keyframes")
+        if isinstance(keyframes, list):
+            transforms.extend(keyframes)
+        for transform in transforms:
+            if not isinstance(transform, dict):
+                continue
+            transform["scale"] = _scaled_expression(transform.get("scale", 1), boost, 0)
+    return {"ok": True, "changed": True, "ir": repaired, "reason": "piece_scales_boosted", "scale": boost}
 
 
 def translate_target_assembly_into_canvas(

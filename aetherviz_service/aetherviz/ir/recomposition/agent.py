@@ -444,7 +444,9 @@ def _run_completion_repair(
         return complete_intermediate_waypoints(candidate, plan)
     if stage == "bounds":
         return translate_target_assembly_into_canvas(candidate, details.get("target_assembly", {}))
-    return scale_scene_footprints_into_canvas(candidate, details.get("visual_footprints", {}))
+    return scale_scene_footprints_into_canvas(
+        candidate, details.get("visual_footprints", {}), plan
+    )
 
 
 def _completion_repair_evidence(stage: str, repair: dict[str, Any]) -> dict[str, Any]:
@@ -454,8 +456,10 @@ def _completion_repair_evidence(stage: str, repair: dict[str, Any]) -> dict[str,
         return {"translation": repair.get("translation")}
     return {
         "scale": repair.get("scale"),
+        "boost": repair.get("boost"),
         "translations": repair.get("translations"),
         "analysis": repair.get("analysis"),
+        "reason": repair.get("reason"),
     }
 
 

@@ -37,21 +37,17 @@ def materialize_target_construction(ir: object, plan: dict[str, Any]) -> dict[st
         normalized.pop("construction", None)
         return {"ok": True, "changed": False, "ir": normalized, "errors": [], "constraints": []}
     if not isinstance(construction, dict) or not isinstance(construction.get("constraints"), list):
-        return {
-            "ok": False,
-            "changed": False,
-            "ir": normalized,
-            "errors": [_issue("invalid_target_construction")],
-        }
+        return _construction_fallback(
+            normalized,
+            errors=[_issue("invalid_target_construction")],
+        )
     constraints = construction["constraints"]
     target_boundary = construction.get("target_boundary")
     if not 1 <= len(constraints) <= 24:
-        return {
-            "ok": False,
-            "changed": False,
-            "ir": normalized,
-            "errors": [_issue("invalid_construction_constraint_count", count=len(constraints))],
-        }
+        return _construction_fallback(
+            normalized,
+            errors=[_issue("invalid_construction_constraint_count", count=len(constraints))],
+        )
 
     completed = json.loads(json.dumps(normalized, ensure_ascii=False))
     pieces = completed.get("pieces") if isinstance(completed.get("pieces"), list) else []
@@ -80,18 +76,16 @@ def materialize_target_construction(ir: object, plan: dict[str, Any]) -> dict[st
         else:
             applied.append({"index": index, "type": constraint.get("type"), "piece_id": constraint.get("piece_id")})
     if errors:
-        return {"ok": False, "changed": False, "ir": normalized, "errors": errors, "constraints": applied}
+        return _construction_fallback(normalized, errors=errors, constraints=applied)
 
     completed.pop("construction", None)
     verification = _verify_constraints(completed, plan, constraints, target_boundary)
     if not verification["ok"]:
-        return {
-            "ok": False,
-            "changed": False,
-            "ir": normalized,
-            "errors": verification["errors"],
-            "constraints": applied,
-        }
+        return _construction_fallback(
+            normalized,
+            errors=verification["errors"],
+            constraints=applied,
+        )
     return {
         "ok": True,
         "changed": True,
@@ -99,6 +93,25 @@ def materialize_target_construction(ir: object, plan: dict[str, Any]) -> dict[st
         "errors": [],
         "constraints": applied,
         "verification": verification,
+    }
+
+
+def _construction_fallback(
+    normalized: dict[str, Any],
+    *,
+    errors: list[dict[str, Any]],
+    constraints: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Keep author targets when construction cannot be solved, so ranking can continue."""
+    fallback = json.loads(json.dumps(normalized, ensure_ascii=False))
+    fallback.pop("construction", None)
+    return {
+        "ok": False,
+        "changed": True,
+        "ir": fallback,
+        "errors": errors,
+        "constraints": constraints or [],
+        "fallback": "stripped_unsolved_construction",
     }
 
 

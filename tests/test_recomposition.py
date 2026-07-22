@@ -223,11 +223,12 @@ def test_deterministic_footprint_scale_completion_repairs_feasible_candidate() -
 
     plan = normalize_plan({}, "组合图形面积切割重排证明")
     candidate = build_deterministic_geometry_ir(plan)
-    candidate["pieces"][0]["attrs"]["points"] = "0,0 80,0 0,80"
+    candidate["pieces"][0]["attrs"]["points"] = "0,0 12,0 0,12"
     candidate["pieces"][0]["target"]["x"] = 420
     candidate["pieces"][0]["target"]["y"] = 260
     candidate["pieces"][0]["keyframes"][-1] = {"at": 1, **candidate["pieces"][0]["target"]}
     initial = rank_geometry_ir_candidates([candidate], plan)
+    assert "safety:undersized_visual_footprint" in initial["candidates"][0]["hard_failures"]
 
     repaired_ranking, repaired_candidates = recomposition_agent._attempt_footprint_scale_completion(
         [candidate], plan, initial
@@ -235,13 +236,129 @@ def test_deterministic_footprint_scale_completion_repairs_feasible_candidate() -
 
     assert repaired_ranking["ok"], repaired_ranking["candidates"][0]["hard_failures"]
     assert repaired_ranking["strategy"] == "deterministic_footprint_scale_completion"
-    assert repaired_ranking["footprint_scale_completion"][0]["scale"] > 1
+    completion = repaired_ranking["footprint_scale_completion"][0]
+    assert completion["accepted"]
+    assert completion.get("changed") or completion.get("scale", 0) >= 1
     repaired = scale_scene_footprints_into_canvas(
         candidate,
         initial["candidates"][0]["details"]["visual_footprints"],
+        plan,
     )
     assert repaired["ok"] and repaired["changed"]
     assert repaired_candidates[0] == repaired["ir"]
+
+
+def test_deterministic_footprint_scale_completion_partial_scales_conflict() -> None:
+    from aetherviz_service.aetherviz.ir.recomposition import agent as recomposition_agent
+    from aetherviz_service.aetherviz.ir.recomposition.contract import GEOMETRY_IR_VERSION
+
+    plan = normalize_plan(
+        {
+            "interactive_spec": {
+                "variables": [
+                    {"name": "scale", "label": "尺度", "min": 1, "max": 12, "default": 4, "step": 1}
+                ]
+            },
+            "recomposition_spec": {
+                "geometry_variables": ["scale"],
+                "topology_variables": [],
+                "proof_constraints": {
+                    "measure_invariants": ["piece_congruence"],
+                    "stage_requirements": [
+                        {"id": "source", "intent": "源"},
+                        {"id": "transform-1", "intent": "中间", "min_piece_ratio": 0.5},
+                        {"id": "target", "intent": "目标"},
+                    ],
+                },
+            },
+        },
+        "尺度冲突重排",
+    )
+    candidate = {
+        "version": GEOMETRY_IR_VERSION,
+        "definitions": {"size": {"op": "mul", "args": [{"state": "scale"}, 10]}},
+        "pieces": [
+            {
+                "repeat": None,
+                "id": "piece-0",
+                "tag": "polygon",
+                "attrs": {
+                    "points": {
+                        "op": "points",
+                        "args": [[0, 0], [{"var": "size"}, 0], [0, {"var": "size"}]],
+                    },
+                    "fill": "#34d399",
+                },
+                "source": {"x": 80, "y": 80, "rotation": 0, "scale": 1, "opacity": 1},
+                "target": {"x": 700, "y": 350, "rotation": 0, "scale": 1, "opacity": 1},
+                "keyframes": [
+                    {"at": 0, "x": 80, "y": 80, "rotation": 0, "scale": 1, "opacity": 1},
+                    {"at": 0.5, "x": 390, "y": 120, "rotation": 0, "scale": 1, "opacity": 1},
+                    {"at": 1, "x": 700, "y": 350, "rotation": 0, "scale": 1, "opacity": 1},
+                ],
+            }
+        ],
+        "frames": [
+            {"stage_id": "source", "at": 0, "caption": "源", "formula": "保持", "step": 0},
+            {"stage_id": "transform-1", "at": 0.5, "caption": "中间", "formula": "保持", "step": 1},
+            {"stage_id": "target", "at": 1, "caption": "目标", "formula": "保持", "step": 2},
+        ],
+    }
+    initial = rank_geometry_ir_candidates([candidate], plan)
+    assert "safety:undersized_visual_footprint" in initial["candidates"][0]["hard_failures"]
+
+    repaired_ranking, _ = recomposition_agent._attempt_footprint_scale_completion(
+        [candidate], plan, initial
+    )
+    report = repaired_ranking["footprint_scale_completion"][0]
+
+    assert report["attempted"] and report["accepted"], report
+    assert report["reason"] in {
+        "scene_footprints_boosted_then_scaled",
+        "scene_footprints_boosted_and_centered",
+        "scene_footprints_boosted_and_fitted",
+        "scene_footprints_partial_scaled_to_canvas_limit",
+        "scene_footprints_scaled_into_canvas",
+    }
+    assert "safety:undersized_visual_footprint" not in repaired_ranking["candidates"][0]["hard_failures"]
+    assert "safety:visual_scale_range_conflict" not in repaired_ranking["candidates"][0]["hard_failures"]
+
+
+def test_failed_construction_strips_block_so_ranking_can_continue() -> None:
+    plan = normalize_plan({}, "组合图形面积切割重排证明")
+    candidate = build_deterministic_geometry_ir(plan)
+    candidate["construction"] = {
+        "target_boundary": None,
+        "constraints": [
+            {
+                "type": "attach_edge",
+                "piece_id": "missing",
+                "edge": 0,
+                "to_piece_id": "also-missing",
+                "to_edge": 0,
+            }
+        ],
+    }
+
+    materialized = materialize_target_construction(candidate, plan)
+
+    assert not materialized["ok"]
+    assert materialized["changed"]
+    assert materialized.get("fallback") == "stripped_unsolved_construction"
+    assert "construction" not in materialized["ir"]
+    assert "unmaterialized_target_construction" not in {
+        item["type"] for item in validate_geometry_ir(materialized["ir"], plan)["errors"]
+    }
+
+
+def test_null_construction_is_not_treated_as_unmaterialized() -> None:
+    plan = normalize_plan({}, "组合图形面积切割重排证明")
+    candidate = build_deterministic_geometry_ir(plan)
+    candidate["construction"] = None
+
+    report = validate_geometry_ir(candidate, plan)
+
+    assert "unmaterialized_target_construction" not in {item["type"] for item in report["errors"]}
 
 
 def test_normalized_recomposition_plan_always_preserves_piece_shape() -> None:

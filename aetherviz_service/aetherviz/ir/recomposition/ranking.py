@@ -200,8 +200,16 @@ def _evaluate_motion_safety(
     safe_bounds = 0
     reasonable_motion = 0
     footprint_scores: list[float] = []
-    has_undersized_footprint = False
+    default_undersized = False
+    extreme_undersized = False
     scale_analysis = analyze_footprint_scale(footprint_report)
+    default_footprint = {
+        "endpoints": {
+            endpoint: [item for item in states if isinstance(item, dict) and item.get("state") == "default"]
+            for endpoint, states in footprint_report.get("endpoints", {}).items()
+        }
+    }
+    default_scale_analysis = analyze_footprint_scale(default_footprint)
     for endpoint, states in footprint_report.get("endpoints", {}).items():
         for metrics in states:
             bbox = metrics.get("bbox", [])
@@ -220,26 +228,44 @@ def _evaluate_motion_safety(
                 else 0.0
             )
             if long_extent < 128 or (short_extent < 64 and area_ratio < 0.015):
-                has_undersized_footprint = True
-                errors.append(
-                    {
-                        "type": "undersized_visual_footprint",
-                        "state": metrics.get("state"),
-                        "endpoint": endpoint,
-                        "bbox": bbox,
-                        "area_ratio": round(area_ratio, 6),
-                    }
-                )
-    if has_undersized_footprint and scale_analysis.get("ok") and not scale_analysis.get("feasible"):
+                state_name = str(metrics.get("state") or "")
+                payload = {
+                    "type": "undersized_visual_footprint",
+                    "state": metrics.get("state"),
+                    "endpoint": endpoint,
+                    "bbox": bbox,
+                    "area_ratio": round(area_ratio, 6),
+                }
+                # Parameter extremes can be impossible to keep both readable and in-bounds.
+                # Hard-fail only on the default teaching state; extremes stay diagnostic.
+                if state_name == "default":
+                    default_undersized = True
+                    errors.append(payload)
+                else:
+                    extreme_undersized = True
+    if default_undersized and default_scale_analysis.get("ok") and not default_scale_analysis.get("feasible"):
         errors.append(
             {
                 "type": "visual_scale_range_conflict",
-                "required_scale": scale_analysis.get("required_scale"),
-                "maximum_scale": scale_analysis.get("maximum_scale"),
-                "endpoint_unions": scale_analysis.get("endpoint_unions"),
-                "canvas": scale_analysis.get("canvas"),
+                "required_scale": default_scale_analysis.get("required_scale"),
+                "maximum_scale": default_scale_analysis.get("maximum_scale"),
+                "endpoint_unions": default_scale_analysis.get("endpoint_unions"),
+                "canvas": default_scale_analysis.get("canvas"),
+                "scope": "default",
             }
         )
+    elif (
+        not default_undersized
+        and extreme_undersized
+        and scale_analysis.get("ok")
+        and not scale_analysis.get("feasible")
+    ):
+        # Keep the conflict visible for repair prompts without blocking default-readable scenes.
+        scale_analysis = {
+            **scale_analysis,
+            "extreme_only_conflict": True,
+            "default_analysis": default_scale_analysis,
+        }
     for state_label, state in sample_geometry_states(plan):
         pieces = expand_geometry_ir(ir, state)
         for piece in pieces:
@@ -285,6 +311,7 @@ def _evaluate_motion_safety(
         "motion_score": reasonable_motion / piece_samples if piece_samples else 0.0,
         "footprint_score": sum(footprint_scores) / len(footprint_scores) if footprint_scores else None,
         "scale_analysis": scale_analysis,
+        "default_scale_analysis": default_scale_analysis,
     }
 
 
