@@ -11,6 +11,7 @@ evals/
 │   ├── edit_html/            # 编辑诊断与端到端确定性样本
 │   ├── ir_candidates/        # 尚无专用后端的 IR 设计缺口样本
 │   ├── ir_routing/           # IR 路由回归
+│   ├── ir_stability/         # IR→HTML 失败模式回归（互动类型×表征×失败模式）
 │   ├── number_line_ir/       # 数轴 IR repair 与动态集合 Runtime 回归
 │   ├── constraint_geometry_ir/  # 约束几何 IR 确定性 repair / 排名回归
 │   └── recomposition/        # 几何重排回归
@@ -21,6 +22,8 @@ evals/
 ├── run_generate_baseline_eval.py
 ├── run_edit_html_eval.py
 ├── run_ir_routing_eval.py
+├── run_ir_stability_eval.py
+├── run_scene_temperature_ab.py
 ├── run_number_line_ir_eval.py
 ├── run_constraint_geometry_ir_eval.py
 └── run_eval.py               # 统一的重组链路评测入口
@@ -139,6 +142,38 @@ uv run python evals/run_constraint_geometry_ir_eval.py
 `datasets/constraint_geometry_ir/regression.jsonl` 保存脱敏后的真实模型失败族与设计样本。
 当前覆盖无效 drag / 错误 refs、`A.x`/`C.x` 点字段别名与非法 angle、非常数端点 midpoint
 表达式重写，以及 repair 后的候选排名选中。默认不调用模型或远程 LangSmith。
+
+### IR→HTML 稳定性失败模式回归
+
+按「互动类型 × 表征类型 × 失败模式」组织的本地回归集，覆盖流式截断、schema/parse、
+硬校验、多候选选择与约束修复等通用模式；样本不绑定单个知识点。
+
+```bash
+uv run python evals/run_ir_stability_eval.py
+```
+
+从已脱敏的本地 failures/runs/trace 挖掘候选（`outputs` 为空，需人工审核后并入权威集）：
+
+```bash
+uv run python evals/datasets/build_ir_stability_regression.py \
+  evals/reports/latest/failures.jsonl \
+  --output /tmp/ir-stability-pending.jsonl
+```
+
+### Scene IR 生成温度离线 A/B
+
+生产 Scene IR 温度仍固定为 `0`。离线脚本仅在本地 live-model 运行时临时注入温度，
+比较首稿合格率与候选指纹多样性；不得据此直接改生产默认值。
+
+```bash
+# 干跑：校验入口与主题加载
+uv run python evals/run_scene_temperature_ab.py --max-topics 3
+
+# 真实模型 A/B（默认对比 0 vs 0.05）
+uv run python evals/run_scene_temperature_ab.py \
+  --live-model --max-topics 3 --temperatures 0,0.05 \
+  --output evals/reports/scene-temperature-ab.json
+```
 
 `datasets/ir_candidates/` 保留尚未被现有 IR 覆盖的设计缺口样本。几何约束族与直方图分箱、
 经验分布对比等样本已晋升到 `datasets/ir_routing/`（分别由 `constraint_geometry_scene`、

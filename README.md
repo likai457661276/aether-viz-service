@@ -135,7 +135,7 @@ AETHERVIZ_REPAIR_MAX_TOKENS=16384
 
 KaTeX 可见公式使用 `data-katex` 显式目标并直接调用 `katex.render`；裸露的 `$...$`/`$$...$$` 会被确定性转换，转换后仍残留时按硬错误阻断。动态创建的 SVG/Canvas/DOM 节点必须先完成场景构建，再绑定节点事件和首次渲染；初始化前访问动态节点同样按硬错误阻断。
 
-`AETHERVIZ_EDIT_TEMPERATURE` 只控制完整 HTML 编辑模型，默认 `0.15`；需求编译、IR 路由、Scene IR 和修复模型仍保持 `0`，避免结构化判断与确定性修复产生随机漂移。`0.15` 用于适度提高动画重设计和跨链路改造能力；是否继续提高到 `0.2` 应以真实模型编辑成功率、无关区域变化率和校验失败率的离线 A/B 结果决定。
+`AETHERVIZ_EDIT_TEMPERATURE` 只控制完整 HTML 编辑模型，默认 `0.15`；需求编译、IR 路由、Scene IR 和修复模型仍保持 `0`，避免结构化判断与确定性修复产生随机漂移。`0.15` 用于适度提高动画重设计和跨链路改造能力；是否继续提高到 `0.2` 应以真实模型编辑成功率、无关区域变化率和校验失败率的离线 A/B 结果决定。Scene IR 候选生成是否引入极小温度（如 `0.05`）同样只能依据 `evals/run_scene_temperature_ab.py` 的离线 A/B；生产默认保持 `0`。IR→HTML 失败模式本地回归见 `evals/run_ir_stability_eval.py`。
 
 `OPENAI_ROUTER_MODEL` 只用于模糊 IR 路由的短 JSON 仲裁；默认关闭 Shadow（`AETHERVIZ_IR_ROUTER_SHADOW_MODE=false`），在低分、薄分差或「弱 representation_spec + knowledge_profile prior 冲突」时采纳合格的模型仲裁；Shadow 开启时仅记录仲裁结论仍执行确定性首选。知识画像 prior 冲突在完整 spec 下不再单独强制仲裁。路由模型超时、格式错误、未知后端、低置信度或命中硬排除条件时均回退到最高分的合格确定性 IR；没有合格 IR 时返回 `unsupported_ir_capability`。规划阶段会注入 IR 能力速查表，并在 `plan.ready` 前对低置信/无合格路由的草案做至多一次 `representation_spec` 自纠。
 
