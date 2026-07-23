@@ -25,7 +25,8 @@ from aetherviz_service.aetherviz.agents.topic_profile import extract_color_from_
 from aetherviz_service.aetherviz.workflow.plan_contract import (
     compact_plan_for_revision,
     normalize_plan,
-    parse_planning_result,
+    normalize_plan_with_diagnostics,
+    parse_planning_result_with_diagnostics,
 )
 from aetherviz_service.aetherviz.workflow.plan_detection import (
     build_planning_prompt,
@@ -55,6 +56,7 @@ class PlanningStreamResult:
     input_tokens: int = 0
     output_tokens: int = 0
     total_tokens: int = 0
+    plan_diagnostics: tuple[dict[str, Any], ...] = ()
 
 
 def stream_create_plan(
@@ -214,11 +216,17 @@ def _stream_planning(
 ) -> Iterator[dict[str, Any] | PlanningStreamResult]:
     if not has_planning_llm_config():
         yield from _iter_deterministic_progress()
-        plan = deterministic_factory()
+        source_plan = deterministic_factory()
+        normalization = normalize_plan_with_diagnostics(source_plan, topic, color)
+        plan = _preserve_planning_metadata(source_plan, normalization.plan)
         plan["status"] = status
         plan["plan_id"] = plan.get("plan_id") or _plan_id(topic, status)
         plan["context_status"] = context_status
-        yield PlanningStreamResult(plan=plan, degraded=True)
+        yield PlanningStreamResult(
+            plan=plan,
+            degraded=True,
+            plan_diagnostics=tuple(normalization.diagnostics_as_dicts()),
+        )
         return
 
     started_at = time.monotonic()
@@ -269,7 +277,8 @@ def _stream_planning(
         if not raw_text.strip():
             raise ValueError("planning model returned empty content")
 
-        plan = parse_planning_result(raw_text, topic, color)
+        normalization = parse_planning_result_with_diagnostics(raw_text, topic, color)
+        plan = normalization.plan
         if finalize_plan is not None:
             plan = finalize_plan(plan)
         else:
@@ -282,11 +291,14 @@ def _stream_planning(
             planning_elapsed_ms=int((time.monotonic() - started_at) * 1000),
             first_chunk_elapsed_ms=first_chunk_elapsed_ms,
             **token_usage,
+            plan_diagnostics=tuple(normalization.diagnostics_as_dicts()),
         )
     except Exception as exc:
         logger.warning("planning_agent failed, using deterministic plan: %s", exc)
         yield from _iter_deterministic_progress()
-        plan = deterministic_factory()
+        source_plan = deterministic_factory()
+        normalization = normalize_plan_with_diagnostics(source_plan, topic, color)
+        plan = _preserve_planning_metadata(source_plan, normalization.plan)
         plan["status"] = status
         plan["plan_id"] = plan.get("plan_id") or _plan_id(topic, status)
         plan["context_status"] = context_status
@@ -296,7 +308,16 @@ def _stream_planning(
             planning_elapsed_ms=int((time.monotonic() - started_at) * 1000),
             first_chunk_elapsed_ms=first_chunk_elapsed_ms,
             **token_usage,
+            plan_diagnostics=tuple(normalization.diagnostics_as_dicts()),
         )
+
+
+def _preserve_planning_metadata(source: dict[str, Any], normalized: dict[str, Any]) -> dict[str, Any]:
+    result = dict(normalized)
+    for field in ("revision_summary",):
+        if field in source:
+            result[field] = source[field]
+    return result
 
 
 def _extract_token_usage(chunk: Any) -> dict[str, int]:

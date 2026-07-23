@@ -7,6 +7,7 @@ from typing import Any
 
 from aetherviz_service.aetherviz.agents.planner_agent import stream_revise_plan
 from aetherviz_service.aetherviz.api.sse import agent_sse_event
+from aetherviz_service.aetherviz.workflow.plan_diagnostics import merge_serialized_diagnostics
 from aetherviz_service.aetherviz.workflow.plan_route_preview import maybe_refine_plan_for_route
 from aetherviz_service.aetherviz.workflow.plan_stream import stream_plan_phase
 
@@ -31,6 +32,10 @@ def run_revise_plan_workflow(
         phase="revise_plan",
     )
     plan, route_preview_metrics = maybe_refine_plan_for_route(plan, topic=topic)
+    plan_diagnostics = merge_serialized_diagnostics(
+        planning_metrics.get("plan_diagnostics"),
+        route_preview_metrics.get("plan_diagnostics"),
+    )
     yield agent_sse_event(
         "plan.revised",
         run_id=run_id,
@@ -41,6 +46,7 @@ def run_revise_plan_workflow(
             "context_status": plan.get("context_status", {"status": "normal"}),
             **planning_metrics,
             **route_preview_metrics,
+            "plan_diagnostics": plan_diagnostics,
         },
     )
     if plan.get("context_status", {}).get("status") == "compressed":

@@ -137,7 +137,9 @@ KaTeX 可见公式使用 `data-katex` 显式目标并直接调用 `katex.render`
 
 `AETHERVIZ_EDIT_TEMPERATURE` 只控制完整 HTML 编辑模型，默认 `0.15`；需求编译、IR 路由、Scene IR 和修复模型仍保持 `0`，避免结构化判断与确定性修复产生随机漂移。`0.15` 用于适度提高动画重设计和跨链路改造能力；是否继续提高到 `0.2` 应以真实模型编辑成功率、无关区域变化率和校验失败率的离线 A/B 结果决定。Scene IR 候选生成是否引入极小温度（如 `0.05`）同样只能依据 `evals/run_scene_temperature_ab.py` 的离线 A/B；生产默认保持 `0`。IR→HTML 失败模式本地回归见 `evals/run_ir_stability_eval.py`。
 
-`OPENAI_ROUTER_MODEL` 只用于模糊 IR 路由的短 JSON 仲裁；默认关闭 Shadow（`AETHERVIZ_IR_ROUTER_SHADOW_MODE=false`），在低分、薄分差或「弱 representation_spec + knowledge_profile prior 冲突」时采纳合格的模型仲裁；Shadow 开启时仅记录仲裁结论仍执行确定性首选。知识画像 prior 冲突在完整 spec 下不再单独强制仲裁。路由模型超时、格式错误、未知后端、低置信度或命中硬排除条件时均回退到最高分的合格确定性 IR；没有合格 IR 时返回 `unsupported_ir_capability`。规划阶段会注入 IR 能力速查表，并在 `plan.ready` 前对低置信/无合格路由的草案做至多一次 `representation_spec` 自纠。
+`OPENAI_ROUTER_MODEL` 只用于模糊 IR 路由的短 JSON 仲裁；默认关闭 Shadow（`AETHERVIZ_IR_ROUTER_SHADOW_MODE=false`），在低分、薄分差或「弱 representation_spec + knowledge_profile prior 冲突」时采纳合格的模型仲裁；Shadow 开启时仅记录仲裁结论仍执行确定性首选。知识画像 prior 冲突在完整 spec 下不再单独强制仲裁。路由模型超时、格式错误、未知后端、低置信度或命中硬排除条件时均回退到最高分的合格确定性 IR；没有合格 IR 时返回 `unsupported_ir_capability`。规划阶段会注入 IR 能力速查表，并在 `plan.ready` 前对低置信/无合格路由的草案做至多一次 `representation_spec` 自纠；修订后会重新执行一致性和确定性路由检查，仅接受可路由且路由质量未下降的结果。
+
+计划归一化会通过 `plan.ready` / `plan.revised` metadata 的 `plan_diagnostics` 记录被推断、增强或丢弃的表征字段以及低置信度知识画像。`phase=approve_plan` 会再次执行跨字段一致性和确定性路由检查；内部引用无效返回 `plan_contract_invalid`，没有合格 IR 后端返回 `plan_route_unavailable`，两者都不会进入 HTML 生成。生成阶段的 `unsupported_ir_capability` 错误包含结构化 `diagnostics.route` 与 `diagnostics.candidate_failures`，可用于定位缺失能力和排除原因。
 
 ### LangSmith 可观测性
 
@@ -419,7 +421,7 @@ normalize_plan
 
 1. `phase=plan` 由统一配置的模型执行单次规划，生成完整 `draft` 教案计划。
 2. `phase=revise_plan` 由规划模型接收 `current_plan + message`，重新生成完整 `revised` 计划，不返回局部 patch。
-3. `phase=approve_plan` 将计划状态置为 `approved`。
+3. `phase=approve_plan` 先执行跨字段一致性与确定性 IR 路由检查，通过后才将计划状态置为 `approved`；不可执行计划返回结构化 SSE 错误并保留在修订阶段。
 4. `phase=generate` 根据 IR 路由结果选择后端：`geometric_recomposition` 先执行计划可行性预检，阶段数、拓扑变量或最大展开图元数超出有界 IR 能力时直接返回 `unsupported_ir_capability`，不会调用场景模型；路由评估使用同一预检结果，因此存在其他合格后端时可以安全改选。通过预检后由 `ir/recomposition/agent.py` 一次生成 3 个结构化几何 IR 候选，不生成多个 HTML。静态 polygon/polyline/rect 拼片可选声明通用 `construction.target_boundary/constraints`，服务端按顺序将 `attach_edge`、`coincident_vertex`、`parallel_edge`、`perpendicular_edge`、`rigid_transform` 求解为现有 `target` transform，再以 `inside_target`、`cover_target` 验证自定义目标区域，并在 minimum/default/maximum 状态复验后移除 construction 字段，Runtime 与前端契约不变。随后服务端淘汰确定性硬校验失败候选，对其余候选按固定权重和稳定指纹排序，只编译最高分 IR 并装配生命周期脚手架。失败候选进入最多 3 轮的候选级确定性收敛流水线：按失败类型独立补全中间 waypoint、平移越界目标拼合、缩放可行的小尺寸场景；每次修改都重新执行全部硬校验，仅接受不引入新硬错误且严格减少原硬错误的结果，无变化时不重复排序。复合失败不会阻断无关修复，例如目标拼合失败与中间几何证据缺失可以先独立补齐 waypoint，再把剩余拼合证据交给一次受限模型修复；模型修复稿也必须再次经过 construction 求解和同一确定性收敛流水线。仍不合格时返回 `ir_generation_failed`。重排 Runtime 直接使用已验证 `targetTransform` 提供逐片拖拽、目标轮廓、距离吸附、完成状态、参数预设和渐进揭示，不允许模型另写吸附或拼合算法。
    IR 注册表根据完整计划解析已注册表征。规划模型通过 `representation_spec` 配置视图、共享状态、跨视图对应、必须证明的不变量和交互能力，不直接指定后端名称，服务端再确定性选择 IR。若计划已同时声明几何视图、拼片全等与度量守恒，即使规划模型遗漏 `recomposition_spec` 或留下过时知识画像，归一化层也会补齐通用切分重排契约并路由到 `recomposition_scene`。一个 `coordinate_plane` 且存在可调状态时路由到 `coordinate_graph_scene`；两个或更多视图、共享参数和跨视图关系完整时路由到 `linked_coordinate_scene`；存在 `number_line` 视图、可调状态且没有二维或几何视图时路由到 `number_line_scene`；视图仅由 `data_chart` 和可选 `symbolic_panel` 组成、具有可调状态且不要求随机累计或概率密度面积时路由到 `data_distribution_scene`。高频后端 `coordinate_graph` / `linked_coordinate` / `data_distribution` 与重排一样一次生成最多 3 个候选并确定性排序；其余后端保持 2 候选。传输中断、超时或 JSON 截断时按 `AETHERVIZ_HTML_STREAM_MAX_RETRIES` 整次重试；首稿候选失败后只把最接近合格候选自身的错误交给一次受限 JSON 修复；修复后仍不合格即终止。服务端统一编译 data-to-screen 映射、SVG 节点注册、参数控件、动画控制器和响应式 Runtime，模型不生成任意 JavaScript。
 5. IR Runtime 编译出的业务 HTML 先执行 38000/42000 字符目标/硬限制，再经过 `math-shell-v1` 服务端装配器；IR 子 Runtime 的外层布局不会进入最终 HTML。装配器会过滤业务 CSS 中的页面级、布局槽位根节点和 range 外观规则，标准 range 由 `range-v1` 独占尺寸与渲染，播放、暂停、重置按钮及 select 由服务端提供统一的按压、状态、焦点反馈，`controller-v1` 在业务脚本执行前提供 GSAP/RAF 共用动画控制接口并广播播放状态。最终装配只执行 64000 字符异常膨胀检查。

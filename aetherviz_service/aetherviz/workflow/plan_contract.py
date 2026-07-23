@@ -21,6 +21,12 @@ from aetherviz_service.aetherviz.workflow.plan_detection import (
     select_interactive_type,
     select_render_stack,
 )
+from aetherviz_service.aetherviz.workflow.plan_diagnostics import (
+    PlanDiagnostic,
+    PlanNormalizationResult,
+    add_diagnostic,
+    check_plan_consistency,
+)
 from aetherviz_service.aetherviz.workflow.representation_spec import normalize_representation_spec
 
 DEFAULT_PRIMARY_COLOR = "#22D3EE"
@@ -55,6 +61,14 @@ def compact_plan_for_revision(plan: dict[str, Any]) -> dict[str, Any]:
 
 
 def parse_planning_result(raw: str, topic: str = "", primary_color: str = DEFAULT_PRIMARY_COLOR) -> dict:
+    return parse_planning_result_with_diagnostics(raw, topic, primary_color).plan
+
+
+def parse_planning_result_with_diagnostics(
+    raw: str,
+    topic: str = "",
+    primary_color: str = DEFAULT_PRIMARY_COLOR,
+) -> PlanNormalizationResult:
     data: dict[str, Any] = {}
     if raw:
         cleaned = raw.strip()
@@ -70,10 +84,31 @@ def parse_planning_result(raw: str, topic: str = "", primary_color: str = DEFAUL
                 data = parsed
         except json.JSONDecodeError:
             raise
-    return normalize_plan(data, topic, primary_color)
+    return normalize_plan_with_diagnostics(data, topic, primary_color)
 
 
 def normalize_plan(raw_plan: dict | None, topic: str, primary_color: str = DEFAULT_PRIMARY_COLOR) -> dict:
+    return _normalize_plan(raw_plan, topic, primary_color, diagnostics=None)
+
+
+def normalize_plan_with_diagnostics(
+    raw_plan: dict | None,
+    topic: str,
+    primary_color: str = DEFAULT_PRIMARY_COLOR,
+) -> PlanNormalizationResult:
+    diagnostics: list[PlanDiagnostic] = []
+    plan = _normalize_plan(raw_plan, topic, primary_color, diagnostics=diagnostics)
+    diagnostics.extend(item for item in check_plan_consistency(plan) if item not in diagnostics)
+    return PlanNormalizationResult(plan=plan, diagnostics=tuple(diagnostics))
+
+
+def _normalize_plan(
+    raw_plan: dict | None,
+    topic: str,
+    primary_color: str,
+    *,
+    diagnostics: list[PlanDiagnostic] | None,
+) -> dict:
     raw = raw_plan if isinstance(raw_plan, dict) else {}
     primary_color = _normalize_primary_color(primary_color, DEFAULT_PRIMARY_COLOR)
     source_topic = _safe_str(raw.get("source_topic")) or topic
@@ -83,6 +118,14 @@ def normalize_plan(raw_plan: dict | None, topic: str, primary_color: str = DEFAU
     if subject not in {*SUBJECT_KEYWORDS.keys(), "astronomy", "general"}:
         subject = baseline["subject"]
     knowledge_profile = normalize_knowledge_profile(raw.get("knowledge_profile"), source_topic, subject)
+    if float(knowledge_profile.get("confidence") or 0) < 0.45:
+        add_diagnostic(
+            diagnostics,
+            code="knowledge_profile_low_confidence",
+            severity="warning",
+            field="knowledge_profile.confidence",
+            message="主题线索不足，知识画像采用通用降级结果",
+        )
 
     interactive_type = _safe_str(raw.get("interactive_type")) or baseline["interactive_type"]
     if interactive_type not in VALID_INTERACTIVE_TYPES:
@@ -157,6 +200,7 @@ def normalize_plan(raw_plan: dict | None, topic: str, primary_color: str = DEFAU
         discipline_spec=discipline_spec,
         knowledge_profile=knowledge_profile,
         recomposition_spec=recomposition_spec,
+        diagnostics=diagnostics,
     )
 
     return {

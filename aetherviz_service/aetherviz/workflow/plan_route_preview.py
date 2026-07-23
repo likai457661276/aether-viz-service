@@ -9,12 +9,17 @@ from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from aetherviz_service.aetherviz.agents.model_factory import create_chat_model, extract_llm_text, has_planning_llm_config
+from aetherviz_service.aetherviz.agents.model_factory import (
+    create_chat_model,
+    extract_llm_text,
+    has_planning_llm_config,
+)
 from aetherviz_service.aetherviz.ir.registry import DEFAULT_IR_REGISTRY, IRBackendRegistry
 from aetherviz_service.aetherviz.ir.router.capability_catalog import build_ir_capability_catalog
 from aetherviz_service.aetherviz.ir.router.contracts import IRRouteDecision
 from aetherviz_service.aetherviz.ir.router.service import resolve_generation_route
-from aetherviz_service.aetherviz.workflow.plan_contract import normalize_plan
+from aetherviz_service.aetherviz.workflow.plan_contract import normalize_plan_with_diagnostics
+from aetherviz_service.aetherviz.workflow.plan_diagnostics import has_consistency_errors
 from aetherviz_service.config import settings
 
 logger = logging.getLogger(__name__)
@@ -39,7 +44,8 @@ def maybe_refine_plan_for_route(
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Run deterministic route preview; if unroutable or low confidence, refine spec once."""
     color = str(plan.get("primary_color") or "#22D3EE")
-    normalized = normalize_plan(plan, topic, color)
+    normalized_result = normalize_plan_with_diagnostics(plan, topic, color)
+    normalized = _preserve_lifecycle_fields(plan, normalized_result.plan)
     preview = resolve_generation_route(normalized, registry=registry, allow_llm=False)
     metrics: dict[str, Any] = {
         "route_preview_attempted": True,
@@ -47,6 +53,9 @@ def maybe_refine_plan_for_route(
         "route_preview_selected_backend": preview.selected_backend,
         "route_preview_confidence": preview.confidence,
         "route_preview_reasons": list(preview.reasons)[:8],
+        "route_preview_refine_attempted": False,
+        "route_preview_refine_accepted": False,
+        "plan_diagnostics": normalized_result.diagnostics_as_dicts(),
     }
     if not _needs_refinement(preview):
         return normalized, metrics
@@ -55,6 +64,7 @@ def maybe_refine_plan_for_route(
         return normalized, metrics
 
     feedback = format_route_preview_feedback(preview)
+    metrics["route_preview_refine_attempted"] = True
     try:
         refined_fields = _refine_representation_fields(normalized, topic=topic, feedback=feedback)
     except Exception as exc:
@@ -70,13 +80,44 @@ def maybe_refine_plan_for_route(
     elif "recomposition_spec" in merged and "recomposition_spec" not in refined_fields:
         # Keep existing recomposition unless the model explicitly replaced it.
         pass
-    refined = normalize_plan(merged, topic, color)
-    metrics["route_preview_refined"] = True
+    refined_result = normalize_plan_with_diagnostics(merged, topic, color)
+    refined = _preserve_lifecycle_fields(plan, refined_result.plan)
     post = resolve_generation_route(refined, registry=registry, allow_llm=False)
+    metrics["route_preview_post_selected_backend"] = post.selected_backend
+    metrics["route_preview_post_confidence"] = post.confidence
+    reject_reason = _refinement_rejection_reason(preview, post, refined_result.diagnostics)
+    if reject_reason is not None:
+        metrics["route_preview_refine_rejected_reason"] = reject_reason
+        return normalized, metrics
+    metrics["route_preview_refined"] = True
+    metrics["route_preview_refine_accepted"] = True
     metrics["route_preview_selected_backend"] = post.selected_backend
     metrics["route_preview_confidence"] = post.confidence
     metrics["route_preview_reasons"] = list(post.reasons)[:8]
+    metrics["plan_diagnostics"] = refined_result.diagnostics_as_dicts()
     return refined, metrics
+
+
+def _refinement_rejection_reason(
+    before: IRRouteDecision,
+    after: IRRouteDecision,
+    diagnostics: tuple,
+) -> str | None:
+    if has_consistency_errors(diagnostics):
+        return "post_refine_plan_inconsistent"
+    if after.selected_backend is None:
+        return "post_refine_still_unroutable"
+    if before.selected_backend is not None and after.confidence + 1e-9 < before.confidence:
+        return "post_refine_confidence_decreased"
+    return None
+
+
+def _preserve_lifecycle_fields(source: dict[str, Any], target: dict[str, Any]) -> dict[str, Any]:
+    result = dict(target)
+    for field in ("status", "plan_id", "revision_summary", "context_status"):
+        if field in source:
+            result[field] = source[field]
+    return result
 
 
 def _needs_refinement(route: IRRouteDecision) -> bool:

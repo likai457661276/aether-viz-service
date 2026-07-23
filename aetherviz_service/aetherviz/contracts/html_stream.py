@@ -34,10 +34,18 @@ def is_retryable_edit_error(code: str) -> bool:
 class HtmlGenerationError(Exception):
     """Raised when an HTML producer cannot return usable HTML with a configured LLM."""
 
-    def __init__(self, message: str, *, code: str = "generation_failed", detail: str = "") -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: str = "generation_failed",
+        detail: str = "",
+        diagnostics: dict[str, Any] | None = None,
+    ) -> None:
         self.code = code
         self.message = message
         self.detail = detail
+        self.diagnostics = diagnostics or {}
         super().__init__(message)
 
 

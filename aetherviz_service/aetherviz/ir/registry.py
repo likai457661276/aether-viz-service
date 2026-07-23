@@ -107,12 +107,32 @@ def _unsupported_ir_stream(
     route: IRRouteDecision,
 ) -> IRStream:
     del topic, plan
+    candidate_failures = [
+        {
+            "backend_key": candidate.backend_key,
+            "score": candidate.score,
+            "missing_capabilities": list(candidate.missing_capabilities),
+            "exclusion_reasons": list(candidate.exclusion_reasons),
+        }
+        for candidate in route.candidates
+        if candidate.missing_capabilities or candidate.exclusion_reasons
+    ]
     reasons = [reason for candidate in route.candidates for reason in candidate.exclusion_reasons]
+    if not reasons:
+        reasons = [
+            f"{item['backend_key']} 缺少 {', '.join(item['missing_capabilities'])}"
+            for item in candidate_failures[:3]
+            if item["missing_capabilities"]
+        ]
     detail = "；".join(dict.fromkeys(reasons)) or "当前计划没有满足全部必需能力的已注册 IR 后端"
     raise HtmlGenerationError(
         "当前教学动画超出已验证 IR 的能力范围，已停止生成",
         code="unsupported_ir_capability",
         detail=detail,
+        diagnostics={
+            "route": route.as_dict(),
+            "candidate_failures": candidate_failures,
+        },
     )
     yield  # pragma: no cover - keep this function an iterator factory
 

@@ -53,11 +53,18 @@ def agent_error_event(
     detail: str | None = None,
     retryable: bool = False,
     metadata: dict[str, Any] | None = None,
+    diagnostics: dict[str, Any] | None = None,
 ) -> str:
     return agent_sse_event(
         "error",
         run_id=run_id,
         phase=phase,
-        data={"code": code, "message": message, "detail": detail or "", "retryable": retryable},
+        data={
+            "code": code,
+            "message": message,
+            "detail": detail or "",
+            "retryable": retryable,
+            **({"diagnostics": diagnostics} if diagnostics else {}),
+        },
         metadata=metadata,
     )

@@ -10,6 +10,8 @@ import json
 from hashlib import sha256
 from typing import Any
 
+from aetherviz_service.aetherviz.workflow.plan_diagnostics import PlanDiagnostic, add_diagnostic
+
 REPRESENTATION_SPEC_VERSION = "1.0"
 VIEW_KINDS = {
     "coordinate_plane",
@@ -77,11 +79,15 @@ def normalize_representation_spec(
     discipline_spec: dict[str, Any],
     knowledge_profile: dict[str, Any],
     recomposition_spec: dict[str, Any] | None,
+    diagnostics: list[PlanDiagnostic] | None = None,
 ) -> dict[str, Any]:
     source = raw if isinstance(raw, dict) else {}
     views = _normalize_views(source.get("views"))
+    _diagnose_views(source.get("views"), views, diagnostics)
     states = _normalize_states(source.get("state_variables"), interactive_spec)
+    _diagnose_states(source.get("state_variables"), interactive_spec, states, diagnostics)
     correspondences = _normalize_correspondences(source.get("correspondences"), views, states)
+    _diagnose_correspondences(source.get("correspondences"), views, states, diagnostics)
     invariants = _string_enum_list(source.get("required_invariants"), INVARIANT_TYPES, 12)
     interactions = _string_enum_list(source.get("interaction_requirements"), INTERACTION_REQUIREMENTS, 8)
 
@@ -94,10 +100,38 @@ def normalize_representation_spec(
             state_names=[str(item["id"]) for item in states],
             has_recomposition=bool(recomposition_spec),
         )
-        views = views or inferred["views"]
-        correspondences = correspondences or inferred["correspondences"]
-        invariants = invariants or inferred["required_invariants"]
+        if not views and inferred["views"]:
+            views = inferred["views"]
+            add_diagnostic(
+                diagnostics,
+                code="representation_field_inferred",
+                severity="warning",
+                field="representation_spec.views",
+                message="规划结果缺少有效视图，服务端已根据通用语义补全",
+                repair_action="inferred",
+            )
+        if not correspondences and inferred["correspondences"]:
+            correspondences = inferred["correspondences"]
+            add_diagnostic(
+                diagnostics,
+                code="representation_field_inferred",
+                severity="warning",
+                field="representation_spec.correspondences",
+                message="规划结果缺少有效对应关系，服务端已根据通用语义补全",
+                repair_action="inferred",
+            )
+        if not invariants and inferred["required_invariants"]:
+            invariants = inferred["required_invariants"]
+            add_diagnostic(
+                diagnostics,
+                code="representation_field_inferred",
+                severity="info",
+                field="representation_spec.required_invariants",
+                message="服务端已补全与推断表征一致的不变量",
+                repair_action="inferred",
+            )
 
+    before_correspondences = list(correspondences)
     correspondences, invariants = _augment_linked_correspondence(
         views=views,
         states=states,
@@ -113,6 +147,15 @@ def normalize_representation_spec(
         invariants=invariants,
         has_recomposition=bool(recomposition_spec),
     )
+    if correspondences != before_correspondences:
+        add_diagnostic(
+            diagnostics,
+            code="representation_correspondence_augmented",
+            severity="info",
+            field="representation_spec.correspondences",
+            message="服务端已补全表征所需的通用对应关系",
+            repair_action="augmented",
+        )
     invariants = _normalize_invariant_compatibility(
         invariants,
         representation=representation,
@@ -130,6 +173,97 @@ def normalize_representation_spec(
         "required_invariants": invariants,
         "interaction_requirements": interactions,
     }
+
+
+def _diagnose_views(
+    raw: object,
+    normalized: list[dict[str, str]],
+    diagnostics: list[PlanDiagnostic] | None,
+) -> None:
+    supplied = [item for item in raw if isinstance(item, dict)] if isinstance(raw, list) else []
+    if len(normalized) < len(supplied):
+        add_diagnostic(
+            diagnostics,
+            code="representation_view_dropped",
+            severity="warning",
+            field="representation_spec.views",
+            message="部分视图因 ID 重复、ID 非法或类型不受支持而被移除",
+            repair_action="dropped",
+        )
+
+
+def _diagnose_states(
+    raw: object,
+    interactive_spec: dict[str, Any],
+    normalized: list[dict[str, Any]],
+    diagnostics: list[PlanDiagnostic] | None,
+) -> None:
+    if not isinstance(raw, list):
+        return
+    variable_names = {
+        str(item.get("name") or "")
+        for item in interactive_spec.get("variables", [])
+        if isinstance(item, dict) and item.get("name") and not item.get("computed")
+    }
+    normalized_ids = {str(item.get("id") or "") for item in normalized}
+    for index, item in enumerate(raw):
+        if not isinstance(item, dict):
+            continue
+        identifier = str(item.get("id") or "")
+        if identifier and variable_names and identifier not in variable_names:
+            add_diagnostic(
+                diagnostics,
+                code="state_variable_reference_missing",
+                severity="warning",
+                field=f"representation_spec.state_variables[{index}].id",
+                message=f"状态变量 {identifier} 未引用互动变量，已移除并使用规范化变量集合",
+                repair_action="dropped",
+            )
+        elif identifier and identifier not in normalized_ids:
+            add_diagnostic(
+                diagnostics,
+                code="representation_state_dropped",
+                severity="warning",
+                field=f"representation_spec.state_variables[{index}]",
+                message=f"状态变量 {identifier} 因 ID 非法或重复而被移除",
+                repair_action="dropped",
+            )
+
+
+def _diagnose_correspondences(
+    raw: object,
+    views: list[dict[str, str]],
+    states: list[dict[str, Any]],
+    diagnostics: list[PlanDiagnostic] | None,
+) -> None:
+    if not isinstance(raw, list):
+        return
+    view_ids = {item["id"] for item in views}
+    state_ids = {str(item["id"]) for item in states}
+    for index, item in enumerate(raw):
+        if not isinstance(item, dict):
+            continue
+        for name in ("source_view", "target_view"):
+            value = str(item.get(name) or "")
+            if value and value not in view_ids:
+                add_diagnostic(
+                    diagnostics,
+                    code="correspondence_view_reference_missing",
+                    severity="warning",
+                    field=f"representation_spec.correspondences[{index}].{name}",
+                    message=f"对应关系引用了不存在的视图 {value}，该关系已移除",
+                    repair_action="dropped",
+                )
+        parameter = str(item.get("parameter") or "")
+        if parameter and parameter not in state_ids:
+            add_diagnostic(
+                diagnostics,
+                code="correspondence_parameter_reference_missing",
+                severity="warning",
+                field=f"representation_spec.correspondences[{index}].parameter",
+                message=f"对应关系引用了不存在的状态变量 {parameter}，该关系已移除",
+                repair_action="dropped",
+            )
 
 
 def _augment_recomposition_contract(

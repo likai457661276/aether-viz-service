@@ -17,7 +17,8 @@ from aetherviz_service.aetherviz.api.sse import (
 )
 from aetherviz_service.aetherviz.edit.workflow import run_edit_html_workflow
 from aetherviz_service.aetherviz.generate.workflow import run_generate_workflow
-from aetherviz_service.aetherviz.workflow.plan_contract import normalize_plan
+from aetherviz_service.aetherviz.workflow.plan_contract import normalize_plan_with_diagnostics
+from aetherviz_service.aetherviz.workflow.plan_diagnostics import check_plan_consistency, has_consistency_errors
 from aetherviz_service.aetherviz.workflow.plan_workflow import run_approve_plan_workflow, run_plan_workflow
 from aetherviz_service.aetherviz.workflow.revise_plan_workflow import run_revise_plan_workflow
 from aetherviz_service.config import settings
@@ -122,7 +123,19 @@ def _agent_runtime_stream_impl(
             generation_topic = topic or str(
                 (approved_plan or {}).get("source_topic") or (approved_plan or {}).get("title") or "AI教学动画"
             )
-            normalized_plan = normalize_plan(approved_plan, generation_topic)
+            normalization = normalize_plan_with_diagnostics(approved_plan, generation_topic)
+            normalized_plan = normalization.plan
+            post_diagnostics = check_plan_consistency(normalized_plan)
+            if has_consistency_errors(post_diagnostics):
+                yield agent_error_event(
+                    run_id=run_id,
+                    phase=phase,
+                    code="plan_contract_invalid",
+                    message="已确认方案存在无法执行的内部引用",
+                    detail="请返回方案阶段修订后重新确认",
+                    diagnostics={"plan_diagnostics": [item.as_dict() for item in post_diagnostics]},
+                )
+                return
             yield from run_generate_workflow(
                 run_id=run_id,
                 topic=generation_topic,

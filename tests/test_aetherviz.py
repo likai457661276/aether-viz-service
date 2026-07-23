@@ -214,7 +214,10 @@ def test_revise_plan_requires_current_plan_and_message() -> None:
 
 
 def test_approve_plan_marks_plan_approved() -> None:
-    response = client.post(AETHERVIZ_ENDPOINT, json={"phase": "approve_plan", "plan": sample_plan()})
+    response = client.post(
+        AETHERVIZ_ENDPOINT,
+        json={"phase": "approve_plan", "plan": sample_plan("旋转向量在纵轴的投影与正弦曲线联动")},
+    )
 
     events = parse_sse_events(response)
     assert events[-1][0] == "plan.approved"
@@ -224,6 +227,7 @@ def test_approve_plan_marks_plan_approved() -> None:
 def test_approve_plan_preserves_recomposition_contract() -> None:
     plan = sample_plan("圆的面积推导")
     plan["subject"] = "mathematics"
+    plan["interactive_spec"]["variables"][0].update({"min": 1, "max": 12, "default": 6, "step": 1})
     plan["recomposition_spec"] = {
         "topology_variables": ["parameter"],
         "proof_constraints": {
@@ -256,6 +260,42 @@ def test_approve_plan_preserves_recomposition_contract() -> None:
     assert [item["id"] for item in proof["stage_requirements"]] == ["source", "align", "target"]
 
 
+def test_approve_plan_rejects_unroutable_plan_with_structured_diagnostics() -> None:
+    response = client.post(AETHERVIZ_ENDPOINT, json={"phase": "approve_plan", "plan": sample_plan()})
+
+    events = parse_sse_events(response)
+    error = events[-1][1]["data"]
+    assert events[-1][0] == "error"
+    assert error["code"] == "plan_route_unavailable"
+    assert error["diagnostics"]["route"]["selected_backend"] is None
+
+
+def test_approve_plan_rejects_inconsistent_cross_view_relation() -> None:
+    plan = sample_plan("函数图像")
+    plan["representation_spec"] = {
+        "version": "1.0",
+        "views": [{"id": "graph", "kind": "coordinate_plane", "role": "函数图像"}],
+        "state_variables": [{"id": "parameter", "semantic_type": "scalar"}],
+        "correspondences": [
+            {
+                "type": "shared_parameter",
+                "source_view": "graph",
+                "target_view": "graph",
+                "parameter": "parameter",
+            }
+        ],
+        "required_invariants": [],
+        "interaction_requirements": ["scrub"],
+    }
+
+    response = client.post(AETHERVIZ_ENDPOINT, json={"phase": "approve_plan", "plan": plan})
+
+    events = parse_sse_events(response)
+    error = events[-1][1]["data"]
+    assert error["code"] == "plan_contract_invalid"
+    assert error["diagnostics"]["plan_diagnostics"][0]["code"] == "cross_view_relation_uses_single_view"
+
+
 def test_generate_phase_requires_approved_plan() -> None:
     response = client.post(AETHERVIZ_ENDPOINT, json={"phase": "generate"})
 
@@ -275,6 +315,9 @@ def test_generate_phase_without_model_returns_explicit_error() -> None:
     assert names[-1] == "error"
     assert events[-1][1]["data"]["code"] == "unsupported_ir_capability"
     assert events[-1][1]["data"]["retryable"] is False
+    diagnostics = events[-1][1]["data"]["diagnostics"]
+    assert diagnostics["route"]["selected_backend"] is None
+    assert diagnostics["candidate_failures"]
     assert "html.done" not in names
 
 

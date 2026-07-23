@@ -201,6 +201,7 @@ def run_html_pipeline(
                     "code": exc.code,
                     "message": exc.message,
                     "detail": exc.detail,
+                    "diagnostics": exc.diagnostics,
                     "ir_type": generation_backend,
                     "generation_success": False,
                 },
@@ -213,6 +214,7 @@ def run_html_pipeline(
             detail=exc.detail,
             retryable=_is_retryable_pipeline_error(phase, exc.code),
             metadata=_metadata(metadata, started_at, stage="generate"),
+            diagnostics=exc.diagnostics,
         )
         return
     if html is None or business_html is None:

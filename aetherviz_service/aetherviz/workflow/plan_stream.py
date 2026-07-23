@@ -29,5 +29,6 @@ def stream_plan_phase(
         "input_tokens": result.input_tokens,
         "output_tokens": result.output_tokens,
         "total_tokens": result.total_tokens,
+        "plan_diagnostics": list(result.plan_diagnostics),
     }
     return result.plan, result.degraded, metrics
