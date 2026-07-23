@@ -92,6 +92,35 @@ def test_planning_html_and_repair_models_are_configured_separately(monkeypatch) 
     assert captured[4]["temperature"] == 0.0
 
 
+def test_complex_ir_repair_kinds_escalate_to_html_model(monkeypatch) -> None:
+    captured: list[dict] = []
+
+    class FakeChatOpenAI:
+        def __init__(self, **kwargs) -> None:
+            captured.append(kwargs)
+
+    monkeypatch.setattr("langchain_openai.ChatOpenAI", FakeChatOpenAI)
+    monkeypatch.setattr(settings, "openai_html_model", "html-model")
+    monkeypatch.setattr(settings, "openai_repair_model", "repair-flash")
+    monkeypatch.setattr(settings, "aetherviz_repair_max_tokens", 9216)
+    monkeypatch.setattr(settings, "aetherviz_scene_max_tokens", 16384)
+
+    model_factory.create_chat_model("ir_repair", response_schema={"type": "object"})
+    model_factory.create_chat_model("html_repair")
+    model_factory.create_chat_model("repair")
+    model_factory.create_chat_model("scene")
+
+    assert [kwargs["model"] for kwargs in captured] == [
+        "html-model",
+        "html-model",
+        "repair-flash",
+        "html-model",
+    ]
+    assert captured[0]["temperature"] == 0.0
+    assert captured[1]["temperature"] == 0.0
+    assert captured[3]["max_tokens"] == 16384
+
+
 def test_edit_thinking_can_be_disabled_independently(monkeypatch) -> None:
     captured: list[dict] = []
 

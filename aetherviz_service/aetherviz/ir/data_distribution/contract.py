@@ -176,15 +176,9 @@ def data_distribution_ir_response_schema() -> dict[str, Any]:
 
 
 def data_distribution_ir_candidates_response_schema() -> dict[str, Any]:
-    candidate = data_distribution_ir_response_schema()
-    definitions = candidate.pop("$defs")
-    return {
-        "type": "object",
-        "additionalProperties": False,
-        "$defs": definitions,
-        "required": ["candidates"],
-        "properties": {"candidates": {"type": "array", "minItems": 2, "maxItems": 2, "items": candidate}},
-    }
+    from aetherviz_service.aetherviz.ir.candidates import candidates_envelope_schema
+
+    return candidates_envelope_schema(data_distribution_ir_response_schema())
 
 
 def normalize_data_distribution_ir(ir: object, plan: dict[str, Any]) -> object:
@@ -296,15 +290,14 @@ def parse_data_distribution_ir(raw: str) -> dict[str, Any]:
 
 
 def parse_data_distribution_ir_candidates(raw: str) -> list[dict[str, Any]]:
+    from aetherviz_service.aetherviz.ir.candidates import validate_candidate_count
+
     value = json.loads(raw)
     candidates = value.get("candidates") if isinstance(value, dict) else None
-    if (
-        not isinstance(candidates, list)
-        or len(candidates) != 2
-        or not all(isinstance(item, dict) for item in candidates)
-    ):
+    validated = validate_candidate_count(candidates)
+    if not all(isinstance(item, dict) for item in validated):
         raise ValueError("data_distribution_ir_candidates_invalid")
-    return candidates
+    return validated
 
 
 def rank_data_distribution_ir_candidates(candidates: list[dict[str, Any]], plan: dict[str, Any]) -> dict[str, Any]:

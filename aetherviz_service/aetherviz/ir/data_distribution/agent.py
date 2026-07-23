@@ -9,7 +9,7 @@ from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from aetherviz_service.aetherviz.agents.model_factory import create_chat_model, extract_llm_text, has_primary_llm_config
+from aetherviz_service.aetherviz.agents.model_factory import has_primary_llm_config
 from aetherviz_service.aetherviz.contracts.html_stream import (
     HtmlGenerationError,
     HtmlStreamResult,
@@ -25,6 +25,7 @@ from aetherviz_service.aetherviz.ir.data_distribution.contract import (
     rank_data_distribution_ir_candidates,
 )
 from aetherviz_service.aetherviz.ir.data_distribution.runtime import assemble_data_distribution_business_html
+from aetherviz_service.aetherviz.ir.stream import stream_ir_json
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +53,8 @@ def stream_generate_data_distribution_html(
     raw = _invoke(
         _prompt(topic, plan),
         data_distribution_ir_candidates_response_schema(),
-        DATA_DISTRIBUTION_IR_MAX_CHARS * 2 + 1024,
+        DATA_DISTRIBUTION_IR_MAX_CHARS * 3 + 1024,
+        label="数据分布 IR",
     )
     try:
         ranking = rank_data_distribution_ir_candidates(parse_data_distribution_ir_candidates(raw), plan)
@@ -69,6 +71,7 @@ def stream_generate_data_distribution_html(
             _repair_prompt(topic, plan, ranking),
             data_distribution_ir_response_schema(),
             DATA_DISTRIBUTION_IR_MAX_CHARS + 512,
+            label="数据分布 IR 修复",
         )
         try:
             ranking = rank_data_distribution_ir_candidates([parse_data_distribution_ir(repaired)], plan)
@@ -97,43 +100,43 @@ def stream_generate_data_distribution_html(
     )
 
 
-def _invoke(prompt: str, schema: dict[str, Any], limit: int) -> str:
+def _invoke(prompt: str, schema: dict[str, Any], limit: int, *, label: str) -> str:
     messages = [SystemMessage(content=SYSTEM_PROMPT), HumanMessage(content=prompt)]
-    raw = ""
-    try:
-        model = create_chat_model("scene", response_schema=schema)
-        for chunk in model.stream(messages):
-            raw += extract_llm_text(chunk)
-            if len(raw) > limit:
-                break
-    except Exception as exc:
-        logger.warning("strict data distribution schema unavailable; using JSON mode: %s", exc)
-        raw = "".join(extract_llm_text(chunk) for chunk in create_chat_model("scene").stream(messages))[:limit]
-    return raw
+    return stream_ir_json(
+        messages,
+        response_schema=schema,
+        max_chars=limit,
+        label=label,
+    ).text
 
 
 def _prompt(topic: str, plan: dict[str, Any]) -> str:
-    return '严格输出 {"candidates":[IR1,IR2]}，两个候选共享同一数学数据但使用不同的通用图表组合。' + json.dumps(
-        {
-            "topic": topic,
-            "goal": plan.get("goal"),
-            "allowed_state_variables": (plan.get("interactive_spec") or {}).get("variables", []),
-            "representation_spec": plan.get("representation_spec"),
-            "discipline_spec": plan.get("discipline_spec"),
-            "teaching_flow": plan.get("teaching_flow"),
-        },
-        ensure_ascii=False,
-        separators=(",", ":"),
+    return (
+        '严格输出 {"candidates":[IR1,IR2,IR3]}，不得少于 2 个；'
+        "候选共享同一数学数据但使用不同的通用图表组合。"
+        + json.dumps(
+            {
+                "topic": topic,
+                "goal": plan.get("goal"),
+                "allowed_state_variables": (plan.get("interactive_spec") or {}).get("variables", []),
+                "representation_spec": plan.get("representation_spec"),
+                "discipline_spec": plan.get("discipline_spec"),
+                "teaching_flow": plan.get("teaching_flow"),
+            },
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
     )
 
 
 def _repair_prompt(topic: str, plan: dict[str, Any], ranking: dict[str, Any]) -> str:
+    report = ranking.get("repair_report") if isinstance(ranking.get("repair_report"), dict) else {}
     return "只修复报告中的确定性错误，保持原始样本身份和教学语义，输出完整单个 IR；不得预计算统计结果。" + json.dumps(
         {
             "topic": topic,
             "variables": (plan.get("interactive_spec") or {}).get("variables", []),
             "candidate": ranking.get("repair_candidate"),
-            "report": ranking.get("repair_report"),
+            "errors": (report.get("errors") or [])[:12],
         },
         ensure_ascii=False,
         separators=(",", ":"),

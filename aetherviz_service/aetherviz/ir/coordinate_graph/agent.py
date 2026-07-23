@@ -11,11 +11,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langsmith import traceable
 from langsmith.run_helpers import get_current_run_tree
 
-from aetherviz_service.aetherviz.agents.model_factory import (
-    create_chat_model,
-    extract_llm_text,
-    has_primary_llm_config,
-)
+from aetherviz_service.aetherviz.agents.model_factory import has_primary_llm_config
 from aetherviz_service.aetherviz.contracts.html_stream import (
     HtmlGenerationError,
     HtmlStreamResult,
@@ -33,6 +29,7 @@ from aetherviz_service.aetherviz.ir.coordinate_graph.contract import (
 from aetherviz_service.aetherviz.ir.coordinate_graph.runtime import (
     assemble_coordinate_graph_business_html,
 )
+from aetherviz_service.aetherviz.ir.stream import stream_ir_json
 from aetherviz_service.config import settings
 
 logger = logging.getLogger(__name__)
@@ -103,7 +100,8 @@ def _stream_generate_coordinate_graph_html_impl(
     raw = _stream_ir(
         _build_prompt(topic, plan),
         coordinate_graph_ir_candidates_response_schema(),
-        COORDINATE_GRAPH_IR_MAX_CHARS * 2 + 2_048,
+        COORDINATE_GRAPH_IR_MAX_CHARS * 3 + 2_048,
+        label="坐标图 IR",
     )
     degraded = False
     try:
@@ -119,6 +117,7 @@ def _stream_generate_coordinate_graph_html_impl(
             _build_repair_prompt(topic, plan, ranking.get("repair_candidate"), ranking.get("repair_report") or {}),
             coordinate_graph_ir_response_schema(),
             COORDINATE_GRAPH_IR_MAX_CHARS + 1_024,
+            label="坐标图 IR 修复",
         )
         try:
             candidate = parse_coordinate_graph_ir(repaired)
@@ -155,25 +154,14 @@ def _stream_generate_coordinate_graph_html_impl(
     )
 
 
-def _stream_ir(prompt: str, schema: dict[str, Any], max_chars: int) -> str:
+def _stream_ir(prompt: str, schema: dict[str, Any], max_chars: int, *, label: str) -> str:
     messages = [SystemMessage(content=COORDINATE_GRAPH_SYSTEM_PROMPT), HumanMessage(content=prompt)]
-    raw = ""
-    try:
-        model = create_chat_model("scene", response_schema=schema)
-        for chunk in model.stream(messages):
-            raw += extract_llm_text(chunk)
-            if len(raw) > max_chars:
-                break
-    except GeneratorExit:
-        raise
-    except Exception as exc:
-        logger.warning("strict coordinate graph IR schema unavailable; using JSON mode: %s", exc)
-        raw = ""
-        for chunk in create_chat_model("scene").stream(messages):
-            raw += extract_llm_text(chunk)
-            if len(raw) > max_chars:
-                break
-    return raw
+    return stream_ir_json(
+        messages,
+        response_schema=schema,
+        max_chars=max_chars,
+        label=label,
+    ).text
 
 
 def _build_prompt(topic: str, plan: dict[str, Any]) -> str:
@@ -189,8 +177,9 @@ def _build_prompt(topic: str, plan: dict[str, Any]) -> str:
         "design_brief": plan.get("design_brief"),
     }
     return (
-        '生成两个独立候选，严格输出 {"candidates":[IR1,IR2]}。每个候选都只使用一个坐标系，'
-        "让曲线、动态点和不变量引用同一组定义；候选之间使用不同但通用的数学组织方式。\n"
+        '一次生成 3 个独立候选，严格输出 {"candidates":[IR1,IR2,IR3]}，不得少于 2 个。'
+        "每个候选都只使用一个坐标系，让曲线、动态点和不变量引用同一组定义；"
+        "候选之间使用不同但通用的数学组织方式。\n"
         + json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
     )
 
@@ -203,7 +192,7 @@ def _build_repair_prompt(topic: str, plan: dict[str, Any], candidate: object, re
             {
                 "topic": topic,
                 "allowed_state_variables": _variables(plan),
-                "errors": report.get("errors", []),
+                "errors": (report.get("errors") or [])[:12],
                 "candidate": candidate,
             },
             ensure_ascii=False,

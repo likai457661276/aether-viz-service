@@ -54,6 +54,11 @@ from aetherviz_service.aetherviz.ir.recomposition.semantics import (
 from aetherviz_service.aetherviz.ir.recomposition.waypoints import (
     complete_intermediate_waypoints,
 )
+from aetherviz_service.aetherviz.ir.stream import (
+    looks_like_incomplete_json,
+    raise_if_incomplete_ir_stream,
+    IRStreamResult,
+)
 from aetherviz_service.config import settings
 
 logger = logging.getLogger(__name__)
@@ -156,6 +161,8 @@ def _stream_generate_recomposition_html_impl(
     except GeometryIRGenerationError as exc:
         try:
             source = _repair_scene_source(topic, plan, exc.raw_text, exc.report)
+        except HtmlGenerationError:
+            raise
         except Exception as repair_exc:
             logger.warning("geometry IR bounded repair failed: %s", repair_exc)
             repair_detail = str(repair_exc).strip()
@@ -170,6 +177,8 @@ def _stream_generate_recomposition_html_impl(
                 ),
             ) from repair_exc
         degraded = True
+    except HtmlGenerationError:
+        raise
     except GeneratorExit:
         raise
     except Exception as exc:
@@ -204,20 +213,15 @@ def _generate_scene_source(topic: str, plan: dict[str, Any]) -> tuple[str, bool]
 
 def _generate_ranked_scene_source(topic: str, plan: dict[str, Any]) -> tuple[str, bool, dict[str, Any]]:
     prompt = _build_scene_prompt(topic, plan)
-    raw_text = ""
-    timed_out = False
-    deadline = time.monotonic() + max(settings.aetherviz_html_timeout_seconds, 1)
     messages = [SystemMessage(content=SCENE_SYSTEM_PROMPT), HumanMessage(content=prompt)]
-    for chunk in _stream_scene_response(messages, response_schema=geometry_ir_candidates_response_schema()):
-        if time.monotonic() > deadline:
-            timed_out = True
-            break
-        text = extract_llm_text(chunk)
-        if text:
-            raw_text += text
-            if len(raw_text) > GEOMETRY_IR_MAX_CHARS * 3 + 2_048:
-                timed_out = True
-                break
+    stream = _stream_scene_json(
+        messages,
+        response_schema=geometry_ir_candidates_response_schema(),
+        max_chars=GEOMETRY_IR_MAX_CHARS * 3 + 2_048,
+        label="几何重排 IR",
+    )
+    raw_text = stream.text
+    timed_out = stream.timed_out or stream.truncated_by_limit
     try:
         candidates = parse_geometry_ir_candidates(raw_text)
     except ValueError as exc:
@@ -618,13 +622,20 @@ def _repair_scene_source(
     source: str,
     report: dict[str, Any],
 ) -> str:
-    candidate = source
+    candidate: object = source
     if "const sceneIR=" in source:
-        candidate = json.dumps(
-            extract_geometry_ir_from_scene_source(source),
-            ensure_ascii=False,
-            separators=(",", ":"),
-        )
+        candidate = extract_geometry_ir_from_scene_source(source)
+    elif isinstance(source, str) and source.strip().startswith("{"):
+        try:
+            candidate = json.loads(source)
+        except json.JSONDecodeError:
+            candidate = source
+    focused_errors = _focused_repair_errors(report)
+    construction_diagnostics = [
+        item
+        for item in report.get("construction_materialization", [])
+        if isinstance(item, dict) and (item.get("ok") is False or item.get("errors"))
+    ][:1]
     prompt = (
         "修复以下结构化几何 IR。只输出满足系统契约的单个 JSON 对象；保留原教学几何意图，"
         "只修复报告中的 schema、边界、有限数值、唯一 id 或源/目标变换问题。将计划变量写成 state，"
@@ -648,21 +659,22 @@ def _repair_scene_source(
                 "topic": topic,
                 "allowed_state_variables": _allowed_state_variables(plan),
                 "stage_alignment": _stage_alignment_checklist(plan),
-                "recomposition_spec": plan.get("recomposition_spec"),
-                "errors": report.get("errors", []),
-                "construction_diagnostics": report.get("construction_materialization", []),
+                "errors": focused_errors,
+                "construction_diagnostics": construction_diagnostics,
                 "candidate": candidate,
             },
             ensure_ascii=False,
             separators=(",", ":"),
         )
     )
-    raw_text = ""
     messages = [SystemMessage(content=SCENE_SYSTEM_PROMPT), HumanMessage(content=prompt)]
-    for chunk in _stream_scene_response(messages, response_schema=geometry_ir_response_schema()):
-        raw_text += extract_llm_text(chunk)
-        if len(raw_text) > GEOMETRY_IR_MAX_CHARS + 1_024:
-            break
+    raw_text = _stream_scene_json(
+        messages,
+        response_schema=geometry_ir_response_schema(),
+        max_chars=GEOMETRY_IR_MAX_CHARS + 1_024,
+        model_kind="ir_repair",
+        label="几何重排 IR 修复",
+    ).text
     geometry_ir = normalize_geometry_ir(parse_geometry_ir(raw_text), plan)
     construction = materialize_target_construction(geometry_ir, plan)
     geometry_ir = construction.get("ir") or geometry_ir
@@ -675,6 +687,19 @@ def _repair_scene_source(
     if not ranking["ok"]:
         raise GeometryIRGenerationError(raw_text, _ranking_error_report(ranking))
     return compile_geometry_ir(ranking["selected_ir"], plan)
+
+
+def _focused_repair_errors(report: dict[str, Any]) -> list[dict[str, Any]]:
+    """Keep only the closest failing candidate's evidence for the repair model."""
+    errors = [item for item in report.get("errors", []) if isinstance(item, dict)]
+    if len(errors) <= 1:
+        return errors
+    ranking = report.get("ranking") if isinstance(report.get("ranking"), dict) else {}
+    repair_index = ranking.get("repair_candidate_index")
+    if repair_index is None:
+        return errors[:1]
+    focused = [item for item in errors if item.get("candidate_index") == repair_index]
+    return focused or errors[:1]
 
 
 def _build_scene_prompt(topic: str, plan: dict[str, Any]) -> str:
@@ -762,6 +787,14 @@ def _ranking_error_report(ranking: dict[str, Any]) -> dict[str, Any]:
         for item in ranking.get("construction_materialization", [])
         if isinstance(item, dict) and (item.get("ok") is False or item.get("errors"))
     ]
+    repair_index = ranking.get("repair_candidate_index")
+    focused_candidates = [
+        item
+        for item in ranking.get("candidates", [])
+        if isinstance(item, dict) and (repair_index is None or item.get("index") == repair_index)
+    ]
+    if not focused_candidates:
+        focused_candidates = [item for item in ranking.get("candidates", []) if isinstance(item, dict)][:1]
     return {
         "ok": False,
         "severity": "error",
@@ -790,10 +823,14 @@ def _ranking_error_report(ranking: dict[str, Any]) -> dict[str, Any]:
                     None,
                 ),
             }
-            for item in ranking.get("candidates", [])
+            for item in focused_candidates
         ],
         "warnings": [],
-        "construction_materialization": construction_reports,
+        "construction_materialization": [
+            item
+            for item in construction_reports
+            if repair_index is None or item.get("index") == repair_index
+        ][:1],
         "ranking": public_geometry_ir_ranking(ranking),
     }
 
@@ -891,21 +928,69 @@ def _allowed_state_variables(plan: dict[str, Any]) -> list[str]:
     ]
 
 
+def _stream_scene_json(
+    messages: list[SystemMessage | HumanMessage],
+    *,
+    response_schema: dict[str, Any] | None,
+    max_chars: int,
+    model_kind: str = "scene",
+    label: str = "几何重排 IR",
+) -> IRStreamResult:
+    """Collect scene JSON with deadline + bounded full retry on incomplete output."""
+    max_attempts = 1 + max(settings.aetherviz_html_stream_max_retries, 0)
+    last = IRStreamResult(text="")
+    for attempt in range(1, max_attempts + 1):
+        raw_text = ""
+        timed_out = False
+        truncated_by_limit = False
+        deadline = time.monotonic() + max(settings.aetherviz_html_timeout_seconds, 1)
+        for chunk in _stream_scene_response(messages, response_schema=response_schema, model_kind=model_kind):
+            if time.monotonic() > deadline:
+                timed_out = True
+                break
+            text = extract_llm_text(chunk)
+            if not text:
+                continue
+            raw_text += text
+            if len(raw_text) > max_chars:
+                truncated_by_limit = True
+                break
+        last = IRStreamResult(
+            text=raw_text,
+            timed_out=timed_out,
+            truncated_by_limit=truncated_by_limit,
+            attempt=attempt,
+        )
+        if not looks_like_incomplete_json(last.text):
+            return last
+        if attempt >= max_attempts:
+            break
+        logger.warning(
+            "%s stream incomplete on attempt %s/%s; retrying full generation",
+            label,
+            attempt,
+            max_attempts,
+        )
+    raise_if_incomplete_ir_stream(last, label=label)
+    return last
+
+
 def _stream_scene_response(
     messages: list[SystemMessage | HumanMessage],
     *,
     response_schema: dict[str, Any] | None = None,
+    model_kind: str = "scene",
 ) -> Iterator[Any]:
     """Prefer strict schema decoding; retry once with JSON mode for compatible gateways."""
     try:
-        yield from create_chat_model("scene", response_schema=response_schema or geometry_ir_response_schema()).stream(
-            messages
-        )
+        yield from create_chat_model(
+            model_kind, response_schema=response_schema or geometry_ir_response_schema()
+        ).stream(messages)
     except GeneratorExit:
         raise
     except Exception as exc:
         logger.warning("strict geometry IR response schema unavailable; using JSON mode: %s", exc)
-        yield from create_chat_model("scene").stream(messages)
+        yield from create_chat_model(model_kind).stream(messages)
 
 
 def _summarize_scene_stream(items: list[dict[str, Any] | HtmlStreamResult]) -> dict[str, Any]:

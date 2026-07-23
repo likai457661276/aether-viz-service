@@ -55,6 +55,7 @@ def stream_repair_html(
     raw_html: str,
     report: dict[str, Any],
     include_plan_context: bool = True,
+    model_kind: str = "repair",
 ) -> Iterator[dict[str, Any] | RepairStreamResult]:
     runner = (
         _traced_stream_repair_html
@@ -67,6 +68,7 @@ def stream_repair_html(
         raw_html=raw_html,
         report=report,
         include_plan_context=include_plan_context,
+        model_kind=model_kind,
     )
 
 
@@ -91,6 +93,7 @@ def _traced_stream_repair_html(
     raw_html: str,
     report: dict[str, Any],
     include_plan_context: bool = True,
+    model_kind: str = "repair",
 ) -> Iterator[dict[str, Any] | RepairStreamResult]:
     yield from _stream_repair_html_impl(
         topic=topic,
@@ -98,6 +101,7 @@ def _traced_stream_repair_html(
         raw_html=raw_html,
         report=report,
         include_plan_context=include_plan_context,
+        model_kind=model_kind,
     )
 
 
@@ -108,6 +112,7 @@ def _stream_repair_html_impl(
     raw_html: str,
     report: dict[str, Any],
     include_plan_context: bool = True,
+    model_kind: str = "repair",
 ) -> Iterator[dict[str, Any] | RepairStreamResult]:
     if not has_primary_llm_config():
         yield RepairStreamResult(
@@ -137,7 +142,7 @@ def _stream_repair_html_impl(
         ]
     )
     try:
-        model = create_chat_model("repair")
+        model = create_chat_model(model_kind)
         messages = [SystemMessage(content=REPAIR_SYSTEM_PROMPT), HumanMessage(content=prompt)]
         output_started = False
         for chunk in model.stream(messages):

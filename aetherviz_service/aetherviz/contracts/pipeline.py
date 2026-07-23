@@ -32,6 +32,8 @@ from aetherviz_service.aetherviz.contracts.repair.session import (
     error_signature,
 )
 from aetherviz_service.aetherviz.contracts.validation.report import build_validation_report
+from aetherviz_service.aetherviz.ir.stream import is_retryable_ir_stream_error, uses_strong_ir_repair_model
+from aetherviz_service.aetherviz.tools.trace_manager import TraceManager, classify_generation_error_stage
 from aetherviz_service.config import settings
 
 QUALITY_REPAIR_WARNING_TYPES = {
@@ -72,6 +74,7 @@ def run_html_pipeline(
     reasoning_enabled: bool | None = None,
     baseline_business_html: str | None = None,
     diff_report_factory: Callable[[str, str], dict[str, Any]] | None = None,
+    generation_trace: TraceManager | None = None,
 ) -> Iterator[str]:
     started_at = time.monotonic()
     if include_plan_in_repair is None:
@@ -110,11 +113,43 @@ def run_html_pipeline(
     html = None
     degraded = False
     source_truncated = False
+    if _trace_is_active(generation_trace):
+        generation_trace.start_stage("ir_generation")
     try:
         for item in html_stream_factory():
             if isinstance(item, HtmlStreamResult):
                 business_html, degraded = item.html, item.degraded
-                html = assemble_layout_contract(business_html, plan)
+                if _trace_is_active(generation_trace):
+                    generation_trace.finish_stage(
+                        "ir_generation",
+                        {
+                            "ir_type": generation_backend,
+                            "generation_success": True,
+                            "degraded": degraded,
+                            "generation_elapsed_ms": item.generation_elapsed_ms,
+                            "generation_fallback": item.generation_fallback,
+                        },
+                    )
+                    generation_trace.start_stage("runtime_compile")
+                try:
+                    html = assemble_layout_contract(business_html, plan)
+                except Exception as exc:
+                    if _trace_is_active(generation_trace):
+                        generation_trace.fail_trace(
+                            "runtime_compile",
+                            str(exc),
+                            metadata={"compile_success": False, "error": str(exc)},
+                        )
+                    raise
+                if _trace_is_active(generation_trace):
+                    generation_trace.finish_stage(
+                        "runtime_compile",
+                        {
+                            "compile_success": True,
+                            "business_chars": len(business_html),
+                            "assembled_chars": len(html),
+                        },
+                    )
                 source_truncated = item.truncated
                 metadata["reasoning_elapsed_ms"] = item.reasoning_elapsed_ms
                 metadata["first_chunk_elapsed_ms"] = item.first_chunk_elapsed_ms
@@ -157,6 +192,19 @@ def run_html_pipeline(
                 metadata=_metadata(metadata, started_at, stage="generate"),
             )
     except HtmlGenerationError as exc:
+        if _trace_is_active(generation_trace):
+            failed_stage = classify_generation_error_stage(exc.code)
+            generation_trace.fail_trace(
+                failed_stage,
+                exc.detail or exc.message,
+                metadata={
+                    "code": exc.code,
+                    "message": exc.message,
+                    "detail": exc.detail,
+                    "ir_type": generation_backend,
+                    "generation_success": False,
+                },
+            )
         yield agent_error_event(
             run_id=run_id,
             phase=phase,
@@ -168,6 +216,12 @@ def run_html_pipeline(
         )
         return
     if html is None or business_html is None:
+        if _trace_is_active(generation_trace):
+            generation_trace.fail_trace(
+                "runtime_compile",
+                "HTML 生成未返回结果",
+                metadata={"compile_success": False, "code": "runtime_error"},
+            )
         yield agent_error_event(
             run_id=run_id,
             phase=phase,
@@ -181,6 +235,12 @@ def run_html_pipeline(
     if candidate_guard is not None:
         guard_errors = candidate_guard(business_html)
         if guard_errors:
+            if _trace_is_active(generation_trace):
+                generation_trace.fail_trace(
+                    "validation",
+                    "; ".join(guard_errors[:8]),
+                    metadata={"code": "edit_intent_not_satisfied", "validation_result": False},
+                )
             yield agent_error_event(
                 run_id=run_id,
                 phase=phase,
@@ -191,6 +251,8 @@ def run_html_pipeline(
                 metadata=_metadata(metadata, started_at, stage="edit_guard"),
             )
             return
+    if _trace_is_active(generation_trace):
+        generation_trace.start_stage("validation")
     yield agent_sse_event(
         "validation.started",
         run_id=run_id,
@@ -223,6 +285,16 @@ def run_html_pipeline(
         )
         html = assemble_layout_contract(business_html, plan)
         if not report["ok"]:
+            if _trace_is_active(generation_trace):
+                generation_trace.fail_trace(
+                    "validation",
+                    report.get("summary") or "validation_failed",
+                    metadata={
+                        "validation_result": False,
+                        "failure_reason": report.get("summary"),
+                        "error_count": len(report.get("errors") or []),
+                    },
+                )
             if not source_truncated:
                 yield agent_sse_event(
                     "html.repair_source",
@@ -247,6 +319,16 @@ def run_html_pipeline(
             )
             return
 
+    if _trace_is_active(generation_trace):
+        generation_trace.finish_stage(
+            "validation",
+            {
+                "validation_result": True,
+                "warning_count": len(report.get("warnings") or []),
+                "repaired": bool(metadata.get("repaired")),
+            },
+        )
+
     if phase in {"generate", "edit_html"} and report["ok"] and _quality_warning_types(report):
         business_html, report, quality_repaired, quality_degraded = yield from _attempt_quality_repair(
             run_id=run_id,
@@ -265,6 +347,12 @@ def run_html_pipeline(
     if candidate_guard is not None:
         guard_errors = candidate_guard(business_html)
         if guard_errors:
+            if _trace_is_active(generation_trace):
+                generation_trace.fail_trace(
+                    "validation",
+                    "; ".join(guard_errors[:8]),
+                    metadata={"code": "edit_intent_lost_after_repair", "validation_result": False},
+                )
             yield agent_error_event(
                 run_id=run_id,
                 phase=phase,
@@ -348,6 +436,19 @@ def run_html_pipeline(
     if edit_diff_report is not None:
         done_metadata["edit_diff_report"] = edit_diff_report
 
+    if _trace_is_active(generation_trace):
+        generation_trace.start_stage("final_result")
+        generation_trace.finish_stage(
+            "final_result",
+            {
+                "status": "success",
+                "chars": len(html),
+                "generation_backend": generation_backend,
+                "elapsed_ms": done_metadata["elapsed_ms"],
+            },
+        )
+        generation_trace.complete_trace()
+
     yield agent_sse_event(
         "html.done",
         run_id=run_id,
@@ -358,6 +459,13 @@ def run_html_pipeline(
         },
         metadata=_metadata(metadata, started_at, stage="done"),
     )
+
+
+def _trace_is_active(generation_trace: TraceManager | None) -> bool:
+    if generation_trace is None:
+        return False
+    current = generation_trace.get_trace()
+    return current is not None and current.status == "running"
 
 
 def _attempt_quality_repair(
@@ -489,10 +597,19 @@ def _attempt_repair_loop(
     source_truncated: bool,
     include_plan_in_repair: bool = True,
 ) -> Iterator[str]:
+    model_kind = (
+        "html_repair"
+        if uses_strong_ir_repair_model(str(metadata.get("generation_backend") or ""))
+        else "repair"
+    )
+
+    def model_repair_stream(**kwargs: Any):
+        return stream_repair_html(**kwargs, model_kind=model_kind)
+
     session = RepairSession(
         deterministic_can_address_fn=deterministic_can_address,
         function_repair_stream=stream_repair_functions,
-        model_repair_stream=stream_repair_html,
+        model_repair_stream=model_repair_stream,
     )
     return (
         yield from session.run(
@@ -745,4 +862,8 @@ def _metadata(metadata: dict[str, Any], started_at: float, *, stage: str) -> dic
 
 
 def _is_retryable_pipeline_error(phase: str, code: str) -> bool:
-    return phase == "edit_html" and is_retryable_edit_error(code)
+    if phase == "edit_html":
+        return is_retryable_edit_error(code)
+    if phase == "generate":
+        return is_retryable_ir_stream_error(code)
+    return False

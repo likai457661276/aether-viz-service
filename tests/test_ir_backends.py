@@ -460,7 +460,7 @@ def test_coordinate_graph_runtime_owns_svg_units_and_family_metadata() -> None:
 def test_coordinate_graph_ir_failure_stops_without_direct_html(monkeypatch) -> None:
     responses = iter(['{"candidates":[{},{}]}', "{}"])
     monkeypatch.setattr(coordinate_graph_agent, "has_primary_llm_config", lambda: True)
-    monkeypatch.setattr(coordinate_graph_agent, "_stream_ir", lambda *_args: next(responses))
+    monkeypatch.setattr(coordinate_graph_agent, "_stream_ir", lambda *_args, **_kwargs: next(responses))
     with pytest.raises(HtmlGenerationError) as exc_info:
         list(coordinate_graph_agent.stream_generate_coordinate_graph_html("一次函数图像", _coordinate_plan()))
 
@@ -560,7 +560,7 @@ def test_linked_coordinate_ir_accepts_explicit_degree_to_radian_conversion() -> 
 def test_linked_coordinate_candidate_schema_and_ranking_select_valid_ir() -> None:
     schema = linked_coordinate_ir_candidates_response_schema()
     assert schema["properties"]["candidates"]["minItems"] == 2
-    assert schema["properties"]["candidates"]["maxItems"] == 2
+    assert schema["properties"]["candidates"]["maxItems"] == 3
     broken = deepcopy(_ir())
     broken["points"][1]["y"] = 0
     ranking = rank_linked_coordinate_ir_candidates([broken, _ir()], _plan())

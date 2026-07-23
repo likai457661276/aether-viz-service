@@ -49,7 +49,17 @@ def _html_model_kwargs(*, max_tokens: int | None = None) -> dict[str, Any]:
 def create_chat_model(kind: str, *, response_schema: dict[str, Any] | None = None):
     from langchain_openai import ChatOpenAI
 
-    if kind not in {"planning", "routing", "edit_analysis", "html", "scene", "edit", "repair"}:
+    if kind not in {
+        "planning",
+        "routing",
+        "edit_analysis",
+        "html",
+        "scene",
+        "ir_repair",
+        "html_repair",
+        "edit",
+        "repair",
+    }:
         raise ValueError(f"unsupported chat model kind: {kind}")
 
     if kind == "planning":
@@ -142,6 +152,41 @@ def create_chat_model(kind: str, *, response_schema: dict[str, Any] | None = Non
         }
         kwargs.pop("reasoning_effort", None)
         return ChatOpenAI(**kwargs)
+    if kind == "ir_repair":
+        # Complex IR structured repairs prefer the stronger HTML model with JSON output.
+        kwargs = _html_model_kwargs(max_tokens=settings.aetherviz_repair_max_tokens)
+        kwargs["temperature"] = 0.0
+        kwargs["timeout"] = max(settings.aetherviz_repair_timeout_seconds, 1)
+        kwargs["max_retries"] = max(settings.aetherviz_repair_max_retries, 0)
+        kwargs["extra_body"] = {"enable_thinking": False}
+        kwargs.pop("reasoning_effort", None)
+        kwargs["model_kwargs"] = {
+            "response_format": (
+                {
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": "aetherviz_ir_repair",
+                        "strict": True,
+                        "schema": response_schema,
+                    },
+                }
+                if response_schema
+                else {"type": "json_object"}
+            )
+        }
+        return ChatOpenAI(**kwargs)
+    if kind == "html_repair":
+        # Complex IR backends escalate full-document HTML repair to OPENAI_HTML_MODEL.
+        return ChatOpenAI(
+            model=settings.openai_html_model,
+            api_key=_blank_to_none(settings.openai_api_key),
+            base_url=_blank_to_none(settings.openai_base_url),
+            temperature=0.0,
+            max_tokens=max(settings.aetherviz_repair_max_tokens, 512),
+            timeout=max(settings.aetherviz_repair_timeout_seconds, 1),
+            max_retries=max(settings.aetherviz_repair_max_retries, 0),
+            extra_body={"enable_thinking": False},
+        )
     if kind == "edit":
         kwargs = _html_model_kwargs(max_tokens=settings.aetherviz_edit_max_tokens)
         kwargs["temperature"] = settings.aetherviz_edit_temperature

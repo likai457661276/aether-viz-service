@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     openai_base_url: str | None = "https://dashscope.aliyuncs.com/compatible-mode/v1"
     openai_plan_model: str = "deepseek-v4-flash"
     openai_html_model: str = "qwen3.7-plus"
+    # Default flash for cheap/deterministic-covered repairs; complex IR escalates to HTML model.
     openai_repair_model: str = "deepseek-v4-flash"
     openai_edit_analysis_model: str = "deepseek-v4-flash"
     openai_router_model: str = "deepseek-v4-flash"
@@ -24,7 +25,8 @@ class Settings(BaseSettings):
     aetherviz_edit_reasoning_effort: str | None = None
     aetherviz_edit_temperature: float = 0.15
     aetherviz_html_max_tokens: int = 16384
-    aetherviz_scene_max_tokens: int = 12288
+    # Multi-candidate IR envelopes (up to 3) need more headroom than a single IR.
+    aetherviz_scene_max_tokens: int = 16384
     aetherviz_edit_max_tokens: int = 16384
     aetherviz_repair_max_tokens: int = 16384
     aetherviz_max_repair_attempts: int = 1
@@ -34,7 +36,7 @@ class Settings(BaseSettings):
     aetherviz_edit_analysis_max_retries: int = 1
     aetherviz_edit_max_retries: int = 1
     aetherviz_ir_router_enabled: bool = True
-    aetherviz_ir_router_shadow_mode: bool = True
+    aetherviz_ir_router_shadow_mode: bool = False
     aetherviz_ir_router_max_tokens: int = 768
     aetherviz_ir_router_timeout_seconds: int = 20
     aetherviz_ir_router_max_retries: int = 1
@@ -79,6 +81,8 @@ class Settings(BaseSettings):
             raise ValueError("AETHERVIZ_MAX_REPAIR_ATTEMPTS 不能小于 0")
         if self.aetherviz_edit_max_retries < 0:
             raise ValueError("AETHERVIZ_EDIT_MAX_RETRIES 不能小于 0")
+        if self.aetherviz_html_stream_max_retries < 0:
+            raise ValueError("AETHERVIZ_HTML_STREAM_MAX_RETRIES 不能小于 0")
         undersized = {
             name: value
             for name, value in {

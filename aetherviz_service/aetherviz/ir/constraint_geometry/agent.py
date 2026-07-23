@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 import json
-import logging
 from collections.abc import Iterator
 from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from aetherviz_service.aetherviz.agents.model_factory import create_chat_model, extract_llm_text, has_primary_llm_config
+from aetherviz_service.aetherviz.agents.model_factory import has_primary_llm_config
 from aetherviz_service.aetherviz.contracts.html_stream import (
     HtmlGenerationError,
     HtmlStreamResult,
@@ -26,8 +25,7 @@ from aetherviz_service.aetherviz.ir.constraint_geometry.contract import (
     repair_constraint_geometry_ir,
 )
 from aetherviz_service.aetherviz.ir.constraint_geometry.runtime import assemble_constraint_geometry_business_html
-
-logger = logging.getLogger(__name__)
+from aetherviz_service.aetherviz.ir.stream import stream_ir_json
 
 SYSTEM_PROMPT = f"""你是通用约束几何 IR 生成器。只输出 JSON，version 固定为 {CONSTRAINT_GEOMETRY_IR_VERSION}。
 IR 只表达参数驱动的欧氏几何语义。服务端负责 SVG、坐标映射、布局、动画控制和 iframe Runtime；不得输出 HTML、CSS、JavaScript、像素坐标或动画循环。
@@ -58,6 +56,8 @@ def stream_generate_constraint_geometry_html(
         _prompt(topic, plan),
         constraint_geometry_ir_candidates_response_schema(),
         CONSTRAINT_GEOMETRY_IR_MAX_CHARS * 2 + 1024,
+        model_kind="scene",
+        label="约束几何 IR",
     )
     try:
         ranking = rank_constraint_geometry_ir_candidates(parse_constraint_geometry_ir_candidates(raw), plan)
@@ -74,6 +74,8 @@ def stream_generate_constraint_geometry_html(
             _repair_prompt(topic, plan, ranking),
             constraint_geometry_ir_response_schema(),
             CONSTRAINT_GEOMETRY_IR_MAX_CHARS + 512,
+            model_kind="ir_repair",
+            label="约束几何 IR 修复",
         )
         try:
             ranking = rank_constraint_geometry_ir_candidates([parse_constraint_geometry_ir(repaired)], plan)
@@ -102,19 +104,15 @@ def stream_generate_constraint_geometry_html(
     )
 
 
-def _invoke(prompt: str, schema: dict[str, Any], limit: int) -> str:
+def _invoke(prompt: str, schema: dict[str, Any], limit: int, *, model_kind: str, label: str) -> str:
     messages = [SystemMessage(content=SYSTEM_PROMPT), HumanMessage(content=prompt)]
-    raw = ""
-    try:
-        model = create_chat_model("scene", response_schema=schema)
-        for chunk in model.stream(messages):
-            raw += extract_llm_text(chunk)
-            if len(raw) > limit:
-                break
-    except Exception as exc:
-        logger.warning("strict constraint geometry schema unavailable; using JSON mode: %s", exc)
-        raw = "".join(extract_llm_text(chunk) for chunk in create_chat_model("scene").stream(messages))[:limit]
-    return raw
+    return stream_ir_json(
+        messages,
+        response_schema=schema,
+        max_chars=limit,
+        model_kind=model_kind,
+        label=label,
+    ).text
 
 
 def _prompt(topic: str, plan: dict[str, Any]) -> str:
@@ -133,6 +131,7 @@ def _prompt(topic: str, plan: dict[str, Any]) -> str:
 
 
 def _repair_prompt(topic: str, plan: dict[str, Any], ranking: dict[str, Any]) -> str:
+    report = ranking.get("repair_report") if isinstance(ranking.get("repair_report"), dict) else {}
     return (
         "只修复报告中的确定性错误，保持对象身份和教学语义，输出完整单个 IR；不得放宽 tolerance。"
         "禁止引用未声明状态（如 B.x）；无效 drag 应删除或改为真正驱动坐标的绑定；"
@@ -142,7 +141,7 @@ def _repair_prompt(topic: str, plan: dict[str, Any], ranking: dict[str, Any]) ->
                 "topic": topic,
                 "variables": (plan.get("interactive_spec") or {}).get("variables", []),
                 "candidate": repair_constraint_geometry_ir(ranking.get("repair_candidate"), plan),
-                "report": ranking.get("repair_report"),
+                "errors": (report.get("errors") or [])[:12],
             },
             ensure_ascii=False,
             separators=(",", ":"),

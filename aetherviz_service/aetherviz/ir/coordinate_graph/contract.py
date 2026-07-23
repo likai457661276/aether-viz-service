@@ -37,22 +37,9 @@ def coordinate_graph_ir_response_schema() -> dict[str, Any]:
 
 
 def coordinate_graph_ir_candidates_response_schema() -> dict[str, Any]:
-    candidate = coordinate_graph_ir_response_schema()
-    definitions = candidate.pop("$defs")
-    return {
-        "type": "object",
-        "additionalProperties": False,
-        "$defs": definitions,
-        "properties": {
-            "candidates": {
-                "type": "array",
-                "items": candidate,
-                "minItems": 2,
-                "maxItems": 2,
-            }
-        },
-        "required": ["candidates"],
-    }
+    from aetherviz_service.aetherviz.ir.candidates import candidates_envelope_schema
+
+    return candidates_envelope_schema(coordinate_graph_ir_response_schema())
 
 
 def normalize_coordinate_graph_ir(ir: object, plan: dict[str, Any]) -> object:

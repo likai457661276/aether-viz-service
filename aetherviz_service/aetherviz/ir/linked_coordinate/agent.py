@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import logging
 from collections.abc import Iterator
 from typing import Any
 
@@ -11,11 +10,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langsmith import traceable
 from langsmith.run_helpers import get_current_run_tree
 
-from aetherviz_service.aetherviz.agents.model_factory import (
-    create_chat_model,
-    extract_llm_text,
-    has_primary_llm_config,
-)
+from aetherviz_service.aetherviz.agents.model_factory import has_primary_llm_config
 from aetherviz_service.aetherviz.contracts.html_stream import (
     HtmlGenerationError,
     HtmlStreamResult,
@@ -34,9 +29,8 @@ from aetherviz_service.aetherviz.ir.linked_coordinate.contract import (
 from aetherviz_service.aetherviz.ir.linked_coordinate.runtime import (
     assemble_linked_coordinate_business_html,
 )
+from aetherviz_service.aetherviz.ir.stream import stream_ir_json
 from aetherviz_service.config import settings
-
-logger = logging.getLogger(__name__)
 
 LINKED_COORDINATE_SYSTEM_PROMPT = f"""你是动态数学场景的结构化联动坐标 IR 生成器。
 只输出一个 JSON 对象，不输出 HTML、JavaScript、Markdown、注释或解释。version 固定为 {LINKED_COORDINATE_IR_VERSION}。
@@ -116,7 +110,8 @@ def _stream_generate_linked_coordinate_html_impl(
     raw = _stream_ir(
         _build_prompt(topic, plan),
         linked_coordinate_ir_candidates_response_schema(),
-        max_chars=LINKED_COORDINATE_IR_MAX_CHARS * 2 + 2_048,
+        max_chars=LINKED_COORDINATE_IR_MAX_CHARS * 3 + 2_048,
+        label="联动坐标 IR",
     )
     degraded = False
     try:
@@ -140,6 +135,7 @@ def _stream_generate_linked_coordinate_html_impl(
             repair_prompt,
             linked_coordinate_ir_response_schema(),
             max_chars=LINKED_COORDINATE_IR_MAX_CHARS + 1_024,
+            label="联动坐标 IR 修复",
         )
         try:
             ir = parse_linked_coordinate_ir(repaired)
@@ -170,25 +166,14 @@ def _stream_generate_linked_coordinate_html_impl(
     )
 
 
-def _stream_ir(prompt: str, response_schema: dict[str, Any], *, max_chars: int) -> str:
+def _stream_ir(prompt: str, response_schema: dict[str, Any], *, max_chars: int, label: str) -> str:
     messages = [SystemMessage(content=LINKED_COORDINATE_SYSTEM_PROMPT), HumanMessage(content=prompt)]
-    raw = ""
-    try:
-        model = create_chat_model("scene", response_schema=response_schema)
-        for chunk in model.stream(messages):
-            raw += extract_llm_text(chunk)
-            if len(raw) > max_chars:
-                break
-    except GeneratorExit:
-        raise
-    except Exception as exc:
-        logger.warning("strict linked coordinate IR schema unavailable; using JSON mode: %s", exc)
-        raw = ""
-        for chunk in create_chat_model("scene").stream(messages):
-            raw += extract_llm_text(chunk)
-            if len(raw) > max_chars:
-                break
-    return raw
+    return stream_ir_json(
+        messages,
+        response_schema=response_schema,
+        max_chars=max_chars,
+        label=label,
+    ).text
 
 
 def _build_prompt(topic: str, plan: dict[str, Any]) -> str:
@@ -204,10 +189,10 @@ def _build_prompt(topic: str, plan: dict[str, Any]) -> str:
         "design_brief": plan.get("design_brief"),
     }
     return (
-        "根据已确认计划一次生成两个相互独立的通用联动坐标 IR 候选。顶层严格输出 "
-        '{"candidates":[IR1,IR2]}。每个候选先选择共享动画参数和数学定义，再布置坐标系，'
+        "根据已确认计划一次生成 3 个相互独立的通用联动坐标 IR 候选。顶层严格输出 "
+        '{"candidates":[IR1,IR2,IR3]}，不得少于 2 个。每个候选先选择共享动画参数和数学定义，再布置坐标系，'
         "最后让完整曲线、动态点和投影连线全部引用同一表达式，并用可计算不变量证明对应关系。"
-        "两个候选必须采用不同的结构组织；候选 1 的所有 curve.domain 必须与状态无关。"
+        "候选必须采用不同的结构组织；候选 1 的所有 curve.domain 必须与状态无关。"
         "如果教学流程要求曲线逐渐延伸，使用稳定完整 domain 配合 reveal，禁止缩短数学定义域。"
         "不得输出 HTML 或 JavaScript。\n" + json.dumps(compact, ensure_ascii=False, separators=(",", ":"))
     )
@@ -227,7 +212,7 @@ def _build_repair_prompt(topic: str, plan: dict[str, Any], candidate: object, re
             {
                 "topic": topic,
                 "allowed_state_variables": _variables(plan),
-                "errors": report.get("errors", []),
+                "errors": (report.get("errors") or [])[:12],
                 "candidate": candidate,
             },
             ensure_ascii=False,

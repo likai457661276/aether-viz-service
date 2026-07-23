@@ -1021,7 +1021,7 @@ def test_scene_generation_selects_one_ir_from_single_three_candidate_response(
     candidates[1]["frames"][-1]["caption"] = "拼合并解释目标关系"
     captured: dict[str, object] = {}
 
-    def fake_stream(_messages: object, *, response_schema: dict[str, object] | None = None):
+    def fake_stream(_messages: object, *, response_schema: dict[str, object] | None = None, **_kwargs):
         captured["schema"] = response_schema
         yield {"content": json.dumps({"candidates": candidates}, ensure_ascii=False)}
 
@@ -1403,7 +1403,7 @@ def test_scene_generation_uses_waypoint_completion_before_model_repair(
             }
         )
 
-    def fake_stream(_messages: object, *, response_schema: dict[str, object] | None = None):
+    def fake_stream(_messages: object, *, response_schema: dict[str, object] | None = None, **_kwargs):
         yield {"content": json.dumps({"candidates": candidates}, ensure_ascii=False)}
 
     monkeypatch.setattr(recomposition_agent, "_stream_scene_response", fake_stream)
@@ -1658,7 +1658,7 @@ def test_model_repair_output_reuses_deterministic_completion_pipeline(
     )
     assert not rank_geometry_ir_candidates([candidate], plan)["ok"]
 
-    def fake_stream(_messages: object, *, response_schema: dict[str, object] | None = None):
+    def fake_stream(_messages: object, *, response_schema: dict[str, object] | None = None, **_kwargs):
         yield {"content": json.dumps(candidate, ensure_ascii=False)}
 
     monkeypatch.setattr(recomposition_agent, "_stream_scene_response", fake_stream)

@@ -49,11 +49,12 @@ def test_recomposition_with_manual_piece_interactions_routes_to_verified_runtime
     assert route.selected_backend == "recomposition_scene"
 
 
-def test_router_uses_llm_only_for_prior_conflict_and_accepts_registered_candidate(monkeypatch) -> None:
+def test_router_uses_llm_when_prior_conflict_and_weak_spec(monkeypatch) -> None:
     plan = normalize_plan({}, "旋转向量在纵轴的投影与正弦曲线联动")
     monkeypatch.setattr(settings, "aetherviz_ir_router_enabled", True)
     monkeypatch.setattr(settings, "aetherviz_ir_router_shadow_mode", False)
     monkeypatch.setattr(service, "has_primary_llm_config", lambda: True)
+    monkeypatch.setattr(service, "_representation_spec_is_weak", lambda _plan: True)
     monkeypatch.setattr(
         service,
         "judge_ir_route",
@@ -79,10 +80,31 @@ def test_router_uses_llm_only_for_prior_conflict_and_accepts_registered_candidat
     assert payload["llm_required_capabilities"] == ["multi_view", "shared_parameter"]
 
 
+def test_router_ignores_prior_conflict_when_representation_spec_is_complete(monkeypatch) -> None:
+    plan = normalize_plan({}, "旋转向量在纵轴的投影与正弦曲线联动")
+    monkeypatch.setattr(settings, "aetherviz_ir_router_enabled", True)
+    monkeypatch.setattr(settings, "aetherviz_ir_router_shadow_mode", False)
+    monkeypatch.setattr(service, "has_primary_llm_config", lambda: True)
+
+    def _unexpected_judge(*_args):
+        raise AssertionError("complete representation_spec should not invoke LLM for prior conflict")
+
+    monkeypatch.setattr(service, "judge_ir_route", _unexpected_judge)
+
+    route = service.resolve_generation_route(plan)
+
+    assert route.selected_backend == "linked_coordinate_scene"
+    assert route.source == "deterministic"
+    assert route.llm_invoked is False
+    assert "knowledge_profile_prior_conflict" in route.reasons
+    assert service._representation_spec_is_weak(plan) is False
+
+
 def test_router_rejects_unknown_llm_backend_and_falls_back(monkeypatch) -> None:
     plan = normalize_plan({}, "旋转向量在纵轴的投影与正弦曲线联动")
     monkeypatch.setattr(settings, "aetherviz_ir_router_enabled", True)
     monkeypatch.setattr(settings, "aetherviz_ir_router_shadow_mode", False)
+    monkeypatch.setattr(settings, "aetherviz_ir_router_deterministic_threshold", 0.99)
     monkeypatch.setattr(service, "has_primary_llm_config", lambda: True)
     monkeypatch.setattr(
         service,
@@ -109,6 +131,7 @@ def test_router_shadow_mode_records_llm_disagreement_without_changing_selection(
     plan = normalize_plan({}, "旋转向量在纵轴的投影与正弦曲线联动")
     monkeypatch.setattr(settings, "aetherviz_ir_router_enabled", True)
     monkeypatch.setattr(settings, "aetherviz_ir_router_shadow_mode", True)
+    monkeypatch.setattr(settings, "aetherviz_ir_router_deterministic_threshold", 0.99)
     monkeypatch.setattr(service, "has_primary_llm_config", lambda: True)
     monkeypatch.setattr(
         service,
@@ -132,6 +155,34 @@ def test_router_shadow_mode_records_llm_disagreement_without_changing_selection(
     assert route.llm_confidence == 0.91
     assert route.llm_required_capabilities == ("multi_view", "shared_parameter")
     assert route.as_dict()["llm_selected_backend"] is None
+
+
+def test_representation_spec_is_weak_for_multi_view_without_correspondences() -> None:
+    assert (
+        service._representation_spec_is_weak(
+            {
+                "representation_spec": {
+                    "views": [
+                        {"id": "a", "kind": "geometric_scene"},
+                        {"id": "b", "kind": "coordinate_plane"},
+                    ],
+                    "correspondences": [],
+                }
+            }
+        )
+        is True
+    )
+    assert (
+        service._representation_spec_is_weak(
+            {
+                "representation_spec": {
+                    "views": [{"id": "g", "kind": "coordinate_plane"}],
+                    "correspondences": [],
+                }
+            }
+        )
+        is False
+    )
 
 
 def test_normalized_plan_contains_generic_representation_spec() -> None:

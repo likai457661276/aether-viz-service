@@ -69,6 +69,8 @@ JSON 顶层字段必须且只能包含：
 - representation_spec：这是服务端选择 IR 实现的权威能力配置，描述实现教学目标需要的通用视觉能力，但不直接填写 IR 或后端名称。只含 version、views、state_variables、correspondences、required_invariants、interaction_requirements。version 固定 1.0；views 每项只含 id、kind、role，kind 只能是 coordinate_plane、geometric_scene、number_line、data_chart、probability_experiment、probability_tree、discrete_structure、graph、tree、set_diagram、sequence、process_diagram、symbolic_panel、object_scene；state_variables 每项只含 id、semantic_type、minimum、maximum、default、unit、display_unit，id 必须引用 interactive_spec.variables.name，semantic_type 只能是 scalar、angle、length、time、ratio、vector、discrete；correspondences 每项只含 type、source_view、target_view、parameter、source、target，type 只能是 shared_parameter、point_on_curve、projection、equal_value、coincident、transform、decompose_recompose、derived_value；required_invariants 只使用 point_on_curve、equal_value、coincident、piece_identity_preserved、piece_count_constant、area_preserved、length_preserved、angle_preserved、piece_congruence、collinear、parallel、perpendicular、equal_length、midpoint、point_on_circle、tangent、equal_angle、supplementary、probability_mass、stable_identity、acyclic、set_membership；interaction_requirements 只使用 scrub、play、pause、reset、preset、drag、reveal、trace。不要写知识点专用模板、坐标、HTML、CSS 或 JS
 - recomposition_spec：当教学语义确实要求稳定拼片的切分、独立变换和目标重排时输出，服务端知识画像仅作为先验，不得阻止根据完整计划纠正分类；只含 topology_variables、geometry_variables、invariants、proof_constraints。proof_constraints 只含 measure_invariants、target_relations、target_assembly、stage_requirements；stage_requirements 为 3~5 项，每项只含 id、intent、min_piece_ratio、required_relations。第一项描述源状态，最后一项描述目标结论，中间 1~3 项必须描述可观察的切分、分离、对齐、旋转或拼合几何状态；min_piece_ratio 表示该阶段至少多少比例图元形成独立几何状态，取 0.1~1，建议 0.5。target_relations 是可计算对象数组，每项只含 id、type、left、right、points、tolerance，type 只能是 equal_area、equal_length、equal_angle、parallel、perpendicular、coincident、collinear、congruent。target_assembly 是 0~4 个通用目标拼合约束，每项只含 id、type、max_components、max_overlap_ratio、min_rectangularity、monotonic、trend_tolerance，type 只能是 connected、non_overlapping、approximate_rectangle；仅当学习目标明确要求目标拼成某种整体时输出。它描述可复用的图元集合、度量不变量、目标关系和教学阶段，不写具体坐标、SVG、HTML、JS 或知识点模板
 
+{capability_catalog}
+
 一致性要求：
 - 产品默认面向中国市场：title、goal、key_points、design_brief、interactive_spec 中的学生可见说明、teaching_flow、controls.label 和 discipline_spec 必须使用简体中文；数学公式、化学式、物理量、变量 id/name、坐标轴、点名、国际单位和确有教学必要的外语原文可以保留。必须展示外语术语时，首次出现采用“中文（原文）”。
 - controls[].bind 必须等于 interactive_spec 中一个可调变量 name；无可调变量时 controls 输出空数组。
@@ -154,6 +156,7 @@ def build_planning_prompt(
     interactive_type_override: str | None = None,
     subject_override: str | None = None,
 ) -> tuple[str, str]:
+    from aetherviz_service.aetherviz.ir.router.capability_catalog import build_ir_capability_catalog
     from aetherviz_service.aetherviz.workflow.knowledge_profile import build_knowledge_profile
 
     subject = (
@@ -170,6 +173,7 @@ def build_planning_prompt(
     system_prompt = PLANNING_SYSTEM_PROMPT_TEMPLATE.format(
         interactive_type=interactive_type,
         type_contract=INTERACTIVE_TYPE_CONTRACTS[interactive_type],
+        capability_catalog=build_ir_capability_catalog(),
     )
     user_prompt = f"""生成以下主题的完整教学语义 JSON。
 

@@ -345,22 +345,9 @@ def linked_coordinate_ir_response_schema() -> dict[str, Any]:
 
 
 def linked_coordinate_ir_candidates_response_schema() -> dict[str, Any]:
-    candidate = linked_coordinate_ir_response_schema()
-    definitions = candidate.pop("$defs")
-    return {
-        "type": "object",
-        "additionalProperties": False,
-        "$defs": definitions,
-        "properties": {
-            "candidates": {
-                "type": "array",
-                "items": candidate,
-                "minItems": 2,
-                "maxItems": 2,
-            }
-        },
-        "required": ["candidates"],
-    }
+    from aetherviz_service.aetherviz.ir.candidates import candidates_envelope_schema
+
+    return candidates_envelope_schema(linked_coordinate_ir_response_schema())
 
 
 def parse_linked_coordinate_ir(raw_text: str) -> dict[str, Any]:
@@ -380,11 +367,10 @@ def parse_linked_coordinate_ir(raw_text: str) -> dict[str, Any]:
 
 
 def parse_linked_coordinate_ir_candidates(raw_text: str) -> list[object]:
+    from aetherviz_service.aetherviz.ir.candidates import validate_candidate_count
+
     envelope = parse_linked_coordinate_ir(raw_text)
-    candidates = envelope.get("candidates")
-    if not isinstance(candidates, list) or len(candidates) != 2:
-        raise ValueError("linked_coordinate_ir_candidates_must_contain_2_items")
-    return candidates
+    return validate_candidate_count(envelope.get("candidates"))
 
 
 def rank_linked_coordinate_ir_candidates(candidates: list[object], plan: dict[str, Any]) -> dict[str, Any]:

@@ -22,6 +22,7 @@ def test_html_generation_thinking_disabled_by_default() -> None:
     assert settings.aetherviz_edit_analysis_max_tokens == 2048
     assert settings.aetherviz_edit_analysis_timeout_seconds == 30
     assert settings.aetherviz_html_max_tokens == 16384
+    assert settings.aetherviz_scene_max_tokens == 16384
     assert settings.aetherviz_edit_max_tokens == 16384
     assert settings.aetherviz_edit_temperature == 0.15
     assert settings.aetherviz_repair_max_tokens == 16384
@@ -43,6 +44,11 @@ def test_full_html_output_budget_must_cover_hard_limit(field: str) -> None:
 def test_edit_retry_count_cannot_be_negative() -> None:
     with pytest.raises(ValidationError, match="AETHERVIZ_EDIT_MAX_RETRIES"):
         Settings(_env_file=None, aetherviz_edit_max_retries=-1)
+
+
+def test_html_stream_retry_count_cannot_be_negative() -> None:
+    with pytest.raises(ValidationError, match="AETHERVIZ_HTML_STREAM_MAX_RETRIES"):
+        Settings(_env_file=None, aetherviz_html_stream_max_retries=-1)
 
 
 @pytest.mark.parametrize("value", [-0.01, 1.01])

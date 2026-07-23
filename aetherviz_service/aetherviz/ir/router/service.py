@@ -17,7 +17,10 @@ logger = logging.getLogger(__name__)
 
 
 def resolve_generation_route(
-    plan: dict[str, Any], *, registry: IRBackendRegistry = DEFAULT_IR_REGISTRY
+    plan: dict[str, Any],
+    *,
+    registry: IRBackendRegistry = DEFAULT_IR_REGISTRY,
+    allow_llm: bool = True,
 ) -> IRRouteDecision:
     started = time.monotonic()
     fingerprint = representation_spec_fingerprint(plan)
@@ -39,13 +42,21 @@ def resolve_generation_route(
     margin = top.score - second_score
     prior = _prior_backend(plan, registry)
     prior_conflict = prior is not None and prior != top.backend_key
+    # Knowledge profile is only a routing hint. Prior conflict alone must not force
+    # LLM arbitration when representation_spec already looks complete and decisive.
+    spec_weak = _representation_spec_is_weak(plan)
     ambiguous = (
         top.score < settings.aetherviz_ir_router_deterministic_threshold
         or margin < settings.aetherviz_ir_router_min_margin
-        or prior_conflict
+        or (prior_conflict and spec_weak)
     )
     deterministic_reasons = (*top.reasons, *(("knowledge_profile_prior_conflict",) if prior_conflict else ()))
-    if not ambiguous or not settings.aetherviz_ir_router_enabled or not has_primary_llm_config():
+    if (
+        not ambiguous
+        or not allow_llm
+        or not settings.aetherviz_ir_router_enabled
+        or not has_primary_llm_config()
+    ):
         return _decision(
             top.backend_key,
             "deterministic",
@@ -127,6 +138,22 @@ def _prior_backend(plan: dict[str, Any], registry: IRBackendRegistry) -> str | N
         # between those geometry backends without forcing an LLM arbitration.
         return None
     return backend.key
+
+
+def _representation_spec_is_weak(plan: dict[str, Any]) -> bool:
+    """True when views/correspondences look incomplete enough that prior conflict still matters."""
+    spec = plan.get("representation_spec") if isinstance(plan.get("representation_spec"), dict) else {}
+    views = [
+        item
+        for item in spec.get("views", [])
+        if isinstance(item, dict) and str(item.get("kind") or "").strip()
+    ]
+    correspondences = [item for item in spec.get("correspondences", []) if isinstance(item, dict)]
+    if len(views) < 1:
+        return True
+    if len(views) >= 2 and not correspondences:
+        return True
+    return False
 
 
 def _confidence(value: object) -> float:
