@@ -35,6 +35,8 @@ def agent_runtime_stream(
     message: str | None = None,
     plan: dict[str, Any] | None = None,
     approved_plan: dict[str, Any] | None = None,
+    teaching_plan: dict[str, Any] | None = None,
+    generation_spec: dict[str, Any] | None = None,
     current_html: str | None = None,
     context: dict[str, Any] | None = None,
     edit_target: dict[str, Any] | None = None,
@@ -49,6 +51,8 @@ def agent_runtime_stream(
             message=message,
             plan=plan,
             approved_plan=approved_plan,
+            teaching_plan=teaching_plan,
+            generation_spec=generation_spec,
             current_html=current_html,
             context=context,
             edit_target=edit_target,
@@ -65,6 +69,8 @@ def agent_runtime_stream(
         message=message,
         plan=plan,
         approved_plan=approved_plan,
+        teaching_plan=teaching_plan,
+        generation_spec=generation_spec,
         current_html=current_html,
         context=context,
         edit_target=edit_target,
@@ -98,6 +104,8 @@ def _agent_runtime_stream_impl(
     message: str | None = None,
     plan: dict[str, Any] | None = None,
     approved_plan: dict[str, Any] | None = None,
+    teaching_plan: dict[str, Any] | None = None,
+    generation_spec: dict[str, Any] | None = None,
     current_html: str | None = None,
     context: dict[str, Any] | None = None,
     edit_target: dict[str, Any] | None = None,
@@ -114,20 +122,49 @@ def _agent_runtime_stream_impl(
             yield from run_revise_plan_workflow(
                 run_id=run_id,
                 topic=topic,
-                current_plan=current_plan or {},
+                current_plan=current_plan or teaching_plan or {},
                 message=message or "",
                 context=context,
             )
             return
         if phase == "approve_plan":
-            yield from run_approve_plan_workflow(run_id=run_id, plan=plan or {})
+            yield from run_approve_plan_workflow(
+                run_id=run_id,
+                plan=plan,
+                teaching_plan=teaching_plan,
+                generation_spec=generation_spec,
+            )
             return
         if phase == "generate":
-            generation_topic = topic or str(
-                (approved_plan or {}).get("source_topic") or (approved_plan or {}).get("title") or "AI教学动画"
+            from aetherviz_service.aetherviz.workflow.plan_compile import compile_plan_layers, resolve_wire_layers
+            from aetherviz_service.aetherviz.workflow.plan_layers import merge_plan_layers
+
+            teaching, generation, lifecycle = resolve_wire_layers(
+                flat_plan=approved_plan,
+                teaching_plan=teaching_plan,
+                generation_spec=generation_spec,
             )
-            normalization = normalize_plan_with_diagnostics(approved_plan, generation_topic)
-            normalized_plan = normalization.plan
+            generation_topic = topic or str(
+                (teaching or approved_plan or {}).get("source_topic")
+                or (teaching or approved_plan or {}).get("title")
+                or "AI教学动画"
+            )
+            if teaching is not None and generation is not None and "representation_spec" in generation:
+                merged = merge_plan_layers(teaching, generation, lifecycle=lifecycle or None)
+                normalization = normalize_plan_with_diagnostics(merged, generation_topic)
+                normalized_plan = normalization.plan
+            elif teaching is not None:
+                compiled = compile_plan_layers(
+                    topic=generation_topic,
+                    teaching_plan=teaching,
+                    generation_spec=generation,
+                    flat_plan=approved_plan,
+                    allow_llm=True,
+                )
+                normalized_plan = compiled.plan
+            else:
+                normalization = normalize_plan_with_diagnostics(approved_plan, generation_topic)
+                normalized_plan = normalization.plan
             post_diagnostics = check_plan_consistency(normalized_plan)
             if has_consistency_errors(post_diagnostics):
                 yield agent_error_event(

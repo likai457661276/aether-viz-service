@@ -1,5 +1,9 @@
 """AetherViz 专属 schema。"""
 
-from aetherviz_service.aetherviz.schemas.aetherviz import AetherVizPlan
+from aetherviz_service.aetherviz.schemas.aetherviz import (
+    AetherVizGenerationSpec,
+    AetherVizPlan,
+    AetherVizTeachingPlan,
+)
 
-__all__ = ["AetherVizPlan"]
+__all__ = ["AetherVizPlan", "AetherVizTeachingPlan", "AetherVizGenerationSpec"]

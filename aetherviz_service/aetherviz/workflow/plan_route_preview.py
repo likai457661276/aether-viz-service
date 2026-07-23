@@ -1,48 +1,30 @@
-"""Plan-stage route preview with one bounded representation_spec self-correction."""
+"""Deterministic plan-stage route preview (no LLM refinement).
+
+LLM representation enhancement moved to approve-time ``plan_compile``.
+Plan / revise only run a lightweight deterministic routability signal.
+"""
 
 from __future__ import annotations
 
-import json
-import logging
-import re
 from typing import Any
 
-from langchain_core.messages import HumanMessage, SystemMessage
-
-from aetherviz_service.aetherviz.agents.model_factory import (
-    create_chat_model,
-    extract_llm_text,
-    has_planning_llm_config,
-)
 from aetherviz_service.aetherviz.ir.registry import DEFAULT_IR_REGISTRY, IRBackendRegistry
-from aetherviz_service.aetherviz.ir.router.capability_catalog import build_ir_capability_catalog
-from aetherviz_service.aetherviz.ir.router.contracts import IRRouteDecision
 from aetherviz_service.aetherviz.ir.router.service import resolve_generation_route
 from aetherviz_service.aetherviz.workflow.plan_contract import normalize_plan_with_diagnostics
-from aetherviz_service.aetherviz.workflow.plan_diagnostics import has_consistency_errors
-from aetherviz_service.config import settings
-
-logger = logging.getLogger(__name__)
-
-_REFINE_SYSTEM_PROMPT = """你是互动教学课件的表征规格修订器。
-只输出一个合法 JSON 对象，不输出 Markdown 或解释。
-JSON 顶层字段只能包含 representation_spec，以及在教学语义确实需要切分重排时可选的 recomposition_spec。
-representation_spec 是服务端选择实现的权威能力配置：描述通用视觉能力，不直接填写实现后端名称。
-字段约束与规划器一致：version 固定 1.0；views / state_variables / correspondences / required_invariants / interaction_requirements 使用既定枚举。
-
-{capability_catalog}
-
-根据路由预览反馈修正能力配置，使计划落入已验证能力范围；未要求变更的教学语义字段由服务端保留。
-"""
+from aetherviz_service.aetherviz.workflow.plan_layers import extract_lifecycle_fields, extract_teaching_plan
 
 
-def maybe_refine_plan_for_route(
+def preview_route_for_plan(
     plan: dict[str, Any],
     *,
     topic: str,
     registry: IRBackendRegistry = DEFAULT_IR_REGISTRY,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Run deterministic route preview; if unroutable or low confidence, refine spec once."""
+    """Normalize with deterministic machine derive and preview IR routability.
+
+    Does not call an LLM. Returns the normalized flat plan (teaching + deterministic
+    generation spec) plus preview metrics for SSE metadata.
+    """
     color = str(plan.get("primary_color") or "#22D3EE")
     normalized_result = normalize_plan_with_diagnostics(plan, topic, color)
     normalized = _preserve_lifecycle_fields(plan, normalized_result.plan)
@@ -50,66 +32,26 @@ def maybe_refine_plan_for_route(
     metrics: dict[str, Any] = {
         "route_preview_attempted": True,
         "route_preview_refined": False,
+        "route_preview_refine_attempted": False,
+        "route_preview_refine_accepted": False,
         "route_preview_selected_backend": preview.selected_backend,
         "route_preview_confidence": preview.confidence,
         "route_preview_reasons": list(preview.reasons)[:8],
-        "route_preview_refine_attempted": False,
-        "route_preview_refine_accepted": False,
         "plan_diagnostics": normalized_result.diagnostics_as_dicts(),
+        "teaching_plan": extract_teaching_plan(normalized),
     }
-    if not _needs_refinement(preview):
-        return normalized, metrics
-    if not has_planning_llm_config():
-        metrics["route_preview_skipped"] = "planning_llm_unavailable"
-        return normalized, metrics
-
-    feedback = format_route_preview_feedback(preview)
-    metrics["route_preview_refine_attempted"] = True
-    try:
-        refined_fields = _refine_representation_fields(normalized, topic=topic, feedback=feedback)
-    except Exception as exc:
-        logger.warning("plan route preview refine failed: %s", exc)
-        metrics["route_preview_skipped"] = type(exc).__name__
-        return normalized, metrics
-
-    merged = dict(normalized)
-    if "representation_spec" in refined_fields:
-        merged["representation_spec"] = refined_fields["representation_spec"]
-    if "recomposition_spec" in refined_fields:
-        merged["recomposition_spec"] = refined_fields["recomposition_spec"]
-    elif "recomposition_spec" in merged and "recomposition_spec" not in refined_fields:
-        # Keep existing recomposition unless the model explicitly replaced it.
-        pass
-    refined_result = normalize_plan_with_diagnostics(merged, topic, color)
-    refined = _preserve_lifecycle_fields(plan, refined_result.plan)
-    post = resolve_generation_route(refined, registry=registry, allow_llm=False)
-    metrics["route_preview_post_selected_backend"] = post.selected_backend
-    metrics["route_preview_post_confidence"] = post.confidence
-    reject_reason = _refinement_rejection_reason(preview, post, refined_result.diagnostics)
-    if reject_reason is not None:
-        metrics["route_preview_refine_rejected_reason"] = reject_reason
-        return normalized, metrics
-    metrics["route_preview_refined"] = True
-    metrics["route_preview_refine_accepted"] = True
-    metrics["route_preview_selected_backend"] = post.selected_backend
-    metrics["route_preview_confidence"] = post.confidence
-    metrics["route_preview_reasons"] = list(post.reasons)[:8]
-    metrics["plan_diagnostics"] = refined_result.diagnostics_as_dicts()
-    return refined, metrics
+    return normalized, metrics
 
 
-def _refinement_rejection_reason(
-    before: IRRouteDecision,
-    after: IRRouteDecision,
-    diagnostics: tuple,
-) -> str | None:
-    if has_consistency_errors(diagnostics):
-        return "post_refine_plan_inconsistent"
-    if after.selected_backend is None:
-        return "post_refine_still_unroutable"
-    if before.selected_backend is not None and after.confidence + 1e-9 < before.confidence:
-        return "post_refine_confidence_decreased"
-    return None
+# Backward-compatible alias used by older call sites / tests during transition.
+def maybe_refine_plan_for_route(
+    plan: dict[str, Any],
+    *,
+    topic: str,
+    registry: IRBackendRegistry = DEFAULT_IR_REGISTRY,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Deprecated alias: deterministic preview only (LLM refine removed)."""
+    return preview_route_for_plan(plan, topic=topic, registry=registry)
 
 
 def _preserve_lifecycle_fields(source: dict[str, Any], target: dict[str, Any]) -> dict[str, Any]:
@@ -117,79 +59,7 @@ def _preserve_lifecycle_fields(source: dict[str, Any], target: dict[str, Any]) -
     for field in ("status", "plan_id", "revision_summary", "context_status"):
         if field in source:
             result[field] = source[field]
-    return result
-
-
-def _needs_refinement(route: IRRouteDecision) -> bool:
-    if route.selected_backend is None:
-        return True
-    return route.confidence < settings.aetherviz_ir_router_deterministic_threshold
-
-
-def format_route_preview_feedback(route: IRRouteDecision) -> str:
-    lines: list[str] = []
-    if route.selected_backend is None:
-        lines.append("当前草稿没有合格的可视化能力后端（selected_backend=None）。")
-    else:
-        lines.append(
-            f"当前草稿路由置信度偏低：confidence={route.confidence:.3f}，"
-            f"低于确定性阈值 {settings.aetherviz_ir_router_deterministic_threshold:.2f}。"
-        )
-    for candidate in route.candidates[:6]:
-        missing = "、".join(candidate.missing_capabilities) or "无"
-        exclusions = "；".join(candidate.exclusion_reasons) or "无"
-        lines.append(
-            f"- 候选能力族 score={candidate.score:.3f} eligible={candidate.eligible}；"
-            f"缺失能力：{missing}；排除原因：{exclusions}"
-        )
-    if route.reasons:
-        lines.append("路由理由：" + "；".join(str(item) for item in route.reasons[:6]))
-    return "\n".join(lines)
-
-
-def _refine_representation_fields(plan: dict[str, Any], *, topic: str, feedback: str) -> dict[str, Any]:
-    system_prompt = _REFINE_SYSTEM_PROMPT.format(capability_catalog=build_ir_capability_catalog())
-    compact = {
-        "title": plan.get("title"),
-        "goal": plan.get("goal"),
-        "interactive_type": plan.get("interactive_type"),
-        "interactive_spec": plan.get("interactive_spec"),
-        "discipline_spec": plan.get("discipline_spec"),
-        "representation_spec": plan.get("representation_spec"),
-        "recomposition_spec": plan.get("recomposition_spec"),
-        "teaching_flow": plan.get("teaching_flow"),
-        "design_brief": plan.get("design_brief"),
-    }
-    user_prompt = (
-        f"主题：{topic}\n"
-        f"路由预览反馈：\n{feedback}\n\n"
-        f"当前教学语义草稿（仅供修订表征规格）：\n"
-        f"{json.dumps(compact, ensure_ascii=False, separators=(',', ':'))}\n"
-    )
-    model = create_chat_model("planning")
-    response = model.invoke(
-        [
-            SystemMessage(content=system_prompt),
-            HumanMessage(content=user_prompt),
-        ]
-    )
-    raw = extract_llm_text(response).strip()
-    if not raw:
-        raise ValueError("empty_route_preview_refine")
-    fence = re.search(r"```(?:json)?\s*(.*?)```", raw, re.DOTALL | re.IGNORECASE)
-    if fence:
-        raw = fence.group(1).strip()
-    match = re.search(r"\{.*\}", raw, re.DOTALL)
-    if not match:
-        raise ValueError("route_preview_refine_not_json")
-    parsed = json.loads(match.group(0))
-    if not isinstance(parsed, dict):
-        raise ValueError("route_preview_refine_not_object")
-    result: dict[str, Any] = {}
-    if isinstance(parsed.get("representation_spec"), dict):
-        result["representation_spec"] = parsed["representation_spec"]
-    if isinstance(parsed.get("recomposition_spec"), dict):
-        result["recomposition_spec"] = parsed["recomposition_spec"]
-    if "representation_spec" not in result:
-        raise ValueError("route_preview_refine_missing_representation_spec")
+    # Also keep any lifecycle already on target from normalize.
+    for field, value in extract_lifecycle_fields(source).items():
+        result.setdefault(field, value)
     return result

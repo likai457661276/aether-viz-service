@@ -40,6 +40,7 @@ GENERATION_SPEC_FIELDS: tuple[str, ...] = (
     "widget_outline",
     "widget_actions",
     "runtime",
+    "runtime_controls",
 )
 
 # Not owned by either teaching or generation content layers.
@@ -55,33 +56,65 @@ GENERATION_SPEC_FIELD_SET = frozenset(GENERATION_SPEC_FIELDS)
 LIFECYCLE_FIELD_SET = frozenset(LIFECYCLE_FIELDS)
 
 
-def extract_teaching_plan(plan: dict[str, Any]) -> dict[str, Any]:
-    """Extract the teaching-layer subset from a flat (legacy) plan dict."""
-    return {field: plan[field] for field in TEACHING_PLAN_FIELDS if field in plan}
-
-
-def extract_generation_spec(plan: dict[str, Any]) -> dict[str, Any]:
-    """Extract the generation-spec subset from a flat (legacy) plan dict."""
-    return {field: plan[field] for field in GENERATION_SPEC_FIELDS if field in plan}
-
-
-def extract_lifecycle_fields(plan: dict[str, Any]) -> dict[str, Any]:
-    return {field: plan[field] for field in LIFECYCLE_FIELDS if field in plan}
-
-
 def merge_plan_layers(
     teaching_plan: dict[str, Any],
     generation_spec: dict[str, Any],
     *,
     lifecycle: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Compose a flat legacy plan from explicit layers (Approach B wire helper)."""
-    merged = {**dict(teaching_plan), **dict(generation_spec)}
+    """Compose a flat legacy plan from explicit layers (Approach B wire helper).
+
+    Flat ``controls`` always equals teaching learning-controls + generation
+    runtime play/pause/reset. ``runtime_controls`` stays on the generation layer
+    only and is not duplicated as the flat controls field.
+    """
+    from aetherviz_service.aetherviz.workflow.teaching_plan import (
+        REQUIRED_RUNTIME_CONTROLS,
+        learning_controls_only,
+        with_runtime_controls,
+    )
+
+    teaching = dict(teaching_plan)
+    generation = dict(generation_spec)
+    teaching["controls"] = learning_controls_only(teaching.get("controls") if isinstance(teaching.get("controls"), list) else [])
+    runtime_controls = generation.get("runtime_controls")
+    if not isinstance(runtime_controls, list) or not runtime_controls:
+        runtime_controls = [dict(control) for control in REQUIRED_RUNTIME_CONTROLS]
+        generation["runtime_controls"] = runtime_controls
+    merged = {**teaching, **generation}
+    merged["controls"] = with_runtime_controls(teaching.get("controls"))
+    # runtime_controls remains available on the flat plan for explicit dual-layer reads,
+    # but downstream IR/layout continue to use merged ``controls``.
     if lifecycle:
         for field, value in lifecycle.items():
             if field in LIFECYCLE_FIELD_SET:
                 merged[field] = value
     return merged
+
+
+def extract_teaching_plan(plan: dict[str, Any]) -> dict[str, Any]:
+    """Extract the teaching-layer subset from a flat (legacy) plan dict."""
+    from aetherviz_service.aetherviz.workflow.teaching_plan import learning_controls_only
+
+    result = {field: plan[field] for field in TEACHING_PLAN_FIELDS if field in plan}
+    if "controls" in result and isinstance(result["controls"], list):
+        result["controls"] = learning_controls_only(result["controls"])
+    return result
+
+
+def extract_generation_spec(plan: dict[str, Any]) -> dict[str, Any]:
+    """Extract the generation-spec subset from a flat (legacy) plan dict."""
+    from aetherviz_service.aetherviz.workflow.teaching_plan import REQUIRED_RUNTIME_CONTROLS
+
+    result = {field: plan[field] for field in GENERATION_SPEC_FIELDS if field in plan}
+    if "runtime_controls" not in result:
+        # Legacy flat plans only had merged controls; recover runtime controls.
+        result["runtime_controls"] = [dict(control) for control in REQUIRED_RUNTIME_CONTROLS]
+    return result
+
+
+def extract_lifecycle_fields(plan: dict[str, Any]) -> dict[str, Any]:
+    return {field: plan[field] for field in LIFECYCLE_FIELDS if field in plan}
 
 
 def split_plan_layers(plan: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:

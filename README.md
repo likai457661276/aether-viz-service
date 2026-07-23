@@ -67,6 +67,7 @@ aether-viz-service/
 │       │   └── discrete_structure/     # 图、树、集合与序列 IR
 │       ├── tools/            # 共享底层工具（function_patch、security_policy、javascript_syntax 等）
 │       ├── workflow/         # 仅 plan 相关：plan / revise_plan / approve_plan
+│       │                     # teaching_plan / machine_spec / plan_layers：计划两层契约
 │       └── schemas/
 ├── tests/
 ├── pyproject.toml
@@ -395,12 +396,38 @@ HTML 文件编辑阶段请求示例：
 
 ## 生成流程
 
+### 计划两层契约（P0/P2）
+
+计划对象拆成两层；对外 wire 采用 Approach B（显式双对象），并保留扁平 `plan` / `approved_plan` 兼容：
+
+| 层 | 职责 | 代表字段 |
+| --- | --- | --- |
+| **TeachingPlan**（教学计划） | 用户可读、可 chat 修订、可确认 | `title` / `goal` / `teaching_flow` / `interactive_spec` / `controls` / `formulas` / `key_points` / `design_brief` |
+| **GenerationSpec**（机器规格） | IR 路由与生成用，用户不直接编辑 | `representation_spec` / `recomposition_spec` / `knowledge_profile` / `runtime` / `widget_*` / `scene_outline` / `discipline_spec` |
+
+阶段职责：
+
+1. `plan` / `revise_plan`：LLM 只产出 TeachingPlan；服务端用确定性派生做可路由性预检（不调 LLM refine）；SSE 同时返回 `teaching_plan` 与兼容用扁平 `plan`。
+2. `approve_plan`：`compile_plan_layers` 将 TeachingPlan 编译为 GenerationSpec（确定性派生 + 弱路由时一次 LLM 增强）；返回 `teaching_plan` + `generation_spec` + 扁平 `plan`。
+3. `generate`：优先消费双对象；仅有 TeachingPlan 时会兜底编译一次；旧客户端扁平 `approved_plan` 仍可用。
+
+实现入口：
+
+- 字段归属：`workflow/plan_layers.py`
+- 教学层归一化：`workflow/teaching_plan.py`
+- 机器层派生：`workflow/machine_spec.py`
+- 确认期编译：`workflow/plan_compile.py`
+- 计划期确定性预检：`workflow/plan_route_preview.py`
+- 扁平组合（兼容面）：`workflow/plan_contract.normalize_plan`
+
+硬约束：机器层派生不得改写已确认的教学语义字段；几何重排场景下仅允许收窄 `interactive_spec` 变量的 `min`/`max`/`step`（不动 label/语义）。TeachingPlan.`controls` 只含学习控件；播放/暂停/重置属于 GenerationSpec.`runtime_controls`，扁平 `plan.controls` 在合并时再注入。
+
 ### HTML 生成状态机
 
 `phase=generate` 使用固定 staged pipeline，**不是** LangChain `create_agent` / LangGraph / 多轮 tool 编排。模型调用保持单次（或有界重试）`ChatOpenAI.stream`；IR 后端选择由注册表与确定性评分完成，服务端硬校验与有界修复在模型之外执行。
 
 ```text
-normalize_plan
+normalize_plan  # teaching_plan ⊕ generation_spec → flat plan（P1 兼容）
     → resolve_generation_route   # ir/router：assess → 阈值 / 可选 shadow 仲裁 → IR 或明确不支持
     → generate                   # 单一 IR 后端：受限 JSON → 确定性验证 → Runtime assemble
     → assemble                   # contracts/layout：math-shell-v1 外壳装配
@@ -419,9 +446,9 @@ normalize_plan
 
 `/bingo-ai/generate-aetherviz-spec` 使用阶段化生成策略：
 
-1. `phase=plan` 由统一配置的模型执行单次规划，生成完整 `draft` 教案计划。
-2. `phase=revise_plan` 由规划模型接收 `current_plan + message`，重新生成完整 `revised` 计划，不返回局部 patch。
-3. `phase=approve_plan` 先执行跨字段一致性与确定性 IR 路由检查，通过后才将计划状态置为 `approved`；不可执行计划返回结构化 SSE 错误并保留在修订阶段。
+1. `phase=plan` 由统一配置的模型执行单次规划，只生成 TeachingPlan（用户可读教学计划）；服务端确定性补齐机器字段并做可路由性预检。
+2. `phase=revise_plan` 由规划模型接收当前教学计划 + `message`，重新生成完整 TeachingPlan，不返回局部 patch。
+3. `phase=approve_plan` 将 TeachingPlan 编译为 GenerationSpec（确定性派生；弱路由时最多一次 LLM 增强），再执行跨字段一致性与确定性 IR 路由检查；通过后返回 `teaching_plan` + `generation_spec`（并保留扁平 `plan` 兼容）；不可执行计划返回结构化 SSE 错误并保留在修订阶段。
 4. `phase=generate` 根据 IR 路由结果选择后端：`geometric_recomposition` 先执行计划可行性预检，阶段数、拓扑变量或最大展开图元数超出有界 IR 能力时直接返回 `unsupported_ir_capability`，不会调用场景模型；路由评估使用同一预检结果，因此存在其他合格后端时可以安全改选。通过预检后由 `ir/recomposition/agent.py` 一次生成 3 个结构化几何 IR 候选，不生成多个 HTML。静态 polygon/polyline/rect 拼片可选声明通用 `construction.target_boundary/constraints`，服务端按顺序将 `attach_edge`、`coincident_vertex`、`parallel_edge`、`perpendicular_edge`、`rigid_transform` 求解为现有 `target` transform，再以 `inside_target`、`cover_target` 验证自定义目标区域，并在 minimum/default/maximum 状态复验后移除 construction 字段，Runtime 与前端契约不变。随后服务端淘汰确定性硬校验失败候选，对其余候选按固定权重和稳定指纹排序，只编译最高分 IR 并装配生命周期脚手架。失败候选进入最多 3 轮的候选级确定性收敛流水线：按失败类型独立补全中间 waypoint、平移越界目标拼合、缩放可行的小尺寸场景；每次修改都重新执行全部硬校验，仅接受不引入新硬错误且严格减少原硬错误的结果，无变化时不重复排序。复合失败不会阻断无关修复，例如目标拼合失败与中间几何证据缺失可以先独立补齐 waypoint，再把剩余拼合证据交给一次受限模型修复；模型修复稿也必须再次经过 construction 求解和同一确定性收敛流水线。仍不合格时返回 `ir_generation_failed`。重排 Runtime 直接使用已验证 `targetTransform` 提供逐片拖拽、目标轮廓、距离吸附、完成状态、参数预设和渐进揭示，不允许模型另写吸附或拼合算法。
    IR 注册表根据完整计划解析已注册表征。规划模型通过 `representation_spec` 配置视图、共享状态、跨视图对应、必须证明的不变量和交互能力，不直接指定后端名称，服务端再确定性选择 IR。若计划已同时声明几何视图、拼片全等与度量守恒，即使规划模型遗漏 `recomposition_spec` 或留下过时知识画像，归一化层也会补齐通用切分重排契约并路由到 `recomposition_scene`。一个 `coordinate_plane` 且存在可调状态时路由到 `coordinate_graph_scene`；两个或更多视图、共享参数和跨视图关系完整时路由到 `linked_coordinate_scene`；存在 `number_line` 视图、可调状态且没有二维或几何视图时路由到 `number_line_scene`；视图仅由 `data_chart` 和可选 `symbolic_panel` 组成、具有可调状态且不要求随机累计或概率密度面积时路由到 `data_distribution_scene`。高频后端 `coordinate_graph` / `linked_coordinate` / `data_distribution` 与重排一样一次生成最多 3 个候选并确定性排序；其余后端保持 2 候选。传输中断、超时或 JSON 截断时按 `AETHERVIZ_HTML_STREAM_MAX_RETRIES` 整次重试；首稿候选失败后只把最接近合格候选自身的错误交给一次受限 JSON 修复；修复后仍不合格即终止。服务端统一编译 data-to-screen 映射、SVG 节点注册、参数控件、动画控制器和响应式 Runtime，模型不生成任意 JavaScript。
 5. IR Runtime 编译出的业务 HTML 先执行 38000/42000 字符目标/硬限制，再经过 `math-shell-v1` 服务端装配器；IR 子 Runtime 的外层布局不会进入最终 HTML。装配器会过滤业务 CSS 中的页面级、布局槽位根节点和 range 外观规则，标准 range 由 `range-v1` 独占尺寸与渲染，播放、暂停、重置按钮及 select 由服务端提供统一的按压、状态、焦点反馈，`controller-v1` 在业务脚本执行前提供 GSAP/RAF 共用动画控制接口并广播播放状态。最终装配只执行 64000 字符异常膨胀检查。

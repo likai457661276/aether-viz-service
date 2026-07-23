@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import re
-from typing import Any
 
 DEFAULT_PRIMARY_COLOR = "#22D3EE"
 HEX_COLOR_RE = re.compile(r"^#[0-9A-Fa-f]{6}$")

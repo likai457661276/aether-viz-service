@@ -300,7 +300,8 @@ def test_generate_phase_requires_approved_plan() -> None:
     response = client.post(AETHERVIZ_ENDPOINT, json={"phase": "generate"})
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "approved_plan 不能为空"
+    assert "approved_plan" in response.json()["detail"]
+    assert "teaching_plan" in response.json()["detail"]
 
 
 def test_generate_phase_without_model_returns_explicit_error() -> None:

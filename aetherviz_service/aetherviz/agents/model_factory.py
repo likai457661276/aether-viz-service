@@ -51,6 +51,7 @@ def create_chat_model(kind: str, *, response_schema: dict[str, Any] | None = Non
 
     if kind not in {
         "planning",
+        "plan_compile",
         "routing",
         "edit_analysis",
         "html",
@@ -76,6 +77,20 @@ def create_chat_model(kind: str, *, response_schema: dict[str, Any] | None = Non
             "stream_usage": True,
         }
         return ChatOpenAI(**planning_kwargs)
+    if kind == "plan_compile":
+        compile_kwargs: dict[str, Any] = {
+            "model": settings.openai_plan_model,
+            "api_key": _blank_to_none(settings.openai_api_key),
+            "base_url": _blank_to_none(settings.openai_base_url),
+            "temperature": 0.0,
+            "max_tokens": max(settings.aetherviz_plan_max_tokens, 512),
+            "timeout": max(settings.aetherviz_plan_timeout_seconds, 1),
+            "max_retries": max(settings.aetherviz_plan_max_retries, 0),
+            "extra_body": {"enable_thinking": False},
+            "model_kwargs": {"response_format": {"type": "json_object"}},
+            "stream_usage": True,
+        }
+        return ChatOpenAI(**compile_kwargs)
     if kind == "routing":
         routing_kwargs: dict[str, Any] = {
             "model": settings.openai_router_model,

@@ -39,7 +39,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_PLANNING_STEPS: list[dict[str, str]] = [
     {"content": "分析教学目标与互动类型", "status": "pending"},
     {"content": "设计 interactive_spec / teaching_flow / design_brief", "status": "pending"},
-    {"content": "检查 JSON 字段完整性与约束", "status": "pending"},
+    {"content": "检查教学计划 JSON 完整性", "status": "pending"},
 ]
 
 _REASONING_DELTA_MAX_CHARS = 180

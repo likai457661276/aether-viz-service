@@ -51,7 +51,7 @@ GAME_KEYWORDS = ["练习", "闯关", "匹配", "排序", "挑战", "小游戏", 
 PLANNING_SYSTEM_PROMPT_TEMPLATE = """你是互动教学课件规划器，为 12~18 岁学生设计单页 interactive widget。
 
 仅输出一个合法 JSON 对象，不输出 Markdown、解释、推理过程或未定义字段。
-只生成教学语义字段；page_type、widget_type、scene_outline、widget_outline、widget_actions、runtime、subject、knowledge_profile、primary_color 由服务端确定性补齐。
+只生成用户可读的教学计划字段；机器 IR 规格（representation_spec、recomposition_spec、discipline_spec、runtime、widget_*、scene_outline、subject、knowledge_profile、page_type、widget_type、primary_color）由服务端在确认阶段编译，不要输出这些字段。
 
 JSON 顶层字段必须且只能包含：
 - interactive_type：固定为 {interactive_type}
@@ -65,26 +65,19 @@ JSON 顶层字段必须且只能包含：
 - teaching_flow：3~4 项，每项只含 id、label、focus、caption
 - controls：只生成 1~2 个真实影响学习的控件，每项只含 id、label、type、bind；不要生成播放、暂停、重置按钮
 - formulas：0~3 个字符串
-- discipline_spec：只含 entities、relations、invariants、boundary_cases、representations；每项均为字符串数组，用通用学科语义描述实现所需对象、关系、不变量、边界/特殊情况和多重表征，不写 HTML/CSS/JS
-- representation_spec：这是服务端选择 IR 实现的权威能力配置，描述实现教学目标需要的通用视觉能力，但不直接填写 IR 或后端名称。只含 version、views、state_variables、correspondences、required_invariants、interaction_requirements。version 固定 1.0；views 每项只含 id、kind、role，kind 只能是 coordinate_plane、geometric_scene、number_line、data_chart、probability_experiment、probability_tree、discrete_structure、graph、tree、set_diagram、sequence、process_diagram、symbolic_panel、object_scene；state_variables 每项只含 id、semantic_type、minimum、maximum、default、unit、display_unit，id 必须引用 interactive_spec.variables.name，semantic_type 只能是 scalar、angle、length、time、ratio、vector、discrete；correspondences 每项只含 type、source_view、target_view、parameter、source、target，type 只能是 shared_parameter、point_on_curve、projection、equal_value、coincident、transform、decompose_recompose、derived_value；required_invariants 只使用 point_on_curve、equal_value、coincident、piece_identity_preserved、piece_count_constant、area_preserved、length_preserved、angle_preserved、piece_congruence、collinear、parallel、perpendicular、equal_length、midpoint、point_on_circle、tangent、equal_angle、supplementary、probability_mass、stable_identity、acyclic、set_membership；interaction_requirements 只使用 scrub、play、pause、reset、preset、drag、reveal、trace。不要写知识点专用模板、坐标、HTML、CSS 或 JS
-- recomposition_spec：当教学语义确实要求稳定拼片的切分、独立变换和目标重排时输出，服务端知识画像仅作为先验，不得阻止根据完整计划纠正分类；只含 topology_variables、geometry_variables、invariants、proof_constraints。proof_constraints 只含 measure_invariants、target_relations、target_assembly、stage_requirements；stage_requirements 为 3~5 项，每项只含 id、intent、min_piece_ratio、required_relations。第一项描述源状态，最后一项描述目标结论，中间 1~3 项必须描述可观察的切分、分离、对齐、旋转或拼合几何状态；min_piece_ratio 表示该阶段至少多少比例图元形成独立几何状态，取 0.1~1，建议 0.5。target_relations 是可计算对象数组，每项只含 id、type、left、right、points、tolerance，type 只能是 equal_area、equal_length、equal_angle、parallel、perpendicular、coincident、collinear、congruent。target_assembly 是 0~4 个通用目标拼合约束，每项只含 id、type、max_components、max_overlap_ratio、min_rectangularity、monotonic、trend_tolerance，type 只能是 connected、non_overlapping、approximate_rectangle；仅当学习目标明确要求目标拼成某种整体时输出。它描述可复用的图元集合、度量不变量、目标关系和教学阶段，不写具体坐标、SVG、HTML、JS 或知识点模板
-
-{capability_catalog}
 
 一致性要求：
-- 产品默认面向中国市场：title、goal、key_points、design_brief、interactive_spec 中的学生可见说明、teaching_flow、controls.label 和 discipline_spec 必须使用简体中文；数学公式、化学式、物理量、变量 id/name、坐标轴、点名、国际单位和确有教学必要的外语原文可以保留。必须展示外语术语时，首次出现采用“中文（原文）”。
+- 产品默认面向中国市场：title、goal、key_points、design_brief、interactive_spec 中的学生可见说明、teaching_flow、controls.label 必须使用简体中文；数学公式、化学式、物理量、变量 id/name、坐标轴、点名、国际单位和确有教学必要的外语原文可以保留。必须展示外语术语时，首次出现采用“中文（原文）”。
 - controls[].bind 必须等于 interactive_spec 中一个可调变量 name；无可调变量时 controls 输出空数组。
 - preset 的每个值必须落在对应变量 min/max 范围内。
 - 所有 id 使用小写英文、数字、连字符或下划线，引用必须存在。
 - design_brief 必须明确主舞台对象、相对位置、颜色语义、动态更新、默认状态和验收标准。
-- representation_spec 必须忠实表达计划实际需要的视图和对应关系：单一函数图像只输出一个 coordinate_plane；只有确实存在共享参数驱动的多视图对应时才输出 shared_parameter；角度变量必须明确 unit，内部三角函数推荐使用 rad，界面需要角度展示时使用 display_unit=degree。
-- 当 design_brief、teaching_flow 或验收标准要求轨迹/曲线随参数逐渐延伸、显现或追踪时，representation_spec.interaction_requirements 必须包含 reveal；只声明视觉揭示能力，不通过改变数学定义域描述动画进度。
 - design_brief.visual_rules 必须区分浅色教学工作台 UI 与学科图形语义色：UI 保持白色/灰绿纸张感和绿色交互强调，饱和色只用于数据对象、关键节点、游戏反馈或当前状态；不得规划整页深色霓虹面板或卡片墙。
-- recomposition_spec 的 topology_variables/geometry_variables 只能引用 interactive_spec.variables.name；只有整数边界、整数默认值且 step>=1 的离散计数控件可进入 topology_variables，长度、角度、半径及 step 为小数的连续参数必须进入 geometry_variables；geometry_variables 对应的 min/max 必须保持课堂可读跨度：当 min>0 时 max/min 建议不超过 6，避免极值把像素尺度区间抽空；服务端会收窄过宽跨度，但仍应在计划层主动给出合理边界。measure_invariants 只使用 area_preserved、length_preserved、angle_preserved、piece_congruence，并始终包含 piece_congruence，表示每个稳定拼片在切分重排中形状不变；target_relations 不写自然语言关系，面积总量关系用 {{"id":"source-target-area","type":"equal_area","left":{{"stage":"source"}},"right":{{"stage":"target"}},"tolerance":0.000001}}，点引用只用 piece_id、stage、anchor(center/vertex)、index，线段引用 start/end 两个点。若目标要求拼成近似矩形，target_assembly 至少输出 {{"id":"target-rectangle","type":"approximate_rectangle","max_components":1,"max_overlap_ratio":0.1,"min_rectangularity":0.62,"monotonic":true,"trend_tolerance":0.08}}；其他整体目标按需使用 connected 或 non_overlapping，不得从教学文本关键词在服务端反推。stage_requirements 必须覆盖源状态、至少一个非首尾线性插值的中间几何状态和目标结论，不能用纯文字中间步骤代替几何阶段。
+- 若 interactive_spec 含连续几何参数（长度、角度、半径等），min/max 必须保持课堂可读跨度：当 min>0 时 max/min 建议不超过 6；离散计数控件使用整数边界、整数默认值且 step>=1。
+- teaching_flow 与 observations 应写清学生如何观察、调节和归纳，便于后续机器规格编译，但不直接描述 IR、后端名称、坐标或 SVG。
 
 {type_contract}
 """
-
 INTERACTIVE_TYPE_CONTRACTS = {
     "simulation": """simulation 的 interactive_spec 只含：
 - type：固定 simulation
@@ -156,7 +149,6 @@ def build_planning_prompt(
     interactive_type_override: str | None = None,
     subject_override: str | None = None,
 ) -> tuple[str, str]:
-    from aetherviz_service.aetherviz.ir.router.capability_catalog import build_ir_capability_catalog
     from aetherviz_service.aetherviz.workflow.knowledge_profile import build_knowledge_profile
 
     subject = (
@@ -167,26 +159,20 @@ def build_planning_prompt(
         if interactive_type_override in VALID_INTERACTIVE_TYPES
         else select_interactive_type(topic, subject)
     )
-    render_stack = select_render_stack(interactive_type, subject, topic)
-    animation_runtime = select_animation_runtime()
     knowledge_profile = build_knowledge_profile(topic, subject=subject)
     system_prompt = PLANNING_SYSTEM_PROMPT_TEMPLATE.format(
         interactive_type=interactive_type,
         type_contract=INTERACTIVE_TYPE_CONTRACTS[interactive_type],
-        capability_catalog=build_ir_capability_catalog(),
     )
-    user_prompt = f"""生成以下主题的完整教学语义 JSON。
+    user_prompt = f"""生成以下主题的教学计划 JSON（仅教学语义，不含机器 IR 规格）。
 
 主题：{topic}
-服务端学科识别：{subject}
+服务端学科识别（供参考，不要写入输出）：{subject}
 固定互动类型：{interactive_type}
-服务端渲染栈：{render_stack}
-服务端动画运行时：{animation_runtime}
-服务端知识画像：{knowledge_profile}
-主色调：{primary_color}
+服务端知识画像先验（供参考，不要写入输出）：{knowledge_profile}
+主色调（供参考，不要写入输出）：{primary_color}
 """
     return system_prompt, user_prompt
-
 
 def select_revision_interactive_type(current_type: object, message: str, topic: str) -> str:
     text = (message or "").lower()

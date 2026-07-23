@@ -8,7 +8,8 @@ from typing import Any
 from aetherviz_service.aetherviz.agents.planner_agent import stream_revise_plan
 from aetherviz_service.aetherviz.api.sse import agent_sse_event
 from aetherviz_service.aetherviz.workflow.plan_diagnostics import merge_serialized_diagnostics
-from aetherviz_service.aetherviz.workflow.plan_route_preview import maybe_refine_plan_for_route
+from aetherviz_service.aetherviz.workflow.plan_layers import extract_teaching_plan
+from aetherviz_service.aetherviz.workflow.plan_route_preview import preview_route_for_plan
 from aetherviz_service.aetherviz.workflow.plan_stream import stream_plan_phase
 
 
@@ -31,7 +32,8 @@ def run_revise_plan_workflow(
         run_id=run_id,
         phase="revise_plan",
     )
-    plan, route_preview_metrics = maybe_refine_plan_for_route(plan, topic=topic)
+    plan, route_preview_metrics = preview_route_for_plan(plan, topic=topic)
+    teaching_plan = extract_teaching_plan(plan)
     plan_diagnostics = merge_serialized_diagnostics(
         planning_metrics.get("plan_diagnostics"),
         route_preview_metrics.get("plan_diagnostics"),
@@ -40,7 +42,12 @@ def run_revise_plan_workflow(
         "plan.revised",
         run_id=run_id,
         phase="revise_plan",
-        data={"plan": plan, "status": "revised", "revision_summary": plan.get("revision_summary", "")},
+        data={
+            "plan": plan,
+            "teaching_plan": teaching_plan,
+            "status": "revised",
+            "revision_summary": plan.get("revision_summary", ""),
+        },
         metadata={
             "degraded": degraded,
             "context_status": plan.get("context_status", {"status": "normal"}),
