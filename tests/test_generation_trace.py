@@ -299,6 +299,55 @@ def test_runtime_compile_failure_persists_error_reason(monkeypatch, tmp_path: Pa
     assert runtime_stage["metadata"].get("compile_success") is False
 
 
+def test_ir_failure_exposes_ir_repair_attempts_separately(monkeypatch, tmp_path: Path) -> None:
+    def select_for_route(_route, *, topic, plan):
+        del topic, plan
+
+        def stream():
+            raise HtmlGenerationError(
+                "几何重排 IR 未通过确定性校验，已停止生成",
+                code="ir_generation_failed",
+                detail="schema:geometry_ir_semantics",
+                diagnostics={"ir_repair_attempts": 1},
+            )
+            yield  # pragma: no cover
+
+        return GenerationStreamSelection(
+            generation_backend="recomposition_scene",
+            stream_factory=stream,
+        )
+
+    monkeypatch.setattr(generate_workflow.DEFAULT_IR_REGISTRY, "select_for_route", select_for_route)
+    monkeypatch.setattr(
+        generate_workflow,
+        "resolve_generation_route",
+        lambda plan: IRRouteDecision(
+            selected_backend="recomposition_scene",
+            source="test",
+            confidence=1.0,
+            plan_fingerprint="fp",
+            candidates=(),
+            reasons=("test",),
+        ),
+    )
+
+    chunks = list(
+        generate_workflow.run_generate_workflow(
+            run_id="run_trace_ir_repair",
+            topic="圆的面积推导",
+            approved_plan=sample_plan(),
+        )
+    )
+    error_chunk = next(chunk for chunk in chunks if chunk.startswith("event: error"))
+    payload = json.loads(next(line[6:] for line in error_chunk.splitlines() if line.startswith("data: ")))
+
+    assert payload["metadata"]["repair_attempts"] == 0
+    assert payload["metadata"]["ir_repair_attempts"] == 1
+    trace = _load_latest_trace(tmp_path)
+    ir_stage = next(stage for stage in trace["stages"] if stage["name"] == "ir_generation")
+    assert ir_stage["metadata"]["diagnostics"]["ir_repair_attempts"] == 1
+
+
 def test_unsupported_route_marks_ir_routing_failed(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(
         generate_workflow,

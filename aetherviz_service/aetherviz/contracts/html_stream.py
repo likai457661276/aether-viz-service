@@ -66,6 +66,7 @@ class HtmlStreamResult:
     output_tokens: int | None = None
     output_chars: int = 0
     generation_fallback: str | None = None
+    ir_repair_attempts: int = 0
     intent_passed: bool | None = None
     intent_soft_failed: tuple[str, ...] = ()
     intent_check_count: int = 0

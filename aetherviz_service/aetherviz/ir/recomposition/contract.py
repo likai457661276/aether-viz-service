@@ -418,6 +418,20 @@ def normalize_geometry_ir(ir: dict[str, Any], plan: dict[str, Any]) -> dict[str,
     for piece in normalized.get("pieces", []) if isinstance(normalized.get("pieces"), list) else []:
         if not isinstance(piece, dict):
             continue
+        repeat = piece.get("repeat")
+        piece_id = piece.get("id")
+        if (
+            isinstance(repeat, dict)
+            and isinstance(piece_id, str)
+            and piece_id
+            and _IDENTIFIER_RE.fullmatch(str(repeat.get("index", "")))
+        ):
+            # A literal id inside repeat necessarily expands to duplicates. Preserve
+            # the model-provided prefix while making each expanded piece identifiable.
+            piece["id"] = {
+                "op": "concat",
+                "args": [f"{piece_id}-", {"local": str(repeat["index"])}],
+            }
         if isinstance(piece.get("attrs"), list):
             piece["attrs"] = {
                 str(item.get("name")): item.get("value")
@@ -593,10 +607,50 @@ def compile_geometry_ir(ir: dict[str, Any], plan: dict[str, Any]) -> str:
     if not report["ok"]:
         raise GeometryIRValidationError(report)
     spec = plan.get("recomposition_spec") if isinstance(plan.get("recomposition_spec"), dict) else {}
-    topology = [str(name) for name in spec.get("topology_variables", []) if str(name)]
+    topology = list(
+        dict.fromkeys(
+            [
+                *[str(name) for name in spec.get("topology_variables", []) if str(name)],
+                *_repeat_count_state_variables(ir),
+            ]
+        )
+    )
     ir_json = json.dumps(ir, ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/")
     topology_json = json.dumps(topology, ensure_ascii=False, separators=(",", ":"))
     return f"const sceneIR={ir_json};\n" + _COMPILED_RUNTIME.replace("__TOPOLOGY__", topology_json)
+
+
+def _repeat_count_state_variables(ir: dict[str, Any]) -> list[str]:
+    """Return state variables that can alter repeat expansion and therefore identity."""
+    definitions = ir.get("definitions") if isinstance(ir.get("definitions"), dict) else {}
+    found: list[str] = []
+
+    def visit(value: object, resolving: frozenset[str] = frozenset()) -> None:
+        if isinstance(value, list):
+            for item in value:
+                visit(item, resolving)
+            return
+        if not isinstance(value, dict):
+            return
+        if set(value) == {"state"}:
+            name = str(value.get("state") or "")
+            if name and name not in found:
+                found.append(name)
+            return
+        if set(value) == {"var"}:
+            name = str(value.get("var") or "")
+            if name in definitions and name not in resolving:
+                visit(definitions[name], resolving | {name})
+            return
+        for item in value.values():
+            visit(item, resolving)
+
+    pieces = ir.get("pieces") if isinstance(ir.get("pieces"), list) else []
+    for piece in pieces:
+        repeat = piece.get("repeat") if isinstance(piece, dict) else None
+        if isinstance(repeat, dict):
+            visit(repeat.get("count"))
+    return found
 
 
 def build_deterministic_geometry_ir(plan: dict[str, Any]) -> dict[str, Any]:

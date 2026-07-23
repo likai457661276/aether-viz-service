@@ -2,12 +2,41 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
+
+from langsmith.run_helpers import get_current_run_tree
 
 from aetherviz_service.config import settings
 
 logger = logging.getLogger(__name__)
+
+
+def mark_current_langsmith_run_error_from_sse(chunk: str) -> bool:
+    """Mark a traced streaming run failed while preserving the SSE response contract."""
+    event = next((line[7:] for line in chunk.splitlines() if line.startswith("event: ")), "")
+    if event != "error":
+        return False
+    data_line = next((line[6:] for line in chunk.splitlines() if line.startswith("data: ")), "")
+    if not data_line:
+        return False
+    try:
+        payload = json.loads(data_line)
+    except ValueError:
+        return False
+    data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+    code = str(data.get("code") or "sse_error")
+    message = str(data.get("message") or "stream returned an error event")
+    detail = str(data.get("detail") or "").strip()
+    error = f"{code}: {message}"
+    if detail:
+        error += f" ({detail[:500]})"
+    run_tree = get_current_run_tree()
+    if run_tree is None:
+        return False
+    run_tree.end(error=error)
+    return True
 
 
 def _set_env(name: str, value: str) -> None:

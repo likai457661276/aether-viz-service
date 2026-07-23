@@ -16,6 +16,7 @@ from aetherviz_service.aetherviz.api.sse import (
 )
 from aetherviz_service.aetherviz.contracts.pipeline import _summarize_sse_trace
 from aetherviz_service.config import settings
+from aetherviz_service.observability import langsmith as langsmith_observability
 from aetherviz_service.observability.langsmith import configure_langsmith
 
 
@@ -84,6 +85,35 @@ def test_request_trace_summary_marks_sse_error_outcome() -> None:
         "completed": False,
         "error_code": "edit_local_patch_rejected",
     }
+
+
+def test_sse_error_marks_current_langsmith_run_failed(monkeypatch) -> None:
+    class FakeRunTree:
+        error: str | None = None
+
+        def end(self, *, error: str) -> None:
+            self.error = error
+
+    run_tree = FakeRunTree()
+    monkeypatch.setattr(langsmith_observability, "get_current_run_tree", lambda: run_tree)
+    chunk = agent_sse_event(
+        "error",
+        run_id="run_trace",
+        phase="generate",
+        data={
+            "code": "ir_generation_failed",
+            "message": "几何重排 IR 未通过校验",
+            "detail": "schema:geometry_ir_semantics",
+        },
+    )
+
+    marked = langsmith_observability.mark_current_langsmith_run_error_from_sse(chunk)
+
+    assert marked is True
+    assert run_tree.error == (
+        "ir_generation_failed: 几何重排 IR 未通过校验 "
+        "(schema:geometry_ir_semantics)"
+    )
 
 
 def test_sse_event_includes_current_langsmith_trace_id() -> None:

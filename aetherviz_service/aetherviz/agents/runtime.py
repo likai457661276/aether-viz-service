@@ -22,6 +22,7 @@ from aetherviz_service.aetherviz.workflow.plan_diagnostics import check_plan_con
 from aetherviz_service.aetherviz.workflow.plan_workflow import run_approve_plan_workflow, run_plan_workflow
 from aetherviz_service.aetherviz.workflow.revise_plan_workflow import run_revise_plan_workflow
 from aetherviz_service.config import settings
+from aetherviz_service.observability.langsmith import mark_current_langsmith_run_error_from_sse
 
 logger = logging.getLogger(__name__)
 
@@ -84,7 +85,9 @@ def agent_runtime_stream(
     reduce_fn=lambda chunks: _summarize_runtime_sse(chunks),
 )
 def _traced_agent_runtime_stream(**kwargs: Any) -> Iterator[str]:
-    yield from _agent_runtime_stream_impl(**kwargs)
+    for chunk in _agent_runtime_stream_impl(**kwargs):
+        mark_current_langsmith_run_error_from_sse(chunk)
+        yield chunk
 
 
 def _agent_runtime_stream_impl(

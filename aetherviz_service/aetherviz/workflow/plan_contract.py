@@ -366,12 +366,12 @@ def _normalize_recomposition_spec(raw_spec: object, interactive_spec: dict[str, 
         if isinstance(variable, dict) and not variable.get("computed") and _safe_str(variable.get("name"))
     ]
     variable_names = [_safe_str(variable.get("name")) for variable in variables]
+    variables_by_name = {_safe_str(variable.get("name")): variable for variable in variables}
     inferred_topology = [
         name
         for name in variable_names
-        if any(cue in name.lower() for cue in ("count", "piece", "segment", "sector", "slice", "part", "number"))
+        if _looks_like_topology_count(variables_by_name[name])
     ]
-    variables_by_name = {_safe_str(variable.get("name")): variable for variable in variables}
     requested_topology = _string_list(raw.get("topology_variables"), [], max_items=3, max_len=40)
     topology = [
         name
@@ -440,6 +440,34 @@ def _is_discrete_topology_variable(variable: dict[str, Any]) -> bool:
         and maximum.is_integer()
         and default.is_integer()
     )
+
+
+def _looks_like_topology_count(variable: dict[str, Any]) -> bool:
+    """Recognize count semantics from stable machine names or user-facing labels."""
+    text = " ".join(
+        (
+            _safe_str(variable.get("name")).lower(),
+            _safe_str(variable.get("label")).lower(),
+        )
+    )
+    cues = (
+        "count",
+        "piece",
+        "segment",
+        "sector",
+        "slice",
+        "part",
+        "number",
+        "数量",
+        "份数",
+        "片数",
+        "段数",
+        "个数",
+        "分块",
+        "切分",
+        "等分",
+    )
+    return any(cue in text for cue in cues)
 
 
 # Continuous geometry spans wider than this ratio commonly empty the visual scale

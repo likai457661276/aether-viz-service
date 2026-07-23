@@ -13,6 +13,7 @@ from aetherviz_service.aetherviz.ir.registry import DEFAULT_IR_REGISTRY
 from aetherviz_service.aetherviz.ir.router.service import resolve_generation_route
 from aetherviz_service.aetherviz.tools.trace_manager import DEFAULT_TRACE_DIR, TraceManager
 from aetherviz_service.config import settings
+from aetherviz_service.observability.langsmith import mark_current_langsmith_run_error_from_sse
 
 # Tests may override the directory used for JSONL persistence.
 _TRACE_OUTPUT_DIR: Path | None = None
@@ -59,7 +60,9 @@ def _traced_run_generate_workflow(
     topic: str,
     approved_plan: dict[str, Any],
 ) -> Iterator[str]:
-    yield from _run_generate_workflow_impl(run_id=run_id, topic=topic, approved_plan=approved_plan)
+    for chunk in _run_generate_workflow_impl(run_id=run_id, topic=topic, approved_plan=approved_plan):
+        mark_current_langsmith_run_error_from_sse(chunk)
+        yield chunk
 
 
 def _run_generate_workflow_impl(

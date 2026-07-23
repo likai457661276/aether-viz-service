@@ -123,6 +123,28 @@ def test_normalized_plan_overrides_stale_profile_and_classifies_state_variables(
     ]
 
 
+def test_normalized_plan_infers_short_named_topology_variable_from_label() -> None:
+    plan = normalize_plan(
+        {
+            "knowledge_profile": {"representation_type": "geometric_recomposition"},
+            "interactive_spec": {
+                "variables": [
+                    {"name": "n", "label": "切分份数", "min": 4, "max": 24, "default": 8, "step": 2},
+                    {"name": "r", "label": "半径", "min": 2, "max": 5, "default": 3, "step": 0.5},
+                ]
+            },
+            "recomposition_spec": {
+                "topology_variables": [],
+                "geometry_variables": ["n", "r"],
+            },
+        },
+        "圆的面积推导",
+    )
+
+    assert plan["recomposition_spec"]["topology_variables"] == ["n"]
+    assert plan["recomposition_spec"]["geometry_variables"] == ["r"]
+
+
 def test_fractional_length_controls_cannot_be_requested_as_topology_variables() -> None:
     plan = normalize_plan(
         {
@@ -437,6 +459,44 @@ def test_ranking_error_report_includes_construction_diagnostics_for_repair_feedb
     report = recomposition_agent._ranking_error_report(ranking)
     assert report["construction_materialization"][0]["fallback"] == "stripped_unsolved_construction"
     assert report["errors"][0]["construction_diagnostics"]["errors"][0]["type"] == "attach_edge_length_mismatch"
+
+
+def test_ranking_error_report_includes_schema_diagnostics_for_repair_feedback() -> None:
+    from aetherviz_service.aetherviz.ir.recomposition import agent as recomposition_agent
+
+    ranking = {
+        "ok": False,
+        "repair_candidate_index": 0,
+        "candidates": [
+            {
+                "index": 0,
+                "hard_failures": ["schema:geometry_ir_semantics"],
+                "score": 0.0,
+                "details": {
+                    "schema": {
+                        "ok": False,
+                        "errors": [
+                            {
+                                "type": "geometry_ir_semantics",
+                                "message": "default 状态无效：invalid_piece_id:wedge",
+                                "state": "default",
+                            }
+                        ],
+                    }
+                },
+            }
+        ],
+    }
+
+    report = recomposition_agent._ranking_error_report(ranking)
+
+    assert report["errors"][0]["schema_diagnostics"] == [
+        {
+            "type": "geometry_ir_semantics",
+            "message": "default 状态无效：invalid_piece_id:wedge",
+            "state": "default",
+        }
+    ]
 
 
 def test_normalize_plan_narrows_extreme_geometry_variable_spans() -> None:
@@ -892,6 +952,7 @@ def test_explicit_target_assembly_stops_after_failed_repair(
         list(recomposition_agent._stream_generate_recomposition_html_impl("topic", plan))
     assert exc_info.value.code == "ir_generation_failed"
     assert exc_info.value.detail == "initial=geometry_ir_candidate_rejected;repair=repair failed"
+    assert exc_info.value.diagnostics["ir_repair_attempts"] == 1
 
 
 def test_failed_repair_never_uses_deterministic_fallback(
@@ -1088,6 +1149,30 @@ def test_geometry_ir_compiles_to_server_owned_scene_module() -> None:
     assert validate_scene_module(source)["ok"]
 
 
+def test_geometry_ir_compile_derives_structure_key_from_repeat_count_state() -> None:
+    plan = normalize_plan(
+        {
+            "knowledge_profile": {"representation_type": "geometric_recomposition"},
+            "interactive_spec": {
+                "variables": [
+                    {"name": "n", "label": "参数 n", "min": 4, "max": 12, "default": 8, "step": 2}
+                ]
+            },
+            "recomposition_spec": {
+                "topology_variables": [],
+                "geometry_variables": ["n"],
+            },
+        },
+        "组合图形面积切割重排证明",
+    )
+    geometry_ir = build_deterministic_geometry_ir(plan)
+    geometry_ir["definitions"]["count"] = {"state": "n"}
+
+    source = compile_geometry_ir(geometry_ir, plan)
+
+    assert 'structureKey(state){return ["n"].map' in source
+
+
 def test_geometry_ir_normalizes_only_unambiguous_dsl_aliases() -> None:
     plan = normalize_plan(
         {
@@ -1105,6 +1190,41 @@ def test_geometry_ir_normalizes_only_unambiguous_dsl_aliases() -> None:
         "args": [{"state": "scale"}],
     }
     assert validate_geometry_ir(normalized, plan)["ok"]
+
+
+@pytest.mark.parametrize("literal_id", ["sector", "wedge", "slice"])
+def test_geometry_ir_normalizes_repeat_literal_id_to_indexed_expression(literal_id: str) -> None:
+    plan = normalize_plan({}, "组合图形面积切割重排证明")
+    geometry_ir = build_deterministic_geometry_ir(plan)
+    geometry_ir["pieces"][0]["id"] = literal_id
+
+    normalized = normalize_geometry_ir(geometry_ir, plan)
+
+    assert normalized["pieces"][0]["id"] == {
+        "op": "concat",
+        "args": [f"{literal_id}-", {"local": "i"}],
+    }
+    assert validate_geometry_ir(normalized, plan)["ok"]
+    for _, state in sample_geometry_states(plan):
+        ids = [piece["id"] for piece in expand_geometry_ir(normalized, state)]
+        assert len(ids) == len(set(ids))
+        assert all(piece_id.startswith(f"{literal_id}-") for piece_id in ids)
+
+
+def test_geometry_ir_keeps_nonrepeat_literal_and_repeat_expression_ids() -> None:
+    plan = normalize_plan({}, "组合图形面积切割重排证明")
+    geometry_ir = build_deterministic_geometry_ir(plan)
+    expression_id = deepcopy(geometry_ir["pieces"][0]["id"])
+    nonrepeat = deepcopy(geometry_ir["pieces"][0])
+    nonrepeat.pop("repeat")
+    nonrepeat["id"] = "fixed-piece"
+    nonrepeat["attrs"]["fill"] = "#0f172a"
+    geometry_ir["pieces"].append(nonrepeat)
+
+    normalized = normalize_geometry_ir(geometry_ir, plan)
+
+    assert normalized["pieces"][0]["id"] == expression_id
+    assert normalized["pieces"][1]["id"] == "fixed-piece"
 
 
 def test_geometry_ir_normalizes_stage_requirements_alignment_on_candidate_ingest() -> None:
@@ -1190,6 +1310,7 @@ def test_scene_prompt_requires_stage_alignment_before_deterministic_waypoint_com
     assert "evidence_thresholds" in prompt
     assert "不得依赖服务端事后补帧" in SCENE_SYSTEM_PROMPT
     assert "平移≥12px" in SCENE_SYSTEM_PROMPT
+    assert '{"op":"concat","args":["piece-",{"local":"i"}]}' in SCENE_SYSTEM_PROMPT
 
 
 def test_geometry_ir_normalizes_strict_transport_and_expression_shorthand() -> None:

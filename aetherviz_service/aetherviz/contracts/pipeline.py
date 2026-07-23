@@ -89,6 +89,7 @@ def run_html_pipeline(
         "attempts": 1,
         "generation_attempts": 1,
         "repair_attempts": 0,
+        "ir_repair_attempts": 0,
         "repaired": False,
         "degraded": False,
         "validation_warnings": [],
@@ -128,6 +129,7 @@ def run_html_pipeline(
                             "degraded": degraded,
                             "generation_elapsed_ms": item.generation_elapsed_ms,
                             "generation_fallback": item.generation_fallback,
+                            "ir_repair_attempts": item.ir_repair_attempts,
                         },
                     )
                     generation_trace.start_stage("runtime_compile")
@@ -163,6 +165,7 @@ def run_html_pipeline(
                 metadata["model_output_tokens"] = item.output_tokens
                 metadata["model_output_chars"] = item.output_chars or len(item.html)
                 metadata["generation_backend_fallback"] = item.generation_fallback
+                metadata["ir_repair_attempts"] = item.ir_repair_attempts
                 if item.intent_passed is not None:
                     metadata["intent_passed"] = item.intent_passed
                     metadata["intent_soft_failed"] = list(item.intent_soft_failed)
@@ -192,6 +195,9 @@ def run_html_pipeline(
                 metadata=_metadata(metadata, started_at, stage="generate"),
             )
     except HtmlGenerationError as exc:
+        metadata["ir_repair_attempts"] = int(
+            exc.diagnostics.get("ir_repair_attempts", metadata.get("ir_repair_attempts", 0))
+        )
         if _trace_is_active(generation_trace):
             failed_stage = classify_generation_error_stage(exc.code)
             generation_trace.fail_trace(
@@ -382,6 +388,7 @@ def run_html_pipeline(
         "attempts": metadata["attempts"],
         "generation_attempts": metadata["generation_attempts"],
         "repair_attempts": metadata["repair_attempts"],
+        "ir_repair_attempts": metadata["ir_repair_attempts"],
         "repaired": metadata["repaired"],
         "degraded": metadata["degraded"],
         "validation_warnings": metadata["validation_warnings"],
